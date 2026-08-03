@@ -657,8 +657,8 @@ Kernel commands use the `sddk-*` namespace:
 Before a kernel command:
 1. **SDD Init Guard** (above — adoption check FIRST, then init check)
 2. Resolve workspace: `git rev-parse --show-toplevel 2>/dev/null || pwd`
-3. Resolve project name as workspace basename
-4. **Adoption check**: `test -d ~/.sddk-knowledge/{project}` → if missing, ask user about sddk-adopt (see above)
+3. Resolve project name: `PROJECT=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")` — this is the basename of the repo root, used for `~/.sddk-knowledge/$PROJECT/`
+4. **Adoption check**: `test -d ~/.sddk-knowledge/$PROJECT` → if missing, ask user about sddk-adopt (see above)
 5. **ROADMAP Serialization Lock** (see below — BLOCKS if another cycle is active)
 6. Ask/cache execution mode: `interactive` (default) or `auto`
 7. Ask/cache artifact store mode: `engram` (default) / `logseq` (if MCP) / `openspec` / `hybrid` / `none`

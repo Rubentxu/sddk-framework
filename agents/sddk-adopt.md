@@ -104,12 +104,15 @@ ls {project_path}/docs/ROADMAP.md 2>/dev/null
 
 ### 6. Initialize the knowledge vault (the project's persistent knowledge)
 
+Derive the project name from the repo root basename (same method all agents use):
+
 ```bash
-VAULT=~/.sddk-knowledge/{project}
+PROJECT=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+VAULT="$HOME/.sddk-knowledge/$PROJECT"
+
 if [ ! -d "$VAULT" ]; then
     cp -r ~/.sddk-shared/knowledge-template/ "$VAULT/"
-    # Substitute placeholders in the template files
-    sed -i "s/{PROJECT_NAME}/{project-name}/g" "$VAULT/_index.md"
+    sed -i "s/{PROJECT_NAME}/$PROJECT/g" "$VAULT/_index.md"
     echo "✅ Vault initialized at $VAULT"
 else
     echo "ℹ️  Vault already exists at $VAULT"

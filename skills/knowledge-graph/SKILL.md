@@ -19,14 +19,30 @@ You have access to the SDDK knowledge graph vault as the **single source of trut
 ## Vault Location
 
 ```
-{project_root}/~/.sddk-knowledge/{project}/
+~/.sddk-knowledge/{project}/
 ```
 
-Where `{project_root}` is the project workspace (from `git rev-parse --show-toplevel` or `pwd`). The vault **lives in the user home (~), outside the project repo**, in a `~/.sddk-knowledge/{project}/` directory NOT committed to the project repo.
+### How `{project}` is derived
+
+The project name is the **basename of the repository root directory**. Always derived the same way by all agents:
+
+```bash
+PROJECT=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+VAULT="$HOME/.sddk-knowledge/$PROJECT"
+```
+
+This is the single source of truth. No config files, no env vars, no guesses. If the repo root directory is `/home/user/code/my-awesome-app`, then `{project}` = `my-awesome-app` and the vault is `~/.sddk-knowledge/my-awesome-app/`.
+
+**If the project directory is renamed:**
+```bash
+# The old vault stays under the old name. To reconnect:
+mv ~/.sddk-knowledge/old-name ~/.sddk-knowledge/new-name
+# Now the vault matches the new directory basename.
+```
 
 **CRITICAL**: The vault is per-project. Each project has its own vault at `~/.sddk-knowledge/{project}/`. It is NOT in the project repo — it lives in `$HOME`, separate from the code. The project repo has ZERO documentation files.
 
-The **template** for the vault lives in the **SDDK framework repo** (`~/.sddk-shared/knowledge-template/` when installed locally, or `https://github.com/Rubentxu/sddk-framework/tree/main/knowledge-template` in the published repo). The first time `sddk-adopt` runs in a project, it copies the template into `~/.sddk-knowledge/{project}/`.
+The **template** for the vault lives in the **SDDK framework repo** (`~/.sddk-shared/knowledge-template/`). The first time `sddk-adopt` runs in a project, it copies the template into `~/.sddk-knowledge/{project}/`.
 
 ## Node Types
 

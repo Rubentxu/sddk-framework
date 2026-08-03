@@ -22,17 +22,18 @@ Detect the real stack, conventions, architecture, testing tools, and persistence
 
 Before doing anything else, determine if this project has been adopted into SDDK:
 
-The knowledge vault directory `~/.sddk-knowledge/{project}/` is the **single source of truth**. If it exists, the project is adopted. If it doesn't, the project needs adoption.
+The knowledge vault directory `~/.sddk-knowledge/{project}/` is the **single source of truth**. If it exists, the project is adopted. If it doesn't, the project needs adoption. The `{project}` name is always derived from the repo root basename.
 
 ```bash
-if [ ! -d "~/.sddk-knowledge/{project}" ]; then
+PROJECT=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+if [ ! -d "$HOME/.sddk-knowledge/$PROJECT" ]; then
     # ❌ NOT ADOPTED — orchestrator asks user to run sddk-adopt
     # Emit status=partial with next_recommended=sddk-adopt
     exit 0
 fi
 ```
 
-That's it. The presence of `~/.sddk-knowledge/{project}/` is the only check needed. `sddk-adopt` creates this directory (and plants all other SDDK artifacts). Future sddk-init invocations just check `test -d ~/.sddk-knowledge/{project}` — one filesystem call, no metadata to parse, no marker files, no globbing.
+That's it. The presence of `~/.sddk-knowledge/$PROJECT/` is the only check needed. `sddk-adopt` creates this directory (and plants all other SDDK artifacts). Future sddk-init invocations just check `test -d "$HOME/.sddk-knowledge/$PROJECT"` — one filesystem call.
 
 If the vault exists but the project is otherwise uninitialized (`sddk/{project}/testing-capabilities` missing), `sddk-init` handles that silently — it's idempotent detection, not a structural change.
 ```
