@@ -55,8 +55,8 @@ SDDK is a complete agent orchestration framework for AI-assisted software develo
     └─────────┘                         └───────────┘
          │
     ┌────┴──────────────┐
-    │ ~/.sddk-knowledge/ │  (per-project vaults,
-    │   {project}/       │   created on-demand)
+    │ {project}/.sddk-knowledge/ │  (per-project vault,
+    │       (committed to git)    │   created by sddk-adopt)
     └───────────────────┘
 ```
 
@@ -101,10 +101,10 @@ Reversibility axis (v3.4) modulates debt-verify depth independently:
 
 ## Knowledge graph
 
-Every cycle populates a knowledge vault at `~/.sddk-knowledge/{project}/`:
+Every cycle populates a knowledge vault at `{project}/.sddk-knowledge/` (inside the repo, committed):
 
 ```
-~/.sddk-knowledge/my-app/
+my-app/.sddk-knowledge/
 ├── _index.md              ← MOC with Dataview queries
 ├── milestones/
 │   ├── _active.md         ← serialization lock

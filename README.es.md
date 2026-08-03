@@ -55,8 +55,8 @@ SDDK es un framework completo de orquestación de agentes para desarrollo de sof
     └─────────┘                         └───────────┘
          │
     ┌────┴──────────────┐
-    │ ~/.sddk-knowledge/ │  (vaults por proyecto,
-    │   {project}/       │   creados on-demand)
+    │ {project}/.sddk-knowledge/ │  (vault por proyecto,
+    │   (committed to git)       │   creado por sddk-adopt)
     └───────────────────┘
 ```
 
@@ -101,10 +101,10 @@ El eje de reversibilidad (v3.4) modula la profundidad del debt-verify independie
 
 ## Grafo de conocimiento
 
-Cada ciclo puebla un vault de conocimiento en `~/.sddk-knowledge/{project}/`:
+Cada ciclo puebla un vault de conocimiento en `{project}/.sddk-knowledge/` (dentro del repo, commited):
 
 ```
-~/.sddk-knowledge/mi-app/
+mi-app/.sddk-knowledge/
 ├── _index.md              ← MOC con queries Dataview
 ├── milestones/
 │   ├── _active.md         ← lock de serialización

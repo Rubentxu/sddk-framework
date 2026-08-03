@@ -624,7 +624,7 @@ Before a kernel command:
 
 ## ROADMAP Serialization Lock (MANDATORY — One Cycle at a Time)
 
-The **knowledge graph vault** at `~/.sddk-knowledge/{project}/` is the centralized lock for cycle serialization. The lock file is `milestones/_active.md`. A new SDDK cycle CANNOT start while another cycle is locked. This is a hard gate, not a warning.
+The **knowledge graph vault** at `.sddk-knowledge/` is the centralized lock for cycle serialization. The lock file is `milestones/_active.md`. A new SDDK cycle CANNOT start while another cycle is locked. This is a hard gate, not a warning.
 
 ### The Rule
 
@@ -633,7 +633,7 @@ The **knowledge graph vault** at `~/.sddk-knowledge/{project}/` is the centraliz
 ### Gate Logic (MCW Step 0.2 — enforced at Preflight step 4)
 
 ```bash
-LOCK=~/.sddk-knowledge/{project}/milestones/_active.md
+LOCK=.sddk-knowledge/milestones/_active.md
 if grep -q "LOCKED" "$LOCK" 2>/dev/null; then
     # Extract the active milestone
     MILESTONE=$(grep "Milestone:" "$LOCK" | head -1)
@@ -651,7 +651,7 @@ See `skills/knowledge-graph/SKILL.md` § Serialization Lock Protocol for the ful
 - **Git branches** can linger (feature branches live forever by policy). A stale branch is not an active cycle.
 - **Engram** is session-scoped and can lose state across machines.
 - **The project repo** must contain ZERO documentation (v3.5) — it can't host a lock file.
-- **The vault** (`~/.sddk-knowledge/{project}/`) is outside the repo, human-readable, survives sessions/machines/editors, and is visible to all tools.
+- **The vault** (`.sddk-knowledge/`) is outside the repo, human-readable, survives sessions/machines/editors, and is visible to all tools.
 
 ---
 
@@ -1070,7 +1070,7 @@ The MCW runs in **5 phases**, each with numbered steps. Hard gates only where st
 Compact operating rules:
 
 ```
-~/.sddk-knowledge/{project}/          ← KNOWLEDGE GRAPH (outside repo)
+.sddk-knowledge/          ← KNOWLEDGE GRAPH (outside repo)
 ├── milestones/                       ← serialization lock + milestones
 │   ├── _active.md                    ← lock file (LOCKED/AVAILABLE)
 │   └── M-NNN-{slug}.md               ← one node per cycle
@@ -1141,14 +1141,14 @@ The orchestrator can answer "what's the current state?" at any time by querying 
 
 | Source | What it tells you | How to query |
 |--------|-------------------|--------------|
-| **Knowledge graph vault** (`~/.sddk-knowledge/{project}/`) | All knowledge: milestones, ADRs, requirements, cycles, incidences, terms — with wikilinks, status, and bi-temporal changelogs | `grep`, `ls`, open `_index.md` for Dataview MOC |
+| **Knowledge graph vault** (`.sddk-knowledge/`) | All knowledge: milestones, ADRs, requirements, cycles, incidences, terms — with wikilinks, status, and bi-temporal changelogs | `grep`, `ls`, open `_index.md` for Dataview MOC |
 | **Git** (project repo) | What branches exist, what's merged, what tags are on main | `git branch`, `git tag`, `git log` |
 
 ### Query: "Is there an active cycle?"
 
 ```bash
 # Vault lock check (authoritative)
-cat ~/.sddk-knowledge/{project}/milestones/_active.md | grep "Status:"
+cat .sddk-knowledge/milestones/_active.md | grep "Status:"
 # "LOCKED" → cycle in progress; "AVAILABLE" → no active cycle
 
 # Git cross-check
@@ -1160,7 +1160,7 @@ git branch -a | grep -E "^.*(feat|fix|chore|refactor)/"
 
 ```bash
 # Open the most recent cycle manifest (traceability hub)
-ls -t ~/.sddk-knowledge/{project}/cycles/CYC-*.md | head -1
+ls -t .sddk-knowledge/cycles/CYC-*.md | head -1
 # Read it — it links to all artifacts, ADRs, requirements, and incidences
 
 # Check the last tag on main
@@ -1170,7 +1170,7 @@ git tag --points-at main | tail -1
 ### Query: "What ADRs are challenged?"
 
 ```bash
-grep -l "status: challenged" ~/.sddk-knowledge/{project}/adrs/*.md
+grep -l "status: challenged" .sddk-knowledge/adrs/*.md
 # Each has an Implementation Log explaining what went wrong
 
 # Or in Obsidian: open adrs/_index.md → Dataview shows challenged ADRs
@@ -1179,14 +1179,14 @@ grep -l "status: challenged" ~/.sddk-knowledge/{project}/adrs/*.md
 ### Query: "What requirements exist in auth?"
 
 ```bash
-ls ~/.sddk-knowledge/{project}/specs/auth/REQ-*.md
+ls .sddk-knowledge/specs/auth/REQ-*.md
 # Each requirement links to its decision authority ADR and test path
 ```
 
 ### Query: "What incidences are open?"
 
 ```bash
-grep -l "status: open" ~/.sddk-knowledge/{project}/incidences/*.md
+grep -l "status: open" .sddk-knowledge/incidences/*.md
 ```
 
 ### Inconsistency Detection

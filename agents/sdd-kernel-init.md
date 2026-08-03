@@ -18,9 +18,52 @@ Detect project context for kernel SDD and persist enough information for later k
 
 Detect the real stack, conventions, architecture, testing tools, and persistence mode. Never guess — inspect project files (`package.json`, `go.mod`, `pyproject.toml`, CI configs, lint/test config).
 
+## First Gate: Adoption Check (v3.5)
+
+Before doing anything else, determine if this project has been adopted into SDDK:
+
+```bash
+# Check for existing SDDK context
+if [ -d ".sddk" ] || [ -f "sddk-config.json" ] || [ -d "openspec" ]; then
+    # Already adopted — proceed with init
+    ADOPTED=true
+else
+    ADOPTED=false
+    # Check if the project-local knowledge vault exists (it lives INSIDE the project repo)
+    if [ ! -d ".sddk-knowledge" ]; then
+        echo "⚠️  This project has not been adopted into SDDK."
+        echo "   Missing: .sddk/, sddk-config.json, openspec/, and .sddk-knowledge/ (vault)."
+        echo ""
+        echo "   RECOMMENDED: delegate to sddk-adopt (the adoption agent) first."
+        echo "   sddk-adopt will:"
+        echo "     - Audit the project stack, tests, and git state"
+        echo "     - Initialize the knowledge vault at .sddk-knowledge/ (inside the repo)"
+        echo "     - Plant .gitignore, .ignore, openspec/config.yaml, .atl/skill-registry.md"
+        echo "     - Migrate legacy ADRs from docs/adr/ (if any)"
+        echo "     - Produce an adoption report with gap analysis"
+        echo "     - Create M-000-onboarding milestone with remaining setup tasks"
+        echo ""
+        echo "   After sddk-adopt completes, re-run sddk-init."
+        echo ""
+        echo "   If you want to bypass adoption (not recommended), proceed with"
+        echo "   detection but be aware the knowledge vault will be created without"
+        echo "   legacy ADR migration."
+        # Emit status=partial with next_recommended=sddk-adopt
+        exit 0  # orchestrator handles next step
+    fi
+fi
+```
+
+If `ADOPTED=false` and no knowledge vault exists, this gate MUST emit `status=partial` with `next_recommended: /sddk-adopt`. Do NOT proceed with detection — the project needs adoption first.
+
+If `ADOPTED=false` but a knowledge vault exists (incomplete adoption), proceed with detection but flag this in the init report.
+
+If `ADOPTED=true`, continue with detection below.
+
 ## Hard Rules
 
 - **Detect, don't guess.** Inspect project files before declaring stack.
+- **Adoption gate runs FIRST.** If project is not adopted and has no vault, hand off to `sddk-adopt` before doing any work.
 - In `engram` mode, do **not** create `openspec/`.
 - In `openspec` mode, follow `openspec-convention.md` and write file artifacts.
 - In `hybrid` mode, write both openspec files and Engram observations.
@@ -33,6 +76,8 @@ Detect the real stack, conventions, architecture, testing tools, and persistence
 
 | Input | Action |
 |---|---|
+| **Project not adopted + no vault** | **BLOCK. Emit `next_recommended: /sddk-adopt` — delegate adoption first.** |
+| Project not adopted + vault exists | Warn (partial adoption), proceed with detection |
 | `mode=engram` | Save context and capabilities to Engram only. |
 | `mode=openspec` | Create/update openspec bootstrap files only. |
 | `mode=hybrid` | Do both Engram and openspec persistence. |

@@ -3,12 +3,12 @@ name: knowledge-graph
 description: >
   Protocol for reading and writing the SDDK knowledge graph vault. Used by all SDDK phase agents
   to create, update, and query nodes (milestones, ADRs, requirements, cycles, incidences, terms).
-  The vault lives OUTSIDE the project repo, in ~/.sddk-knowledge/{project}/. Follows OKF +
-  Obsidian Properties conventions. Wikilinks [[like-this]] create the graph.
+  The vault lives INSIDE each project repo at `.sddk-knowledge/`, versionable with git.
+  Follows OKF + Obsidian Properties conventions. Wikilinks [[like-this]] create the graph.
 license: MIT
 metadata:
   author: gentleman-programming
-  version: "1.0"
+  version: "2.0"
   okf_version: "0.2"
 ---
 
@@ -19,12 +19,14 @@ You have access to the SDDK knowledge graph vault as the **single source of trut
 ## Vault Location
 
 ```
-~/.sddk-knowledge/{project}/
+{project_root}/.sddk-knowledge/
 ```
 
-Where `{project}` is the workspace basename (from `git rev-parse --show-toplevel` or `pwd`). If the vault doesn't exist, initialize it from the template at `~/.sddk-shared/knowledge-template/` (see § Vault Initialization below).
+Where `{project_root}` is the project workspace (from `git rev-parse --show-toplevel` or `pwd`). The vault **lives inside the project repo**, in a `.sddk-knowledge/` directory that is **versionable with git** (committed to the repo).
 
-**CRITICAL**: The vault is OUTSIDE the project git repo. NEVER write knowledge files into the project repo. The project repo contains ONLY product code. All documentation (ROADMAP, ADRs, specs, requirements, manifests) lives in the vault.
+**CRITICAL**: The vault is per-project and per-repo. It is NOT in `$HOME`. Each project has its own `.sddk-knowledge/` directory, committed to that project's git history. This makes the knowledge portable — clone the project, you get its knowledge graph.
+
+The **template** for the vault lives in the **SDDK framework repo** (`~/.sddk-shared/knowledge-template/` when installed locally, or `https://github.com/Rubentxu/sddk-framework/tree/main/knowledge-template` in the published repo). The first time `sddk-adopt` runs in a project, it copies the template into `.sddk-knowledge/`.
 
 ## Node Types
 
@@ -35,7 +37,7 @@ Where `{project}` is the workspace basename (from `git rev-parse --show-toplevel
 | `adr` | `adrs/` | `ADR-NNN-{slug}.md` | sddk-spec / sddk-design (Step 1.4) |
 | `requirement` | `specs/{domain}/` | `REQ-{Slug}.md` | sddk-spec (Step 1.4) |
 | `cycle` | `cycles/` | `CYC-{date}-{slug}.md` | sdd-kernel-archive (Step 2.5) |
-| `incidence` | `incidences/` | `INC-NNN-{slug}.md` | sdd-kernel-release (update-adrs) |
+| `incidence` | `incidences/` | `INC-NNN-{slug}.md` | sdd-kernel-release (update-knowledge-graph) |
 | `term` | `terms/` | `TERM-{Slug}.md` | sddk-explore / sddk-spec |
 
 ## Properties Convention (OKF + Obsidian)
@@ -57,30 +59,30 @@ All properties use **`snake_case`** (Obsidian Dataview compatibility). Property 
 
 ## Read Rules
 
-### Rule 1: Read from vault, never from project repo
+### Rule 1: Read from vault, never from external sources
 
 ```bash
 # CORRECT — read from vault
-cat ~/.sddk-knowledge/{project}/adrs/ADR-003-jwt-auth.md
+cat .sddk-knowledge/adrs/ADR-003-jwt-auth.md
 
-# WRONG — docs don't live in the repo anymore
-cat docs/adr/ADR-003.md  # ← this path is dead
+# WRONG — vault doesn't live in $HOME anymore
+cat .sddk-knowledge/adrs/ADR-003.md
 ```
 
 ### Rule 2: Use grep for queries
 
 ```bash
 # All accepted ADRs
-grep -l "status: accepted" ~/.sddk-knowledge/{project}/adrs/*.md
+grep -l "status: accepted" .sddk-knowledge/adrs/*.md
 
 # All requirements in auth domain
-ls ~/.sddk-knowledge/{project}/specs/auth/REQ-*.md
+ls .sddk-knowledge/specs/auth/REQ-*.md
 
 # What ADRs affect auth?
-grep -l "affects_domains:.*auth" ~/.sddk-knowledge/{project}/adrs/*.md
+grep -l "affects_domains:.*auth" .sddk-knowledge/adrs/*.md
 
 # Is a cycle active?
-cat ~/.sddk-knowledge/{project}/milestones/_active.md
+cat .sddk-knowledge/milestones/_active.md
 ```
 
 ### Rule 3: Follow wikilinks for navigation
@@ -91,10 +93,11 @@ When you see `[[ADR-003-jwt-auth]]` in a node, open that file to continue the tr
 
 ### Rule 1: Read the template first
 
-Before creating any node, read the corresponding template:
+Before creating any node, read the corresponding template from the SDDK framework:
 
 ```bash
-cat ~/.sddk-knowledge/{project}/templates/{type}.md
+# Template source (in the SDDK framework, NOT in the project repo)
+cat ~/.sddk-shared/knowledge-template/templates/{type}.md
 ```
 
 Fill in the placeholders. Do not invent properties not in the template.
@@ -128,11 +131,13 @@ Every node that evolves (ADR, Requirement, Milestone) has a `## Changelog` secti
 
 ### Rule 5: Log to _log.md after every write
 
-After creating or updating ANY node, append an entry to `_log.md`:
+After creating or updating ANY node, append an entry to `.sddk-knowledge/_log.md`:
 
 ```bash
-echo "- $(date -Iseconds) | {action} | {what} | [[{node}]]" >> ~/.sddk-knowledge/{project}/_log.md
+echo "- $(date -Iseconds) | {action} | {what} | [[{node}]]" >> .sddk-knowledge/_log.md
 ```
+
+The `_log.md` file IS committed to git (provides cross-cycle audit trail).
 
 ### Rule 6: Staleness
 
@@ -147,7 +152,7 @@ Every node has `stale_after`. When you update a node, push `stale_after` forward
 ### Acquiring the lock (orchestrator, Step 0.2)
 
 ```bash
-LOCK_FILE=~/.sddk-knowledge/{project}/milestones/_active.md
+LOCK_FILE=".sddk-knowledge/milestones/_active.md"
 
 # Check if locked
 if grep -q "LOCKED" "$LOCK_FILE" 2>/dev/null; then
@@ -178,7 +183,7 @@ EOF
 ### Releasing the lock (release agent, release-lock step)
 
 ```bash
-LOCK_FILE=~/.sddk-knowledge/{project}/milestones/_active.md
+LOCK_FILE=".sddk-knowledge/milestones/_active.md"
 
 # Release — reset to available state
 cat > "$LOCK_FILE" << EOF
@@ -196,29 +201,32 @@ EOF
 
 ## Vault Initialization
 
-If `~/.sddk-knowledge/{project}/` doesn't exist when the orchestrator needs it (Step 0.2):
+If `.sddk-knowledge/` doesn't exist when the orchestrator needs it (Step 0.2), it means `sddk-adopt` was never run. Either:
+
+1. Delegate to `sddk-adopt` (the adoption agent) which creates the full vault + plants SDDK working artifacts.
+2. For a quick test-only setup, copy the template from the SDDK framework:
 
 ```bash
-# The vault template lives centralized in the SDDK framework
-cp -r ~/.sddk-shared/knowledge-template/ ~/.sddk-knowledge/{project}/
-# Replace {PROJECT_NAME} in _index.md
-sed -i "s/{PROJECT_NAME}/{project}/" ~/.sddk-knowledge/{project}/_index.md
+# The vault template lives in the SDDK framework (source of truth)
+cp -r ~/.sddk-shared/knowledge-template/ .sddk-knowledge/
+sed -i "s/{PROJECT_NAME}/$(basename "$(pwd)")/" .sddk-knowledge/_index.md
 ```
 
-## Error Handling
+**Production path is option 1 (sddk-adopt).** Option 2 is only for ad-hoc tests.
 
-If the vault directory is inaccessible or the disk is full:
-1. Report the error to the orchestrator
-2. Fall back to Engram-only persistence (persist node content as `mem_save` with topic `sddk-kg/{project}/{type}/{slug}`)
-3. Do NOT silently skip the write — the knowledge graph is the source of truth
+## Versioning
+
+The vault **IS committed to git** in the project repo. Every write produces a node + log entry + (optionally) a commit. The commit history of the project IS the timeline of its knowledge graph.
 
 ## Compact Rules
 
-- Vault lives at `~/.sddk-knowledge/{project}/` — NEVER in the project repo
+- Vault lives at `{project_root}/.sddk-knowledge/` — NEVER in `$HOME`, NEVER in `~/.sddk-knowledge/`
+- Template source lives in the SDDK framework: `~/.sddk-shared/knowledge-template/`
 - Properties use `snake_case`; values use wikilinks `[[]]`
 - Every node has `type`, `title`, `slug`, `status`, `created`, `stale_after`
 - Changelog is append-only (bi-temporal)
-- Log every write to `_log.md`
-- Serialization lock = `milestones/_active.md`
-- Read templates before creating nodes
-- Initialize vault from `_template/` if it doesn't exist
+- Log every write to `.sddk-knowledge/_log.md`
+- Serialization lock = `.sddk-knowledge/milestones/_active.md`
+- The vault IS committed to the project repo (versionable, portable)
+- Read templates from `~/.sddk-shared/knowledge-template/templates/` before creating nodes
+- For adoption, delegate to `sddk-adopt` — it creates the vault AND plants SDDK working artifacts

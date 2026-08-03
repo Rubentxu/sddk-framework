@@ -104,7 +104,7 @@ link_opencode() {
 
 setup_knowledge_base() {
     info "Knowledge graph template is at: $SHARED_DIR/knowledge-template/"
-    info "Per-project vaults will be created at: ~/.sddk-knowledge/{project}/"
+    info "Per-project vaults will be created at: {project}/.sddk-knowledge/ (inside repo)"
     info "  (auto-created on first SDDK cycle per project)"
 }
 

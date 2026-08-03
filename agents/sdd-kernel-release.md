@@ -83,7 +83,7 @@ You MUST complete every step. Missing a step is a release failure.
 7. **`semver-tag`** — Compute bump from commits/footers. `git tag -a v<major>.<minor>.<patch> -m "<type>: <description>"` then `git push origin v<...>`. Bump rules: see `git-contract.md` § Lifecycle Overview rule 8.
 8. **`html-closing-report`** — Render the cycle's HTML closing report per `prompts/sdd-kernel/HTML-REPORT.md`. Path: `{engram|none: /tmp/sddk-{change}-{YYYYMMDD}.html}` or `{openspec|hybrid: openspec/changes/archive/{date}-{change}/reports/cierre.html}`. Skip on A-min unless tag is minor/major; skip on B-direct unless tag is major.
 9. **`close-tracking-issue`** — Find open issues referencing `<change-name>` or the PR. `gh issue close <num> --comment "Completed in PR #<n>. Released as v<version>."`. If no tracking issue → no-op.
-10. **`update-knowledge-graph`** — Update all knowledge nodes in the vault (`~/.sddk-knowledge/{project}/`):
+10. **`update-knowledge-graph`** — Update all knowledge nodes in the vault (`.sddk-knowledge/`):
     - **Milestone node** (`milestones/M-NNN-{slug}.md`): update `status` to `completed`, fill `completed`, `pr`, `tag`, `cycle` properties. Add changelog entry.
     - **ADR nodes** (`adrs/ADR-NNN-{slug}.md`): for each ADR touched by this cycle (from archive-report's `adrs_touched`):
       - Update `status` from `proposed` to `accepted` or `challenged`

@@ -333,7 +333,7 @@ engram_save \
 #   git add docs/ROADMAP.md        ← docs/ no longer exists in the repo
 #   git commit -m "docs(roadmap): ..."
 #   git push origin main
-# ROADMAP is now a knowledge graph node at ~/.sddk-knowledge/{project}/milestones/M-NNN-{slug}.md
+# ROADMAP is now a knowledge graph node at {project}/.sddk-knowledge/milestones/M-NNN-{slug}.md
 ```
 
 The roadmap update carries the same milestone metadata as before (PR, tag, completed date, learnings, closes `<n>`), but lives only in:

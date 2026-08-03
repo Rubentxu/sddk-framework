@@ -78,8 +78,8 @@ Persist the final router context with the archive report so later kernel runs ca
 3. **Sync delta specs to main specs** (above).
 4. **Move to archive** (Step 3 below).
 5. **Create cycle manifest node in the knowledge graph** (v3.5):
-   - Read template at `~/.sddk-knowledge/{project}/templates/cycle.md`
-   - Create `~/.sddk-knowledge/{project}/cycles/CYC-{date}-{slug}.md` with:
+   - Read template at `.sddk-knowledge/templates/cycle.md`
+   - Create `.sddk-knowledge/cycles/CYC-{date}-{slug}.md` with:
      - Properties: `type: cycle`, `milestone: "[[M-NNN]]"`, `status: in_progress`, `started`, `path`, `branch`, `base_commit`, `head_commit`, `verify_verdict`, `debt_verdict`, `reversibility`, `artifacts` (paths to SDD phase outputs), `adrs_touched` (list of `[[]]` links), `requirements_touched` (list of `[[]]` links), `incidences_found` (empty for now — filled by release)
      - Body: traceability hub with wikilinks to all artifacts, ADRs, requirements, and the milestone
    - Log creation to `_log.md`
