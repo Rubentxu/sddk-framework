@@ -241,21 +241,17 @@ Same URL multiple results: keep highest-quality source
 
 Before executing ANY SDDK command (`/sddk-new`, `/sddk-ff`, `/sddk-continue`, `/sddk-explore`, `/sddk-apply`, `/sddk-verify`, `/sddk-archive`):
 
-**Step 0a — Adoption check (O(1)):**
+**Step 0a — Adoption check:**
 
 ```bash
-# Fast check: does the adoption marker exist?
-if [ ! -f ".sddk-knowledge/.adopted" ]; then
-    # ❌ PROJECT NOT ADOPTED — ask the user before proceeding
-    # (don't run silently; adoption is a one-time decision that changes the project)
+if [ ! -d "~/.sddk-knowledge/{project}" ]; then
+    # ❌ NOT ADOPTED — orchestrator asks user (see below)
 fi
 ```
 
-The adoption marker (`.sddk-knowledge/.adopted`) is the single source of truth for "this project uses SDDK". It is created by `sddk-adopt` and committed to git. Without it, the project cannot run any SDDK cycle.
+The presence of `~/.sddk-knowledge/{project}/` is the single source of truth for "this project uses SDDK". `sddk-adopt` creates this directory (and plants all other SDDK artifacts).
 
-**If the marker is missing, ASK the user explicitly using the `question` tool:**
-
-Use this exact prompt (or its equivalent in the runtime):
+**If `~/.sddk-knowledge/{project}` doesn't exist, ASK the user explicitly using the `question` tool:**
 
 ```yaml
 question:
@@ -263,7 +259,7 @@ question:
     ❌ This project ('{project}') is not adopted into SDDK.
 
     SDDK needs to plant some files before it can run cycles:
-    - .sddk-knowledge/  (the knowledge vault — inside this repo)
+    - ~/.sddk-knowledge/{project}/  (the knowledge vault — in user home, outside this repo)
     - .gitignore, .ignore  (for SDDK working artifacts)
     - openspec/config.yaml
     - .atl/skill-registry.md
@@ -272,36 +268,32 @@ question:
     Should I run sddk-adopt first? (one-time setup, ~30s)
   options:
     - label: "Yes, run sddk-adopt"
-      description: "Delegate to the adoption agent. It audits the project, plants SDDK artifacts, and creates the .adopted marker. After completion, this cycle can proceed."
+      description: "Delegate to the adoption agent. It audits the project, plants SDDK artifacts, and creates ~/.sddk-knowledge/{project}/. After completion, this cycle can proceed."
     - label: "No, I'll run /sddk-adopt manually"
       description: "Abort this cycle. Run /sddk-adopt yourself when ready, then re-launch the cycle."
     - label: "Bypass adoption (not recommended)"
-      description: "Proceed without adoption. The knowledge vault won't exist, legacy ADRs won't migrate, and future cycles may fail. Only use this if you're testing SDDK in isolation."
+      description: "Proceed without adoption. The knowledge vault won't exist, legacy ADRs won't migrate, and future cycles may fail."
 ```
 
 Then:
-- **Yes** → `task(subagent_type="sddk-adopt")` → after completion, re-check `.adopted` marker → proceed
+- **Yes** → `task(subagent_type="sddk-adopt")` → after completion, re-check `test -d ~/.sddk-knowledge/{project}` → proceed
 - **No** → return `status=blocked`, `next_recommended: "/sddk-adopt"`, STOP
-- **Bypass** → log warning, proceed without adoption artifacts (NOT RECOMMENDED)
+- **Bypass** → log warning, proceed without adoption (NOT RECOMMENDED)
 
-**This is NOT a silent setup.** Adoption changes the project structure (adds `.sddk-knowledge/`, `.gitignore`, etc.), so the user must consent.
-
-**Step 0b — Init check (after adoption is confirmed):**
+**Step 0b — Init check (silent):**
 
 ```bash
-# Now check if sddk-init has been run (testing-capabilities exist)
 if [ ! -f "sddk/{project}/testing-capabilities" ]; then
-    # Init hasn't run yet — delegate to sddk-init
-    # (This is silent: it's a fast detection + cache, not a structural change)
+    # Delegate to sddk-init (silent, idempotent)
 fi
 ```
 
-`mem_search` is no longer the primary check for init — it was unreliable across sessions. The filesystem is the source of truth.
+This is fast detection + cache, not a structural change. Silent is fine here.
 
 This ensures:
-- **Adoption** is explicit (one-time, user-consented) — `.sddk-knowledge/.adopted` marker
-- **Init** is silent (can re-run any time, idempotent) — `sddk/{project}/testing-capabilities` file
-- **No false positives** — if `.adopted` doesn't exist, the project wasn't adopted (no guessing)
+- **Adoption** is explicit (one-time, user-consented) — `test -d ~/.sddk-knowledge/{project}`
+- **Init** is silent (idempotent) — `sddk/{project}/testing-capabilities`
+- **No marker files, no metadata files** — the directory itself is the marker
 
 **Do NOT skip the adoption check. Do NOT run `sddk-init` if the project is not adopted — adoption must come first.**
 
@@ -666,7 +658,7 @@ Before a kernel command:
 1. **SDD Init Guard** (above — adoption check FIRST, then init check)
 2. Resolve workspace: `git rev-parse --show-toplevel 2>/dev/null || pwd`
 3. Resolve project name as workspace basename
-4. **Adoption check** (if not yet done by SDD Init Guard): `test -f .sddk-knowledge/.adopted` → if missing, ask user (see Adoption section)
+4. **Adoption check**: `test -d ~/.sddk-knowledge/{project}` → if missing, ask user about sddk-adopt (see above)
 5. **ROADMAP Serialization Lock** (see below — BLOCKS if another cycle is active)
 6. Ask/cache execution mode: `interactive` (default) or `auto`
 7. Ask/cache artifact store mode: `engram` (default) / `logseq` (if MCP) / `openspec` / `hybrid` / `none`
@@ -678,7 +670,7 @@ Before a kernel command:
 
 ## ROADMAP Serialization Lock (MANDATORY — One Cycle at a Time)
 
-The **knowledge graph vault** at `.sddk-knowledge/` is the centralized lock for cycle serialization. The lock file is `milestones/_active.md`. A new SDDK cycle CANNOT start while another cycle is locked. This is a hard gate, not a warning.
+The **knowledge graph vault** at `~/.sddk-knowledge/{project}/` is the centralized lock for cycle serialization. The lock file is `milestones/_active.md`. A new SDDK cycle CANNOT start while another cycle is locked. This is a hard gate, not a warning.
 
 ### The Rule
 
@@ -687,7 +679,7 @@ The **knowledge graph vault** at `.sddk-knowledge/` is the centralized lock for 
 ### Gate Logic (MCW Step 0.2 — enforced at Preflight step 4)
 
 ```bash
-LOCK=.sddk-knowledge/milestones/_active.md
+LOCK=~/.sddk-knowledge/{project}/milestones/_active.md
 if grep -q "LOCKED" "$LOCK" 2>/dev/null; then
     # Extract the active milestone
     MILESTONE=$(grep "Milestone:" "$LOCK" | head -1)
@@ -705,7 +697,7 @@ See `skills/knowledge-graph/SKILL.md` § Serialization Lock Protocol for the ful
 - **Git branches** can linger (feature branches live forever by policy). A stale branch is not an active cycle.
 - **Engram** is session-scoped and can lose state across machines.
 - **The project repo** must contain ZERO documentation (v3.5) — it can't host a lock file.
-- **The vault** (`.sddk-knowledge/`) is outside the repo, human-readable, survives sessions/machines/editors, and is visible to all tools.
+- **The vault** (`~/.sddk-knowledge/{project}/`) is outside the repo, human-readable, survives sessions/machines/editors, and is visible to all tools.
 
 ---
 
@@ -1124,7 +1116,7 @@ The MCW runs in **5 phases**, each with numbered steps. Hard gates only where st
 Compact operating rules:
 
 ```
-.sddk-knowledge/          ← KNOWLEDGE GRAPH (outside repo)
+~/.sddk-knowledge/{project}/          ← KNOWLEDGE GRAPH (outside repo)
 ├── milestones/                       ← serialization lock + milestones
 │   ├── _active.md                    ← lock file (LOCKED/AVAILABLE)
 │   └── M-NNN-{slug}.md               ← one node per cycle
@@ -1195,14 +1187,14 @@ The orchestrator can answer "what's the current state?" at any time by querying 
 
 | Source | What it tells you | How to query |
 |--------|-------------------|--------------|
-| **Knowledge graph vault** (`.sddk-knowledge/`) | All knowledge: milestones, ADRs, requirements, cycles, incidences, terms — with wikilinks, status, and bi-temporal changelogs | `grep`, `ls`, open `_index.md` for Dataview MOC |
+| **Knowledge graph vault** (`~/.sddk-knowledge/{project}/`) | All knowledge: milestones, ADRs, requirements, cycles, incidences, terms — with wikilinks, status, and bi-temporal changelogs | `grep`, `ls`, open `_index.md` for Dataview MOC |
 | **Git** (project repo) | What branches exist, what's merged, what tags are on main | `git branch`, `git tag`, `git log` |
 
 ### Query: "Is there an active cycle?"
 
 ```bash
 # Vault lock check (authoritative)
-cat .sddk-knowledge/milestones/_active.md | grep "Status:"
+cat ~/.sddk-knowledge/{project}/milestones/_active.md | grep "Status:"
 # "LOCKED" → cycle in progress; "AVAILABLE" → no active cycle
 
 # Git cross-check
@@ -1214,7 +1206,7 @@ git branch -a | grep -E "^.*(feat|fix|chore|refactor)/"
 
 ```bash
 # Open the most recent cycle manifest (traceability hub)
-ls -t .sddk-knowledge/cycles/CYC-*.md | head -1
+ls -t ~/.sddk-knowledge/{project}/cycles/CYC-*.md | head -1
 # Read it — it links to all artifacts, ADRs, requirements, and incidences
 
 # Check the last tag on main
@@ -1224,7 +1216,7 @@ git tag --points-at main | tail -1
 ### Query: "What ADRs are challenged?"
 
 ```bash
-grep -l "status: challenged" .sddk-knowledge/adrs/*.md
+grep -l "status: challenged" ~/.sddk-knowledge/{project}/adrs/*.md
 # Each has an Implementation Log explaining what went wrong
 
 # Or in Obsidian: open adrs/_index.md → Dataview shows challenged ADRs
@@ -1233,14 +1225,14 @@ grep -l "status: challenged" .sddk-knowledge/adrs/*.md
 ### Query: "What requirements exist in auth?"
 
 ```bash
-ls .sddk-knowledge/specs/auth/REQ-*.md
+ls ~/.sddk-knowledge/{project}/specs/auth/REQ-*.md
 # Each requirement links to its decision authority ADR and test path
 ```
 
 ### Query: "What incidences are open?"
 
 ```bash
-grep -l "status: open" .sddk-knowledge/incidences/*.md
+grep -l "status: open" ~/.sddk-knowledge/{project}/incidences/*.md
 ```
 
 ### Inconsistency Detection

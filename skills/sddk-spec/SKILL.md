@@ -32,10 +32,10 @@ Take the proposal and produce **delta specs** — structured requirements and sc
 - **MODIFIED requirements MUST be the FULL block** — copy entire requirement + all scenarios from main spec, then edit. Partial MODIFIED blocks lose content at archive time.
 - If adding new behavior WITHOUT changing existing → use ADDED, not MODIFIED.
 - **Size budget**: spec MUST be under 650 words. Each scenario: 3-5 lines max.
-- **KNOWLEDGE GRAPH (v3.5)**: Load `skill(name="knowledge-graph")`. For each requirement ADDED or MODIFIED, create a `REQ-{Slug}.md` node in the vault at `.sddk-knowledge/specs/{domain}/` with:
+- **KNOWLEDGE GRAPH (v3.5)**: Load `skill(name="knowledge-graph")`. For each requirement ADDED or MODIFIED, create a `REQ-{Slug}.md` node in the vault at `~/.sddk-knowledge/{project}/specs/{domain}/` with:
   - Properties: `type: requirement`, `title`, `slug`, `domain: "[[domain]]"`, `status: active`, `created`, `created_in_cycle: "[[CYC-date-slug]]"`, `decision_authority: "[[ADR-NNN]]"` (from design's ADR candidates), `rfc2119: MUST|SHALL|SHOULD|MAY`, `stale_after`
   - Body: requirement text, scenarios, traceability section with wikilinks to ADR and cycle
-  - Read the template at `.sddk-knowledge/templates/requirement.md` before creating
+  - Read the template at `~/.sddk-knowledge/{project}/templates/requirement.md` before creating
   - Log the creation to `_log.md`
 
 ## Execution Steps

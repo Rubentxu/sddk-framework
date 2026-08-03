@@ -55,7 +55,7 @@ SDDK es un framework completo de orquestación de agentes para desarrollo de sof
     └─────────┘                         └───────────┘
          │
     ┌────┴──────────────┐
-    │ {project}/.sddk-knowledge/ │  (vault por proyecto,
+    │ ~/.sddk-knowledge/{project}/ │  (vault por proyecto,
     │   (committed to git)       │   creado por sddk-adopt)
     └───────────────────┘
 ```
@@ -86,10 +86,10 @@ cd tu-proyecto
 
 ```bash
 cd tu-proyecto
-/sddk-new <change-name>  # el vault .sddk-knowledge/ ya existe; init se omite
+/sddk-new <change-name>  # el vault ~/.sddk-knowledge/{project}/ ya existe; init se omite
 ```
 
-`sddk-adopt` crea un **stamp de adopción único** (`.sddk-knowledge/.adopted`) para que futuras invocaciones de `sddk-init` salten el chequeo pesado de adopción y vayan directo al refresh de contexto.
+El directorio `~/.sddk-knowledge/{project}/` es el marcador de adopción — su existencia significa que el proyecto está adoptado. `sddk-init` lo verifica con un simple `test -d`.
 
 El orchestrator ejecutará:
 1. **Planificación** — explore → propose → spec → design → tasks (con checkpoints interactivos)
@@ -113,10 +113,10 @@ El eje de reversibilidad (v3.4) modula la profundidad del debt-verify independie
 
 ## Grafo de conocimiento
 
-Cada ciclo puebla un vault de conocimiento en `{project}/.sddk-knowledge/` (dentro del repo, commited):
+Cada ciclo puebla un vault de conocimiento en `~/.sddk-knowledge/{project}/` (dentro del repo, commited):
 
 ```
-mi-app/.sddk-knowledge/
+mi-app/~/.sddk-knowledge/{project}/
 ├── _index.md              ← MOC con queries Dataview
 ├── milestones/
 │   ├── _active.md         ← lock de serialización

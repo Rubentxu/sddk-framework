@@ -55,7 +55,7 @@ SDDK is a complete agent orchestration framework for AI-assisted software develo
     └─────────┘                         └───────────┘
          │
     ┌────┴──────────────┐
-    │ {project}/.sddk-knowledge/ │  (per-project vault,
+    │ ~/.sddk-knowledge/{project}/ │  (per-project vault,
     │       (committed to git)    │   created by sddk-adopt)
     └───────────────────┘
 ```
@@ -86,10 +86,10 @@ cd your-project
 
 ```bash
 cd your-project
-/sddk-new <change-name>  # the .sddk-knowledge/ vault is already there; init is skipped
+/sddk-new <change-name>  # the ~/.sddk-knowledge/{project}/ vault is already there; init is skipped
 ```
 
-`sddk-adopt` creates a **one-time adoption stamp** (`.sddk-knowledge/.adopted`) so future `sddk-init` invocations skip the heavy adoption check and go straight to context refresh.
+The `~/.sddk-knowledge/{project}/` directory is the adoption marker — its existence means the project is adopted. `sddk-init` checks it with a single `test -d`.
 
 The orchestrator will:
 1. **Plan** — explore → propose → spec → design → tasks (interactive checkpoints)
@@ -113,10 +113,10 @@ Reversibility axis (v3.4) modulates debt-verify depth independently:
 
 ## Knowledge graph
 
-Every cycle populates a knowledge vault at `{project}/.sddk-knowledge/` (inside the repo, committed):
+Every cycle populates a knowledge vault at `~/.sddk-knowledge/{project}/` (in user home, outside the repo):
 
 ```
-my-app/.sddk-knowledge/
+my-app/~/.sddk-knowledge/{project}/
 ├── _index.md              ← MOC with Dataview queries
 ├── milestones/
 │   ├── _active.md         ← serialization lock

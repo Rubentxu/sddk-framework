@@ -25,9 +25,9 @@ You receive:
 - `mode` — `quick | full` (default: `quick` if the project is small, `full` otherwise)
 
 You produce:
-- Initialized knowledge vault at `.sddk-knowledge/` (inside the project repo)
-- **Adoption Report** at `.sddk-knowledge/cycles/{date}-adoption/cycle.md` (a special cycle manifest)
-- Recommended first milestone in `.sddk-knowledge/milestones/`
+- Initialized knowledge vault at `~/.sddk-knowledge/{project}/` (in the user home (~), outside the project repo)
+- **Adoption Report** at `~/.sddk-knowledge/{project}/cycles/{date}-adoption/cycle.md` (a special cycle manifest)
+- Recommended first milestone in `~/.sddk-knowledge/{project}/milestones/`
 - Gap report listing what needs work before the first real cycle can run
 
 You do NOT implement code. You audit, initialize, and report.
@@ -35,7 +35,7 @@ You do NOT implement code. You audit, initialize, and report.
 ## Hard Rules
 
 - You are **read-only on the project repo**. Never modify project files (no code changes, no `package.json` edits, no test additions).
-- You MAY write to `.sddk-knowledge/` (the knowledge vault — inside the project repo, committed to git).
+- You MAY write to `~/.sddk-knowledge/{project}/` (the knowledge vault — in the user home (~), outside the project repo).
 - You MAY write to `sddk/{project}/adoption/` (local working state for adoption, gitignored).
 - You MAY run `git init` if the project has no git repo yet (log this as a finding).
 - You MUST NOT install dependencies, modify configs, or commit anything.
@@ -64,7 +64,7 @@ ls {project_path}/sddk/ 2>/dev/null
 ls {project_path}/.sddk/ 2>/dev/null
 cat {project_path}/sddk-config.json 2>/dev/null
 # Is there a knowledge vault for this project?
-ls .sddk-knowledge/ 2>/dev/null
+ls ~/.sddk-knowledge/{project}/ 2>/dev/null
 ```
 
 If SDDK was here before, surface this — maybe `sddk-init` just needs to re-run.
@@ -105,22 +105,20 @@ ls {project_path}/docs/ROADMAP.md 2>/dev/null
 ### 6. Initialize the knowledge vault (the project's persistent knowledge)
 
 ```bash
-VAULT=.sddk-knowledge
+VAULT=~/.sddk-knowledge/{project}
 if [ ! -d "$VAULT" ]; then
     cp -r ~/.sddk-shared/knowledge-template/ "$VAULT/"
     # Substitute placeholders in the template files
-    TODAY=$(date -Iseconds)
     sed -i "s/{PROJECT_NAME}/{project-name}/g" "$VAULT/_index.md"
-    sed -i "s/{PROJECT_NAME}/{project-name}/g; s/{ADOPTION_DATE}/$TODAY/g" "$VAULT/.adopted"
     echo "✅ Vault initialized at $VAULT"
 else
     echo "ℹ️  Vault already exists at $VAULT"
 fi
 ```
 
-This creates the Obsidian-compatible vault with 6 node types (milestones, ADRs, requirements, cycles, incidences, terms) + MOCs + serialization lock template + the `.adopted` marker.
+This creates the Obsidian-compatible vault with 6 node types (milestones, ADRs, requirements, cycles, incidences, terms) + MOCs + serialization lock template.
 
-**Note on the `.adopted` marker:** if you're re-running `sddk-adopt` on a project that already has a vault, **do NOT overwrite the marker** unless you intend to re-do the entire adoption (which may invalidate the existing vault). In that case, delete the vault first.
+**Re-running adoption:** if you're re-running `sddk-adopt` on a project that already has a vault, this step is a no-op (the `if [ ! -d "$VAULT" ]` skips). To force re-do, delete the vault first.
 
 ### 7. Plant SDDK's working artifacts (gitignored) in the repo
 
@@ -299,7 +297,7 @@ if [ -d "$LEGACY_ADR_DIR" ]; then
         [ -f "$adr_file" ] || continue
         slug=$(basename "$adr_file" .md)
         # Create node in vault
-        VAULT_ADR=.sddk-knowledge/adrs/LEGACY-${slug}.md
+        VAULT_ADR=~/.sddk-knowledge/{project}/adrs/LEGACY-${slug}.md
         cat > "$VAULT_ADR" << EOF
 ---
 type: adr
@@ -318,7 +316,7 @@ migrated_from: "${LEGACY_ADR_DIR#/}/${slug}.md"
 $(cat "$adr_file")
 EOF
         # Log
-        echo "- $(date -Iseconds) | migrated | ADR from ${LEGACY_ADR_DIR}/${slug}.md | [[LEGACY-${slug}]]" >> .sddk-knowledge/_log.md
+        echo "- $(date -Iseconds) | migrated | ADR from ${LEGACY_ADR_DIR}/${slug}.md | [[LEGACY-${slug}]]" >> ~/.sddk-knowledge/{project}/_log.md
         echo "✅ Migrated $adr_file → $VAULT_ADR"
     done
 fi
@@ -326,7 +324,7 @@ fi
 
 ### 14. Write the Adoption Report
 
-Create a cycle manifest node at `.sddk-knowledge/cycles/{YYYY-MM-DD}-adoption/CYC-{date}-adoption.md` with:
+Create a cycle manifest node at `~/.sddk-knowledge/{project}/cycles/{YYYY-MM-DD}-adoption/CYC-{date}-adoption.md` with:
 
 ```yaml
 ---
@@ -341,7 +339,7 @@ path: B-direct      # adoption is not a full SDDK cycle
 type: adoption      # special type to distinguish from real cycles
 project_path: "{project_path}"
 adoption_artefacts:
-  vault: ".sddk-knowledge/ (inside project repo, committed)"
+  vault: "~/.sddk-knowledge/{project}/ (in user home, outside repo)"
   gitignore: ".gitignore"
   ignore: ".ignore"
   openspec_config: "openspec/config.yaml"
@@ -358,14 +356,14 @@ This project now has the **complete SDDK Framework** installed. Specifically:
 
 | Component | Where | Status |
 |-----------|-------|--------|
-| **Knowledge graph vault** | `.sddk-knowledge/` (inside project repo, committed) | ✅ initialized |
+| **Knowledge graph vault** | `~/.sddk-knowledge/{project}/` (in user home, outside repo) | ✅ initialized |
 | **`.gitignore`** (SDDK paths) | repo root | ✅ appended |
 | **`.ignore`** (ripgrep override) | repo root | ✅ created |
 | **`openspec/config.yaml`** | `openspec/` | ✅ created |
 | **`sddk/{project}/testing-capabilities`** | repo (gitignored) | ✅ written |
 | **`.atl/skill-registry.md`** | repo (gitignored) | ✅ written |
 | **Working directories** (`sddk/`, `openspec/changes/`, `.atl/`) | repo (gitignored) | ✅ created |
-| **Legacy ADRs migrated** (if `docs/adr/` existed) | `.sddk-knowledge/adrs/LEGACY-*.md` | N migrated |
+| **Legacy ADRs migrated** (if `docs/adr/` existed) | `~/.sddk-knowledge/{project}/adrs/LEGACY-*.md` | N migrated |
 
 ## Project Snapshot
 - **Language(s):** ...
@@ -406,7 +404,7 @@ cd {project_path}
 
 ### 9. Create the onboarding milestone
 
-Create `.sddk-knowledge/milestones/M-000-onboarding.md` with:
+Create `~/.sddk-knowledge/{project}/milestones/M-000-onboarding.md` with:
 
 ```yaml
 ---
@@ -443,62 +441,20 @@ This milestone is a one-time setup. Once completed, start real SDDK cycles with 
 
 ### 10. Write the adoption marker (O(1) check for future inits)
 
-This is the **final step** of adoption. Once this file exists, future `sddk-init` invocations skip all heavy adoption checks and go directly to context refresh. The marker is a single file with frontmatter + a short body — committing it to git is the official "stamp" that this project uses SDDK.
-
-```bash
-MARKER_FILE={project_path}/.sddk-knowledge/.adopted
-FRAMEWORK_VERSION=$(grep '"version"' ~/.sddk-shared/VERSION 2>/dev/null || echo "3.5")
-
-cat > "$MARKER_FILE" << EOF
----
-framework_version: "$FRAMEWORK_VERSION"
-project: "${project_name}"
-adopted_on: "$(date -Iseconds)"
-adopted_by: "sddk-adopt"
-adoption_report: "[[CYC-${date_slug}-adoption]]"
----
-
-# Adoption marker for SDDK Framework
-
-This file marks the project as adopted. \`sddk-init\` checks for this file in O(1) to skip the heavy adoption check on every subsequent run.
-
-Do NOT delete this file. If you delete it, future \`sddk-init\` invocations will warn about missing adoption.
-
-## What this means
-
-- \`.sddk-knowledge/\` exists and is committed to git
-- \`.gitignore\` blocks SDDK working artifacts
-- \`.ignore\` makes them readable by ripgrep
-- \`openspec/config.yaml\` is configured
-- \`.atl/skill-registry.md\` indexes available skills
-- Legacy ADRs (if any) are migrated to the vault
-
-To start a cycle: \`/sddk-new <change-name>\`
-EOF
-
-echo "✅ Adoption marker written: $MARKER_FILE"
-echo "   $(grep '^adopted_on:' "$MARKER_FILE")"
-echo "   $(grep '^framework_version:' "$MARKER_FILE")"
-
-# Log to _log.md
-echo "- $(date -Iseconds) | adopted | project=${project_name} | framework_v=${FRAMEWORK_VERSION} | [[M-000-onboarding]]" >> {project_path}/.sddk-knowledge/_log.md
-```
-
-**This marker is the LAST file written.** If anything above failed, the marker is not created, and future `sddk-init` will correctly detect missing adoption. The marker is atomic: either it exists (project is adopted) or it doesn't (project needs adoption).
-
-### 11. Return the envelope
+### 10. Return the envelope
 
 ```yaml
 status: success
-executive_summary: "Project adopted. Vault at .sddk-knowledge/ (inside repo, committed). Adoption report at cycles/{date}-adoption/. Adoption marker written. Ready for /sddk-init."
+executive_summary: "Project adopted. Vault at ~/.sddk-knowledge/{project}/ (in user home, outside repo). Adoption report at cycles/{date}-adoption/. Ready for /sddk-init."
 artifacts:
-  - ".sddk-knowledge/"
-  - ".sddk-knowledge/.adopted"               # ← the marker (enables O(1) future checks)
-  - ".sddk-knowledge/cycles/{date}-adoption/cycle.md"
-  - ".sddk-knowledge/milestones/M-000-onboarding.md"
+  - "~/.sddk-knowledge/{project}/"
+  - "~/.sddk-knowledge/{project}/cycles/{date}-adoption/cycle.md"
+  - "~/.sddk-knowledge/{project}/milestones/M-000-onboarding.md"
   - "sddk/{project}/adoption-report.md"  # local working copy
 
-adoption_marker: ".sddk-knowledge/.adopted"
+adoption_marker: "~/.sddk-knowledge/{project}/ (the directory itself is the marker — its existence = adopted)"
+
+adoption_marker: "~/.sddk-knowledge/{project}/ (the directory itself is the marker)"
 
 readiness:
   vault_initialized: true

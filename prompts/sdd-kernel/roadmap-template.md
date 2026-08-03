@@ -230,7 +230,7 @@ If the current cycle is NOT in the ROADMAP:
 
 ### At Step 3.8 (write):
 
-**v3.5: The ROADMAP lives in the knowledge graph vault, NOT in the project repo.** The `sdd-kernel-release` agent updates the milestone node at `{project}/.sddk-knowledge/milestones/M-NNN-{slug}.md` (status → completed, pr, tag, cycle). No `git add docs/ROADMAP.md` — that path doesn't exist anymore. See `skills/knowledge-graph/SKILL.md` for the vault write protocol.
+**v3.5: The ROADMAP lives in the knowledge graph vault, NOT in the project repo.** The `sdd-kernel-release` agent updates the milestone node at `{project}/~/.sddk-knowledge/{project}/milestones/M-NNN-{slug}.md` (status → completed, pr, tag, cycle). No `git add docs/ROADMAP.md` — that path doesn't exist anymore. See `skills/knowledge-graph/SKILL.md` for the vault write protocol.
 
 ## Anti-Patterns
 
