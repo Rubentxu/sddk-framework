@@ -1,0 +1,19 @@
+{
+  "case": "16-subtle-feature-envy-pw",
+  "bucket": "subtle",
+  "expected": {
+    "verify": "PASS",
+    "debt": "PASS_WITH_WARNINGS",
+    "primary_cluster": "debt-smells-cluster"
+  },
+  "actual": {
+    "verify": "NOT_RUN",
+    "debt": "NOT_RUN",
+    "findings": []
+  },
+  "classification": "PENDING",
+  "metrics": {
+    "files": 1,
+    "loc": 24
+  }
+}

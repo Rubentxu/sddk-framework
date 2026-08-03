@@ -1,0 +1,19 @@
+{
+  "case": "11-circular-import-fail",
+  "bucket": "unknown",
+  "expected": {
+    "verify": "UNKNOWN",
+    "debt": "UNKNOWN",
+    "primary_cluster": "unknown"
+  },
+  "actual": {
+    "verify": "NOT_RUN",
+    "debt": "NOT_RUN",
+    "findings": []
+  },
+  "classification": "PENDING",
+  "metrics": {
+    "files": 2,
+    "loc": 45
+  }
+}

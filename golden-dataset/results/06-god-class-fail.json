@@ -1,0 +1,19 @@
+{
+  "case": "06-god-class-fail",
+  "bucket": "critical-obvious",
+  "expected": {
+    "verify": "PASS",
+    "debt": "FAIL",
+    "primary_cluster": "debt-smells-cluster"
+  },
+  "actual": {
+    "verify": "NOT_RUN",
+    "debt": "NOT_RUN",
+    "findings": []
+  },
+  "classification": "PENDING",
+  "metrics": {
+    "files": 1,
+    "loc": 140
+  }
+}

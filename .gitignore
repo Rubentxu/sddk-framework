@@ -1,0 +1,31 @@
+# SDDK Framework .gitignore
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Editor
+.idea/
+.vscode/
+*.sublime-*
+
+# Temporary / generated
+*.tmp
+*.bak
+*.log
+
+# Per-project knowledge vaults (created on-demand, never committed)
+# The template lives in knowledge-template/ — that IS committed.
+# Actual vaults at ~/.sddk-knowledge/{project}/ are outside this repo.
+
+# Node (if any tooling is added later)
+node_modules/
+package-lock.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
