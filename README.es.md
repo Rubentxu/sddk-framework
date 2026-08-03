@@ -73,11 +73,23 @@ El script de bootstrap detecta automáticamente los editores instalados (ZCode, 
 
 ### Ejecutar un ciclo
 
+**¿Primera vez en un proyecto?** Adóptalo primero:
+
 ```bash
 cd tu-proyecto
+/sddk-adopt         # una vez: auditar proyecto, plantar artefactos SDDK, crear vault de conocimiento
 /sddk-init          # una vez: detectar stack, testing, modo TDD
 /sddk-new add-auth  # iniciar un ciclo SDDK completo
 ```
+
+**Ciclos posteriores** (proyecto ya adoptado):
+
+```bash
+cd tu-proyecto
+/sddk-new <change-name>  # el vault .sddk-knowledge/ ya existe; init se omite
+```
+
+`sddk-adopt` crea un **stamp de adopción único** (`.sddk-knowledge/.adopted`) para que futuras invocaciones de `sddk-init` salten el chequeo pesado de adopción y vayan directo al refresh de contexto.
 
 El orchestrator ejecutará:
 1. **Planificación** — explore → propose → spec → design → tasks (con checkpoints interactivos)

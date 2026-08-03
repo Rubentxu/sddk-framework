@@ -108,14 +108,19 @@ ls {project_path}/docs/ROADMAP.md 2>/dev/null
 VAULT=.sddk-knowledge
 if [ ! -d "$VAULT" ]; then
     cp -r ~/.sddk-shared/knowledge-template/ "$VAULT/"
+    # Substitute placeholders in the template files
+    TODAY=$(date -Iseconds)
     sed -i "s/{PROJECT_NAME}/{project-name}/g" "$VAULT/_index.md"
+    sed -i "s/{PROJECT_NAME}/{project-name}/g; s/{ADOPTION_DATE}/$TODAY/g" "$VAULT/.adopted"
     echo "✅ Vault initialized at $VAULT"
 else
     echo "ℹ️  Vault already exists at $VAULT"
 fi
 ```
 
-This creates the Obsidian-compatible vault with 6 node types (milestones, ADRs, requirements, cycles, incidences, terms) + MOCs + serialization lock template.
+This creates the Obsidian-compatible vault with 6 node types (milestones, ADRs, requirements, cycles, incidences, terms) + MOCs + serialization lock template + the `.adopted` marker.
+
+**Note on the `.adopted` marker:** if you're re-running `sddk-adopt` on a project that already has a vault, **do NOT overwrite the marker** unless you intend to re-do the entire adoption (which may invalidate the existing vault). In that case, delete the vault first.
 
 ### 7. Plant SDDK's working artifacts (gitignored) in the repo
 
@@ -436,16 +441,64 @@ Complete any setup gaps found in the Adoption Report before starting real cycles
 This milestone is a one-time setup. Once completed, start real SDDK cycles with `/sddk-new <change-name>`.
 ```
 
-### 10. Return the envelope
+### 10. Write the adoption marker (O(1) check for future inits)
+
+This is the **final step** of adoption. Once this file exists, future `sddk-init` invocations skip all heavy adoption checks and go directly to context refresh. The marker is a single file with frontmatter + a short body — committing it to git is the official "stamp" that this project uses SDDK.
+
+```bash
+MARKER_FILE={project_path}/.sddk-knowledge/.adopted
+FRAMEWORK_VERSION=$(grep '"version"' ~/.sddk-shared/VERSION 2>/dev/null || echo "3.5")
+
+cat > "$MARKER_FILE" << EOF
+---
+framework_version: "$FRAMEWORK_VERSION"
+project: "${project_name}"
+adopted_on: "$(date -Iseconds)"
+adopted_by: "sddk-adopt"
+adoption_report: "[[CYC-${date_slug}-adoption]]"
+---
+
+# Adoption marker for SDDK Framework
+
+This file marks the project as adopted. \`sddk-init\` checks for this file in O(1) to skip the heavy adoption check on every subsequent run.
+
+Do NOT delete this file. If you delete it, future \`sddk-init\` invocations will warn about missing adoption.
+
+## What this means
+
+- \`.sddk-knowledge/\` exists and is committed to git
+- \`.gitignore\` blocks SDDK working artifacts
+- \`.ignore\` makes them readable by ripgrep
+- \`openspec/config.yaml\` is configured
+- \`.atl/skill-registry.md\` indexes available skills
+- Legacy ADRs (if any) are migrated to the vault
+
+To start a cycle: \`/sddk-new <change-name>\`
+EOF
+
+echo "✅ Adoption marker written: $MARKER_FILE"
+echo "   $(grep '^adopted_on:' "$MARKER_FILE")"
+echo "   $(grep '^framework_version:' "$MARKER_FILE")"
+
+# Log to _log.md
+echo "- $(date -Iseconds) | adopted | project=${project_name} | framework_v=${FRAMEWORK_VERSION} | [[M-000-onboarding]]" >> {project_path}/.sddk-knowledge/_log.md
+```
+
+**This marker is the LAST file written.** If anything above failed, the marker is not created, and future `sddk-init` will correctly detect missing adoption. The marker is atomic: either it exists (project is adopted) or it doesn't (project needs adoption).
+
+### 11. Return the envelope
 
 ```yaml
 status: success
-executive_summary: "Project adopted. Vault at .sddk-knowledge/ (inside repo, committed). Adoption report at cycles/{date}-adoption/. Ready for /sddk-init."
+executive_summary: "Project adopted. Vault at .sddk-knowledge/ (inside repo, committed). Adoption report at cycles/{date}-adoption/. Adoption marker written. Ready for /sddk-init."
 artifacts:
   - ".sddk-knowledge/"
+  - ".sddk-knowledge/.adopted"               # ← the marker (enables O(1) future checks)
   - ".sddk-knowledge/cycles/{date}-adoption/cycle.md"
   - ".sddk-knowledge/milestones/M-000-onboarding.md"
   - "sddk/{project}/adoption-report.md"  # local working copy
+
+adoption_marker: ".sddk-knowledge/.adopted"
 
 readiness:
   vault_initialized: true

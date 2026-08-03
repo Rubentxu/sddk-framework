@@ -73,11 +73,23 @@ The bootstrap script auto-detects installed editors (ZCode, OpenCode) and create
 
 ### Run a cycle
 
+**First time on a project?** Adopt it first:
+
 ```bash
 cd your-project
+/sddk-adopt         # one-time: audit project, plant SDDK artifacts, create knowledge vault
 /sddk-init          # one-time: detect stack, testing, TDD mode
 /sddk-new add-auth  # start a full SDDK cycle
 ```
+
+**Subsequent cycles** (project already adopted):
+
+```bash
+cd your-project
+/sddk-new <change-name>  # the .sddk-knowledge/ vault is already there; init is skipped
+```
+
+`sddk-adopt` creates a **one-time adoption stamp** (`.sddk-knowledge/.adopted`) so future `sddk-init` invocations skip the heavy adoption check and go straight to context refresh.
 
 The orchestrator will:
 1. **Plan** — explore → propose → spec → design → tasks (interactive checkpoints)
