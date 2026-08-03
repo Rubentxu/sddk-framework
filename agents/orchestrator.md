@@ -241,16 +241,69 @@ Same URL multiple results: keep highest-quality source
 
 Before executing ANY SDDK command (`/sddk-new`, `/sddk-ff`, `/sddk-continue`, `/sddk-explore`, `/sddk-apply`, `/sddk-verify`, `/sddk-archive`):
 
-1. Search: `mem_search("sddk-init/{project}", project: "{project}")`
-2. If found → init done, proceed normally
-3. If NOT found → run `sddk-init` FIRST (delegate to sub-agent), THEN proceed
+**Step 0a — Adoption check (O(1)):**
+
+```bash
+# Fast check: does the adoption marker exist?
+if [ ! -f ".sddk-knowledge/.adopted" ]; then
+    # ❌ PROJECT NOT ADOPTED — ask the user before proceeding
+    # (don't run silently; adoption is a one-time decision that changes the project)
+fi
+```
+
+The adoption marker (`.sddk-knowledge/.adopted`) is the single source of truth for "this project uses SDDK". It is created by `sddk-adopt` and committed to git. Without it, the project cannot run any SDDK cycle.
+
+**If the marker is missing, ASK the user explicitly using the `question` tool:**
+
+Use this exact prompt (or its equivalent in the runtime):
+
+```yaml
+question:
+  question: |
+    ❌ This project ('{project}') is not adopted into SDDK.
+
+    SDDK needs to plant some files before it can run cycles:
+    - .sddk-knowledge/  (the knowledge vault — inside this repo)
+    - .gitignore, .ignore  (for SDDK working artifacts)
+    - openspec/config.yaml
+    - .atl/skill-registry.md
+    - Legacy ADR migration (if any exist in docs/adr/)
+
+    Should I run sddk-adopt first? (one-time setup, ~30s)
+  options:
+    - label: "Yes, run sddk-adopt"
+      description: "Delegate to the adoption agent. It audits the project, plants SDDK artifacts, and creates the .adopted marker. After completion, this cycle can proceed."
+    - label: "No, I'll run /sddk-adopt manually"
+      description: "Abort this cycle. Run /sddk-adopt yourself when ready, then re-launch the cycle."
+    - label: "Bypass adoption (not recommended)"
+      description: "Proceed without adoption. The knowledge vault won't exist, legacy ADRs won't migrate, and future cycles may fail. Only use this if you're testing SDDK in isolation."
+```
+
+Then:
+- **Yes** → `task(subagent_type="sddk-adopt")` → after completion, re-check `.adopted` marker → proceed
+- **No** → return `status=blocked`, `next_recommended: "/sddk-adopt"`, STOP
+- **Bypass** → log warning, proceed without adoption artifacts (NOT RECOMMENDED)
+
+**This is NOT a silent setup.** Adoption changes the project structure (adds `.sddk-knowledge/`, `.gitignore`, etc.), so the user must consent.
+
+**Step 0b — Init check (after adoption is confirmed):**
+
+```bash
+# Now check if sddk-init has been run (testing-capabilities exist)
+if [ ! -f "sddk/{project}/testing-capabilities" ]; then
+    # Init hasn't run yet — delegate to sddk-init
+    # (This is silent: it's a fast detection + cache, not a structural change)
+fi
+```
+
+`mem_search` is no longer the primary check for init — it was unreliable across sessions. The filesystem is the source of truth.
 
 This ensures:
-- Testing capabilities detected and cached
-- Strict TDD Mode activated when project supports it
-- Project context (stack, conventions) available for all phases
+- **Adoption** is explicit (one-time, user-consented) — `.sddk-knowledge/.adopted` marker
+- **Init** is silent (can re-run any time, idempotent) — `sddk/{project}/testing-capabilities` file
+- **No false positives** — if `.adopted` doesn't exist, the project wasn't adopted (no guessing)
 
-**Do NOT skip this check. Do NOT ask the user — run init silently if needed.**
+**Do NOT skip the adoption check. Do NOT run `sddk-init` if the project is not adopted — adoption must come first.**
 
 ---
 
@@ -610,15 +663,16 @@ Kernel commands use the `sddk-*` namespace:
 ## Preflight
 
 Before a kernel command:
-1. **SDD Init Guard** (above)
+1. **SDD Init Guard** (above — adoption check FIRST, then init check)
 2. Resolve workspace: `git rev-parse --show-toplevel 2>/dev/null || pwd`
 3. Resolve project name as workspace basename
-4. **ROADMAP Serialization Lock** (see below — BLOCKS if another cycle is active)
-5. Ask/cache execution mode: `interactive` (default) or `auto`
-6. Ask/cache artifact store mode: `engram` (default) / `logseq` (if MCP) / `openspec` / `hybrid` / `none`
-7. Detect MCP availability: CogniCode, Chronos, LogSeq, cognicode-quality, search providers
-8. Run triage (C0-C3 + jurisprudence + capability deployment)
-9. Ensure kernel init exists. If missing, launch `sddk-init` first.
+4. **Adoption check** (if not yet done by SDD Init Guard): `test -f .sddk-knowledge/.adopted` → if missing, ask user (see Adoption section)
+5. **ROADMAP Serialization Lock** (see below — BLOCKS if another cycle is active)
+6. Ask/cache execution mode: `interactive` (default) or `auto`
+7. Ask/cache artifact store mode: `engram` (default) / `logseq` (if MCP) / `openspec` / `hybrid` / `none`
+8. Detect MCP availability: CogniCode, Chronos, LogSeq, cognicode-quality, search providers
+9. Run triage (C0-C3 + jurisprudence + capability deployment)
+10. Ensure kernel init exists (testing-capabilities cached). If missing, launch `sddk-init` (silent, idempotent).
 
 ---
 
@@ -1038,7 +1092,7 @@ The MCW runs in **5 phases**, each with numbered steps. Hard gates only where st
 
 | Phase | Step | Action | Hard gate |
 |-------|------|--------|-----------|
-| 0 | 0.0 | SDD Init Guard | sddk-init done |
+| 0 | 0.0 | SDD Init Guard (adoption check + init check) | `.adopted` marker present AND `sddk-init` done |
 | 0 | 0.1 | Trunk sync | HEAD == origin/main |
 | 0 | 0.2 | Previous cycle closed | No unmerged branches/PRs AND ROADMAP has zero Active Milestones in progress |
 | 0 | 0.3 | Knowledge coverage (A-full) | No critical gaps |
