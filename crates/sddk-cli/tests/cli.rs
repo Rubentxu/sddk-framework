@@ -1838,7 +1838,6 @@ fn cli_release_dist_and_verify_checksums_and_sbom() {
 }
 
 #[test]
-#[test]
 fn cli_full_runtime_pipeline_dogfood() {
     let fixture = CliFixture::new("dogfood");
     write(
