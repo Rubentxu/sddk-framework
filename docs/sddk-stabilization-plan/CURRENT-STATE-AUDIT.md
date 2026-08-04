@@ -1,7 +1,7 @@
 # Auditoría de estado actual — SDDK v3.6
 
 **Fecha:** 2026-08-04
-**Baseline Git:** `v0.1.0` (`ee7957f`) más el corte `feat/canonical-ci-gates`
+**Baseline Git:** `v0.2.0`
 **Veredicto:** baseline versionada y protegida por gates; v3.6 aún no es estable porque faltan fronteras runtime autoritativas
 
 ## Respuesta ejecutiva
@@ -62,7 +62,7 @@ La clasificación exige evidencia en repositorio. Un tipo, tabla o campo aislado
 
 La base fundacional se integró en `main` mediante PR #2 y se publicó como `v0.1.0`. `target/` permanece excluido.
 
-El corte actual mantiene las nuevas unidades en una rama trazada por issue y se verificará con el mismo flujo trunk-based.
+El corte `v0.2.0` se integró mediante PR #4, trazado por issue #3 y verificado con el mismo flujo trunk-based.
 
 **Criterio de cierre:** commits separados por comportamiento, revisión de archivos incluidos, `target/` excluido, CI verde y trazabilidad entre cada commit y las historias cerradas.
 
@@ -193,13 +193,13 @@ Esta ausencia es un bloqueador de diseño antes de habilitar operaciones mutante
 | `tests/test_workflow_contract.sh` | PASS, 117 checks. |
 | `tests/test_adoption_contract.sh` | PASS, 22 checks. |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | PASS. |
-| CI remota | Definida como `Required quality gates`; pendiente de evidencia de GitHub en el PR del corte. |
+| CI remota | PASS en [`Required quality gates`](https://github.com/Rubentxu/sddk-framework/actions/runs/30888909675), 53 s. |
 
 ## Plan de acción recomendado
 
 ### Work unit A — Canon y baseline
 
-**Estado:** completado entre `v0.1.0` y el corte de canon.
+**Estado:** completado en `v0.2.0`.
 
 **Acciones:**
 
@@ -213,7 +213,7 @@ Esta ausencia es un bloqueador de diseño antes de habilitar operaciones mutante
 
 ### Work unit B — CI y testkit
 
-**Estado:** implementado en el corte `feat/canonical-ci-gates`.
+**Estado:** completado en `v0.2.0`.
 
 **Acciones:** CI mínima, testkit con fixture repository reutilizable, Clippy estricto y checks locked.
 

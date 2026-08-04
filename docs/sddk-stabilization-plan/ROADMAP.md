@@ -1,10 +1,10 @@
 # Roadmap de entrega — SDDK v3.6
 
 **Estado auditado:** 2026-08-04
-**Baseline:** `v0.1.0` (`ee7957f`) más el corte `feat/canonical-ci-gates`
+**Baseline:** `v0.2.0`
 **Informe:** [`CURRENT-STATE-AUDIT.md`](CURRENT-STATE-AUDIT.md)
 
-> Los números PR 1-9 representan unidades funcionales del plan, no números literales de pull request. La base Rust y los contratos PR1-PR4 se versionaron en `v0.1.0`; este corte cierra canon, inventario y CI de PR1-PR3.
+> Los números PR 1-9 representan unidades funcionales del plan, no números literales de pull request. `v0.2.0` cierra canon, inventario y CI de PR1-PR3 sobre la base Rust entregada en `v0.1.0`.
 
 ## Panel de entrega
 
