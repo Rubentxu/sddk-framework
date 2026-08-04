@@ -176,6 +176,7 @@ fn test_workflow_yaml_deserialization() {
     let identity = manifest.project_identity.as_ref().unwrap();
     assert_eq!(identity.scheme, "remote-url-hash");
     assert_eq!(identity.scope, "required");
+    assert_eq!(identity.fallback.as_deref(), Some("receipt-uuid"));
 }
 
 #[test]

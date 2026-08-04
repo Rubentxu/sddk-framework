@@ -10,12 +10,12 @@ Paquete de diseño y ejecución para transformar SDDK Framework en un motor de d
 - `CURRENT-STATE-AUDIT.md`: estado verificado, gaps, desviaciones y orden de remediación.
 - `MIGRATION.md`: transición desde los agentes y prompts actuales.
 - `adr/`: decisiones arquitectónicas propuestas.
-- `workflow/workflow.yaml`: snapshot histórico del contrato inicial; no es la fuente runtime actual.
-- `schemas/`: snapshots históricos de contratos iniciales; pueden divergir de los schemas raíz.
+- `../../workflow/workflow.yaml`: contrato canónico ejecutable.
+- `../../schemas/`: schemas canónicos ejecutables.
 
 ## Estado actual
 
-El paquete está en implementación y conserva snapshots de diseño que ya divergen de los contratos ejecutables raíz. Consulta [`CURRENT-STATE-AUDIT.md`](CURRENT-STATE-AUDIT.md) antes de cerrar historias o usar los ficheros bajo `workflow/` y `schemas/` como fuente runtime.
+El paquete está en implementación. Los snapshots contractuales iniciales se retiraron para evitar una segunda fuente ejecutable. Consulta [`CURRENT-STATE-AUDIT.md`](CURRENT-STATE-AUDIT.md) antes de cerrar historias.
 
 Las fuentes ejecutables actuales son:
 

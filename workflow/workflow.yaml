@@ -570,4 +570,4 @@ storage:
 project_identity:
   scheme: remote-url-hash
   scope: required
-  fallback: hostname-path
+  fallback: receipt-uuid
