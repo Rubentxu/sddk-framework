@@ -1,6 +1,6 @@
 [package]
 name = "sddk-gateway"
-version = "0.11.0"
+version = "0.12.0"
 edition = "2024"
 authors = ["SDDK Team"]
 license = "MIT"
@@ -18,5 +18,6 @@ sddk-domain = { path = "../sddk-domain" }
 sddk-storage = { path = "../sddk-storage" }
 
 [dev-dependencies]
+proptest = "1.11"
 tempfile = { workspace = true }
 sddk-engine = { path = "../sddk-engine" }
