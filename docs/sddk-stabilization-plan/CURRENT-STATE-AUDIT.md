@@ -68,7 +68,7 @@ El corte actual mantiene las nuevas unidades en una rama trazada por issue y se 
 
 ### GAP-002 — Gates de CI implementados
 
-`.github/workflows/ci.yml` define un único check obligatorio y reproducible sobre Rust 1.85.0.
+`.github/workflows/ci.yml` define un único check obligatorio y reproducible sobre Rust 1.91.0, el MSRV real de las dependencias bloqueadas.
 
 La CI mínima debe ejecutar:
 
