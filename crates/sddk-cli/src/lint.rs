@@ -10,6 +10,7 @@ use thiserror::Error;
 use walkdir::{DirEntry, WalkDir};
 
 use crate::docs::{GENERATED_WORKFLOW_DOC, render_workflow_docs};
+use crate::inventory::{GENERATED_INVENTORY_DOC, render_inventory};
 
 const WORKFLOW_MANIFEST: &str = "workflow/workflow.yaml";
 const BROKEN_REFERENCE: &str = "SDDK001";
@@ -21,6 +22,7 @@ const UNDECLARED_WORKFLOW_ITEM: &str = "SDDK006";
 const ARTIFACT_TOPOLOGY: &str = "SDDK007";
 const PATH_NOT_TRAVERSABLE: &str = "SDDK008";
 const GENERATED_DOC_STALE: &str = "SDDK009";
+const GENERATED_INVENTORY_STALE: &str = "SDDK010";
 
 /// Diagnostic severity. Only errors make `sddk lint` fail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -124,6 +126,7 @@ pub fn lint_repository(root: impl AsRef<Path>) -> Result<LintReport, LintError> 
     if let Some(manifest) = workflow.as_ref() {
         lint_generated_docs(root, manifest, &mut diagnostics);
     }
+    lint_generated_inventory(root, &mut diagnostics);
 
     diagnostics.sort_by(|left, right| {
         (
@@ -968,6 +971,35 @@ fn lint_generated_docs(
         None,
         "generated workflow documentation is missing or stale",
         "run `sddk generate docs --root .` and commit the result",
+    ));
+}
+
+fn lint_generated_inventory(root: &Path, diagnostics: &mut Vec<Diagnostic>) {
+    let expected = match render_inventory(root) {
+        Ok(expected) => expected,
+        Err(error) => {
+            diagnostics.push(diagnostic(
+                GENERATED_INVENTORY_STALE,
+                Severity::Error,
+                Path::new(GENERATED_INVENTORY_DOC),
+                None,
+                format!("cannot render generated repository inventory: {error}"),
+                "make repository agent and skill paths readable UTF-8 paths",
+            ));
+            return;
+        }
+    };
+    let path = root.join(GENERATED_INVENTORY_DOC);
+    if fs::read_to_string(&path).is_ok_and(|actual| actual == expected) {
+        return;
+    }
+    diagnostics.push(diagnostic(
+        GENERATED_INVENTORY_STALE,
+        Severity::Error,
+        Path::new(GENERATED_INVENTORY_DOC),
+        None,
+        "generated repository inventory is missing or stale",
+        "run `sddk generate inventory --root .` and commit the result",
     ));
 }
 

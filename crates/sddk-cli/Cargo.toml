@@ -31,3 +31,4 @@ sddk-storage = { path = "../sddk-storage" }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+sddk-testkit = { path = "../sddk-testkit" }

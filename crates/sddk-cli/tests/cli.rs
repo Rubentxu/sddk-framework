@@ -3,9 +3,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use sddk_cli::{
-    GENERATED_WORKFLOW_DOC, GenerationStatus, Severity, generate_workflow_docs, lint_repository,
-    run_from,
+    GENERATED_INVENTORY_DOC, GENERATED_WORKFLOW_DOC, GenerationStatus, Severity,
+    generate_inventory, generate_workflow_docs, lint_repository, run_from,
 };
+use sddk_testkit::TestRepository;
 use tempfile::TempDir;
 
 const WORKFLOW: &str = include_str!("fixtures/workflow.yaml");
@@ -217,6 +218,39 @@ fn check_never_writes_and_generation_atomically_replaces() {
             .to_string_lossy()
             .contains(".tmp-")
     }));
+}
+
+#[test]
+fn inventory_is_sorted_deterministic_and_checked_by_lint() {
+    let repository = repository_fixture();
+    repository.write("agents/zeta.md", "# Zeta\n").unwrap();
+    repository.write("agents/alpha.md", "# Alpha\n").unwrap();
+    repository
+        .write("skills/example/SKILL.md", "# Example\n")
+        .unwrap();
+
+    assert_eq!(
+        generate_inventory(repository.path(), false).unwrap(),
+        GenerationStatus::Written
+    );
+    let generated = fs::read_to_string(repository.path().join(GENERATED_INVENTORY_DOC)).unwrap();
+    assert!(generated.contains("| Agents | 2 |"));
+    assert!(generated.contains("| Skills | 1 |"));
+    assert!(generated.find("agents/alpha.md") < generated.find("agents/zeta.md"));
+    assert_eq!(
+        generate_inventory(repository.path(), true).unwrap(),
+        GenerationStatus::Current
+    );
+
+    repository.write("agents/new.md", "# New\n").unwrap();
+    generate_workflow_docs(repository.path(), false).unwrap();
+    let report = lint_repository(repository.path()).unwrap();
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "SDDK010")
+    );
 }
 
 #[test]
@@ -438,16 +472,18 @@ fn repair_restores_missing_receipt_and_status_reports_corruption() {
     );
 }
 
-fn repository_fixture() -> TempDir {
-    let repository = tempfile::tempdir().unwrap();
-    write(repository.path().join("workflow/workflow.yaml"), WORKFLOW);
-    write(
-        repository.path().join("schemas/workflow.schema.json"),
-        WORKFLOW_SCHEMA,
-    );
-    write(repository.path().join("target/ignored.md"), DIAGNOSTICS);
-    write(repository.path().join(".git/ignored.md"), DIAGNOSTICS);
-    write(repository.path().join("supplied-input.zip"), DIAGNOSTICS);
+fn repository_fixture() -> TestRepository {
+    let repository = TestRepository::new().unwrap();
+    repository
+        .write("workflow/workflow.yaml", WORKFLOW)
+        .unwrap();
+    repository
+        .write("schemas/workflow.schema.json", WORKFLOW_SCHEMA)
+        .unwrap();
+    repository.write("target/ignored.md", DIAGNOSTICS).unwrap();
+    repository.write(".git/ignored.md", DIAGNOSTICS).unwrap();
+    repository.write("supplied-input.zip", DIAGNOSTICS).unwrap();
+    generate_inventory(repository.path(), false).unwrap();
     repository
 }
 

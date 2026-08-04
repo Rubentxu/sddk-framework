@@ -5,6 +5,7 @@
 #![warn(missing_docs)]
 
 mod docs;
+mod inventory;
 mod lint;
 
 use std::ffi::{OsStr, OsString};
@@ -23,6 +24,7 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 pub use docs::{GENERATED_WORKFLOW_DOC, GenerationStatus, generate_workflow_docs};
+pub use inventory::{GENERATED_INVENTORY_DOC, generate_inventory};
 pub use lint::{Diagnostic, LintReport, Severity, lint_repository};
 
 /// Parsed SDDK command line.
@@ -127,6 +129,15 @@ struct AdoptionArgs {
 enum GenerateCommand {
     /// Render workflow metadata, tables, and Mermaid state diagram.
     Docs {
+        /// Repository root.
+        #[arg(long, default_value = ".")]
+        root: PathBuf,
+        /// Check generated output without writing it.
+        #[arg(long)]
+        check: bool,
+    },
+    /// Render a deterministic inventory of repository agents and skills.
+    Inventory {
         /// Repository root.
         #[arg(long, default_value = ".")]
         root: PathBuf,
@@ -242,26 +253,47 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         },
         Command::Generate {
             command: GenerateCommand::Docs { root, check },
-        } => match generate_workflow_docs(&root, check) {
-            Ok(GenerationStatus::Current) => CommandOutput {
-                stdout: format!("{} is current\n", GENERATED_WORKFLOW_DOC),
-                ..CommandOutput::default()
-            },
-            Ok(GenerationStatus::Written) => CommandOutput {
-                stdout: format!("wrote {}\n", GENERATED_WORKFLOW_DOC),
-                ..CommandOutput::default()
-            },
-            Ok(GenerationStatus::Stale) => CommandOutput {
-                status: 1,
-                stderr: format!(
-                    "{} is missing or stale; run `sddk generate docs --root {}`\n",
-                    GENERATED_WORKFLOW_DOC,
-                    root.display()
-                ),
-                ..CommandOutput::default()
-            },
-            Err(error) => failure(error.to_string()),
+        } => run_generation(
+            generate_workflow_docs(&root, check),
+            GENERATED_WORKFLOW_DOC,
+            "docs",
+            &root,
+        ),
+        Command::Generate {
+            command: GenerateCommand::Inventory { root, check },
+        } => run_generation(
+            generate_inventory(&root, check),
+            GENERATED_INVENTORY_DOC,
+            "inventory",
+            &root,
+        ),
+    }
+}
+
+fn run_generation<E: std::fmt::Display>(
+    result: Result<GenerationStatus, E>,
+    generated_path: &str,
+    command: &str,
+    root: &Path,
+) -> CommandOutput {
+    match result {
+        Ok(GenerationStatus::Current) => CommandOutput {
+            stdout: format!("{generated_path} is current\n"),
+            ..CommandOutput::default()
         },
+        Ok(GenerationStatus::Written) => CommandOutput {
+            stdout: format!("wrote {generated_path}\n"),
+            ..CommandOutput::default()
+        },
+        Ok(GenerationStatus::Stale) => CommandOutput {
+            status: 1,
+            stderr: format!(
+                "{generated_path} is missing or stale; run `sddk generate {command} --root {}`\n",
+                root.display()
+            ),
+            ..CommandOutput::default()
+        },
+        Err(error) => failure(error.to_string()),
     }
 }
 

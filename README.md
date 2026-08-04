@@ -35,7 +35,7 @@ SDDK is a complete agent orchestration framework for AI-assisted software develo
 │                                                      │
 │  ┌──────────┐  ┌─────────┐  ┌────────────────────┐  │
 │  │  agents/  │  │ skills/ │  │ prompts/sdd-kernel │  │
-│  │  (63)     │  │ (89)    │  │ (phase specs, MCW) │  │
+│  │ (prompts) │  │ (tools)  │  │ (phase specs, MCW) │  │
 │  └────┬─────┘  └────┬────┘  └─────────┬──────────┘  │
 │       │              │                  │             │
 │  ┌────┴──────────────┴──────────────────┴──────────┐ │
@@ -59,6 +59,8 @@ SDDK is a complete agent orchestration framework for AI-assisted software develo
     │       (committed to git)    │   created by sddk-adopt)
     └───────────────────┘
 ```
+
+The current agent and skill paths are tracked in the [generated repository inventory](docs/generated/inventory.md).
 
 ## Quick start
 
@@ -166,8 +168,8 @@ The **Behavioral Compliance Matrix** maps every spec scenario to a test that pas
 
 ```
 sddk-framework/
-├── agents/                 # 63 agent prompts (orchestrator, phase executors, clusters, judges)
-├── skills/                 # 89 skills (knowledge-graph, sddk-*, entropy-sdd, cognicode-sdd, ...)
+├── agents/                 # Agent prompts; see docs/generated/inventory.md
+├── skills/                 # Skills; see docs/generated/inventory.md
 ├── prompts/sdd-kernel/     # Phase specs, MCW, git-contract, decision-model, ADR/roadmap templates
 ├── knowledge-template/     # Vault template (6 node types, MOCs, serialization lock)
 ├── golden-dataset/         # Meta-verification test cases (5 initial cases + runner)
