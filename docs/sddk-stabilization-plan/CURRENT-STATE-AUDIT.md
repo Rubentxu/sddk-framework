@@ -1,8 +1,8 @@
 # Auditoría de estado actual — SDDK v3.6
 
 **Fecha:** 2026-08-04
-**Baseline Git:** `v0.2.0`
-**Veredicto:** baseline versionada y protegida por gates; v3.6 aún no es estable porque faltan fronteras runtime autoritativas
+**Baseline Git:** `v0.10.0`
+**Veredicto:** v3.6 ESTABLE — plan PR1-PR9 completo, backlog 32/32 (100 %), todos los gaps de auditoría cerrados
 
 ## Respuesta ejecutiva
 
@@ -281,14 +281,16 @@ Quedan fuera: Git local (SDDK-603) y CAS (SDDK-604), que se construirán sobre e
 | Vault canónico | Paths XDG del runtime vs vault de conocimiento existente | Separar explícitamente estado operativo XDG de conocimiento canónico; documentar ownership y migración. |
 | Migración SQLite | Auto-migrate al abrir vs comando explícito | Backup + lock exclusivo + migración explícita para cambios destructivos. |
 
-## Criterio actualizado de salida v3.6
+## Criterio de salida v3.6 — CUMPLIDO
 
-v3.6 no debe declararse estable hasta que:
+v3.6 queda declarado estable; todos los criterios se cumplen:
 
-- el trabajo esté versionado y CI sea obligatoria;
-- Rust controle adopción, ciclo, fase, gates, Git local, ledger y recuperación;
-- ningún gate crítico acepte una afirmación no autorizada;
-- toda capacidad mutante pase por gateway, policy y receipt;
-- replay/reconcile recuperen interrupciones sin editar SQLite manualmente;
-- Forge/release converja sin duplicar efectos;
-- no existan contratos ejecutables duplicados o contradictorios.
+- [x] el trabajo está versionado y la CI es obligatoria (`Required quality gates` sobre `main`);
+- [x] Rust controla adopción, ciclo, fase, gates autorizados, Git local, ledger, recuperación y vault;
+- [x] ningún gate crítico acepta una afirmación no autorizada (receipts con evaluador registrado y plan-hash);
+- [x] toda capacidad mutante pasa por gateway, policy y receipt;
+- [x] replay/reconcile recuperan interrupciones sin editar SQLite manualmente;
+- [x] Forge/release converge sin duplicar efectos;
+- [x] no existen contratos ejecutables duplicados o contradictorios.
+
+Los ADR-0001 a ADR-0008 pasan de `propuesta` a `aceptada` en `v0.11.0`.

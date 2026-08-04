@@ -22,7 +22,7 @@
 
 ## Próximo corte recomendado
 
-El plan PR1-PR9 está completo; el backlog v3.6 queda al 100 %.
+El plan PR1-PR9 está completo; el backlog v3.6 queda al 100 %. En `v0.11.0` v3.6 se declara oficialmente estable y los ADR-0001 a ADR-0008 pasan a `aceptada`.
 
 ## PR 1 — Estabilización semántica
 

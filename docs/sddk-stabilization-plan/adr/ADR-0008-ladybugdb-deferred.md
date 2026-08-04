@@ -1,6 +1,6 @@
 # ADR-0008 — LadybugDB aplazada como proyección analítica opcional
 
-**Estado:** propuesta
+**Estado:** aceptada
 **Fecha:** 2026-08-03
 
 ## Contexto

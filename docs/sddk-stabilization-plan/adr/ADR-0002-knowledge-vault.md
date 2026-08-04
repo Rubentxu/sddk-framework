@@ -1,6 +1,6 @@
 # ADR-0002 — Vault Markdown como fuente canónica del conocimiento
 
-**Estado:** propuesta
+**Estado:** aceptada
 **Fecha:** 2026-08-03
 
 ## Contexto

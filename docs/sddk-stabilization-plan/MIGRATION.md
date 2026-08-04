@@ -89,3 +89,16 @@ El modo legacy se elimina cuando:
 - Todos los agentes críticos son deterministas.
 - No quedan comandos shell autoritativos.
 - Los fixtures cubren todos los hard gates.
+
+## Estado: migración completada
+
+Las fases 0-6 se entregaron entre `v0.1.0` y `v0.10.0`:
+
+- Fase 0-1: canon, linter, inventario y CI (`v0.2.0`).
+- Fase 2: identidad y adopción (`v0.2.0`-`v0.3.0`).
+- Fase 3: ledger, ciclos, leases, rebuild y gates autorizados (`v0.3.0`-`v0.10.0`).
+- Fase 4: gateway de capacidades, Git local y CAS (`v0.4.0`-`v0.5.0`).
+- Fase 5: Forge y release reconciliable (`v0.7.0`).
+- Fase 6: vault, índices y distribución (`v0.8.0`-`v0.9.0`).
+
+El runtime Rust es la autoridad operativa; los prompts legacy quedan como contratos documentados.
