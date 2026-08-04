@@ -39,7 +39,7 @@ curl -s -X POST "https://api.z.ai/api/mcp/web_search_prime/mcp" \
 
 **Required env var** (set once):
 ```bash
-export ZAI_API_KEY="83fca157ee394a50a62fd552c5e75236.2TO9JsTS12dPTJz0"
+export ZAI_API_KEY="<your-zai-api-key>"
 ```
 
 ### Examples
@@ -237,6 +237,6 @@ curl -s -X POST "https://api.z.ai/api/mcp/web_search_prime/mcp" \
 │  Web search         │ curl → web_search_prime      │
 │  GitHub repos       │ repomix (superior)            │
 ├──────────────────────┴─────────────────────────────┤
-│  Env: ZAI_API_KEY="83fca157ee394a50a62fd552..."    │
+│  Env: ZAI_API_KEY="<your-zai-api-key>"            │
 └──────────────────────────────────────────────────────┘
 ```

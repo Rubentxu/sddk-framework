@@ -46,16 +46,10 @@ pub fn generate_workflow_docs(
     let manifest = sddk_engine::load_workflow_path(root.join(WORKFLOW_MANIFEST))?;
     let rendered = render_workflow_docs(&manifest);
     let destination = root.join(GENERATED_WORKFLOW_DOC);
-
-    if check {
-        return Ok(match fs::read_to_string(&destination) {
-            Ok(existing) if existing == rendered => GenerationStatus::Current,
-            Ok(_) | Err(_) => GenerationStatus::Stale,
-        });
-    }
-
-    atomic_write(&destination, rendered.as_bytes())?;
-    Ok(GenerationStatus::Written)
+    sync_generated_file(&destination, &rendered, check).map_err(|source| GenerationError::Io {
+        path: destination,
+        source,
+    })
 }
 
 pub(crate) fn render_workflow_docs(manifest: &WorkflowManifest) -> String {
@@ -247,12 +241,25 @@ pub(crate) fn render_workflow_docs(manifest: &WorkflowManifest) -> String {
     output
 }
 
-fn atomic_write(destination: &Path, bytes: &[u8]) -> Result<(), GenerationError> {
+pub(crate) fn sync_generated_file(
+    destination: &Path,
+    rendered: &str,
+    check: bool,
+) -> Result<GenerationStatus, std::io::Error> {
+    if check {
+        return Ok(match fs::read_to_string(destination) {
+            Ok(existing) if existing == rendered => GenerationStatus::Current,
+            Ok(_) | Err(_) => GenerationStatus::Stale,
+        });
+    }
+
+    atomic_write(destination, rendered.as_bytes())?;
+    Ok(GenerationStatus::Written)
+}
+
+fn atomic_write(destination: &Path, bytes: &[u8]) -> Result<(), std::io::Error> {
     let parent = destination.parent().unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent).map_err(|source| GenerationError::Io {
-        path: parent.to_path_buf(),
-        source,
-    })?;
+    fs::create_dir_all(parent)?;
 
     let file_name = destination
         .file_name()
@@ -275,29 +282,18 @@ fn atomic_write(destination: &Path, bytes: &[u8]) -> Result<(), GenerationError>
                 })();
                 if let Err(source) = result {
                     let _ = fs::remove_file(&temporary);
-                    return Err(GenerationError::Io {
-                        path: destination.to_path_buf(),
-                        source,
-                    });
+                    return Err(source);
                 }
                 return Ok(());
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                 last_error = Some(error);
             }
-            Err(source) => {
-                return Err(GenerationError::Io {
-                    path: temporary,
-                    source,
-                });
-            }
+            Err(source) => return Err(source),
         }
     }
 
-    Err(GenerationError::Io {
-        path: destination.to_path_buf(),
-        source: last_error.unwrap_or_else(|| std::io::Error::other("no temporary path available")),
-    })
+    Err(last_error.unwrap_or_else(|| std::io::Error::other("no temporary path available")))
 }
 
 fn format_requirement(requirement: &Requirement) -> String {

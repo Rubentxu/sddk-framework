@@ -35,7 +35,7 @@ SDDK es un framework completo de orquestación de agentes para desarrollo de sof
 │                                                      │
 │  ┌──────────┐  ┌─────────┐  ┌────────────────────┐  │
 │  │  agents/  │  │ skills/ │  │ prompts/sdd-kernel │  │
-│  │  (63)     │  │ (89)    │  │ (phase specs, MCW) │  │
+│  │ (prompts) │  │ (tools)  │  │ (phase specs, MCW) │  │
 │  └────┬─────┘  └────┬────┘  └─────────┬──────────┘  │
 │       │              │                  │             │
 │  ┌────┴──────────────┴──────────────────┴──────────┐ │
@@ -59,6 +59,8 @@ SDDK es un framework completo de orquestación de agentes para desarrollo de sof
     │   (committed to git)       │   creado por sddk-adopt)
     └───────────────────┘
 ```
+
+Las rutas actuales de agentes y skills se mantienen en el [inventario generado del repositorio](docs/generated/inventory.md).
 
 ## Inicio rápido
 
@@ -166,8 +168,8 @@ La **Behavioral Compliance Matrix** mapea cada escenario de spec a un test que p
 
 ```
 sddk-framework/
-├── agents/                 # 63 prompts de agentes (orchestrator, ejecutores de fase, clusters, jueces)
-├── skills/                 # 89 skills (knowledge-graph, sddk-*, entropy-sdd, cognicode-sdd, ...)
+├── agents/                 # Prompts de agentes; ver docs/generated/inventory.md
+├── skills/                 # Skills; ver docs/generated/inventory.md
 ├── prompts/sdd-kernel/     # Phase specs, MCW, git-contract, decision-model, plantillas ADR/roadmap
 ├── knowledge-template/     # Plantilla de vault (6 tipos de nodo, MOCs, lock de serialización)
 ├── golden-dataset/         # Casos de meta-verificación (5 casos iniciales + runner)
