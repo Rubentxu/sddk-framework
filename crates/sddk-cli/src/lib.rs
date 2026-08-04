@@ -12,6 +12,8 @@ mod git_cmd;
 mod inventory;
 mod ledger;
 mod lint;
+mod permission;
+mod result_cmd;
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -22,6 +24,8 @@ use capability::CapabilityCommand;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 pub(crate) use cycle::{CycleCommand, RuntimeArgs, RuntimeContext};
 use git_cmd::GitCommand;
+use permission::PermissionCommand;
+use result_cmd::{AgentResultCommand, ValidateCommand};
 use sddk_domain::{IdentitySource, normalize_scope, resolve_project_identity, stable_workspace_id};
 use sddk_engine::{
     AdoptionPlan, AdoptionPlanInput, AdoptionStatus, AdoptionStatusKind, XdgEnvironment,
@@ -97,6 +101,21 @@ enum Command {
     Artifact {
         #[command(subcommand)]
         command: ArtifactCommand,
+    },
+    /// Check agent phase and capability permissions.
+    Permission {
+        #[command(subcommand)]
+        command: PermissionCommand,
+    },
+    /// Validate structured results against canonical schemas.
+    Validate {
+        #[command(subcommand)]
+        command: ValidateCommand,
+    },
+    /// Convert legacy agent output into structured results.
+    AgentResult {
+        #[command(subcommand)]
+        command: AgentResultCommand,
     },
 }
 
@@ -309,6 +328,9 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         Command::Capability { command } => capability::run_capability(command, environment),
         Command::Git { command } => git_cmd::run_git(command, environment),
         Command::Artifact { command } => artifact::run_artifact(command, environment),
+        Command::Permission { command } => permission::run_permission(command, environment),
+        Command::Validate { command } => result_cmd::run_validate(command, environment),
+        Command::AgentResult { command } => result_cmd::run_agent_result(command, environment),
     }
 }
 

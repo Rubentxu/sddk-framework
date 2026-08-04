@@ -52,6 +52,12 @@ pub(crate) struct CapabilityArgs {
     /// Explicit human approval for R3/R4 capabilities.
     #[arg(long)]
     pub(crate) approve: bool,
+    /// Agent identifier; together with --phase enables the permission gate.
+    #[arg(long)]
+    pub(crate) agent: Option<String>,
+    /// Workflow phase; together with --agent enables the permission gate.
+    #[arg(long)]
+    pub(crate) phase: Option<String>,
     /// Explicit RFC 3339 timestamp for deterministic execution.
     #[arg(long)]
     pub(crate) timestamp: Option<String>,
@@ -111,6 +117,19 @@ fn run_capability_plan(
     let format = args.format;
     let result = (|| -> anyhow::Result<serde_json::Value> {
         let context = RuntimeContext::open(&args.runtime, environment, false)?;
+        match (&args.agent, &args.phase) {
+            (Some(agent), Some(phase)) => {
+                let permissions = sddk_gateway::PermissionPolicy::from_file(
+                    context.root.join("permissions.yaml"),
+                )?;
+                let decision = permissions.authorize(agent, phase, &args.capability);
+                if !decision.allowed {
+                    anyhow::bail!("{}", decision.reason);
+                }
+            }
+            (None, None) => {}
+            _ => anyhow::bail!("--agent and --phase must be supplied together"),
+        }
         let policy = CapabilityPolicy::from_workflow(context.engine.workflow());
         let env = parse_env(&args.env)?;
         let timestamp = args.timestamp.clone().unwrap_or_else(default_timestamp);
