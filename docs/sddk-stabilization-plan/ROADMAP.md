@@ -14,7 +14,7 @@
 | PR 2 | Completo | Required quality gates | Workspace, linter, generadores y testkit tienen pruebas y CI. |
 | PR 3 | Completo | Tests Rust + adopción | UUID persistido, XDG y reparación están alineados con el workflow. |
 | PR 4 | Completo | Tests Rust + CLI end-to-end | Ciclo, fases, ledger, leases/fencing y rebuild expuestos por CLI y probados. |
-| PR 5 | Parcial | Gateway probado | Capability gateway default-deny con runner tipado, filesystem scoped y receipts begin/finalize; faltan Git local (SDDK-603) y CAS (SDDK-604). |
+| PR 5 | Completo | Gateway + Git + CAS probados | Capability gateway default-deny, runner tipado, filesystem scoped, Git local con postcondiciones y CAS SHA-256. |
 | PR 6 | Parcial | No demostrado | Solo schema/modelo; faltan adapter legacy y permisos por fase. |
 | PR 7 | Parcial en modo legacy | No demostrado | Release corregido en prompts, pero no existe Forge ni reconciliación Rust. |
 | PR 8 | No iniciado | No demostrado | Sin parser de vault, FTS5, backlinks ni `petgraph`. |
@@ -94,7 +94,7 @@ Replay reconstruye el mismo estado lógico y las transiciones inválidas se rech
 
 ## PR 5 — Gateway de capacidades locales
 
-**Estado actual:** Parcial; gateway default-deny implementado y probado; Git local y CAS pendientes.
+**Estado actual:** Completo; gateway, Git local y CAS implementados y probados.
 
 ### Entregables
 
@@ -106,7 +106,7 @@ Replay reconstruye el mismo estado lógico y las transiciones inválidas se rech
 
 ### Gate
 
-Toda acción local relevante queda registrada y es idempotente. El gateway aplica policy default-deny, approvals R3/R4 y receipts `started → succeeded|failed` con redacción.
+Toda acción local relevante queda registrada y es idempotente. El gateway aplica policy default-deny, approvals R3/R4 y receipts `started → succeeded|failed` con redacción; las operaciones Git verifican postcondiciones y el CAS exige y re-verifica SHA-256.
 
 ## PR 6 — Protocolo de agentes
 

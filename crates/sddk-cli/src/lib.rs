@@ -4,9 +4,11 @@
 #![deny(clippy::all)]
 #![warn(missing_docs)]
 
+mod artifact;
 mod capability;
 mod cycle;
 mod docs;
+mod git_cmd;
 mod inventory;
 mod ledger;
 mod lint;
@@ -15,9 +17,11 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 
+use artifact::ArtifactCommand;
 use capability::CapabilityCommand;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 pub(crate) use cycle::{CycleCommand, RuntimeArgs, RuntimeContext};
+use git_cmd::GitCommand;
 use sddk_domain::{IdentitySource, normalize_scope, resolve_project_identity, stable_workspace_id};
 use sddk_engine::{
     AdoptionPlan, AdoptionPlanInput, AdoptionStatus, AdoptionStatusKind, XdgEnvironment,
@@ -83,6 +87,16 @@ enum Command {
     Capability {
         #[command(subcommand)]
         command: CapabilityCommand,
+    },
+    /// Run typed local Git operations with verified postconditions.
+    Git {
+        #[command(subcommand)]
+        command: GitCommand,
+    },
+    /// Store and verify content-addressed artifacts.
+    Artifact {
+        #[command(subcommand)]
+        command: ArtifactCommand,
     },
 }
 
@@ -293,6 +307,8 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         Command::Cycle { command } => cycle::run_cycle(command, environment),
         Command::Ledger { command } => ledger::run_ledger(command, environment),
         Command::Capability { command } => capability::run_capability(command, environment),
+        Command::Git { command } => git_cmd::run_git(command, environment),
+        Command::Artifact { command } => artifact::run_artifact(command, environment),
     }
 }
 

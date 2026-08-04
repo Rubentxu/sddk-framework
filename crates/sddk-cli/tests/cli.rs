@@ -855,6 +855,255 @@ fn cli_capability_gateway_enforces_policy_and_persists_receipts() {
     assert!(capabilities.contains(&"git.delete_branch"));
 }
 
+#[test]
+fn cli_git_operations_verify_postconditions_and_record_receipts() {
+    let fixture = CliFixture::new("git-authority");
+    write(
+        fixture.root.join("workflow/workflow.yaml"),
+        CANONICAL_WORKFLOW,
+    );
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&fixture.root)
+        .output()
+        .unwrap();
+    for (key, value) in [("user.name", "SDDK Test"), ("user.email", "test@sddk.dev")] {
+        std::process::Command::new("git")
+            .args(["config", key, value])
+            .current_dir(&fixture.root)
+            .output()
+            .unwrap();
+    }
+    let common = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+    ];
+    let adopted = fixture.run_adopt(
+        "apply",
+        &[
+            "--root",
+            fixture.root.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            "https://example.com/acme/repo.git",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(adopted.status.success());
+
+    let branch = run_with_root(
+        &fixture,
+        &[
+            "git",
+            "create-branch",
+            "--name",
+            "feat/cas",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert!(
+        branch.status.success(),
+        "{}",
+        String::from_utf8_lossy(&branch.stderr)
+    );
+    let branch_json: serde_json::Value = serde_json::from_slice(&branch.stdout).unwrap();
+    assert_eq!(branch_json["status"], "succeeded");
+    assert_eq!(branch_json["result"]["branch"], "feat/cas");
+
+    let unapproved_commit = run_with_root(
+        &fixture,
+        &["git", "commit", "--message", "wip", "--format", "json"],
+        &common,
+    );
+    assert_eq!(unapproved_commit.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&unapproved_commit.stderr).contains("requires approval"),
+        "{}",
+        String::from_utf8_lossy(&unapproved_commit.stderr)
+    );
+
+    let commit = run_with_root(
+        &fixture,
+        &[
+            "git",
+            "commit",
+            "--message",
+            "initial",
+            "--approve",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert!(
+        commit.status.success(),
+        "{}",
+        String::from_utf8_lossy(&commit.stderr)
+    );
+    let commit_json: serde_json::Value = serde_json::from_slice(&commit.stdout).unwrap();
+    assert_eq!(commit_json["status"], "succeeded");
+    let sha = commit_json["result"]["sha"].as_str().unwrap().to_owned();
+
+    let tag = run_with_root(
+        &fixture,
+        &[
+            "git",
+            "tag",
+            "--name",
+            "v0.1.0",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert!(
+        tag.status.success(),
+        "{}",
+        String::from_utf8_lossy(&tag.stderr)
+    );
+
+    let inspect = run_with_root(&fixture, &["git", "inspect", "--format", "json"], &common);
+    assert!(inspect.status.success());
+    let inspect_json: serde_json::Value = serde_json::from_slice(&inspect.stdout).unwrap();
+    assert_eq!(inspect_json["branch"], "feat/cas");
+    assert_eq!(inspect_json["head"], sha);
+
+    let receipts = run_with_root(
+        &fixture,
+        &["capability", "status", "--format", "json"],
+        &common,
+    );
+    let receipts_json: serde_json::Value = serde_json::from_slice(&receipts.stdout).unwrap();
+    assert_eq!(receipts_json.as_array().unwrap().len(), 3);
+}
+
+#[test]
+fn cli_artifact_store_and_get_verify_digest() {
+    let fixture = CliFixture::new("artifact-cas");
+    write(
+        fixture.root.join("workflow/workflow.yaml"),
+        CANONICAL_WORKFLOW,
+    );
+    let common = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+    ];
+    let adopted = fixture.run_adopt(
+        "apply",
+        &[
+            "--root",
+            fixture.root.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            "https://example.com/acme/repo.git",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(adopted.status.success());
+
+    let source = fixture.root.join("report.md");
+    fs::write(&source, "artifact payload\n").unwrap();
+    let stored = run_with_root(
+        &fixture,
+        &[
+            "artifact",
+            "store",
+            "--file",
+            source.to_str().unwrap(),
+            "--kind",
+            "report",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert!(
+        stored.status.success(),
+        "{}",
+        String::from_utf8_lossy(&stored.stderr)
+    );
+    let stored_json: serde_json::Value = serde_json::from_slice(&stored.stdout).unwrap();
+    let digest = stored_json["sha256"].as_str().unwrap().to_owned();
+    assert!(digest.starts_with("sha256:"));
+
+    let destination = fixture.root.join("restored.md");
+    let fetched = run_with_root(
+        &fixture,
+        &[
+            "artifact",
+            "get",
+            "--digest",
+            &digest,
+            "--output",
+            destination.to_str().unwrap(),
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert!(
+        fetched.status.success(),
+        "{}",
+        String::from_utf8_lossy(&fetched.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&destination).unwrap(),
+        "artifact payload\n"
+    );
+
+    let missing = run_with_root(
+        &fixture,
+        &[
+            "artifact",
+            "get",
+            "--digest",
+            "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            "--output",
+            destination.to_str().unwrap(),
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert_eq!(missing.status.code(), Some(1));
+}
+
 fn run_with_root(fixture: &CliFixture, args: &[&str], common: &[&str]) -> std::process::Output {
     fixture.run(
         &args
