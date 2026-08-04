@@ -532,12 +532,21 @@ gates:
 forge:
   provider: auto
   capabilities:
+    git.inspect:
+      risk: low
+      consequence: creates
     git.create_branch:
       risk: low
       consequence: creates
+    git.commit:
+      risk: medium
+      consequence: modifies
     git.merge:
       risk: medium
       consequence: modifies
+    git.tag:
+      risk: low
+      consequence: creates
     git.delete_branch:
       risk: medium
       consequence: irreversible

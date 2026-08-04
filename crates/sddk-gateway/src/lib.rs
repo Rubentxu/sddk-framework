@@ -8,13 +8,17 @@
 #![deny(clippy::all)]
 #![warn(missing_docs)]
 
+mod artifact_store;
 mod filesystem;
 mod gateway;
+mod git;
 mod policy;
 mod runner;
 
+pub use artifact_store::{ArtifactMeta, ArtifactStore, ArtifactStoreError};
 pub use filesystem::{FsError, ScopedFs};
 pub use gateway::{CapabilityGateway, CapabilityPlan, CapabilityPlanInput, GatewayError};
+pub use git::{GitBranch, GitCommit, GitError, GitExecutor, GitInspect, GitTag};
 pub use policy::{CapabilityPolicy, Consequence, PolicyDecision, Risk};
 pub use runner::{RunOutcome, RunSpec, RunnerError, run};
 pub use sddk_storage::CapabilityReceipt;
