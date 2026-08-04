@@ -10,10 +10,10 @@
 
 | Estado | Historias | Significado |
 | --- | ---: | --- |
-| Completa | 24 | Todos los criterios de la historia tienen implementación y prueba directa. |
+| Completa | 28 | Todos los criterios de la historia tienen implementación y prueba directa. |
 | Parcial | 0 | No queda ninguna historia parcial. |
 | Desviada | 0 | No queda ninguna desviación contractual conocida. |
-| No iniciada | 8 | No existe implementación runtime suficiente. |
+| No iniciada | 4 | No existe implementación runtime suficiente. |
 | **Total** | **32** | La base Rust es funcional, pero v3.6 todavía no cumple su criterio de salida. |
 
 ## Matriz de aceptación
@@ -45,10 +45,10 @@
 | SDDK-802 | Completa | Adaptador `GitHubForge` vía `gh` con runner tipado y tolerancia a ya-mergeado/ya-publicado | La integración contra GitHub real queda como prueba manual; el parseo y postcondiciones están testeados con runner inyectado. |
 | SDDK-803 | Completa | `reconcile_pending` finaliza receipts `started` consultando la realidad del proveedor | Sin gap funcional demostrado. |
 | SDDK-804 | Completa | `plan_release`/`apply_release` en Rust con secuencia canónica, idempotencia y convergencia tras interrupciones | Sin gap funcional demostrado. |
-| SDDK-901 | No iniciada | Solo templates y ADR | Falta parser de frontmatter, IDs, tipos, relaciones y procedencia. |
-| SDDK-902 | No iniciada | Sin migraciones FTS5/backlinks | Falta índice reconstruible e incremental. |
-| SDDK-903 | No iniciada | Sin validador de relaciones | Faltan errores estables y tests de referencias/tipos inválidos. |
-| SDDK-904 | No iniciada | `petgraph` no es dependencia | Faltan proyección, ciclos, caminos y orden topológico. |
+| SDDK-901 | Completa | Parser de vault: frontmatter, IDs, tipos, títulos, wikilinks y backlinks en `sddk-vault` | Sin gap funcional demostrado. |
+| SDDK-902 | Completa | Índice FTS5 reconstruible (drop → reindex) y backlinks derivados | Sin gap funcional demostrado. |
+| SDDK-903 | Completa | Validación VAULT001-VAULT004: ids, títulos y wikilinks rotos | Sin gap funcional demostrado. |
+| SDDK-904 | Completa | Grafo `petgraph`: ciclos, camino de muestra y orden topológico | Sin gap funcional demostrado. |
 | SDDK-1001 | No iniciada | `bootstrap.sh` solo instala enlaces legacy | Falta `xtask` o equivalente con fmt/clippy/test/install/doctor. |
 | SDDK-1002 | No iniciada | Sin receipt de instalación | Falta versión, commit, hash, canal y promoción verificable. |
 | SDDK-1003 | No iniciada | Sin pipeline de release | Faltan binarios, checksums, SBOM y attestations. |

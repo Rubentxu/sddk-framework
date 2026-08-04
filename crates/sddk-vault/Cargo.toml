@@ -1,22 +1,21 @@
 [package]
-name = "sddk-storage"
+name = "sddk-vault"
 version = "0.8.0"
 edition = "2024"
 authors = ["SDDK Team"]
 license = "MIT"
 rust-version.workspace = true
 
-[features]
-default = []
-std = []
-
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde-saphyr = { workspace = true }
 thiserror = { workspace = true }
-rusqlite = { workspace = true }
-sha2 = { workspace = true }
-sddk-domain = { path = "../sddk-domain" }
+anyhow = { workspace = true }
+regex = { workspace = true }
+petgraph = "0.8"
+rusqlite = { version = "0.39.0", features = ["bundled"] }
+walkdir = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
