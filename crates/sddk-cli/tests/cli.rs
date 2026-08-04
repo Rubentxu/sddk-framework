@@ -1838,6 +1838,428 @@ fn cli_release_dist_and_verify_checksums_and_sbom() {
 }
 
 #[test]
+fn cli_full_runtime_pipeline_dogfood() {
+    let fixture = CliFixture::new("dogfood");
+    write(
+        fixture.root.join("workflow/workflow.yaml"),
+        CANONICAL_WORKFLOW,
+    );
+    write(
+        fixture.root.join("permissions.yaml"),
+        r#"
+agents:
+  sdd-kernel-apply:
+    phases: [build, verify]
+    capabilities: [git.inspect, git.commit]
+"#,
+    );
+    write(
+        fixture.root.join("schemas/agent-result.schema.json"),
+        include_str!("../../../schemas/agent-result.schema.json"),
+    );
+    write(
+        fixture.root.join("schemas/artifact-ref.schema.json"),
+        include_str!("../../../schemas/artifact-ref.schema.json"),
+    );
+    write(
+        fixture.root.join("schemas/capability-request.schema.json"),
+        include_str!("../../../schemas/capability-request.schema.json"),
+    );
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&fixture.root)
+        .output()
+        .unwrap();
+    for (key, value) in [("user.name", "SDDK Test"), ("user.email", "test@sddk.dev")] {
+        std::process::Command::new("git")
+            .args(["config", key, value])
+            .current_dir(&fixture.root)
+            .output()
+            .unwrap();
+    }
+    let common = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+    ];
+
+    let adopted = fixture.run_adopt(
+        "apply",
+        &[
+            "--root",
+            fixture.root.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            "https://example.com/acme/repo.git",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "dogfood",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(adopted.status.success());
+
+    let vault = fixture.root.join("vault");
+    fs::create_dir_all(vault.join("terms")).unwrap();
+    fs::write(
+        vault.join("terms/TERM-Auth.md"),
+        "---\nid: TERM-Auth\ntype: term\n---\n# Auth\n\nToken [[TERM-JWT]]\n",
+    )
+    .unwrap();
+    fs::write(
+        vault.join("terms/TERM-JWT.md"),
+        "---\nid: TERM-JWT\ntype: term\n---\n# JWT\n",
+    )
+    .unwrap();
+    let indexed = fixture.run(&[
+        "vault",
+        "index",
+        "--vault",
+        vault.to_str().unwrap(),
+        "--db",
+        fixture.root.join("index.sqlite").to_str().unwrap(),
+        "--format",
+        "json",
+    ]);
+    assert!(
+        indexed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&indexed.stderr)
+    );
+    let indexed_json: serde_json::Value = serde_json::from_slice(&indexed.stdout).unwrap();
+    assert_eq!(indexed_json["errors"], 0);
+    assert_eq!(indexed_json["nodes"], 2);
+
+    let started = run_with_root(
+        &fixture,
+        &[
+            "cycle",
+            "start",
+            "--name",
+            "dogfood",
+            "--path",
+            "a-full",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "dogfood",
+            "--lease-owner",
+            "agent-a",
+            "--lease-ms",
+            "3600000",
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert!(
+        started.status.success(),
+        "{}",
+        String::from_utf8_lossy(&started.stderr)
+    );
+    let started_json: serde_json::Value = serde_json::from_slice(&started.stdout).unwrap();
+    let cycle_id = started_json["cycle_id"].as_str().unwrap().to_owned();
+    assert_eq!(started_json["phase"], "explore");
+
+    let evaluated = run_with_root(
+        &fixture,
+        &[
+            "cycle",
+            "evaluate-gate",
+            "--cycle",
+            &cycle_id,
+            "--transition",
+            "phase.explore.complete",
+            "--gate",
+            "exploration-sufficient",
+            "--timestamp",
+            "2026-08-04T10:00:01Z",
+            "--actor",
+            "dogfood",
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert!(
+        evaluated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&evaluated.stderr)
+    );
+    let gate_receipt =
+        serde_json::from_slice::<serde_json::Value>(&evaluated.stdout).unwrap()["receipt_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+
+    let transitioned = run_with_root(
+        &fixture,
+        &[
+            "cycle",
+            "transition",
+            "--cycle",
+            &cycle_id,
+            "--transition",
+            "phase.explore.complete",
+            "--artifact",
+            "exploration-report=artifacts/exploration.md",
+            "--gate-receipt",
+            &gate_receipt,
+            "--lease-owner",
+            "agent-a",
+            "--fencing-token",
+            "1",
+            "--timestamp",
+            "2026-08-04T10:00:02Z",
+            "--actor",
+            "dogfood",
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert!(
+        transitioned.status.success(),
+        "{}",
+        String::from_utf8_lossy(&transitioned.stderr)
+    );
+    let transition_json: serde_json::Value = serde_json::from_slice(&transitioned.stdout).unwrap();
+    assert_eq!(transition_json["phase"], "specify");
+
+    let capability = run_with_root(
+        &fixture,
+        &[
+            "capability",
+            "apply",
+            "--capability",
+            "git.inspect",
+            "--program",
+            "echo",
+            "--arg",
+            "ok",
+            "--agent",
+            "sdd-kernel-apply",
+            "--phase",
+            "build",
+            "--timestamp",
+            "2026-08-04T10:00:03Z",
+            "--actor",
+            "dogfood",
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert!(
+        capability.status.success(),
+        "{}",
+        String::from_utf8_lossy(&capability.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&capability.stdout).unwrap()["status"],
+        "succeeded"
+    );
+
+    let branch = run_with_root(
+        &fixture,
+        &[
+            "git",
+            "create-branch",
+            "--name",
+            "feat/dogfood",
+            "--timestamp",
+            "2026-08-04T10:00:04Z",
+            "--actor",
+            "dogfood",
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert!(
+        branch.status.success(),
+        "{}",
+        String::from_utf8_lossy(&branch.stderr)
+    );
+    let commit = run_with_root(
+        &fixture,
+        &[
+            "git",
+            "commit",
+            "--message",
+            "dogfood",
+            "--approve",
+            "--timestamp",
+            "2026-08-04T10:00:05Z",
+            "--actor",
+            "dogfood",
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert!(
+        commit.status.success(),
+        "{}",
+        String::from_utf8_lossy(&commit.stderr)
+    );
+    let tag = run_with_root(
+        &fixture,
+        &[
+            "git",
+            "tag",
+            "--name",
+            "v9.9.9",
+            "--timestamp",
+            "2026-08-04T10:00:06Z",
+            "--actor",
+            "dogfood",
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert!(
+        tag.status.success(),
+        "{}",
+        String::from_utf8_lossy(&tag.stderr)
+    );
+
+    let source = fixture.root.join("report.md");
+    fs::write(&source, "dogfood artifact\n").unwrap();
+    let stored = run_with_root(
+        &fixture,
+        &[
+            "artifact",
+            "store",
+            "--file",
+            source.to_str().unwrap(),
+            "--kind",
+            "report",
+            "--timestamp",
+            "2026-08-04T10:00:07Z",
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert!(
+        stored.status.success(),
+        "{}",
+        String::from_utf8_lossy(&stored.stderr)
+    );
+    let digest = serde_json::from_slice::<serde_json::Value>(&stored.stdout).unwrap()["sha256"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let destination = fixture.root.join("restored.md");
+    let fetched = run_with_root(
+        &fixture,
+        &[
+            "artifact",
+            "get",
+            "--digest",
+            &digest,
+            "--output",
+            destination.to_str().unwrap(),
+        ],
+        &common,
+    );
+    assert!(
+        fetched.status.success(),
+        "{}",
+        String::from_utf8_lossy(&fetched.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&destination).unwrap(),
+        "dogfood artifact\n"
+    );
+
+    let verified = run_with_root(&fixture, &["ledger", "verify", "--format", "json"], &common);
+    assert!(verified.status.success());
+    let ledger_json: serde_json::Value = serde_json::from_slice(&verified.stdout).unwrap();
+    assert!(ledger_json["event_count"].as_i64().unwrap() >= 2);
+
+    let release_plan = run_with_root(
+        &fixture,
+        &[
+            "release",
+            "plan",
+            "--repo",
+            "acme/repo",
+            "--branch",
+            "feat/dogfood",
+            "--base",
+            "main",
+            "--title",
+            "Dogfood",
+            "--tag",
+            "v9.9.9",
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert!(
+        release_plan.status.success(),
+        "{}",
+        String::from_utf8_lossy(&release_plan.stderr)
+    );
+
+    let permission_ok = run_with_root(
+        &fixture,
+        &[
+            "permission",
+            "check",
+            "--agent",
+            "sdd-kernel-apply",
+            "--phase",
+            "build",
+            "--capability",
+            "git.inspect",
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert!(permission_ok.status.success());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&permission_ok.stdout).unwrap()["allowed"],
+        true
+    );
+
+    let prefix = fixture.root.join("prefix");
+    let installed = run_from([
+        "sddk",
+        "dev",
+        "install",
+        "--prefix",
+        prefix.to_str().unwrap(),
+        "--channel",
+        "dogfood",
+        "--timestamp",
+        "2026-08-04T10:00:08Z",
+    ]);
+    assert_eq!(installed.status, 0, "{}", installed.stderr);
+    assert!(prefix.join("bin/sddk").exists());
+    assert!(prefix.join("sddk-install.json").exists());
+    let uninstalled = run_from([
+        "sddk",
+        "dev",
+        "uninstall",
+        "--prefix",
+        prefix.to_str().unwrap(),
+    ]);
+    assert_eq!(uninstalled.status, 0, "{}", uninstalled.stderr);
+}
+
+#[test]
 fn cli_dev_doctor_reports_environment() {
     let doctor = run_from(["sddk", "dev", "doctor", "--format", "json"]);
     assert_eq!(doctor.status, 0, "{}", doctor.stderr);
