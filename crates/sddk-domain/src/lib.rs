@@ -8,6 +8,7 @@
 #![warn(missing_docs)]
 
 pub mod cycle;
+pub mod error;
 pub mod identity;
 pub mod legacy;
 pub mod pack;
@@ -15,6 +16,7 @@ pub mod schema;
 pub mod workflow;
 
 pub use cycle::*;
+pub use error::*;
 pub use identity::*;
 pub use legacy::*;
 pub use pack::*;
