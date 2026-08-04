@@ -16,7 +16,7 @@
 | PR 4 | Completo | Tests Rust + CLI end-to-end | Ciclo, fases, ledger, leases/fencing y rebuild expuestos por CLI y probados. |
 | PR 5 | Completo | Gateway + Git + CAS probados | Capability gateway default-deny, runner tipado, filesystem scoped, Git local con postcondiciones y CAS SHA-256. |
 | PR 6 | Completo | Tests Rust + CLI | Schema validation runtime, adaptador legacy y permisos por fase con default-deny. |
-| PR 7 | Parcial en modo legacy | No demostrado | Release corregido en prompts, pero no existe Forge ni reconciliación Rust. |
+| PR 7 | Completo | Tests Rust + MockForge | Forge trait, adaptador GitHub, release plan/apply idempotente y reconciliación contra el proveedor. |
 | PR 8 | No iniciado | No demostrado | Sin parser de vault, FTS5, backlinks ni `petgraph`. |
 | PR 9 | No iniciado | No demostrado | Sin `xtask`, CI/CD, receipts, SBOM ni attestations. |
 
@@ -125,7 +125,7 @@ Un agente no puede cambiar de fase mediante texto libre. La validación JSON Sch
 
 ## PR 7 — Forge y release
 
-**Estado actual:** Parcial en prompts/shell; runtime Forge no iniciado.
+**Estado actual:** Completo; trait Forge, adaptador GitHub, release plan/apply y reconciliación probados.
 
 ### Entregables
 
@@ -135,7 +135,7 @@ Un agente no puede cambiar de fase mediante texto libre. La validación JSON Sch
 
 ### Gate
 
-Un fallo durante merge o publicación se reconcilia sin duplicar efectos.
+Un fallo durante merge o publicación se reconcilia sin duplicar efectos. `apply_release` re-chequea el proveedor antes de cada paso, omite efectos ya presentes y `reconcile_pending` finaliza receipts interrumpidos consultando la realidad.
 
 ## PR 8 — Vault, índices e Inspector mínimo
 
