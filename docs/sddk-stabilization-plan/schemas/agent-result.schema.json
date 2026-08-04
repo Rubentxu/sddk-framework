@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sddk.dev/schemas/agent-result.schema.json",
+  "title": "SDDK Agent Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "agent",
+    "cycle_id",
+    "phase",
+    "verdict",
+    "summary",
+    "artifacts",
+    "requested_capabilities"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "agent": { "type": "string", "minLength": 1 },
+    "cycle_id": { "type": "string", "minLength": 1 },
+    "phase": {
+      "enum": ["explore", "specify", "design", "plan", "build", "verify", "review", "release", "archive"]
+    },
+    "verdict": {
+      "enum": ["completed", "blocked", "needs_input", "failed"]
+    },
+    "summary": { "type": "string", "minLength": 1 },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "path"],
+        "properties": {
+          "kind": { "type": "string" },
+          "path": { "type": "string" },
+          "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+        }
+      }
+    },
+    "proposed_relations": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "type", "target"],
+        "properties": {
+          "source": { "type": "string" },
+          "type": { "type": "string" },
+          "target": { "type": "string" }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "default": [],
+      "items": { "type": "string" }
+    },
+    "risks": {
+      "type": "array",
+      "default": [],
+      "items": { "type": "string" }
+    },
+    "requested_capabilities": {
+      "type": "array",
+      "items": { "$ref": "capability-request.schema.json" }
+    }
+  }
+}
