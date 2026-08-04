@@ -51,10 +51,10 @@ La clasificación exige evidencia en repositorio. Un tipo, tabla o campo aislado
 | GAP-009 | P1 | Cerrado | Frames por comando consultables y leases con fencing exigido en mutaciones de ciclos leaseados. | Aplicar el mismo fence a capabilities y Git cuando existan. |
 | GAP-010 | P1 | Cerrado | CAS con SHA-256 obligatorio, deduplicación por contenido y verificación en cada lectura. | Usar digest como clave de artefacto en adaptadores futuros. |
 | GAP-011 | P1 | Cerrado | Receipts con lifecycle begin→finalize; terminal directo y JSON sin sanear rechazados; redacción de secretos. | Aplicar redacción a futuros adaptadores. |
-| GAP-012 | P1 | Abierto | Forge/release está corregido solo en prompts y shell. | Implementar puerto Forge, adaptador GitHub y release reconciliable. |
+| GAP-012 | P1 | Cerrado | Forge trait, adaptador GitHub y release plan/apply/reconcile en runtime. | Mantener la reconciliación contra el proveedor. |
 | GAP-013 | P1 | Cerrado | `sddk-testkit::TestRepository` ofrece fixture reutilizable con aislamiento de paths. | Extenderlo cuando storage y capabilities requieran harness compartido. |
-| GAP-014 | P2 | Abierto | Vault, FTS5, backlinks y petgraph no están iniciados. | Mantener PR8 detrás de PR5-PR7. |
-| GAP-015 | P2 | Abierto | Distribución, receipts, SBOM y attestations no están iniciados. | Mantener PR9 como último corte. |
+| GAP-014 | P2 | Cerrado | Vault: parser, FTS5 reconstruible, validación y grafo petgraph. | Mantener el índice reconstruible desde el vault. |
+| GAP-015 | P2 | Cerrado | Distribución con receipt, checksums, SBOM y attestations; instalación atómica. | Mantener la verificación de integridad. |
 
 ## Detalle de bloqueos P0
 
@@ -62,7 +62,7 @@ La clasificación exige evidencia en repositorio. Un tipo, tabla o campo aislado
 
 La base fundacional se integró en `main` mediante PR #2 y se publicó como `v0.1.0`. `target/` permanece excluido.
 
-El corte `v0.2.0` se integró mediante PR #4, trazado por issue #3 y verificado con el mismo flujo trunk-based.
+La base fundacional se integró mediante PR #4 (`v0.2.0`) y el runtime completo evolucionó hasta `v0.14.0` con el mismo flujo trunk-based; todos los gaps quedaron cerrados.
 
 **Criterio de cierre:** commits separados por comportamiento, revisión de archivos incluidos, `target/` excluido, CI verde y trazabilidad entre cada commit y las historias cerradas.
 
@@ -297,4 +297,4 @@ v3.6 queda declarado estable; todos los criterios se cumplen:
 - [x] Forge/release converge sin duplicar efectos;
 - [x] no existen contratos ejecutables duplicados o contradictorios.
 
-Los ADR-0001 a ADR-0008 pasan de `propuesta` a `aceptada` en `v0.11.0`.
+Los ADR-0001 a ADR-0008 pasaron de `propuesta` a `aceptada` en `v0.11.0`.

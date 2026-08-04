@@ -1,10 +1,10 @@
 # Roadmap de entrega — SDDK v3.6
 
 **Estado auditado:** 2026-08-04
-**Baseline:** `v0.2.0`
+**Baseline:** `v0.14.0`
 **Informe:** [`CURRENT-STATE-AUDIT.md`](CURRENT-STATE-AUDIT.md)
 
-> Los números PR 1-9 representan unidades funcionales del plan, no números literales de pull request. `v0.2.0` cierra canon, inventario y CI de PR1-PR3 sobre la base Rust entregada en `v0.1.0`.
+> Los números PR 1-9 representan unidades funcionales del plan, no números literales de pull request. El plan PR1-PR9 se entregó entre `v0.1.0` y `v0.10.0`; v3.6 se declaró estable en `v0.11.0` y se endureció en `v0.12.0`-`v0.14.0`.
 
 ## Panel de entrega
 
@@ -22,7 +22,7 @@
 
 ## Próximo corte recomendado
 
-El plan PR1-PR9 está completo; el backlog v3.6 queda al 100 %. En `v0.11.0` v3.6 se declara oficialmente estable y los ADR-0001 a ADR-0008 pasan a `aceptada`.
+El roadmap está COMPLETO y cerrado. Post-estabilidad: hardening (property tests, validación de todos los schemas), seam de integración dogfood y registro de agentes verificado por lint (`v0.12.0`-`v0.14.0`).
 
 ## PR 1 — Estabilización semántica
 

@@ -1,7 +1,7 @@
 # Backlog técnico — SDDK v3.6
 
 **Estado auditado:** 2026-08-04
-**Baseline:** `v0.2.0`
+**Baseline:** `v0.14.0`
 **Informe:** [`CURRENT-STATE-AUDIT.md`](CURRENT-STATE-AUDIT.md)
 
 > El estado mide criterios de aceptación demostrados en el repositorio actual. Código presente sin integración, gate automático o evidencia suficiente se marca como parcial. Nada de este paquete se considera entregado hasta quedar versionado y protegido por CI.
@@ -20,7 +20,7 @@
 
 | Historia | Estado | Evidencia actual | Gap que impide cerrarla |
 | --- | --- | --- | --- |
-| SDDK-101 | Parcial | `workflow/workflow.yaml`; `validate_workflow`; tests de dominio; snapshots duplicados retirados | No se ejecuta validación JSON Schema completa. |
+| SDDK-101 | Completa | `workflow/workflow.yaml`; `validate_workflow`; tests de dominio; `sddk validate schema` con dereferencia offline | Sin gap funcional demostrado. |
 | SDDK-102 | Completa | `sddk generate docs`; SDDK009; tests deterministas; gate CI | Sin gap funcional demostrado. |
 | SDDK-201 | Completa | SDDK001 y tests de referencias tipadas | Sin gap funcional de historia; falta automatizarla en CI a nivel roadmap. |
 | SDDK-202 | Completa | SDDK002-SDDK004 y fixtures de shell ejecutable | Sin gap funcional de historia; el escaneo de fences es opt-in por diseño. |
