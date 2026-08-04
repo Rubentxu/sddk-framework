@@ -1,0 +1,33 @@
+[package]
+name = "sddk-cli"
+version = "0.1.0"
+edition = "2024"
+authors = ["SDDK Team"]
+license = "MIT"
+rust-version.workspace = true
+
+[[bin]]
+name = "sddk"
+path = "src/main.rs"
+
+[features]
+default = []
+std = []
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+regex = { workspace = true }
+serde-saphyr = { workspace = true }
+walkdir = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+sddk-domain = { path = "../sddk-domain" }
+sddk-engine = { path = "../sddk-engine" }
+sddk-storage = { path = "../sddk-storage" }
+
+[dev-dependencies]
+tempfile = { workspace = true }
