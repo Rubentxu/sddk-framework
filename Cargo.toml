@@ -4,6 +4,7 @@ members = [
     "crates/sddk-domain",
     "crates/sddk-storage",
     "crates/sddk-engine",
+    "crates/sddk-gateway",
     "crates/sddk-cli",
     "crates/sddk-testkit",
 ]
