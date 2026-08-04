@@ -10,10 +10,10 @@
 
 | Estado | Historias | Significado |
 | --- | ---: | --- |
-| Completa | 17 | Todos los criterios de la historia tienen implementación y prueba directa. |
-| Parcial | 1 | Existe una base útil, pero falta al menos un criterio o integración obligatoria. |
+| Completa | 20 | Todos los criterios de la historia tienen implementación y prueba directa. |
+| Parcial | 0 | No queda ninguna historia parcial. |
 | Desviada | 0 | No queda ninguna desviación contractual conocida. |
-| No iniciada | 14 | No existe implementación runtime suficiente. |
+| No iniciada | 12 | No existe implementación runtime suficiente. |
 | **Total** | **32** | La base Rust es funcional, pero v3.6 todavía no cumple su criterio de salida. |
 
 ## Matriz de aceptación
@@ -38,9 +38,9 @@
 | SDDK-602 | Completa | `ScopedFs` con raíces restringidas, rechazo de escapes/symlinks y escritura atómica | Sin gap funcional demostrado. |
 | SDDK-603 | Completa | `GitExecutor` tipado: inspect, create-branch, commit y tag con postcondiciones verificadas contra Git real | Sin gap funcional demostrado. |
 | SDDK-604 | Completa | CAS `ArtifactStore` con SHA-256 obligatorio, deduplicación por contenido y verificación en lectura | Sin gap funcional demostrado. |
-| SDDK-701 | Parcial | Schema canónico único y `AgentResult` tipado | El runtime no valida JSON Schema. |
-| SDDK-702 | No iniciada | Sin adaptador runtime | Falta convertir resultados legacy y emitir campos no verificables. |
-| SDDK-703 | No iniciada | Riesgos declarativos en workflow | Falta política agent + phase + capability y enforcement default-deny. |
+| SDDK-701 | Completa | Validación JSON Schema runtime con dereferencia local de `$ref` y `sddk validate agent-result` | Sin gap funcional demostrado. |
+| SDDK-702 | Completa | Adaptador legacy (`convert_legacy_map`/`convert_legacy_text`) con warnings de campos no verificables y `sddk agent-result convert` | Sin gap funcional demostrado. |
+| SDDK-703 | Completa | `permissions.yaml` + `PermissionPolicy` default-deny y gate en `capability apply --agent/--phase` + `sddk permission check` | Sin gap funcional demostrado. |
 | SDDK-801 | No iniciada | `ForgeDef` es solo configuración | Falta trait neutral, mock y pruebas de contrato. |
 | SDDK-802 | No iniciada | Release legacy vive en prompts/scripts | Falta adaptador GitHub runtime para PR/checks/merge/release. |
 | SDDK-803 | No iniciada | Existe `CapabilityStatus::Unknown` | Falta lifecycle de receipts y reconciliación contra el proveedor. |
