@@ -21,33 +21,64 @@ Hard gate: `git rev-parse HEAD == origin/main`. If `main` cannot be pulled → B
 
 ### Step 0.2 — Previous Cycle Consolidation Check
 
-Verify previous cycle is fully closed:
+Verify previous cycle is fully closed. **Do NOT use remote branch existence as the primary signal** — stale branches linger. Instead, consult the knowledge graph vault first, then use Git as secondary verification.
 
+**Primary check — consult lock/vault/cycle state:**
 ```bash
-git branch -r --list 'origin/feat/*' 'origin/fix/*' 'origin/refactor/*'
-git branch -r --list 'origin/chore/*' 'origin/perf/*' 'origin/test/*' 'origin/docs/*'
-git ls-remote --tags origin
-gh issue list --state open --assignee @me
-gh pr list --state open --author @me
+PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+PROJECT="$(basename "$PROJECT_ROOT")"
+VAULT="$HOME/.sddk-knowledge/$PROJECT"
+
+# Check serialization lock
+if [ -f "$VAULT/milestones/_active.md" ]; then
+  if grep -q "LOCKED" "$VAULT/milestones/_active.md" 2>/dev/null; then
+    # Cycle in progress — extract milestone name
+    MILESTONE=$(grep "Milestone:" "$VAULT/milestones/_active.md" | head -1)
+    BLOCK "Cycle in progress — $MILESTONE"
+  fi
+fi
+
+# Tags are historical evidence only. They never override an active lock.
 ```
 
-Hard gate: zero unmerged branches, zero unpushed tags (whose commit isn't already on main), zero open PRs from prior cycles. **Note**: tag presence on a commit already on main = OK; cycle is closed.
+**Secondary check — Git verification only (not primary):**
+```bash
+# Detect default branch and primary remote dynamically
+PRIMARY_REMOTE=$(git remote | head -1)
+[ -n "$PRIMARY_REMOTE" ] || PRIMARY_REMOTE="origin"
+DEFAULT_BRANCH=$(git symbolic-ref "refs/remotes/$PRIMARY_REMOTE/HEAD" 2>/dev/null | sed "s|refs/remotes/$PRIMARY_REMOTE/||")
+[ -n "$DEFAULT_BRANCH" ] || DEFAULT_BRANCH="main"
 
-If unmerged: resume that cycle, do not start new one.
+# Normalize branch output before filtering; git indents remote branch names.
+UNMERGED=$(git branch -r --no-merged "$PRIMARY_REMOTE/$DEFAULT_BRANCH" \
+  | sed 's/^[*[:space:]]*//' \
+  | grep -E "^${PRIMARY_REMOTE}/(feat|fix|refactor|chore|perf|test|docs)/" \
+  || true)
+[ -z "$UNMERGED" ] || BLOCK "Unmerged cycle branches: $UNMERGED"
+
+# Check for open PRs from this actor
+OPEN_PRS=$(gh pr list --state open --author @me --base "$DEFAULT_BRANCH" --json number,title,headRefName)
+[ "$OPEN_PRS" = "[]" ] || BLOCK "Open PRs from a previous cycle: $OPEN_PRS"
+```
+
+Hard gate: the serialization lock is AVAILABLE **AND** there are no matching unmerged cycle branches **AND** no open PR from a prior cycle. A historical tag never overrides an active lock.
+
+If unmerged branches exist: resume that cycle, do not start new one.
+
 
 ### Step 0.3 — Knowledge Coverage Check (A-full only)
 
-Resolve: ROADMAP, work items, ADRs, architecture docs, ownership, learnings.
+Resolve milestone, work items, ADRs, architecture context, ownership, and learnings from the external knowledge vault.
 
 ```bash
-cat docs/ROADMAP.md 2>/dev/null
-ls docs/adr/*.md 2>/dev/null
-cat CONTEXT.md 2>/dev/null
+cat "$VAULT/milestones/_active.md" 2>/dev/null
+ls "$VAULT"/milestones/M-*.md "$VAULT"/adrs/ADR-*.md 2>/dev/null
+cat "$VAULT/_index.md" 2>/dev/null
 ```
 
 Hard gates:
-- `docs/ROADMAP.md` missing → create from `prompts/sdd-kernel/roadmap-template.md`.
-- Cycle's milestone not in ROADMAP → add before proceeding.
+- Vault index or milestone state missing → BLOCK and repair adoption/knowledge state.
+- Cycle's milestone missing from the vault → add it before proceeding.
 - ADR with `superseded by ADR-NNN` where NNN doesn't exist → block.
 
 For A-lite/A-min/B-direct: skip this step.
@@ -135,7 +166,7 @@ Load skill → execute → light verify. No SDDK phases.
 
 Delegate to `sdd-kernel-apply`. Output: atomic conventional commits on branch.
 
-Hard gate: every commit passes git-boundary lint (type/scope/imperative/72-char/no AI attribution).
+Hard gate: every commit passes the declarative git checklist (type/scope/imperative/72-char/no AI attribution).
 
 The apply phase follows `prompts/sdd-kernel/phases/apply.md`, which loads `phases/apply-strict-tdd.md` conditionally when `strict_tdd_mode: true` in the launch plan. The orchestrator sets this from project testing-capabilities (cached during sddk-init) and from any `rules.apply.strict_tdd` in `openspec/config.yaml`.
 
@@ -192,19 +223,20 @@ Each cluster agent emits its dimension verdict. The phase orchestrator merges th
 | Severity | re_iterate_from | Action |
 |----------|-----------------|--------|
 | DQS < 0.3 OR connascence > 5 bits OR new cycles OR god-class CRIT OR ≥3 SOLID CRIT | `beginning` | Re-iterate from Step 0.4 (triage → re-explore → re-propose) — problem framing is wrong |
-| Multiple HIGH OR ≥1 accidental-bloat OR ≥10 ponytail | `apply` | **Launch fix cycle on `refactor/debt-<change-name>-<round>` (path A-min)** — debt-aware re-implementation |
+| Multiple HIGH OR ≥1 accidental-bloat OR ≥10 ponytail | `apply` | **Remediate on SAME feature branch** — increment `remediation_round`, apply fixes, re-verify, re-debt-verify (max 3 rounds) |
 | 1–2 HIGH, mostly LOW/MEDIUM | `none` | Proceed to Step 2.5 (archive) with debt report attached to PR |
 | All clean | `none` | Proceed to Step 2.5 (archive) |
 
-**Fix cycle discipline (trunk-based)**:
-- The fix cycle is itself a complete SDDK cycle but path is **forced to A-min** (`spec → apply → verify → debt-verify(smoke) → archive → release`).
-- Branch name: `refactor/debt-<change-name>-<round>` (round starts at 1).
-- After the fix cycle merges back into the original feature branch, the original branch re-enters this Step 2.4 with `debt_fix_round` incremented. v3.3: **debt-verify re-runs unconditionally** on the fixed branch (depth still derived from path; no user prompt).
-- **Max 3 fix rounds**. After round 3 fails → escalate to user with full debt report and STOP. No auto-merge.
+**Remediation discipline (trunk-based — same branch, same cycle_id)**:
+- Remediation happens on the **SAME feature branch** — increment `remediation_round` (starts at 1, max 3).
+- Orchestrator applies fixes via `sddk-apply` on the same branch.
+- Re-run `sddk-verify` then `sddk-debt-verify` with incremented `remediation_round`.
+- **NO auxiliary branch, NO separate PR, NO separate release**.
+- **Max 3 remediation rounds**. After round 3 fails → escalate to user with full debt report and STOP. No auto-merge.
 
-**Pre-existing main debt detection**: if any CRITICAL finding traces to a commit on `main` BEFORE the feature branch was created, flag `pre_existing_main_debt: true`. The fix cycle must address it on main, not on the feature branch.
+**Pre-existing main debt detection**: if any CRITICAL finding traces to a commit on `main` BEFORE the feature branch was created, flag `pre_existing_main_debt: true` and create a follow-up incidence. It does not create a second cycle inside the active cycle.
 
-**Hard gate**: PASS or PW. FAIL → launch fix cycle. (No skip path; depth is path-derived.)
+**Hard gate**: PASS or PW. FAIL → enter remediation on the same branch and `cycle_id`. There is no skip path; depth is path-derived.
 
 ### Step 2.5 — Coherence Check (verify → archive) (A-full only)
 
@@ -212,7 +244,7 @@ Score ≥ 60. Runs AFTER debt-verify so the coherence score reflects both functi
 
 ### Step 2.6 — Archive
 
-Delegate to `sdd-kernel-archive`. Output: `archive-report.md` with knowledge impact, entropy trend, roadmap update, AND debt-report attachment.
+Delegate to `sdd-kernel-archive`. Output: `archive-report.md` with knowledge impact, entropy trend, and debt-report attachment.
 
 The archive report embeds the debt summary so it travels with the PR description.
 
@@ -230,38 +262,49 @@ git push origin <branch>
 
 Hard gate: `git ls-remote origin <branch>` returns latest local commit SHA.
 
-### Step 3.2 — Create Pull Request (MANDATORY)
+### Step 3.2 — Create or Reuse Pull Request (MANDATORY)
 
 ```
+gh pr list --head <branch> --state all --json number,url,state
+# If no PR exists in any state:
 gh pr create --base main --head <branch> --title "<type>(<scope>): <description>" --body "..."
+# Query again to populate PR number and URL after creation.
 ```
 
 PR body includes: summary, test plan, artifacts, tracking issue.
 
 Hard gate: `gh pr view --json number,url` returns valid PR.
 
-### Step 3.3 — Wait for PR Approval
+### Step 3.3 — Checks, Approval, Merge Request, and MERGED Gate
 
 ```
 gh pr checks <pr-number> --watch
+# auto mode, after required checks/approval:
+gh pr merge <pr-number> --auto --merge
+# guided/strict: authorized human performs the merge action.
+# Then poll:
+gh pr view <pr-number> --json state
 ```
 
-Hard gate: PR state = MERGED. Timeout (default 24h, configurable) → BLOCK, notify user. No auto-merge unless user authorized.
+Required order: wait checks and required approval → request merge or enable auto-merge → wait until `state == MERGED`. Timeout (default 24h, configurable) → BLOCK and notify the user. If the PR is already merged, the merge request is an idempotent no-op.
 
-### Step 3.4 — Merge to Main
+### Step 3.4 — Verify Merge SHA
 
-Verify merge commit:
+The PR is already MERGED. Verify only; do not invoke `gh pr merge` in this step:
 
+```bash
+git fetch origin main <branch>
+BRANCH_HEAD="$(git rev-parse origin/<branch>)"
+MERGE_SHA="$(gh pr view <pr-number> --json mergeCommit --jq '.mergeCommit.oid')"
+git merge-base --is-ancestor "$BRANCH_HEAD" "$MERGE_SHA"
+git merge-base --is-ancestor "$MERGE_SHA" origin/main
 ```
-git checkout main && git pull origin main
-git log --oneline -1 | grep "<branch>"
-```
 
-Hard gate: branch's last commit SHA in main's git log.
+Hard gate: branch head is an ancestor of the PR merge commit, and the merge commit is an ancestor of the remote default branch.
 
 ### Step 3.5 — Create Semver Tag (MANDATORY)
 
-Bump per change type:
+Bump derives from the PR commit headlines and bodies:
 
 | Change type | Bump |
 |-------------|------|
@@ -269,18 +312,9 @@ Bump per change type:
 | New feature (non-breaking) | `minor` |
 | Bug fix, chore, docs, refactor | `patch` |
 
-```
-git tag -a v<major>.<minor>.<patch> -m "<type>: milestone — <description>
-Release: <change-name>
-- <feature bullets>
-- <fix bullets>
-- <breaking changes if any>
+Use the dependency-free, idempotent algorithm in `prompts/sdd-kernel/phases/release.md` Step 7. If a semver tag already points to `MERGE_SHA`, reuse it. Otherwise compute the next version once, tag `MERGE_SHA`, and push. Never bump again merely because release resumed.
 
-See sddk/<change>/archive-report.md for details."
-git push origin v<major>.<minor>.<patch>
-```
-
-Hard gate: tag pushed to origin.
+Hard gate: exactly one selected semver tag points to `MERGE_SHA` and exists on the remote.
 
 ### Step 3.6 — HTML Closing Report (CONDITIONAL)
 
@@ -307,45 +341,15 @@ Hard gate (when required): HTML exists and non-empty.
 gh issue close <issue-number> --comment "Completed in PR #<pr-number>. Released as v<version>."
 ```
 
-### Step 3.8 — Update Roadmap (MANDATORY, v3.3 — LOCAL-ONLY + ENGRAM)
+### Step 3.8 — Update Knowledge Graph (MANDATORY)
 
-`docs/ROADMAP.md` is a **Local-Only Artifact** (see `git-contract.md § Local-Only Artifact Policy (v3.3)`). The orchestrator and `sdd-kernel-release` write the file locally and persist its full rendered content to Engram. **No `git add docs/`, no `git commit`, no `git push` for the roadmap — the file is gitignored.**
+Update the external vault milestone, touched ADRs, touched requirements, and cycle manifest with PR, tag, verdicts, completion time, and report path. Append every mutation to `_log.md`.
 
-```bash
-# 1. Write the updated docs/ROADMAP.md locally (atomic write)
-ROADMAP_PATH="${PROJECT_ROOT}/docs/ROADMAP.md"
-mkdir -p "$(dirname "$ROADMAP_PATH")"
-# ... write content from sdd-kernel-archive's render ...
+Hard gate: milestone and cycle manifest are `completed`; touched ADRs and requirements reference this cycle and tag. Failure BLOCKS release and retains the serialization lock.
 
-# 2. Verify it is gitignored (defensive; should already be per init policy)
-git check-ignore -v "$ROADMAP_PATH" || {
-  log "sddk-roadmap-not-gitignored" "falling back to Engram-only persistence"
-}
+### Step 3.9 — Release Serialization Lock (MANDATORY)
 
-# 3. Persist full rendered content to Engram (durable cross-machine record)
-engram_save \
-  topic_key="sddk/${CHANGE}/roadmap" \
-  type=architecture \
-  content="$(cat "$ROADMAP_PATH")" \
-  scope=project
-
-# NOT done in v3.5:
-#   git add docs/ROADMAP.md        ← docs/ no longer exists in the repo
-#   git commit -m "docs(roadmap): ..."
-#   git push origin main
-# ROADMAP is now a knowledge graph node at {project}/~/.sddk-knowledge/{project}/milestones/M-NNN-{slug}.md
-```
-
-The roadmap update carries the same milestone metadata as before (PR, tag, completed date, learnings, closes `<n>`), but lives only in:
-1. The local `docs/ROADMAP.md` (gitignored, readable by opencode via `.ignore` override).
-2. The Engram topic `sddk/<change>/roadmap`.
-
-The durable cross-machine record of "what state is each milestone in" is Engram, **not** git. A fresh clone of the repo can rebuild `docs/ROADMAP.md` from Engram via `sddk-init` rehydration.
-```
-
-Hard gate: ROADMAP shows milestone as COMPLETED with links to PR, tag, HTML report.
-
-If ADRs created/superseded this cycle: `docs/adr/README.md` index must be updated, ADRs referenced in ROADMAP milestone's `Linked ADR(s)`.
+Mark `milestones/_active.md` AVAILABLE only after Step 3.8 succeeds. Failure BLOCKS release; never announce next-cycle readiness with a stale lock.
 
 ---
 
@@ -434,15 +438,15 @@ Last checkpoint: <task-id>
 
 | Anti-pattern | Consequence | Enforcement |
 |--------------|-------------|-------------|
-| Committing directly to main | Bypasses review | git-boundary blocks |
-| Force-pushing to main | Destroys history | git-boundary blocks |
-| Rebasing feature branches | Loses review history | git-boundary blocks |
+| Committing directly to main | Bypasses review | Checklist blocks |
+| Force-pushing to main | Destroys history | Checklist blocks |
+| Rebasing feature branches | Loses review history | Checklist blocks |
 | Starting new cycle without closing previous | Two cycles open | Step 0.2 gate |
 | Skipping PR review | Merge of unreviewed code | Step 3.3 gate |
 | Merging without PR | Bypasses review | Step 3.4 verifies |
 | Skipping semver tag | Lost milestone | Step 3.5 gate |
 | Skipping trunk sync | Working on stale main | Step 0.1 + 4.1 gates |
-| Co-Authored-By in commit | AI attribution leaked | git-boundary blocks |
+| Co-Authored-By in commit | AI attribution leaked | Checklist blocks |
 | Running full SDDK for C3 fix | Waste | Use B-direct via triage |
 | Coherence check on B-direct | Theater | Skipped by path |
 | HTML report for patch tag | Overhead | Skipped by path |
@@ -465,7 +469,7 @@ Last checkpoint: <task-id>
 | 1 | 1.6 | Tasks | tasks approved |
 | 1 | 1.7 | Review budget | Forecast ≤ budget |
 | 1 | 1.8 | Branch creation | Name matches regex |
-| 2 | 2.1 | Apply | Commits pass git-boundary lint |
+| 2 | 2.1 | Apply | Commits pass declarative git checklist |
 | 2 | 2.2 | Coherence apply→verify (A-full, A-lite) | ≥ 60 |
 | 2 | 2.3 | Verify | PASS or PW |
 | 2 | 2.4 | **Debt-verify (MANDATORY on A-*; n/a on B-direct; depth derived from path)** | PASS or PW |
@@ -473,12 +477,13 @@ Last checkpoint: <task-id>
 | 2 | 2.6 | Archive | archive-report registered |
 | 3 | 3.1 | Push branch | ls-remote matches |
 | 3 | 3.2 | Create PR | gh pr view valid |
-| 3 | 3.3 | Wait approval | PR MERGED |
-| 3 | 3.4 | Merge to main | Branch's commit in main |
+| 3 | 3.3 | Checks + merge request + wait | PR MERGED |
+| 3 | 3.4 | Verify merge | Branch head and merge SHA are ancestors of main |
 | 3 | 3.5 | Semver tag | Tag pushed |
 | 3 | 3.6 | HTML report (conditional) | File exists |
 | 3 | 3.7 | Close issue | Issue CLOSED |
-| 3 | 3.8 | Update roadmap | Roadmap committed |
+| 3 | 3.8 | Update knowledge graph | Vault nodes completed |
+| 3 | 3.9 | Release lock | Lock AVAILABLE |
 | 4 | 4.1 | Sync main | HEAD == origin/main |
 | 4 | 4.2 | F3 tuning + metrics | Tuning written |
 | 4 | 4.3 | Jurisprudence (conditional) | Observation saved |

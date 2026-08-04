@@ -68,9 +68,9 @@ equivalente español de uso común. Se españolizan solo cuando existe forma nat
 | OCP | **OCP** | acrónimo SOLID, no traducir |
 | LSP | **LSP** | acrónimo SOLID, no traducir |
 
-**Regla general:** Si el término aparece en [LANGUAGE.md](../../.agents/skills/improve-codebase-architecture/LANGUAGE.md),
-se usa como término técnico (inglés con aclaración en español la primera vez).
-Si existe equivalente español natural, se españoliza siempre.
+**Regla general:** Si el término aparece en el glosario anterior, se usa como término técnico
+(inglés con aclaración en español la primera vez). Si existe equivalente español natural,
+se españoliza siempre.
 
 ---
 

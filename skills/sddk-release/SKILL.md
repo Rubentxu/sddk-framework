@@ -49,20 +49,16 @@ The mode is decided once at the start of the release invocation and locked for t
 
 | Mode | Behavior | Used when |
 |------|----------|-----------|
-| `auto` (default) | `gh pr merge --auto --merge`. Single probe; release-report notes that auto-merge is pending CI. If branch protection blocks auto-merge → `status=blocked` immediately. | Repo has no branch protection with required reviewers/CI. |
+| `auto` (default) | `gh pr merge --auto --merge`; required checks may complete asynchronously. If auto-merge is disabled, block with guided recovery. | No required human approvals. |
 | `guided` | Poll `gh pr view` at 60s up to 24h, then `status=blocked`. | User explicitly asked for HITL via `--mode=guided` or `launch_plan.merge_policy=guided`. |
 | `strict` | Poll + require `reviewDecision == APPROVED`. Up to 24h, then `status=blocked`. | User explicitly asked for review-required via `--mode=strict`. |
 
 Detection (run ONCE at Step 2; result is locked):
 ```
 1. Read launch plan: explicit mode → lock it.
-2. Probe `gh api .../protection`:
-     required_pull_request_reviews.required_approving_review_count > 0
-     OR required_status_checks.strict == true
-       AND mode unset:
-         → auto mode = status=blocked (friction documented in release-report)
-         → guided/strict mode = proceed (user opted in)
-3. No protection at all → auto.
+2. If mode is unset and required approvals > 0 → guided.
+3. Otherwise → auto. Required status checks are compatible with auto-merge.
+4. If auto-merge is disabled, Step 5b blocks with a guided recovery command.
 ```
 
 The locked mode is logged in `release-report.pr.mode`. Operators may override per-cycle via the `/sddk-release <change> --mode=...` command or `launch_plan.merge_policy` field.
@@ -76,14 +72,21 @@ You MUST complete every step. Missing a step is a release failure.
 1. **Verify preconditions** — confirm `archive-report` exists with verdict ∈ {PASS, PASS_WITH_WARNINGS} for the change. BLOCK if missing.
 2. **Detect merge policy** (above). Log decision.
 3. **`push-branch`** — `git push origin <branch>` if not already pushed. Gate: `git ls-remote origin <branch>` returns the local head SHA.
-4. **`create-pr`** — `gh pr create --base main --head <branch> --title "<type>(<scope>): <description>" --body-file <generated-body>`. Body MUST include: summary, test plan, artifacts list (proposal/spec/design/tasks/verify-report/archive-report/debt-report-if-any), tracking issue reference, ROADMAP milestone link. Gate: `gh pr view --json number,url,state` returns a valid PR.
-5. **`wait-approval`** — Poll `gh pr view --json state,mergeable,reviewDecision` every 60s up to 24h. Gate: `state == "MERGED"`. If 24h timeout: BLOCK with notification. (Note: in `auto` mode, this resolves when GitHub auto-merges.)
-6. **`merge-to-main`** — `gh pr merge <num> --merge` (merge commit). Gate: branch's head commit SHA appears in `origin/main` log.
+4. **`create-or-reuse-pr`** — Resolve the latest PR for `<branch>` in any state. Reuse it when found; otherwise create one and query it again to populate `PR_NUM` and `PR_URL`. A MERGED PR resumes at Step 5c.
+5. **`merge-pr`** — Execute in order: **5a `wait-checks-and-approval`**; **5b `request-merge`** (`gh pr merge <num> --auto --merge` in auto mode, authorized human action in guided/strict); **5c `wait-merged`** until `state == "MERGED"`. If already merged, request-merge is a no-op. Never invoke `gh pr merge` after wait-merged succeeds.
+6. **`verify-merge`** — **VERIFY only**. Read `MERGE_SHA` from the PR and prove that the branch head is its ancestor and `MERGE_SHA` is on `origin/main`:
+   ```bash
+   BRANCH_HEAD="$(git rev-parse origin/<branch>)"
+   MERGE_SHA="$(gh pr view <num> --json mergeCommit --jq '.mergeCommit.oid')"
+   git merge-base --is-ancestor "$BRANCH_HEAD" "$MERGE_SHA"
+   git merge-base --is-ancestor "$MERGE_SHA" origin/main
+   ```
 7. **`semver-tag`** — Compute bump from commits/footers. `git tag -a v<major>.<minor>.<patch> -m "<type>: <description>"` then `git push origin v<...>`. Bump rules: see `git-contract.md` § Lifecycle Overview rule 8.
 8. **`html-closing-report`** — Render the cycle's HTML closing report per `prompts/sdd-kernel/HTML-REPORT.md`. Path: `{engram|none: /tmp/sddk-{change}-{YYYYMMDD}.html}` or `{openspec|hybrid: openspec/changes/archive/{date}-{change}/reports/cierre.html}`. Skip on A-min unless tag is minor/major; skip on B-direct unless tag is major.
 9. **`close-tracking-issue`** — Find open issues referencing `<change-name>` or the PR. `gh issue close <num> --comment "Completed in PR #<n>. Released as v<version>."`. If no tracking issue → no-op.
-10. **`update-roadmap`** — Move change row in `docs/ROADMAP.md` from Active to Completed with PR link, tag, and HTML path. Commit: `git add docs/ROADMAP.md && git commit -m "docs(roadmap): mark <change> complete (v<version>)" && git push origin main`. Gate: ROADMAP shows the milestone Completed.
-11. **`trunk-sync-end`** — `git checkout main && git pull origin main`. Gate: `HEAD == origin/main`.
+10. **`update-knowledge-graph`** — Update milestone, touched ADRs, touched requirements, and cycle manifest in the external vault. This is blocking: retain the lock if any update fails.
+11. **`release-lock`** — Mark `milestones/_active.md` AVAILABLE only after the graph update succeeds.
+12. **`trunk-sync-end`** — `git checkout main && git pull origin main`. Gate: `HEAD == origin/main`.
 
 ## Result Contract
 
@@ -101,7 +104,8 @@ pr:
 tag: v{major}.{minor}.{patch}
 merge_policy: auto | guided | strict
 html_report: {path}
-roadmap_updated: bool
+knowledge_graph_updated: bool
+lock_released: bool
 tracking_issue_closed: {n} | null
 next_recommended: "ready for next cycle"
 artifacts_persisted:
@@ -120,10 +124,11 @@ The `release-report` is MANDATORY even on BLOCK. It records what was reached and
 |---------|--------|
 | `push-branch` fails | BLOCK (likely permissions / no upstream) |
 | `create-pr` fails | BLOCK (likely GH auth or branch pushed to wrong remote) |
-| `wait-approval` times out (24h) | BLOCK + notify user. Tag, HTML, roadmap NOT executed yet. |
-| `merge-to-main` fails | BLOCK (likely merge conflict → rebase-and-ask user, or branch protection refused) |
-| `semver-tag` fails | BLOCK (likely tag already exists for that version → bump minor and retry, or investigate) |
-| `update-roadmap` fails | Non-blocking: log warning, continue to `trunk-sync-end` |
+| `wait-checks-and-approval` or `wait-merged` times out (24h) | BLOCK + notify user. Tag and graph update are not executed. |
+| `request-merge` or `verify-merge` fails | BLOCK (likely merge conflict, force-push, or branch protection refused) |
+| `semver-tag` fails | Existing tag on `MERGE_SHA` is success; the same tag on another commit is BLOCK. Never bump again during retry. |
+| `update-knowledge-graph` fails | BLOCK and retain the serialization lock |
+| `release-lock` fails | BLOCK; never report release success while the lock remains LOCKED |
 | `trunk-sync-end` fails | BLOCK (orphan commits detected) |
 
 Recovery: re-running `/sddk-release <change>` resumes from the first uncompleted step. Idempotent by design.

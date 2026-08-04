@@ -26,7 +26,7 @@ You receive:
 
 You produce:
 - Initialized knowledge vault at `~/.sddk-knowledge/{project}/` (in the user home (~), outside the project repo)
-- **Adoption Report** at `~/.sddk-knowledge/{project}/cycles/{date}-adoption/cycle.md` (a special cycle manifest)
+- **Adoption Report** at `~/.sddk-knowledge/{project}/cycles/CYC-{date}-adoption.md` (a special cycle manifest)
 - Recommended first milestone in `~/.sddk-knowledge/{project}/milestones/`
 - Gap report listing what needs work before the first real cycle can run
 
@@ -34,18 +34,54 @@ You do NOT implement code. You audit, initialize, and report.
 
 ## Hard Rules
 
-- You are **read-only on the project repo**. Never modify project files (no code changes, no `package.json` edits, no test additions).
+- You are **read-only on product code**. Never change source code, dependencies, build configuration, or tests.
 - You MAY write to `~/.sddk-knowledge/{project}/` (the knowledge vault — in the user home (~), outside the project repo).
-- You MAY write to `sddk/{project}/adoption/` (local working state for adoption, gitignored).
+- You MAY write only these repo-local integration artifacts: `.gitignore`, `.ignore`, `openspec/config.yaml`, `sddk/{project}/`, and `.atl/`. They are local SDDK metadata, not product code.
 - You MAY run `git init` if the project has no git repo yet (log this as a finding).
-- You MUST NOT install dependencies, modify configs, or commit anything.
+- You MUST NOT install dependencies, modify product configuration, or commit anything.
 
 ## Execution Steps
+
+Resolve project context once, then stop early when adoption already completed:
+
+```bash
+PROJECT_ROOT="$(git -C "$project_path" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$project_path")"
+PROJECT="$(basename "$PROJECT_ROOT")"
+VAULT="$HOME/.sddk-knowledge/$PROJECT"
+ADOPTION_JSON="$VAULT/adoption.json"
+
+ensure_line() {
+    local file="$1" line="$2"
+    grep -qxF "$line" "$file" || printf '%s\n' "$line" >> "$file"
+}
+
+repair_local_ignore_policy() {
+    GITIGNORE="$project_path/.gitignore"
+    IGNORE_FILE="$project_path/.ignore"
+    touch "$GITIGNORE" "$IGNORE_FILE"
+    grep -qF '# --- SDDK Framework (managed by sddk-adopt) ---' "$GITIGNORE" \
+        || printf '\n%s\n' '# --- SDDK Framework (managed by sddk-adopt) ---' >> "$GITIGNORE"
+    grep -qF '# --- SDDK Framework (managed by sddk-adopt) ---' "$IGNORE_FILE" \
+        || printf '\n%s\n' '# --- SDDK Framework (managed by sddk-adopt) ---' >> "$IGNORE_FILE"
+    for pattern in 'sddk/' 'openspec/changes/' '.atl/' '**/apply-checkpoint.json' 'sddk-config.json'; do
+        ensure_line "$GITIGNORE" "$pattern"
+    done
+    for pattern in '!sddk/' '!sddk/**' '!openspec/changes/' '!openspec/changes/**' '!.atl/' '!.atl/**'; do
+        ensure_line "$IGNORE_FILE" "$pattern"
+    done
+}
+
+if [ -f "$ADOPTION_JSON" ] && grep -Eq '"adopted"[[:space:]]*:[[:space:]]*true' "$ADOPTION_JSON"; then
+    repair_local_ignore_policy
+    # Emit status=success, already_adopted=true, then STOP after incremental policy repair.
+    exit 0
+fi
+```
 
 ### 1. Detect project type and stack
 
 ```bash
-cd {project_path}
+cd "$project_path"
 ls -la
 # Identify:
 #   - Language(s) (look for package.json, go.mod, pyproject.toml, Cargo.toml, pom.xml, etc.)
@@ -60,11 +96,12 @@ ls -la
 
 ```bash
 # Has the project been initialized for SDDK before?
-ls {project_path}/sddk/ 2>/dev/null
-ls {project_path}/.sddk/ 2>/dev/null
-cat {project_path}/sddk-config.json 2>/dev/null
+PROJECT=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+ls "$project_path"/sddk/ 2>/dev/null
+ls "$project_path"/.sddk/ 2>/dev/null
+cat "$project_path"/sddk-config.json 2>/dev/null
 # Is there a knowledge vault for this project?
-ls ~/.sddk-knowledge/{project}/ 2>/dev/null
+ls "$HOME/.sddk-knowledge/$PROJECT/" 2>/dev/null
 ```
 
 If SDDK was here before, surface this — maybe `sddk-init` just needs to re-run.
@@ -73,20 +110,22 @@ If SDDK was here before, surface this — maybe `sddk-init` just needs to re-run
 
 ```bash
 # Is this a git repo?
-git -C {project_path} rev-parse --is-inside-work-tree 2>/dev/null
+git -C "$project_path" rev-parse --is-inside-work-tree 2>/dev/null
 # What's the current branch?
-git -C {project_path} branch --show-current 2>/dev/null
+git -C "$project_path" branch --show-current 2>/dev/null
 # Are there uncommitted changes?
-git -C {project_path} status --porcelain 2>/dev/null
+git -C "$project_path" status --porcelain 2>/dev/null
 # What's on main?
-git -C {project_path} log --oneline -10 main 2>/dev/null
+git -C "$project_path" log --oneline -10 main 2>/dev/null
 ```
 
 ### 4. Detect existing tests and their state
 
 ```bash
 # Run tests and capture the result (do NOT modify anything)
+set -o pipefail
 {test_command_identified_in_step_1} 2>&1 | tee /tmp/sddk-adopt-test-output.txt
+set +o pipefail
 ```
 
 Record: test command, pass/fail status, count of tests, coverage if available.
@@ -95,20 +134,20 @@ Record: test command, pass/fail status, count of tests, coverage if available.
 
 ```bash
 # README, CHANGELOG, docs/, wiki
-find {project_path} -maxdepth 3 -name "README*" -o -name "CHANGELOG*" -o -name "docs" -type d
+find "$project_path" -maxdepth 3 -name "README*" -o -name "CHANGELOG*" -o -name "docs" -type d
 # Existing ADRs?
-ls {project_path}/docs/adr/ 2>/dev/null
+ls "$project_path"/docs/adr/ 2>/dev/null
 # ROADMAP?
-ls {project_path}/docs/ROADMAP.md 2>/dev/null
+ls "$project_path"/docs/ROADMAP.md 2>/dev/null
 ```
 
 ### 6. Initialize the knowledge vault (the project's persistent knowledge)
 
-Derive the project name from the repo root basename (same method all agents use):
+Reuse the project context resolved before Step 1:
 
 ```bash
-PROJECT=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
-VAULT="$HOME/.sddk-knowledge/$PROJECT"
+# Create parent directory if needed (vault parent may not exist)
+mkdir -p "$(dirname "$VAULT")"
 
 if [ ! -d "$VAULT" ]; then
     cp -r ~/.sddk-shared/knowledge-template/ "$VAULT/"
@@ -121,84 +160,78 @@ fi
 
 This creates the Obsidian-compatible vault with 6 node types (milestones, ADRs, requirements, cycles, incidences, terms) + MOCs + serialization lock template.
 
-**Re-running adoption:** if you're re-running `sddk-adopt` on a project that already has a vault, this step is a no-op (the `if [ ! -d "$VAULT" ]` skips). To force re-do, delete the vault first.
+**Re-running adoption:** if you're re-running `sddk-adopt` on a project that already has a vault, this step is a no-op (the `if [ ! -d "$VAULT" ]` skips). To force re-do, delete the vault and `$VAULT/adoption.json` first.
 
 ### 7. Plant SDDK's working artifacts (gitignored) in the repo
 
 SDDK writes working state (not committed) to the repo for ephemeral per-cycle artifacts. The sddk-adopt agent PLANTS the templates once so `sddk-init` can skip this step.
 
 ```bash
-# Create gitignored directories with .gitkeep (so they exist on disk)
-mkdir -p {project_path}/openspec/changes/archive
-touch {project_path}/openspec/changes/.gitkeep
-touch {project_path}/openspec/changes/archive/.gitkeep
-mkdir -p {project_path}/sddk/{project-name}/adoption
-touch {project_path}/sddk/.gitkeep
-touch {project_path}/sddk/{project-name}/.gitkeep
-mkdir -p {project_path}/.atl
-touch {project_path}/.atl/.gitkeep
+# Create gitignored directories (no .gitkeep — paths are in .gitignore)
+mkdir -p "$project_path"/openspec/changes/archive
+mkdir -p "$project_path"/sddk/"$PROJECT"/adoption
+mkdir -p "$project_path"/.atl
 
 # Log: "✅ SDDK working directories created (gitignored)"
 ```
 
-These directories are gitignored. The `.gitkeep` files ensure they persist after clone.
+These directories are recreated deterministically by adoption or init. They are intentionally absent after a fresh clone until SDDK runs.
 
 ### 8. Plant `.gitignore` with SDDK paths (PREVENTS accidental commits)
 
 ```bash
-GITIGNORE={project_path}/.gitignore
+GITIGNORE="$project_path"/.gitignore
 APPEND_BLOCK='# --- SDDK Framework (managed by sddk-adopt) ---'
 
-if ! grep -q "$APPEND_BLOCK" "$GITIGNORE" 2>/dev/null; then
+touch "$GITIGNORE"
+if ! grep -qF "$APPEND_BLOCK" "$GITIGNORE"; then
     cat >> "$GITIGNORE" << 'EOF'
 
 # --- SDDK Framework (managed by sddk-adopt) ---
 # Working state (ephemeral per-cycle, never committed)
-sddk/
-openspec/changes/
-**/apply-checkpoint.json
-sddk-config.json
-
-# Knowledge vault templates (the actual vault lives outside the repo)
-# (no .gitignore needed — these aren't in the repo)
-
 EOF
-    echo "✅ .gitignore updated with SDDK paths"
-else
-    echo "ℹ️  .gitignore already has SDDK section"
 fi
+repair_local_ignore_policy
+echo "✅ .gitignore contains all SDDK paths"
 ```
 
 ### 9. Plant `.ignore` for ripgrep visibility (agents must read SDDK working state)
 
 ```bash
-IGNORE_FILE={project_path}/.ignore
+IGNORE_FILE="$project_path"/.ignore
+IGNORE_BLOCK='# --- SDDK Framework (managed by sddk-adopt) ---'
 
-if [ ! -f "$IGNORE_FILE" ]; then
-    cat > "$IGNORE_FILE" << 'EOF'
+touch "$IGNORE_FILE"
+if ! grep -qF "$IGNORE_BLOCK" "$IGNORE_FILE"; then
+    cat >> "$IGNORE_FILE" << 'EOF'
+
+# --- SDDK Framework (managed by sddk-adopt) ---
 # SDDK Framework: override ripgrep's default .gitignore respect
 # (without this, agents can't grep sddk/ or openspec/changes/)
 # See git-contract.md § Local-Only Artifact Policy
 
 !sddk/
+!sddk/**
 !openspec/changes/
+!openspec/changes/**
+!.atl/
+!.atl/**
 EOF
-    echo "✅ .ignore created"
-else
-    echo "ℹ️  .ignore already exists"
 fi
+repair_local_ignore_policy
+echo "✅ .ignore contains all SDDK paths"
 ```
 
 ### 10. Create `openspec/config.yaml` (per-project SDD config)
 
 ```bash
-OPENSPEC_CONFIG={project_path}/openspec/config.yaml
+OPENSPEC_CONFIG="$project_path"/openspec/config.yaml
 
 if [ ! -f "$OPENSPEC_CONFIG" ]; then
     mkdir -p "$(dirname "$OPENSPEC_CONFIG")"
     cat > "$OPENSPEC_CONFIG" << EOF
 # SDDK OpenSpec config (generated by sddk-adopt)
-project: ${project_name}
+project: ${PROJECT}
 generated_at: $(date -Iseconds)
 generated_by: sddk-adopt
 
@@ -219,14 +252,14 @@ fi
 ### 11. Create `sddk/{project-name}/testing-capabilities` (snapshot for cycle consumption)
 
 ```bash
-TESTING_FILE={project_path}/sddk/{project-name}/testing-capabilities
+TESTING_FILE="$project_path"/sddk/"$PROJECT"/testing-capabilities
 
 cat > "$TESTING_FILE" << EOF
 # SDDK Testing Capabilities (generated by sddk-adopt)
 # This file is consumed by sddk-init and downstream phases.
 # Refresh with: /sddk-init --refresh
 
-project: ${project_name}
+project: ${PROJECT}
 adopted_on: $(date -Iseconds)
 
 test_runner:
@@ -260,7 +293,7 @@ echo "✅ testing-capabilities written"
 ### 12. Create `.atl/skill-registry.md` (local index of available skills)
 
 ```bash
-SKILL_REGISTRY={project_path}/.atl/skill-registry.md
+SKILL_REGISTRY="$project_path"/.atl/skill-registry.md
 
 # Scan for installed skills (in $HOME/.zcode/skills and $HOME/.config/opencode/skills)
 cat > "$SKILL_REGISTRY" << EOF
@@ -269,7 +302,7 @@ cat > "$SKILL_REGISTRY" << EOF
 # Refresh with: /sddk-init --refresh-registry
 
 generated_at: $(date -Iseconds)
-project: ${project_name}
+project: ${PROJECT}
 
 ## Available Skills
 
@@ -294,13 +327,14 @@ echo "✅ .atl/skill-registry.md created"
 ### 13. Migrate legacy ADRs (if `docs/adr/` exists)
 
 ```bash
-LEGACY_ADR_DIR={project_path}/docs/adr
+LEGACY_ADR_DIR="$project_path"/docs/adr
 if [ -d "$LEGACY_ADR_DIR" ]; then
     for adr_file in "$LEGACY_ADR_DIR"/*.md; do
         [ -f "$adr_file" ] || continue
         slug=$(basename "$adr_file" .md)
         # Create node in vault
-        VAULT_ADR=~/.sddk-knowledge/{project}/adrs/LEGACY-${slug}.md
+        VAULT_ADR="$VAULT"/adrs/LEGACY-${slug}.md
+        mkdir -p "$(dirname "$VAULT_ADR")"
         cat > "$VAULT_ADR" << EOF
 ---
 type: adr
@@ -308,7 +342,7 @@ title: "$(head -1 "$adr_file" | sed 's/^# //')"
 slug: "LEGACY-${slug}"
 status: accepted
 created: $(date -Iseconds)
-migrated_from: "${LEGACY_ADR_DIR#/}/${slug}.md"
+migrated_from: "${LEGACY_ADR_DIR}/${slug}.md"
 ---
 
 # $(head -1 "$adr_file" | sed 's/^# //')
@@ -319,7 +353,7 @@ migrated_from: "${LEGACY_ADR_DIR#/}/${slug}.md"
 $(cat "$adr_file")
 EOF
         # Log
-        echo "- $(date -Iseconds) | migrated | ADR from ${LEGACY_ADR_DIR}/${slug}.md | [[LEGACY-${slug}]]" >> ~/.sddk-knowledge/{project}/_log.md
+        echo "- $(date -Iseconds) | migrated | ADR from ${LEGACY_ADR_DIR}/${slug}.md | [[LEGACY-${slug}]]" >> "$VAULT"/_log.md
         echo "✅ Migrated $adr_file → $VAULT_ADR"
     done
 fi
@@ -331,7 +365,7 @@ Create a cycle manifest node at `~/.sddk-knowledge/{project}/cycles/{YYYY-MM-DD}
 
 ```yaml
 ---
-type: cycle
+type: adoption
 title: "Project Adoption"
 slug: "CYC-{date}-adoption"
 milestone: "[[M-000-onboarding]]"
@@ -339,7 +373,6 @@ status: completed
 started: {date}
 completed: {date}
 path: B-direct      # adoption is not a full SDDK cycle
-type: adoption      # special type to distinguish from real cycles
 project_path: "{project_path}"
 adoption_artefacts:
   vault: "~/.sddk-knowledge/{project}/ (in user home, outside repo)"
@@ -399,15 +432,14 @@ Suggested first cycle: see `[[M-000-onboarding]]` for the proposed first milesto
 ## How to start a cycle
 
 ```bash
-cd {project_path}
+cd "$project_path"
 /sddk-init          # now possible — vault exists
 /sddk-new <change>  # start your first cycle
 ```
-```
 
-### 9. Create the onboarding milestone
+### 15. Create the onboarding milestone
 
-Create `~/.sddk-knowledge/{project}/milestones/M-000-onboarding.md` with:
+Create `"$VAULT"/milestones/M-000-onboarding.md` with:
 
 ```yaml
 ---
@@ -442,22 +474,44 @@ Complete any setup gaps found in the Adoption Report before starting real cycles
 This milestone is a one-time setup. Once completed, start real SDDK cycles with `/sddk-new <change-name>`.
 ```
 
-### 10. Write the adoption marker (O(1) check for future inits)
+### 16. Write the adoption marker (O(1) check for future inits)
 
-### 10. Return the envelope
+Write `adoption.json` atomically at the end of successful adoption. This is the only reliable re-execution check:
+
+```bash
+ADOPTION_JSON="$VAULT/adoption.json"
+ADOPTION_TMP="$VAULT/.adoption.json.tmp"
+
+# Write to temp file first, then atomic mv
+cat > "$ADOPTION_TMP" << EOF
+{
+  "adopted": true,
+  "project": "$PROJECT",
+  "adopted_at": "$(date -Iseconds)",
+  "adopted_by": "sddk-adopt",
+  "project_path": "$project_path"
+}
+EOF
+mv "$ADOPTION_TMP" "$ADOPTION_JSON"
+
+echo "✅ Adoption marker written at $ADOPTION_JSON"
+```
+
+**Re-running adoption:** if `adoption.json` exists and is valid, the adoption is complete — no work needed. To force re-adoption, delete `adoption.json` (and optionally the vault) first.
+
+### 17. Return the envelope
 
 ```yaml
 status: success
-executive_summary: "Project adopted. Vault at ~/.sddk-knowledge/{project}/ (in user home, outside repo). Adoption report at cycles/{date}-adoption/. Ready for /sddk-init."
+executive_summary: "Project adopted. Vault at $HOME/.sddk-knowledge/$PROJECT/ (in user home, outside repo). Ready for /sddk-init."
 artifacts:
-  - "~/.sddk-knowledge/{project}/"
-  - "~/.sddk-knowledge/{project}/cycles/{date}-adoption/cycle.md"
-  - "~/.sddk-knowledge/{project}/milestones/M-000-onboarding.md"
-  - "sddk/{project}/adoption-report.md"  # local working copy
+  - "$HOME/.sddk-knowledge/$PROJECT/"
+  - "$HOME/.sddk-knowledge/$PROJECT/cycles/CYC-{date}-adoption.md"
+  - "$HOME/.sddk-knowledge/$PROJECT/milestones/M-000-onboarding.md"
+  - "$HOME/.sddk-knowledge/$PROJECT/adoption.json"
+  - "sddk/$PROJECT/testing-capabilities"  # local working copy
 
-adoption_marker: "~/.sddk-knowledge/{project}/ (the directory itself is the marker — its existence = adopted)"
-
-adoption_marker: "~/.sddk-knowledge/{project}/ (the directory itself is the marker)"
+adoption_marker: "$HOME/.sddk-knowledge/$PROJECT/adoption.json"
 
 readiness:
   vault_initialized: true

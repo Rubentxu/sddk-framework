@@ -69,6 +69,23 @@ link_opencode() {
     done
     info "Linked $(ls -d "$OPENCODE_DIR/skills"/*/ 2>/dev/null | wc -l) skills"
 
+    # Link BOOK-*.md top-level (where consumers expect them)
+    for f in "$SHARED_DIR"/skills/BOOK-*.md; do
+        [ -f "$f" ] || continue
+        name=$(basename "$f")
+        target="$OPENCODE_DIR/skills/$name"
+        ln -sf "$f" "$target"
+    done
+
+    info "Linking OpenCode agents..."
+    mkdir -p "$OPENCODE_DIR/agents"
+    for f in "$SHARED_DIR"/agents/*.md; do
+        name=$(basename "$f")
+        target="$OPENCODE_DIR/agents/$name"
+        ln -sf "$f" "$target"
+    done
+    info "Linked $(ls "$OPENCODE_DIR/agents"/*.md 2>/dev/null | wc -l) agents"
+
     info "Linking OpenCode prompts (sdd-kernel)..."
     mkdir -p "$OPENCODE_DIR/prompts/sdd-kernel"
     # Link phase specs and docs
@@ -95,16 +112,15 @@ link_opencode() {
     fi
     info "Linked sdd-kernel prompts"
 
-    warn "OpenCode agents are registered in opencode.json with {file:...} paths."
-    warn "If opencode.json references old paths, update them to point to $SHARED_DIR/agents/"
-    warn "Run: grep -r 'prompts/debt-verify\|prompts/sdd-kernel/phases' $OPENCODE_DIR/opencode.json"
+    info "OpenCode agents linked to: $OPENCODE_DIR/agents/"
+    info "Register agents in opencode.json with: {file: \"$SHARED_DIR/agents/<name>.md\"}"
 }
 
 # --- Knowledge vault setup ---
 
 setup_knowledge_base() {
     info "Knowledge graph template is at: $SHARED_DIR/knowledge-template/"
-    info "Per-project vaults will be created at: {project}/~/.sddk-knowledge/{project}/ (inside repo)"
+    info "Per-project vaults will be created at: \$HOME/.sddk-knowledge/{project}/ (in user home, outside repo)"
     info "  (auto-created on first SDDK cycle per project)"
 }
 
@@ -148,12 +164,13 @@ main() {
     info "Bootstrap complete!"
     echo ""
     echo "Next steps:"
-    echo "  1. For OpenCode: verify opencode.json agent paths point to $SHARED_DIR/agents/"
-    echo "  2. Start an SDDK cycle: /sddk-new <change-name> in your project"
-    echo "  3. The knowledge vault will auto-initialize on first cycle"
+    echo "  1. Adopt a project: /sddk-adopt in your project directory"
+    echo "  2. Initialize: /sddk-init (after adoption)"
+    echo "  3. Start a cycle: /sddk-new <change-name>"
     echo ""
     echo "To verify symlinks:"
-    echo "  ls -la ~/.zcode/agents/orchestrator.md"
+    echo "  ls -la ~/.zcode/agents/"
+    echo "  ls -la ~/.config/opencode/agents/"
     echo "  ls -la ~/.config/opencode/skills/knowledge-graph/"
 }
 

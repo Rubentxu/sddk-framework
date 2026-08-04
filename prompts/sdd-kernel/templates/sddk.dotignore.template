@@ -29,6 +29,9 @@
 !openspec/changes/
 !openspec/changes/**
 
+!.atl/
+!.atl/**
+
 # Allow SDDK-generated files under docs/
 !docs/ROADMAP.md
 !docs/ROADMAP.local.*

@@ -18,41 +18,38 @@ Detect project context for kernel SDD and persist enough information for later k
 
 Detect the real stack, conventions, architecture, testing tools, and persistence mode. Never guess — inspect project files (`package.json`, `go.mod`, `pyproject.toml`, CI configs, lint/test config).
 
-## First Gate: Adoption Check (v3.5)
+## First Gate: Adoption Check (v3.6)
 
 Before doing anything else, determine if this project has been adopted into SDDK:
 
-The knowledge vault directory `~/.sddk-knowledge/{project}/` is the **single source of truth**. If it exists, the project is adopted. If it doesn't, the project needs adoption. The `{project}` name is always derived from the repo root basename.
+The knowledge vault at `~/.sddk-knowledge/{project}/` with a valid `adoption.json` is the **single source of truth**. If `adoption.json` exists and is valid, the project is adopted. If it doesn't, the project needs adoption. The `{project}` name is always derived from the repo root basename.
 
 ```bash
 PROJECT=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
-if [ ! -d "$HOME/.sddk-knowledge/$PROJECT" ]; then
+VAULT="$HOME/.sddk-knowledge/$PROJECT"
+ADOPTION_JSON="$VAULT/adoption.json"
+
+if [ ! -f "$ADOPTION_JSON" ] || ! grep -Eq '"adopted"[[:space:]]*:[[:space:]]*true' "$ADOPTION_JSON"; then
     # ❌ NOT ADOPTED — orchestrator asks user to run sddk-adopt
     # Emit status=partial with next_recommended=sddk-adopt
     exit 0
 fi
 ```
 
-That's it. The presence of `~/.sddk-knowledge/$PROJECT/` is the only check needed. `sddk-adopt` creates this directory (and plants all other SDDK artifacts). Future sddk-init invocations just check `test -d "$HOME/.sddk-knowledge/$PROJECT"` — one filesystem call.
+The presence and validity of `adoption.json` is the only adoption check needed. `sddk-adopt` creates this file atomically.
 
-If the vault exists but the project is otherwise uninitialized (`sddk/{project}/testing-capabilities` missing), `sddk-init` handles that silently — it's idempotent detection, not a structural change.
-```
-
-If `ADOPTED=false` and no knowledge vault exists, this gate MUST emit `status=partial` with `next_recommended: /sddk-adopt`. Do NOT proceed with detection — the project needs adoption first.
-
-If `ADOPTED=false` but a knowledge vault exists (incomplete adoption), proceed with detection but flag this in the init report.
-
-If `ADOPTED=true`, continue with detection below.
+If the vault exists but `adoption.json` is missing or invalid (incomplete adoption), emit `status=partial` with `next_recommended: /sddk-adopt`.
 
 ## Hard Rules
 
 - **Detect, don't guess.** Inspect project files before declaring stack.
-- **Adoption gate runs FIRST.** If project is not adopted and has no vault, hand off to `sddk-adopt` before doing any work.
+- **Adoption gate runs FIRST.** If project is not adopted or has no valid adoption.json, hand off to `sddk-adopt` before doing any work.
 - In `engram` mode, do **not** create `openspec/`.
 - In `openspec` mode, follow `openspec-convention.md` and write file artifacts.
 - In `hybrid` mode, write both openspec files and Engram observations.
-- Always persist testing capabilities separately as `sddk/{project}/testing-capabilities`.
-- Always build `.atl/skill-registry.md`; also save to Engram when available.
+- In `none` mode: return detected context only as inline JSON in the envelope. Do NOT write any repo-local state (no `sddk/`, no `.atl/`, no `openspec/`). Report capabilities inline and in Engram if available.
+- In modes other than `none`, persist testing capabilities separately as `sddk/{project}/testing-capabilities`.
+- In modes other than `none`, build `.atl/skill-registry.md`; also save to Engram when available.
 - Use `capture_prompt: false` for automated SDDK saves.
 - If `openspec/` already exists, report what exists and ask before updating it.
 
@@ -60,12 +57,12 @@ If `ADOPTED=true`, continue with detection below.
 
 | Input | Action |
 |---|---|
-| **Project not adopted + no vault** | **BLOCK. Emit `next_recommended: /sddk-adopt` — delegate adoption first.** |
-| Project not adopted + vault exists | Warn (partial adoption), proceed with detection |
-| `mode=engram` | Save context and capabilities to Engram only. |
+| **No vault or no valid adoption.json** | **BLOCK. Emit `next_recommended: /sddk-adopt` — delegate adoption first.** |
+| Vault exists + adoption.json valid | Continue with detection below. |
+| `mode=engram` | Save durable context to Engram and keep the gitignored testing-capabilities/registry caches required by the orchestrator. Do NOT create openspec/. |
 | `mode=openspec` | Create/update openspec bootstrap files only. |
 | `mode=hybrid` | Do both Engram and openspec persistence. |
-| `mode=none` | Return detected context only. |
+| `mode=none` | Return detected context inline in envelope only. No repo-local writes. |
 | strict TDD marker/config found | Use that value. |
 | no marker/config but test runner exists | Default `strict_tdd: true`. |
 | no test runner | Set `strict_tdd: false` and explain unavailable. |
@@ -101,14 +98,14 @@ What to capture:
 2. Detect test runner, layers, coverage, linter, type checker, formatter (priority order above).
 3. Resolve Strict TDD from agent marker, openspec config, detected runner fallback, or no-runner fallback.
 4. Initialize persistence for the resolved mode.
-5. **Plant `.gitignore` AND `.ignore` per Local-Only Artifact Policy (v3.3)** — see `git-contract.md` § Local-Only Artifact Policy.
+5. Unless `mode=none`, **plant `.gitignore` AND `.ignore` per Local-Only Artifact Policy (v3.3)** — see `git-contract.md` § Local-Only Artifact Policy.
    - Resolve project root with `git rev-parse --show-toplevel 2>/dev/null || pwd`.
    - If `${PROJECT_ROOT}/.gitignore` exists, append the contents of `prompts/sdd-kernel/templates/sddk.gitignore.template` under a `# --- SDDK Local-Only Artifact Policy (v3.3) ---` header. Do not overwrite existing rules; merge idempotently.
    - If `${PROJECT_ROOT}/.ignore` does not exist, write the contents of `prompts/sdd-kernel/templates/sddk.dotignore.template` verbatim. If it exists, append the SDDK section under a `# --- SDDK companion ignore (v3.3) ---` header, idempotently (skip patterns already present).
-   - Confirm with `git check-ignore -v sddk/ openspec/changes/ docs/ROADMAP.md` that the listed paths ARE ignored by git. Confirm with `rg --files --hidden sddk/` that the SAME paths ARE searchable by ripgrep (i.e., `.ignore` overrides are effective).
+   - Confirm with `git check-ignore -v sddk/ openspec/changes/ .atl/` that the listed paths ARE ignored by git. Confirm with `rg --files --hidden sddk/` that working paths remain searchable.
    - If either check fails, log `sddk-local-only-policy-applied` (success) or `sddk-local-only-policy-failed` (with reasons) in the return envelope.
-6. Build `.atl/skill-registry.md` using the skill-registry scan rules.
-7. Persist testing capabilities and project context.
+6. Unless `mode=none`, build `.atl/skill-registry.md` using the skill-registry scan rules.
+7. Persist testing capabilities and project context according to the resolved mode. In `none`, return them inline only.
 8. Return envelope.
 
 ## Required Router Context
@@ -131,7 +128,7 @@ Return `status`, `executive_summary`, `artifacts`, `next_recommended`, `risks`. 
 - **Testing capability table**: layer / command / available
 - **Saved observation IDs/paths**: where things live
 - **Registry path**: `.atl/skill-registry.md`
-- **Local-only policy applied**: `true | false` + verification results (`git check-ignore` + `rg --files --hidden` outputs for sddk/, openspec/changes/, docs/ROADMAP.md)
+- **Local-only policy applied**: `true | false` + verification results for `sddk/`, `openspec/changes/`, and `.atl/`
 - **Next step**: `/sddk-explore` or `/sddk-new`
 
 ## Strict TDD Forwarding (this phase is critical for it)

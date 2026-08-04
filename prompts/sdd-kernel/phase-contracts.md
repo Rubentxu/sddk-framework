@@ -32,11 +32,11 @@ The orchestrator owns git operations, but phases must respect the interleaving:
 | `sddk-tasks` | Branch NOT yet created | Produce tasks. Orchestrator creates branch after this phase. |
 | `sddk-apply` | Branch exists, pushed to remote | Produce atomic conventional commits per task slice. Never commit broken code. |
 | `sddk-verify` | Commits exist on branch | Fix commits follow conventional format. |
-| **`sddk-debt-verify`** (v3.3 — MANDATORY on A-*, n/a on B-direct) | Commits exist on feature branch, pre-PR — runs unconditionally after verify PASS/PW on A-* paths | **Read-only audit.** Launches cluster orchestrators in parallel with depth derived from path. Emits `debt-report.md` and verdict. On FAIL, launches fix cycle on `refactor/debt-<change>-<round>` (max 3 rounds). Never commits; never pushes. |
-| `sddk-archive` | All commits pushed + debt-report PASS/PW (mandatory on A-*) | Orchestrator hands off to `sdd-kernel-release` (Phase 3) which owns PR + merge + tag + html + roadmap (local-only) + trunk-sync. **No commits to gitignored paths** (Local-Only Artifact Policy v3.3). |
-| **`sdd-kernel-release`** (NEW v3.3 — MANDATORY post-archive) | All commits pushed + archive-report success | Single owner of Phase 3 end-to-end. See `prompts/sdd-kernel/phases/release.md` and `skills/sddk-release/SKILL.md`. ROADMAP update is local-only + Engram; no `git add docs/`. |
+| **`sddk-debt-verify`** (MANDATORY on A-*, n/a on B-direct) | Commits exist on feature branch, pre-PR — runs unconditionally after verify PASS/PW on A-* paths | **Read-only audit.** Launches cluster orchestrators in parallel with depth derived from path. Emits `debt-report.md` and verdict. On FAIL with `re_iterate_from: apply`, triggers remediation on the SAME feature branch (increment `remediation_round`; max 3 rounds). Never commits; never pushes. |
+| `sddk-archive` | All commits pushed + debt-report PASS/PW (mandatory on A-*) | Orchestrator hands off to `sdd-kernel-release`, which owns PR + merge + tag + HTML + knowledge graph + lock release + trunk-sync. |
+| **`sdd-kernel-release`** (NEW v3.3 — MANDATORY post-archive) | All commits pushed + archive-report success | Single owner of Phase 3 end-to-end. See `prompts/sdd-kernel/phases/release.md` and `skills/sddk-release/SKILL.md`. |
 
-Phases must NOT perform git operations directly. The orchestrator owns branch creation. From Phase 3 onward, `sdd-kernel-release` owns pushing, PR creation, merging, tagging, and HTML report (writing to `/tmp/` and gitignored `docs/reports/`), and ROADMAP update (local-only — see git-contract.md § Local-Only Artifact Policy v3.3).
+Phases must NOT perform git operations directly. The orchestrator owns branch creation. From Phase 3 onward, `sdd-kernel-release` owns pushing, PR creation, merging, tagging, HTML report generation, knowledge graph updates, lock release, and trunk synchronization.
 
 The ROADMAP, ADRs, archive folders, and HTML reports are **gitignored** and **locally readable** (paired `.ignore` overrides). They are committed NEVER.
 
@@ -116,8 +116,7 @@ Archive closes a completed kernel change. Syncs delta specs and updates durable 
 Required additions beyond traditional archive:
 - Verify all commits are pushed to the remote feature branch.
 - Confirm merge target is main via merge commit (--no-ff).
-- **If user opted into debt-verify (NEW v3.1)**: confirm `debt-report.md` exists with verdict PASS or PW. Block archive if debt-report is missing or FAIL.
-- **If user skipped debt-verify (NEW v3.1)**: proceed normally without debt-report.
+- **MANDATORY on A-* paths (v3.3)**: confirm `debt-report.md` exists with verdict PASS or PW. Block archive if debt-report is missing or FAIL. Debt-verify is NOT optional on A-* paths; only B-direct skips it.
 - If debt-report exists, embed its summary in PR body so debt travels with the merge.
 - Orchestrator creates semver tag after this phase completes.
 - Never delete the feature branch after merge.
@@ -137,7 +136,7 @@ Required additions beyond traditional verify:
 - **Trunk-based discipline**: runs on the feature branch, NOT on main. Branch must be pushed. Working tree clean.
 - **Pre-existing main debt detection**: for each CRITICAL finding, `git blame` and flag if last touched on main BEFORE the feature branch was created.
 - **Re-iteration decision**: emit `re_iterate_from: beginning | apply | none` per the Re-Iteration Decision Matrix.
-- **Fix cycle discipline**: on FAIL with `re_iterate_from: apply`, launch a fix cycle on `refactor/debt-<change>-<round>` (max 3 rounds, path forced to A-min).
+- **Remediation discipline**: on FAIL with `re_iterate_from: apply`, remediate on the SAME feature branch — increment `remediation_round`, apply fixes, re-verify, re-debt-verify (max 3 rounds).
 - Persist `debt-report` per artifact store mode.
 - Return envelope with verdict, re_iterate_from, clusters_run, depth, findings_by_severity, pre_existing_main_debt, next_recommended.
 

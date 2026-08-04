@@ -441,7 +441,7 @@ recommendation:
 | Skip Observar phase to save time | No-progress detection fails |
 | Commit between attempts (mid-loop) | Breaks atomicity |
 | Run same `actuar` 3x hoping | Detected and blocked by no-progress |
-| Use AI-attribution trailers | git-boundary blocks |
+| Use AI-attribution trailers | Declarative git checklist rejects them |
 | Apply uncommitted code from prior cycle | Use checkpoint, don't blend |
 | Overwrite apply-progress without merge | Loses prior batches' work |
 | Skip Safety Net on existing files | Cannot prove no regression |
@@ -456,4 +456,4 @@ recommendation:
 - `prompts/sdd-kernel/git-contract.md` — git invariants
 - `prompts/sdd-kernel/metrics-schema.md` — what gets measured
 - `prompts/sdd-kernel/mcw.md` — MCW Step 2.1 context
-- `plugins/circuit-breaker.ts` — plugin enforcing attempt limit + no-progress
+- **Invariant**: per-task attempt limit + no-progress streak enforcement is embedded in `sdd-kernel-apply`'s loop logic (not a runtime plugin)
