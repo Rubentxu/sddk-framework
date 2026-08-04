@@ -1,0 +1,59 @@
+[pack]
+id = "sddk-framework"
+version = "0.16.0"
+schema_version = 1
+compatibility = ">=1.91"
+risk = "medium"
+consequence = "modifies"
+description = "SDDK framework pack: deterministic workflow runtime, capability gateway, vault, and distribution"
+
+[dependencies]
+required = []
+optional = ["sddk-domain", "sddk-storage", "sddk-engine", "sddk-gateway", "sddk-vault", "sddk-cli"]
+
+[[commands]]
+name = "adopt"
+surface = ["adopt"]
+
+[[commands]]
+name = "cycle"
+surface = ["cycle"]
+
+[[commands]]
+name = "capability"
+surface = ["capability"]
+
+[[commands]]
+name = "git"
+surface = ["git"]
+
+[[commands]]
+name = "release"
+surface = ["release"]
+
+[[commands]]
+name = "vault"
+surface = ["vault"]
+
+[[commands]]
+name = "dev"
+surface = ["dev"]
+
+[capabilities]
+"git.inspect" = "creates"
+"git.create_branch" = "creates"
+"git.commit" = "modifies"
+"git.merge" = "modifies"
+"git.delete_branch" = "irreversible"
+"git.push" = "modifies"
+"pr.create" = "creates"
+"pr.merge" = "modifies"
+"pr.close" = "irreversible"
+"release.create" = "creates"
+"release.publish" = "creates"
+
+[fixtures]
+paths = ["tests/test_workflow_contract.sh", "tests/test_adoption_contract.sh"]
+
+[artifacts]
+paths = ["dist/sddk"]

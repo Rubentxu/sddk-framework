@@ -22,7 +22,7 @@
 
 ## Próximo corte recomendado
 
-El roadmap está COMPLETO y cerrado. Post-estabilidad: hardening (property tests, validación de todos los schemas), seam de integración dogfood y registro de agentes verificado por lint (`v0.12.0`-`v0.14.0`).
+El roadmap está COMPLETO y cerrado. Post-estabilidad: hardening (property tests, validación de todos los schemas), seam de integración dogfood, registro de agentes verificado por lint (`v0.12.0`-`v0.14.0`), sincronización de estado (`v0.15.0`) y packs declarativos RF-012 (`v0.16.0`).
 
 ## PR 1 — Estabilización semántica
 

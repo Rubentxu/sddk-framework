@@ -26,6 +26,7 @@ const GENERATED_INVENTORY_STALE: &str = "SDDK010";
 const AGENT_NOT_IN_REGISTRY: &str = "SDDK011";
 const REGISTRY_ORPHAN: &str = "SDDK012";
 const AGENT_NAME_MISMATCH: &str = "SDDK013";
+const INVALID_PACK_MANIFEST: &str = "SDDK014";
 
 /// Diagnostic severity. Only errors make `sddk lint` fail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -131,6 +132,7 @@ pub fn lint_repository(root: impl AsRef<Path>) -> Result<LintReport, LintError> 
     }
     lint_generated_inventory(root, &mut diagnostics);
     lint_agent_registry(root, &mut diagnostics);
+    lint_pack_manifest(root, &mut diagnostics);
 
     diagnostics.sort_by(|left, right| {
         (
@@ -1211,4 +1213,44 @@ fn agent_frontmatter_name(path: &Path) -> Option<String> {
         .find_map(|line| line.strip_prefix("name:"))
         .map(|value| value.trim().trim_matches('"').trim_matches('\'').to_owned())
         .filter(|value| !value.is_empty())
+}
+
+fn lint_pack_manifest(root: &Path, diagnostics: &mut Vec<Diagnostic>) {
+    let relative = Path::new("manifest.toml");
+    let path = root.join(relative);
+    let manifest = match sddk_domain::load_pack_manifest(&path) {
+        Ok(manifest) => manifest,
+        Err(sddk_domain::PackError::Io { .. }) => {
+            diagnostics.push(diagnostic(
+                INVALID_PACK_MANIFEST,
+                Severity::Error,
+                relative,
+                None,
+                "pack manifest manifest.toml is missing",
+                "declare the framework pack with identity, commands, and fixtures",
+            ));
+            return;
+        }
+        Err(error) => {
+            diagnostics.push(diagnostic(
+                INVALID_PACK_MANIFEST,
+                Severity::Error,
+                relative,
+                None,
+                format!("pack manifest is invalid: {error}"),
+                "fix the TOML syntax or align it with the pack model",
+            ));
+            return;
+        }
+    };
+    for pack_diagnostic in sddk_domain::validate_pack_manifest(&manifest) {
+        diagnostics.push(diagnostic(
+            INVALID_PACK_MANIFEST,
+            Severity::Error,
+            relative,
+            None,
+            format!("{}: {}", pack_diagnostic.code, pack_diagnostic.message),
+            pack_diagnostic.hint,
+        ));
+    }
 }

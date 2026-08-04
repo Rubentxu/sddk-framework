@@ -13,6 +13,7 @@ mod git_cmd;
 mod inventory;
 mod ledger;
 mod lint;
+mod pack_cmd;
 mod permission;
 mod release_cmd;
 mod result_cmd;
@@ -28,6 +29,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 pub(crate) use cycle::{CycleCommand, RuntimeArgs, RuntimeContext};
 use dev_cmd::DevCommand;
 use git_cmd::GitCommand;
+use pack_cmd::PackCommand;
 use permission::PermissionCommand;
 use release_cmd::ReleaseCommand;
 use result_cmd::{AgentResultCommand, ValidateCommand};
@@ -137,6 +139,11 @@ enum Command {
     Dev {
         #[command(subcommand)]
         command: DevCommand,
+    },
+    /// Validate declarative pack manifests.
+    Pack {
+        #[command(subcommand)]
+        command: PackCommand,
     },
 }
 
@@ -355,6 +362,7 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         Command::Release { command } => release_cmd::run_release(command, environment),
         Command::Vault { command } => vault_cmd::run_vault(command),
         Command::Dev { command } => dev_cmd::run_dev(command),
+        Command::Pack { command } => pack_cmd::run_pack(command),
     }
 }
 

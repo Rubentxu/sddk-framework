@@ -1,6 +1,6 @@
 [package]
 name = "sddk-domain"
-version = "0.15.0"
+version = "0.16.0"
 edition = "2024"
 authors = ["SDDK Team"]
 license = "MIT"
@@ -19,6 +19,7 @@ sha2 = { workspace = true }
 uuid = { workspace = true }
 regex = { workspace = true }
 jsonschema = { version = "0.49", default-features = false, features = ["resolve-file"] }
+toml = "1.1"
 
 [dev-dependencies]
 proptest = "1.11"
