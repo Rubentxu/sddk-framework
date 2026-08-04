@@ -2259,6 +2259,7 @@ agents:
     assert_eq!(uninstalled.status, 0, "{}", uninstalled.stderr);
 }
 
+#[test]
 fn cli_dev_doctor_reports_environment() {
     let doctor = run_from(["sddk", "dev", "doctor", "--format", "json"]);
     assert_eq!(doctor.status, 0, "{}", doctor.stderr);
