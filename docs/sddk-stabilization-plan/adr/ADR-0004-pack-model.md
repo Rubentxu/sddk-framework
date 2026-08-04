@@ -1,6 +1,6 @@
 # ADR-0004 — Packs declarativos, compilados primero
 
-**Estado:** propuesta
+**Estado:** aceptada
 **Fecha:** 2026-08-03
 
 ## Contexto

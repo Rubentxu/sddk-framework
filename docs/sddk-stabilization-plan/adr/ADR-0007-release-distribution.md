@@ -1,6 +1,6 @@
 # ADR-0007 — Distribución explícita y actualización side-by-side
 
-**Estado:** propuesta
+**Estado:** aceptada
 **Fecha:** 2026-08-03
 
 ## Contexto

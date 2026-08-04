@@ -1,6 +1,6 @@
 # ADR-0005 — Gateway de capacidades y clasificación de efectos
 
-**Estado:** propuesta
+**Estado:** aceptada
 **Fecha:** 2026-08-03
 
 ## Contexto

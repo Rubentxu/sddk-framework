@@ -1,6 +1,6 @@
 # ADR-0001 — Runtime determinista Rust como autoridad del workflow
 
-**Estado:** propuesta
+**Estado:** aceptada
 **Fecha:** 2026-08-03
 
 ## Contexto

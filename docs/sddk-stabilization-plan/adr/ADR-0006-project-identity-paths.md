@@ -1,6 +1,6 @@
 # ADR-0006 — Identidad estable de proyecto y paths XDG
 
-**Estado:** propuesta
+**Estado:** aceptada
 **Fecha:** 2026-08-03
 
 ## Contexto

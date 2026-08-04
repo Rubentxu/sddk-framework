@@ -1,6 +1,6 @@
 # ADR-0003 — SQLite para ledger, estado operativo e índice local
 
-**Estado:** propuesta
+**Estado:** aceptada
 **Fecha:** 2026-08-03
 
 ## Contexto
