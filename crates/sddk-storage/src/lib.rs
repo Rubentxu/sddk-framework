@@ -14,7 +14,7 @@ mod models;
 use std::path::Path;
 use std::time::Duration;
 
-use migrations::{LATEST_SCHEMA_VERSION, MIGRATION_1};
+use migrations::{LATEST_SCHEMA_VERSION, MIGRATION_1, MIGRATION_2};
 pub use models::*;
 use rusqlite::{
     Connection, OpenFlags, OptionalExtension, Row, Transaction, TransactionBehavior, params,
@@ -775,6 +775,71 @@ impl Storage {
             params![cycle_id, owner, fencing_token],
         )? == 1)
     }
+
+    /// Persists one authorized gate evaluation receipt.
+    pub fn insert_gate_receipt(&self, input: &GateReceiptInput) -> Result<GateReceipt> {
+        self.connection.execute(
+            "INSERT INTO gate_receipts (
+                receipt_id, project_id, cycle_id, gate, evaluator, transition_id,
+                plan_hash, outcome, evidence, actor, command_id, frame_id, evaluated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![
+                input.receipt_id,
+                input.project_id,
+                input.cycle_id,
+                input.gate,
+                input.evaluator,
+                input.transition_id,
+                input.plan_hash,
+                enum_string(&input.outcome)?,
+                serde_json::to_string(&input.evidence)?,
+                input.actor,
+                input.command_id,
+                input.frame_id,
+                input.evaluated_at
+            ],
+        )?;
+        Ok(GateReceipt {
+            receipt_id: input.receipt_id.clone(),
+            project_id: input.project_id.clone(),
+            cycle_id: input.cycle_id.clone(),
+            gate: input.gate.clone(),
+            evaluator: input.evaluator.clone(),
+            transition_id: input.transition_id.clone(),
+            plan_hash: input.plan_hash.clone(),
+            outcome: input.outcome,
+            evidence: input.evidence.clone(),
+            actor: input.actor.clone(),
+            command_id: input.command_id.clone(),
+            frame_id: input.frame_id.clone(),
+            evaluated_at: input.evaluated_at.clone(),
+        })
+    }
+
+    /// Loads one gate receipt by identifier.
+    pub fn get_gate_receipt(&self, receipt_id: &str) -> Result<GateReceipt> {
+        self.connection
+            .query_row(
+                "SELECT receipt_id, project_id, cycle_id, gate, evaluator, transition_id,
+                        plan_hash, outcome, evidence, actor, command_id, frame_id, evaluated_at
+                 FROM gate_receipts WHERE receipt_id = ?1",
+                [receipt_id],
+                gate_receipt_from_row,
+            )
+            .optional()?
+            .ok_or_else(|| not_found("gate receipt", receipt_id))
+    }
+
+    /// Lists gate receipts for one cycle in insertion order.
+    pub fn list_gate_receipts(&self, cycle_id: &str) -> Result<Vec<GateReceipt>> {
+        let mut statement = self.connection.prepare(
+            "SELECT receipt_id, project_id, cycle_id, gate, evaluator, transition_id,
+                    plan_hash, outcome, evidence, actor, command_id, frame_id, evaluated_at
+             FROM gate_receipts WHERE cycle_id = ?1 ORDER BY evaluated_at ASC",
+        )?;
+        let rows = statement.query_map([cycle_id], gate_receipt_from_row)?;
+        rows.map(|row| row.map_err(StorageError::from)).collect()
+    }
 }
 
 impl LedgerEvent {
@@ -800,7 +865,13 @@ fn migrate(connection: &mut Connection) -> Result<()> {
     if version < 1 {
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         transaction.execute_batch(MIGRATION_1)?;
-        transaction.pragma_update(None, "user_version", LATEST_SCHEMA_VERSION)?;
+        transaction.pragma_update(None, "user_version", 1)?;
+        transaction.commit()?;
+    }
+    if version < 2 {
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute_batch(MIGRATION_2)?;
+        transaction.pragma_update(None, "user_version", 2)?;
         transaction.commit()?;
     }
     Ok(())
@@ -1086,7 +1157,6 @@ fn capability_receipt_from_row(row: &Row<'_>) -> rusqlite::Result<CapabilityRece
         completed_at: row.get(9)?,
     })
 }
-
 fn get_cycle_lease_on(connection: &Connection, cycle_id: &str) -> rusqlite::Result<CycleLease> {
     connection.query_row(
         "SELECT cycle_id, owner, acquired_at_ms, expires_at_ms, fencing_token
@@ -1102,6 +1172,26 @@ fn get_cycle_lease_on(connection: &Connection, cycle_id: &str) -> rusqlite::Resu
             })
         },
     )
+}
+
+fn gate_receipt_from_row(row: &Row<'_>) -> rusqlite::Result<GateReceipt> {
+    let outcome: String = row.get(7)?;
+    let evidence_json: String = row.get(8)?;
+    Ok(GateReceipt {
+        receipt_id: row.get(0)?,
+        project_id: row.get(1)?,
+        cycle_id: row.get(2)?,
+        gate: row.get(3)?,
+        evaluator: row.get(4)?,
+        transition_id: row.get(5)?,
+        plan_hash: row.get(6)?,
+        outcome: serde_json::from_value(Value::String(outcome)).map_err(json_from_sql_error)?,
+        evidence: serde_json::from_str(&evidence_json).map_err(json_from_sql_error)?,
+        actor: row.get(9)?,
+        command_id: row.get(10)?,
+        frame_id: row.get(11)?,
+        evaluated_at: row.get(12)?,
+    })
 }
 
 fn json_from_sql_error(error: serde_json::Error) -> rusqlite::Error {
