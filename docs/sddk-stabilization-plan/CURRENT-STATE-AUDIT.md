@@ -181,7 +181,7 @@ Quedan fuera: Git local (SDDK-603) y CAS (SDDK-604), que se construirán sobre e
 
 | Gate | Resultado |
 | --- | --- |
-| `cargo test --workspace --locked` | PASS, 156 tests en el corte. |
+| `cargo test --workspace --locked` | PASS, 168 tests en el corte (incluye 12 property tests). |
 | `sddk lint --format json` | PASS, 0 errores y 0 warnings. |
 | `sddk generate docs --check` | PASS, documentación actual. |
 | `sddk generate inventory --check` | PASS, 64 agentes y 90 skills. |
@@ -194,6 +194,8 @@ Quedan fuera: Git local (SDDK-603) y CAS (SDDK-604), que se construirán sobre e
 | E2E CLI `cli_release_dist_and_verify_checksums_and_sbom` | PASS, dist y verificación con tamper. |
 | E2E CLI `cli_dev_doctor_reports_environment` | PASS. |
 | Engine `cycle_authority` (GAP-004: evaluador registrado, plan-hash, receipts) | PASS, 6 tests. |
+| Property tests (identidad, vault, ledger, redacción) | PASS, 12 tests. |
+| `sddk validate schema` (agent-result, cycle, phase-result, adoption, artifact-ref) | PASS, con `cycle.schema.json` realineado a la serialización runtime. |
 | Gateway release flow (plan, convergencia tras interrupción, reconcile) | PASS, 4 tests. |
 | Gateway forge (MockForge contrato, parseo gh, merge tolerante) | PASS, 3 tests. |
 | CI remota | PASS en [`Required quality gates`](https://github.com/Rubentxu/sddk-framework/actions/runs/30888909675), 53 s. |
