@@ -15,6 +15,7 @@ mod lint;
 mod permission;
 mod release_cmd;
 mod result_cmd;
+mod vault_cmd;
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -36,6 +37,7 @@ use sddk_engine::{
 use serde::Serialize;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use uuid::Uuid;
+use vault_cmd::VaultCommand;
 use walkdir::WalkDir;
 
 pub use docs::{GENERATED_WORKFLOW_DOC, GenerationStatus, generate_workflow_docs};
@@ -123,6 +125,11 @@ enum Command {
     Release {
         #[command(subcommand)]
         command: ReleaseCommand,
+    },
+    /// Index, validate, search, and export knowledge vaults.
+    Vault {
+        #[command(subcommand)]
+        command: VaultCommand,
     },
 }
 
@@ -339,6 +346,7 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         Command::Validate { command } => result_cmd::run_validate(command, environment),
         Command::AgentResult { command } => result_cmd::run_agent_result(command, environment),
         Command::Release { command } => release_cmd::run_release(command, environment),
+        Command::Vault { command } => vault_cmd::run_vault(command),
     }
 }
 

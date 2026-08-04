@@ -1484,6 +1484,108 @@ fn cli_release_plan_reports_canonical_sequence() {
     assert_eq!(steps, vec!["create_pr", "merge_pr", "create_release"]);
 }
 
+#[test]
+fn cli_vault_index_validate_search_and_export() {
+    let fixture = CliFixture::new("vault");
+    let vault = fixture.root.join("vault");
+    fs::create_dir_all(vault.join("terms")).unwrap();
+    fs::create_dir_all(vault.join("adrs")).unwrap();
+    fs::write(
+        vault.join("terms/TERM-Auth.md"),
+        "---\nid: TERM-Auth\ntype: term\nstatus: active\n---\n# Auth\n\nOAuth token exchange [[ADR-Auth]]\n",
+    )
+    .unwrap();
+    fs::write(
+        vault.join("adrs/ADR-Auth.md"),
+        "---\nid: ADR-Auth\ntype: adr\n---\n# Auth Decision\n\nSee [[TERM-Auth]]\n",
+    )
+    .unwrap();
+
+    let indexed = run_from([
+        "sddk",
+        "vault",
+        "index",
+        "--vault",
+        vault.to_str().unwrap(),
+        "--db",
+        fixture.root.join("index.sqlite").to_str().unwrap(),
+        "--format",
+        "json",
+    ]);
+    assert_eq!(indexed.status, 0, "{}", indexed.stderr);
+    let indexed_json: serde_json::Value = serde_json::from_str(&indexed.stdout).unwrap();
+    assert_eq!(indexed_json["nodes"], 2);
+    assert_eq!(indexed_json["errors"], 0);
+    assert_eq!(indexed_json["backlinks"], 2);
+
+    let searched = run_from([
+        "sddk",
+        "vault",
+        "search",
+        "--db",
+        fixture.root.join("index.sqlite").to_str().unwrap(),
+        "--query",
+        "token",
+        "--format",
+        "json",
+    ]);
+    assert_eq!(searched.status, 0);
+    let hits: serde_json::Value = serde_json::from_str(&searched.stdout).unwrap();
+    assert_eq!(hits.as_array().unwrap().len(), 1);
+    assert_eq!(hits[0]["id"], "TERM-Auth");
+
+    let graphed = run_from([
+        "sddk",
+        "vault",
+        "graph",
+        "--vault",
+        vault.to_str().unwrap(),
+        "--format",
+        "json",
+    ]);
+    assert_eq!(graphed.status, 0);
+    let graph: serde_json::Value = serde_json::from_str(&graphed.stdout).unwrap();
+    assert_eq!(graph["node_count"], 2);
+    assert_eq!(graph["edge_count"], 2);
+    assert_eq!(graph["cyclic"], true);
+    assert!(graph["sample_cycle"].is_array());
+
+    let exported = run_from([
+        "sddk",
+        "vault",
+        "export",
+        "--vault",
+        vault.to_str().unwrap(),
+        "--output",
+        fixture.root.join("inspector.html").to_str().unwrap(),
+    ]);
+    assert_eq!(exported.status, 0);
+    let html = fs::read_to_string(fixture.root.join("inspector.html")).unwrap();
+    assert!(html.contains("SDDK Vault Inspector"));
+    assert!(html.contains("TERM-Auth"));
+
+    let broken = fixture.root.join("broken-vault");
+    fs::create_dir_all(broken.join("terms")).unwrap();
+    fs::write(
+        broken.join("terms/TERM-X.md"),
+        "---\nid: TERM-X\ntype: term\n---\n# X\n\n[[Ghost]]\n",
+    )
+    .unwrap();
+    let validated = run_from([
+        "sddk",
+        "vault",
+        "validate",
+        "--vault",
+        broken.to_str().unwrap(),
+        "--format",
+        "json",
+    ]);
+    assert_eq!(validated.status, 1);
+    let validation: serde_json::Value = serde_json::from_str(&validated.stdout).unwrap();
+    assert_eq!(validation["errors"], 1);
+    assert_eq!(validation["diagnostics"][0]["code"], "VAULT003");
+}
+
 fn run_with_root(fixture: &CliFixture, args: &[&str], common: &[&str]) -> std::process::Output {
     fixture.run(
         &args

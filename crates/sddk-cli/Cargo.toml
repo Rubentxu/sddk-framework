@@ -29,6 +29,7 @@ sddk-domain = { path = "../sddk-domain" }
 sddk-engine = { path = "../sddk-engine" }
 sddk-gateway = { path = "../sddk-gateway" }
 sddk-storage = { path = "../sddk-storage" }
+sddk-vault = { path = "../sddk-vault" }
 
 [dev-dependencies]
 tempfile = { workspace = true }
