@@ -1104,6 +1104,309 @@ fn cli_artifact_store_and_get_verify_digest() {
     assert_eq!(missing.status.code(), Some(1));
 }
 
+#[test]
+fn cli_validate_agent_result_and_legacy_conversion() {
+    let fixture = CliFixture::new("agent-result");
+    write(
+        fixture.root.join("workflow/workflow.yaml"),
+        CANONICAL_WORKFLOW,
+    );
+    write(
+        fixture.root.join("schemas/agent-result.schema.json"),
+        include_str!("../../../schemas/agent-result.schema.json"),
+    );
+    write(
+        fixture.root.join("schemas/artifact-ref.schema.json"),
+        include_str!("../../../schemas/artifact-ref.schema.json"),
+    );
+    write(
+        fixture.root.join("schemas/capability-request.schema.json"),
+        include_str!("../../../schemas/capability-request.schema.json"),
+    );
+    let common = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+    ];
+    let adopted = fixture.run_adopt(
+        "apply",
+        &[
+            "--root",
+            fixture.root.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            "https://example.com/acme/repo.git",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(adopted.status.success());
+
+    let valid_file = fixture.root.join("valid-result.json");
+    fs::write(
+        &valid_file,
+        r#"{"schema_version":1,"agent":"explorer","cycle_id":"cycle-1","phase":"explore","verdict":"completed","summary":"ok"}"#,
+    )
+    .unwrap();
+    let valid = run_with_root(
+        &fixture,
+        &[
+            "validate",
+            "agent-result",
+            "--file",
+            valid_file.to_str().unwrap(),
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert!(valid.status.success());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&valid.stdout).unwrap()["valid"],
+        true
+    );
+
+    let invalid_file = fixture.root.join("invalid-result.json");
+    fs::write(
+        &invalid_file,
+        r#"{"schema_version":1,"agent":"explorer","cycle_id":"cycle-1","phase":"explore","verdict":"maybe","summary":"ok"}"#,
+    )
+    .unwrap();
+    let invalid = run_with_root(
+        &fixture,
+        &[
+            "validate",
+            "agent-result",
+            "--file",
+            invalid_file.to_str().unwrap(),
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert_eq!(invalid.status.code(), Some(1));
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&invalid.stdout).unwrap()["valid"],
+        false
+    );
+
+    let converted = run_with_root(
+        &fixture,
+        &[
+            "agent-result",
+            "convert",
+            "--text",
+            "Legacy summary",
+            "--agent",
+            "explorer",
+            "--cycle",
+            "cycle-1",
+            "--phase",
+            "explore",
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert!(converted.status.success());
+    let converted_json: serde_json::Value = serde_json::from_slice(&converted.stdout).unwrap();
+    assert_eq!(converted_json["result"]["summary"], "Legacy summary");
+    assert_eq!(converted_json["schema_errors"].as_array().unwrap().len(), 0);
+    assert!(!converted_json["warnings"].as_array().unwrap().is_empty());
+
+    let legacy_file = fixture.root.join("legacy.json");
+    fs::write(
+        &legacy_file,
+        r#"{"status":"success","message":"done","artifacts":["a.md"]}"#,
+    )
+    .unwrap();
+    let mapped = run_with_root(
+        &fixture,
+        &[
+            "agent-result",
+            "convert",
+            "--file",
+            legacy_file.to_str().unwrap(),
+            "--agent",
+            "explorer",
+            "--cycle",
+            "cycle-1",
+            "--phase",
+            "build",
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert!(mapped.status.success());
+    let mapped_json: serde_json::Value = serde_json::from_slice(&mapped.stdout).unwrap();
+    assert_eq!(mapped_json["result"]["verdict"], "completed");
+    assert_eq!(
+        mapped_json["result"]["artifacts"].as_array().unwrap().len(),
+        1
+    );
+}
+
+#[test]
+fn cli_permission_policy_enforces_default_deny() {
+    let fixture = CliFixture::new("permissions");
+    write(
+        fixture.root.join("workflow/workflow.yaml"),
+        CANONICAL_WORKFLOW,
+    );
+    write(
+        fixture.root.join("permissions.yaml"),
+        r#"
+agents:
+  sdd-kernel-apply:
+    phases: [build, verify]
+    capabilities: [git.inspect, git.commit]
+"#,
+    );
+    let common = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+    ];
+    let adopted = fixture.run_adopt(
+        "apply",
+        &[
+            "--root",
+            fixture.root.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            "https://example.com/acme/repo.git",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(adopted.status.success());
+
+    let allowed = run_with_root(
+        &fixture,
+        &[
+            "permission",
+            "check",
+            "--agent",
+            "sdd-kernel-apply",
+            "--phase",
+            "build",
+            "--capability",
+            "git.commit",
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert!(allowed.status.success());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&allowed.stdout).unwrap()["allowed"],
+        true
+    );
+
+    let denied = run_with_root(
+        &fixture,
+        &[
+            "permission",
+            "check",
+            "--agent",
+            "mystery-agent",
+            "--phase",
+            "build",
+            "--capability",
+            "git.commit",
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert!(denied.status.success());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&denied.stdout).unwrap()["allowed"],
+        false
+    );
+
+    let gated = run_with_root(
+        &fixture,
+        &[
+            "capability",
+            "apply",
+            "--capability",
+            "git.create_branch",
+            "--program",
+            "echo",
+            "--agent",
+            "sdd-kernel-apply",
+            "--phase",
+            "build",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert_eq!(gated.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&gated.stderr).contains("not allowed capability"),
+        "{}",
+        String::from_utf8_lossy(&gated.stderr)
+    );
+
+    let permitted = run_with_root(
+        &fixture,
+        &[
+            "capability",
+            "apply",
+            "--capability",
+            "git.commit",
+            "--program",
+            "echo",
+            "--arg",
+            "ok",
+            "--approve",
+            "--agent",
+            "sdd-kernel-apply",
+            "--phase",
+            "build",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert!(
+        permitted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&permitted.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&permitted.stdout).unwrap()["status"],
+        "succeeded"
+    );
+}
+
 fn run_with_root(fixture: &CliFixture, args: &[&str], common: &[&str]) -> std::process::Output {
     fixture.run(
         &args

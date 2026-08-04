@@ -9,8 +9,12 @@
 
 pub mod cycle;
 pub mod identity;
+pub mod legacy;
+pub mod schema;
 pub mod workflow;
 
 pub use cycle::*;
 pub use identity::*;
+pub use legacy::*;
+pub use schema::*;
 pub use workflow::*;

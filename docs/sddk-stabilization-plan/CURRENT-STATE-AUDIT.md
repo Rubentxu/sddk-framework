@@ -12,10 +12,10 @@ El estado aceptado del backlog es:
 
 | Estado | Historias | Porcentaje |
 | --- | ---: | ---: |
-| Completa | 17 | 53 % |
-| Parcial | 1 | 3 % |
+| Completa | 20 | 63 % |
+| Parcial | 0 | 0 % |
 | Desviada | 0 | 0 % |
-| No iniciada | 14 | 44 % |
+| No iniciada | 12 | 37 % |
 
 Los principales bloqueos no son volumen de código. Son fronteras de autoridad:
 
@@ -176,7 +176,7 @@ Quedan fuera: Git local (SDDK-603) y CAS (SDDK-604), que se construirán sobre e
 | PR 3 | Identidad UUID, XDG y adopción reparable | Completo y alineado con el workflow. |
 | PR 4 | SQLite, hash chain, engine, replay, leases y CLI | Completo; autoridad local probada extremo a extremo. |
 | PR 5 | Gateway default-deny, Git local con postcondiciones y CAS SHA-256 | Completo y probado. |
-| PR 6 | AgentResult y schema | Parcial; adapter y permisos no iniciados. |
+| PR 6 | Schema validation runtime, adaptador legacy y permisos por fase | Completo y probado. |
 | PR 7 | Contrato legacy de release con tests | Parcial; Forge/reconcile runtime no iniciados. |
 | PR 8 | ADRs y templates | No iniciado. |
 | PR 9 | ADR de distribución | No iniciado. |
@@ -185,18 +185,16 @@ Quedan fuera: Git local (SDDK-603) y CAS (SDDK-604), que se construirán sobre e
 
 | Gate | Resultado |
 | --- | --- |
-| `cargo test --workspace --locked` | PASS, 121 tests en el corte. |
+| `cargo test --workspace --locked` | PASS, 133 tests en el corte. |
 | `sddk lint --format json` | PASS, 0 errores y 0 warnings. |
 | `sddk generate docs --check` | PASS, documentación actual. |
 | `sddk generate inventory --check` | PASS, 64 agentes y 90 skills. |
 | `tests/test_workflow_contract.sh` | PASS, 117 checks. |
 | `tests/test_adoption_contract.sh` | PASS, 22 checks. |
-| `cargo clippy --workspace --all-targets --locked -- -D warnings` | PASS. |
-| E2E CLI `cli_walks_cycle_with_fencing_and_rebuilds_state` | PASS, ciclo completo con fencing, frames y rebuild. |
-| E2E CLI `cli_capability_gateway_enforces_policy_and_persists_receipts` | PASS, default-deny, approvals y receipts. |
-| E2E CLI `cli_git_operations_verify_postconditions_and_record_receipts` | PASS, branch/commit/tag con postcondiciones y receipts. |
-| E2E CLI `cli_artifact_store_and_get_verify_digest` | PASS, CAS con digest obligatorio y verificación. |
-| Gateway (policy, runner, filesystem, Git, CAS, redacción) | PASS, 24 tests. |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | PASS (MSRV 1.91). |
+| E2E CLI `cli_validate_agent_result_and_legacy_conversion` | PASS, validación y adaptador con warnings. |
+| E2E CLI `cli_permission_policy_enforces_default_deny` | PASS, default-deny y gate en capability apply. |
+| Gateway (policy, runner, filesystem, Git, CAS, permissions, redacción) | PASS, 28 tests. |
 | CI remota | PASS en [`Required quality gates`](https://github.com/Rubentxu/sddk-framework/actions/runs/30888909675), 53 s. |
 
 ## Plan de acción recomendado

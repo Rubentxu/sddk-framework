@@ -15,7 +15,7 @@
 | PR 3 | Completo | Tests Rust + adopción | UUID persistido, XDG y reparación están alineados con el workflow. |
 | PR 4 | Completo | Tests Rust + CLI end-to-end | Ciclo, fases, ledger, leases/fencing y rebuild expuestos por CLI y probados. |
 | PR 5 | Completo | Gateway + Git + CAS probados | Capability gateway default-deny, runner tipado, filesystem scoped, Git local con postcondiciones y CAS SHA-256. |
-| PR 6 | Parcial | No demostrado | Solo schema/modelo; faltan adapter legacy y permisos por fase. |
+| PR 6 | Completo | Tests Rust + CLI | Schema validation runtime, adaptador legacy y permisos por fase con default-deny. |
 | PR 7 | Parcial en modo legacy | No demostrado | Release corregido en prompts, pero no existe Forge ni reconciliación Rust. |
 | PR 8 | No iniciado | No demostrado | Sin parser de vault, FTS5, backlinks ni `petgraph`. |
 | PR 9 | No iniciado | No demostrado | Sin `xtask`, CI/CD, receipts, SBOM ni attestations. |
@@ -110,7 +110,7 @@ Toda acción local relevante queda registrada y es idempotente. El gateway aplic
 
 ## PR 6 — Protocolo de agentes
 
-**Estado actual:** Parcial; schema/modelo presentes, integración y permisos ausentes.
+**Estado actual:** Completo; schema validation, adaptador legacy y permisos por fase probados.
 
 ### Entregables
 
@@ -121,7 +121,7 @@ Toda acción local relevante queda registrada y es idempotente. El gateway aplic
 
 ### Gate
 
-Un agente no puede cambiar de fase mediante texto libre.
+Un agente no puede cambiar de fase mediante texto libre. La validación JSON Schema runtime rechaza resultados inválidos, el adaptador emite warnings de campos no verificables y `PermissionPolicy` niega por defecto agentes/fases/capacidades no declaradas.
 
 ## PR 7 — Forge y release
 

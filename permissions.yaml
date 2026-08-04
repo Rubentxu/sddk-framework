@@ -1,0 +1,25 @@
+# SDDK agent permission registry — default-deny.
+# Agents absent from this file are denied all phases and capabilities.
+agents:
+  orchestrator:
+    phases: [explore, specify, design, plan, build, verify, review, release, archive]
+    capabilities:
+      - git.inspect
+      - git.create_branch
+      - git.commit
+      - git.tag
+      - git.push
+      - pr.create
+      - release.create
+  sdd-kernel-apply:
+    phases: [build, verify]
+    capabilities:
+      - git.inspect
+      - git.commit
+  sdd-kernel-verify:
+    phases: [verify]
+    capabilities:
+      - git.inspect
+  sddk-debt-verify:
+    phases: [verify]
+    capabilities: []
