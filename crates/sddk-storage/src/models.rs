@@ -222,3 +222,75 @@ pub struct CycleLease {
     /// Monotonic token invalidating previous lease holders.
     pub fencing_token: i64,
 }
+
+/// Outcome recorded by an authorized gate evaluation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GateOutcomeStatus {
+    /// The gate passed.
+    Passed,
+    /// The gate failed.
+    Failed,
+}
+
+/// Data required to persist one authorized gate receipt.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GateReceiptInput {
+    /// Stable receipt identifier.
+    pub receipt_id: String,
+    /// Owning project identifier.
+    pub project_id: String,
+    /// Related cycle, when applicable.
+    pub cycle_id: Option<String>,
+    /// Evaluated gate name.
+    pub gate: String,
+    /// Registered evaluator identifier that issued the receipt.
+    pub evaluator: String,
+    /// Transition the gate belongs to.
+    pub transition_id: String,
+    /// Deterministic plan hash the receipt attests.
+    pub plan_hash: String,
+    /// Evaluation outcome.
+    pub outcome: GateOutcomeStatus,
+    /// Sanitized evaluation evidence.
+    pub evidence: Value,
+    /// Actor responsible for the evaluation.
+    pub actor: String,
+    /// Command invocation identifier.
+    pub command_id: String,
+    /// Frame shared by the command's events.
+    pub frame_id: String,
+    /// Caller-supplied evaluation timestamp.
+    pub evaluated_at: String,
+}
+
+/// An authorized, persisted gate evaluation receipt.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GateReceipt {
+    /// Stable receipt identifier.
+    pub receipt_id: String,
+    /// Owning project identifier.
+    pub project_id: String,
+    /// Related cycle, when applicable.
+    pub cycle_id: Option<String>,
+    /// Evaluated gate name.
+    pub gate: String,
+    /// Registered evaluator identifier that issued the receipt.
+    pub evaluator: String,
+    /// Transition the gate belongs to.
+    pub transition_id: String,
+    /// Deterministic plan hash the receipt attests.
+    pub plan_hash: String,
+    /// Evaluation outcome.
+    pub outcome: GateOutcomeStatus,
+    /// Sanitized evaluation evidence.
+    pub evidence: Value,
+    /// Actor responsible for the evaluation.
+    pub actor: String,
+    /// Command invocation identifier.
+    pub command_id: String,
+    /// Frame shared by the command's events.
+    pub frame_id: String,
+    /// Caller-supplied evaluation timestamp.
+    pub evaluated_at: String,
+}

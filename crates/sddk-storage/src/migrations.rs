@@ -1,4 +1,4 @@
-pub(crate) const LATEST_SCHEMA_VERSION: i32 = 1;
+pub(crate) const LATEST_SCHEMA_VERSION: i32 = 2;
 
 pub(crate) const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -128,4 +128,27 @@ CREATE TABLE cycle_leases (
     expires_at_ms INTEGER NOT NULL CHECK (expires_at_ms > acquired_at_ms),
     fencing_token INTEGER NOT NULL CHECK (fencing_token > 0)
 );
+"#;
+
+pub(crate) const MIGRATION_2: &str = r#"
+CREATE TABLE gate_receipts (
+    receipt_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE RESTRICT,
+    cycle_id TEXT,
+    gate TEXT NOT NULL CHECK (gate <> ''),
+    evaluator TEXT NOT NULL CHECK (evaluator <> ''),
+    transition_id TEXT NOT NULL CHECK (transition_id <> ''),
+    plan_hash TEXT NOT NULL CHECK (plan_hash <> ''),
+    outcome TEXT NOT NULL CHECK (outcome IN ('passed', 'failed')),
+    evidence TEXT NOT NULL,
+    actor TEXT NOT NULL CHECK (actor <> ''),
+    command_id TEXT NOT NULL CHECK (command_id <> ''),
+    frame_id TEXT NOT NULL CHECK (frame_id <> ''),
+    evaluated_at TEXT NOT NULL,
+    FOREIGN KEY (project_id, cycle_id)
+        REFERENCES cycles(project_id, cycle_id) ON DELETE RESTRICT
+);
+
+CREATE INDEX gate_receipts_cycle_idx ON gate_receipts(cycle_id);
+CREATE INDEX gate_receipts_plan_hash_idx ON gate_receipts(plan_hash);
 "#;

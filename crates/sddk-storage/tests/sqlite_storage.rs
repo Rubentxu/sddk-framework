@@ -28,7 +28,7 @@ fn persists_canonical_records_across_reopen() {
 
     {
         let storage = Storage::open(&database_path).unwrap();
-        assert_eq!(storage.schema_version().unwrap(), 1);
+        assert_eq!(storage.schema_version().unwrap(), 2);
         storage.insert_project(&project_record()).unwrap();
         storage.insert_workspace(&workspace_record()).unwrap();
         storage.insert_cycle(&cycle).unwrap();

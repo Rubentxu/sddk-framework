@@ -20,9 +20,13 @@ use sddk_domain::{
     ArtifactRef, CycleManifest, CyclePath, CycleStatus, Phase, Requirement, StateRef, Transition,
     WORKFLOW_SCHEMA_VERSION, WorkflowManifest,
 };
-use sddk_storage::{CycleLease, CycleRecord, LedgerEvent, LedgerEventInput, Storage, StorageError};
+use sddk_storage::{
+    CycleLease, CycleRecord, GateOutcomeStatus, GateReceipt, GateReceiptInput, LedgerEvent,
+    LedgerEventInput, Storage, StorageError,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 /// Loads and validates a workflow manifest from a YAML string.
@@ -410,23 +414,17 @@ pub struct TransitionEvidence {
     /// Artifact results offered to the transition.
     #[serde(default)]
     pub artifacts: BTreeMap<String, ArtifactRef>,
-    /// Explicit outcomes for required gates.
+    /// Persisted gate receipts referenced by the transition's required gates.
     #[serde(default)]
-    pub gates: BTreeMap<String, GateOutcome>,
+    pub gates: BTreeMap<String, GateReceiptRef>,
 }
 
-/// Explicit gate evaluation supplied by the caller.
+/// Reference to a persisted, authorized gate receipt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "status", rename_all = "snake_case")]
-pub enum GateOutcome {
-    /// The gate passed.
-    Passed,
-    /// The gate failed with optional structured context.
-    Failed {
-        /// Stable human-readable failure reason.
-        #[serde(default)]
-        reason: Option<String>,
-    },
+#[serde(rename_all = "snake_case")]
+pub struct GateReceiptRef {
+    /// Identifier of a persisted gate receipt.
+    pub receipt_id: String,
 }
 
 /// Logical outcome selected while planning a transition.
@@ -437,6 +435,29 @@ pub enum TransitionOutcome {
     Succeeded,
     /// At least one gate failed and the declared failure target applies.
     Failed,
+}
+
+/// Input for one authorized gate evaluation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GateEvaluationInput {
+    /// Cycle whose transition requires the gate.
+    pub cycle_id: String,
+    /// Transition that declares the gate.
+    pub transition_id: String,
+    /// Gate name being evaluated.
+    pub gate: String,
+    /// Evaluator identifier registered for this gate.
+    pub evaluator: String,
+    /// Sanitized evaluation evidence.
+    pub evidence: Value,
+    /// Evaluation outcome recorded by the evaluator.
+    pub outcome: GateOutcomeStatus,
+    /// Caller-supplied deterministic timestamp.
+    pub evaluated_at: String,
+    /// Actor responsible for the evaluation.
+    pub actor: String,
+    /// Command invocation identifier.
+    pub command_id: String,
 }
 
 /// Deterministic plan for a declared non-creation transition.
@@ -629,12 +650,54 @@ pub enum EngineError {
         artifact: String,
     },
     /// A required gate outcome was not supplied.
-    #[error("transition {transition_id} is missing gate {gate:?}")]
-    MissingGate {
+    #[error("transition {transition_id} is missing gate receipt for {gate:?}")]
+    MissingGateReceipt {
         /// Requested transition identifier.
         transition_id: String,
         /// Missing gate name.
         gate: String,
+    },
+    /// A referenced gate receipt does not exist.
+    #[error("transition {transition_id} references unknown gate receipt {receipt_id}")]
+    UnknownGateReceipt {
+        /// Requested transition identifier.
+        transition_id: String,
+        /// Unknown receipt identifier.
+        receipt_id: String,
+    },
+    /// A gate receipt does not match the requested gate or transition.
+    #[error("gate receipt {receipt_id} does not attest gate {gate} for transition {transition_id}")]
+    GateReceiptMismatch {
+        /// Referenced receipt identifier.
+        receipt_id: String,
+        /// Expected gate name.
+        gate: String,
+        /// Expected transition identifier.
+        transition_id: String,
+    },
+    /// A gate receipt attests a different plan state.
+    #[error("gate receipt {receipt_id} is stale for the current cycle state")]
+    StaleGateReceipt {
+        /// Receipt with a mismatched plan hash.
+        receipt_id: String,
+    },
+    /// The evaluator is not registered for the gate.
+    #[error("evaluator {evaluator} is not registered for gate {gate}")]
+    UnregisteredEvaluator {
+        /// Gate being evaluated.
+        gate: String,
+        /// Unregistered evaluator identifier.
+        evaluator: String,
+    },
+    /// A gate receipt belongs to a different cycle.
+    #[error("gate receipt {receipt_id} belongs to cycle {cycle}, expected {expected}")]
+    GateReceiptScopeMismatch {
+        /// Referenced receipt identifier.
+        receipt_id: String,
+        /// Receipt cycle.
+        cycle: String,
+        /// Expected cycle.
+        expected: String,
     },
     /// A failed gate has no declared failure target.
     #[error("transition {transition_id} gate {gate:?} failed without an on_failure target")]
@@ -727,7 +790,11 @@ pub enum EngineError {
 pub struct Engine {
     workflow: WorkflowManifest,
     storage: Storage,
+    evaluators: BTreeMap<String, BTreeSet<String>>,
 }
+
+/// Evaluator identifier registered by default for every declared gate.
+pub const DEFAULT_EVALUATOR: &str = "sddk.cli";
 
 impl Engine {
     /// Constructs an engine after validating the supplied workflow manifest.
@@ -736,7 +803,99 @@ impl Engine {
         storage: Storage,
     ) -> Result<Self, WorkflowValidationError> {
         validate_workflow(&workflow)?;
-        Ok(Self { workflow, storage })
+        let mut evaluators = BTreeMap::new();
+        for gate in workflow.gates.keys() {
+            evaluators.insert(gate.clone(), BTreeSet::from([DEFAULT_EVALUATOR.to_owned()]));
+        }
+        Ok(Self {
+            workflow,
+            storage,
+            evaluators,
+        })
+    }
+
+    /// Registers an evaluator for one gate.
+    pub fn register_evaluator(&mut self, gate: &str, evaluator: &str) {
+        self.evaluators
+            .entry(gate.to_owned())
+            .or_default()
+            .insert(evaluator.to_owned());
+    }
+
+    /// Returns whether an evaluator is registered for a gate.
+    pub fn evaluator_registered(&self, gate: &str, evaluator: &str) -> bool {
+        self.evaluators
+            .get(gate)
+            .is_some_and(|evaluators| evaluators.contains(evaluator))
+    }
+
+    /// Computes the deterministic plan hash a gate receipt must attest.
+    pub fn plan_hash(
+        &self,
+        cycle_id: &str,
+        transition_id: &str,
+        state_before: &CycleManifest,
+    ) -> String {
+        let material = serde_json::json!({
+            "cycle_id": cycle_id,
+            "transition_id": transition_id,
+            "state_before": state_before,
+        });
+        let digest = Sha256::digest(material.to_string().as_bytes());
+        format!("sha256:{digest:x}")
+    }
+
+    /// Authorizes and persists one gate evaluation receipt.
+    ///
+    /// The evaluator must be registered for the gate, the gate must be declared
+    /// by the transition, and the receipt is bound to the deterministic plan
+    /// hash of the current cycle state.
+    pub fn evaluate_gate(
+        &mut self,
+        input: &GateEvaluationInput,
+    ) -> Result<GateReceipt, EngineError> {
+        if !self
+            .evaluators
+            .get(&input.gate)
+            .is_some_and(|evaluators| evaluators.contains(&input.evaluator))
+        {
+            return Err(EngineError::UnregisteredEvaluator {
+                gate: input.gate.clone(),
+                evaluator: input.evaluator.clone(),
+            });
+        }
+        let transition = self.transition(&input.transition_id)?;
+        let declares = transition.requires.iter().any(|requirement| {
+            matches!(
+                requirement,
+                Requirement::Structured { kind, name } if kind == "gate" && name == &input.gate
+            )
+        });
+        if !declares {
+            return Err(EngineError::GateReceiptMismatch {
+                receipt_id: "evaluation".into(),
+                gate: input.gate.clone(),
+                transition_id: transition.id.clone(),
+            });
+        }
+        let state_before = self.storage.get_cycle(&input.cycle_id)?.manifest;
+        let plan_hash = self.plan_hash(&input.cycle_id, &input.transition_id, &state_before);
+        let frame_id = format!("frame:{}", input.command_id);
+        Ok(self.storage.insert_gate_receipt(&GateReceiptInput {
+            receipt_id: format!("gate-{}-{}", input.gate, &plan_hash[7..23]),
+            project_id: state_before.project_id,
+            cycle_id: Some(input.cycle_id.clone()),
+            gate: input.gate.clone(),
+            evaluator: input.evaluator.clone(),
+            transition_id: input.transition_id.clone(),
+            plan_hash,
+            outcome: input.outcome,
+            evidence: input.evidence.clone(),
+            actor: input.actor.clone(),
+            command_id: input.command_id.clone(),
+            frame_id,
+            evaluated_at: input.evaluated_at.clone(),
+        })?)
     }
 
     /// Returns the validated workflow manifest.
@@ -1047,7 +1206,7 @@ impl Engine {
                 Requirement::Structured { kind, name }
                     if kind == "gate" && !evidence.gates.contains_key(name) =>
                 {
-                    return Err(EngineError::MissingGate {
+                    return Err(EngineError::MissingGateReceipt {
                         transition_id: transition.id.clone(),
                         gate: name.clone(),
                     });
@@ -1056,19 +1215,55 @@ impl Engine {
             }
         }
 
-        let failed_gates = transition
-            .requires
-            .iter()
-            .filter_map(|requirement| match requirement {
-                Requirement::Structured { kind, name }
-                    if kind == "gate"
-                        && matches!(evidence.gates.get(name), Some(GateOutcome::Failed { .. })) =>
-                {
-                    Some(name.clone())
-                }
-                _ => None,
-            })
-            .collect::<Vec<_>>();
+        let mut failed_gates = Vec::new();
+        for requirement in &transition.requires {
+            let Requirement::Structured { kind, name } = requirement else {
+                continue;
+            };
+            if kind != "gate" {
+                continue;
+            }
+            let Some(reference) = evidence.gates.get(name) else {
+                return Err(EngineError::MissingGateReceipt {
+                    transition_id: transition.id.clone(),
+                    gate: name.clone(),
+                });
+            };
+            let receipt = self
+                .storage
+                .get_gate_receipt(&reference.receipt_id)
+                .map_err(|_| EngineError::UnknownGateReceipt {
+                    transition_id: transition.id.clone(),
+                    receipt_id: reference.receipt_id.clone(),
+                })?;
+            if receipt.gate != *name || receipt.transition_id != transition.id {
+                return Err(EngineError::GateReceiptMismatch {
+                    receipt_id: reference.receipt_id.clone(),
+                    gate: name.clone(),
+                    transition_id: transition.id.clone(),
+                });
+            }
+            if receipt.cycle_id.as_deref() != Some(state_before.cycle_id.as_str()) {
+                return Err(EngineError::GateReceiptScopeMismatch {
+                    receipt_id: reference.receipt_id.clone(),
+                    cycle: receipt.cycle_id.unwrap_or_default(),
+                    expected: state_before.cycle_id.clone(),
+                });
+            }
+            let expected_hash = self.plan_hash(
+                &state_before.cycle_id,
+                transition.id.as_str(),
+                &state_before,
+            );
+            if receipt.plan_hash != expected_hash {
+                return Err(EngineError::StaleGateReceipt {
+                    receipt_id: reference.receipt_id.clone(),
+                });
+            }
+            if receipt.outcome == GateOutcomeStatus::Failed {
+                failed_gates.push(name.clone());
+            }
+        }
         let (outcome, target) = if failed_gates.is_empty() {
             (TransitionOutcome::Succeeded, &transition.to)
         } else {
