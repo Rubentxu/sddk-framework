@@ -2332,6 +2332,12 @@ fn repository_fixture() -> TestRepository {
     repository
         .write("permissions.yaml", "agents: {}\n")
         .unwrap();
+    repository
+        .write(
+            "manifest.toml",
+            "[pack]\nid = \"fixture\"\nversion = \"0.1.0\"\nschema_version = 1\ncompatibility = \">=1.85\"\nrisk = \"low\"\nconsequence = \"creates\"\n\n[[commands]]\nname = \"a\"\nsurface = [\"a\"]\n\n[fixtures]\npaths = [\"tests/a.sh\"]\n",
+        )
+        .unwrap();
     repository.write("target/ignored.md", DIAGNOSTICS).unwrap();
     repository.write(".git/ignored.md", DIAGNOSTICS).unwrap();
     repository.write("supplied-input.zip", DIAGNOSTICS).unwrap();
@@ -2383,4 +2389,63 @@ impl CliFixture {
         args.extend_from_slice(common);
         self.run(&args)
     }
+}
+
+#[test]
+fn cli_pack_validate_and_lint_enforce_manifest() {
+    let fixture = CliFixture::new("pack-validate");
+    let valid_manifest = r#"
+[pack]
+id = "fixture-pack"
+version = "0.2.0"
+schema_version = 1
+compatibility = ">=1.85"
+risk = "low"
+consequence = "creates"
+
+[[commands]]
+name = "check"
+surface = ["check"]
+
+[fixtures]
+paths = ["tests/a.sh"]
+"#;
+    write(fixture.root.join("manifest.toml"), valid_manifest);
+
+    let validated = run_from([
+        "sddk",
+        "pack",
+        "validate",
+        "--manifest",
+        fixture.root.join("manifest.toml").to_str().unwrap(),
+        "--format",
+        "json",
+    ]);
+    assert_eq!(validated.status, 0, "{}", validated.stderr);
+    let output: serde_json::Value = serde_json::from_str(&validated.stdout).unwrap();
+    assert_eq!(output["id"], "fixture-pack");
+    assert_eq!(output["valid"], true);
+
+    write(fixture.root.join("manifest.toml"), "[pack]\nid = \"\"\n");
+    let broken = run_from([
+        "sddk",
+        "pack",
+        "validate",
+        "--manifest",
+        fixture.root.join("manifest.toml").to_str().unwrap(),
+    ]);
+    assert_eq!(broken.status, 1);
+
+    let repository = repository_fixture();
+    generate_workflow_docs(repository.path(), false).unwrap();
+    repository
+        .write("manifest.toml", "[pack]\nid = \"\"\n")
+        .unwrap();
+    let report = lint_repository(repository.path()).unwrap();
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "SDDK014")
+    );
 }
