@@ -574,7 +574,7 @@ dependencies = [
 
 [[package]]
 name = "sddk-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -595,7 +595,7 @@ dependencies = [
 
 [[package]]
 name = "sddk-domain"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "regex",
@@ -610,7 +610,7 @@ dependencies = [
 
 [[package]]
 name = "sddk-engine"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "sddk-domain",
  "sddk-storage",
@@ -624,7 +624,7 @@ dependencies = [
 
 [[package]]
 name = "sddk-storage"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rusqlite",
  "sddk-domain",
@@ -637,7 +637,7 @@ dependencies = [
 
 [[package]]
 name = "sddk-testkit"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "tempfile",
 ]

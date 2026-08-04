@@ -1,7 +1,7 @@
 # Backlog técnico — SDDK v3.6
 
 **Estado auditado:** 2026-08-04
-**Baseline:** `main` en `0fcb09c` más cambios sin commit en el worktree
+**Baseline:** `v0.1.0` (`ee7957f`) más el corte `feat/canonical-ci-gates`
 **Informe:** [`CURRENT-STATE-AUDIT.md`](CURRENT-STATE-AUDIT.md)
 
 > El estado mide criterios de aceptación demostrados en el repositorio actual. Código presente sin integración, gate automático o evidencia suficiente se marca como parcial. Nada de este paquete se considera entregado hasta quedar versionado y protegido por CI.
@@ -10,22 +10,22 @@
 
 | Estado | Historias | Significado |
 | --- | ---: | --- |
-| Completa | 6 | Todos los criterios de la historia tienen implementación y prueba directa. |
-| Parcial | 10 | Existe una base útil, pero falta al menos un criterio o integración obligatoria. |
-| Desviada | 1 | La implementación existe, pero contradice otro contrato canónico. |
-| No iniciada | 15 | No existe implementación runtime suficiente. |
+| Completa | 9 | Todos los criterios de la historia tienen implementación y prueba directa. |
+| Parcial | 9 | Existe una base útil, pero falta al menos un criterio o integración obligatoria. |
+| Desviada | 0 | No queda ninguna desviación contractual conocida. |
+| No iniciada | 14 | No existe implementación runtime suficiente. |
 | **Total** | **32** | La base Rust es funcional, pero v3.6 todavía no cumple su criterio de salida. |
 
 ## Matriz de aceptación
 
 | Historia | Estado | Evidencia actual | Gap que impide cerrarla |
 | --- | --- | --- | --- |
-| SDDK-101 | Parcial | `workflow/workflow.yaml`; `validate_workflow`; tests de dominio | No se ejecuta validación JSON Schema completa y la copia del paquete está obsoleta. |
-| SDDK-102 | Parcial | `sddk generate docs`; SDDK009; tests deterministas | No existe CI que ejecute `generate docs --check`. |
+| SDDK-101 | Parcial | `workflow/workflow.yaml`; `validate_workflow`; tests de dominio; snapshots duplicados retirados | No se ejecuta validación JSON Schema completa. |
+| SDDK-102 | Completa | `sddk generate docs`; SDDK009; tests deterministas; gate CI | Sin gap funcional demostrado. |
 | SDDK-201 | Completa | SDDK001 y tests de referencias tipadas | Sin gap funcional de historia; falta automatizarla en CI a nivel roadmap. |
 | SDDK-202 | Completa | SDDK002-SDDK004 y fixtures de shell ejecutable | Sin gap funcional de historia; el escaneo de fences es opt-in por diseño. |
-| SDDK-203 | No iniciada | README mantiene conteos manuales | Falta inventario generado y comprobación de drift. |
-| SDDK-301 | Desviada | Identidad remote/scope/UUID y tests | El código y este backlog usan UUID; `workflow.project_identity.fallback` declara `hostname-path`. |
+| SDDK-203 | Completa | `sddk generate inventory`; SDDK010; README enlaza el inventario | Sin gap funcional demostrado. |
+| SDDK-301 | Completa | Identidad remote/scope/UUID, receipt persistido y test contractual | Sin gap funcional demostrado. |
 | SDDK-302 | Completa | Receipt v2, hash de configuración y rename atómico | Sin gap funcional demostrado. |
 | SDDK-303 | Completa | `adopt repair`; tests ReceiptOnly/LedgerOnly/conflicto/corrupción | Sin gap funcional demostrado. |
 | SDDK-401 | Completa | SQLite v1, WAL, foreign keys y migración transaccional | La evolución v2+ queda como riesgo del roadmap, no de este criterio inicial. |
@@ -38,7 +38,7 @@
 | SDDK-602 | Parcial | Escrituras atómicas de adopción/docs y paths XDG | Falta gateway filesystem reutilizable, canonicalización y defensa frente a escapes/symlinks. |
 | SDDK-603 | No iniciada | Solo lectura fija de `git config --get remote.origin.url` | Faltan inspect/branch/commit/tag y verificación de postcondiciones. |
 | SDDK-604 | Parcial | Metadata de artefactos en SQLite | Falta CAS real, SHA-256 obligatorio, deduplicación y verificación de bytes. |
-| SDDK-701 | Parcial | Schema y `AgentResult` tipado | El runtime no valida JSON Schema y la copia del paquete diverge del schema raíz. |
+| SDDK-701 | Parcial | Schema canónico único y `AgentResult` tipado | El runtime no valida JSON Schema. |
 | SDDK-702 | No iniciada | Sin adaptador runtime | Falta convertir resultados legacy y emitir campos no verificables. |
 | SDDK-703 | No iniciada | Riesgos declarativos en workflow | Falta política agent + phase + capability y enforcement default-deny. |
 | SDDK-801 | No iniciada | `ForgeDef` es solo configuración | Falta trait neutral, mock y pruebas de contrato. |
@@ -97,6 +97,7 @@
 **PR:** 1
 
 - El README no mantiene manualmente números de agentes o skills.
+- CI falla con `SDDK010` si el inventario generado está obsoleto.
 
 ## ÉPICA E3 — Identidad y adopción
 

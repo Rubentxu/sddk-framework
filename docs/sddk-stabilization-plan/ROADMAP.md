@@ -1,18 +1,18 @@
 # Roadmap de entrega — SDDK v3.6
 
 **Estado auditado:** 2026-08-04
-**Baseline:** `main` en `0fcb09c` más cambios sin commit en el worktree
+**Baseline:** `v0.1.0` (`ee7957f`) más el corte `feat/canonical-ci-gates`
 **Informe:** [`CURRENT-STATE-AUDIT.md`](CURRENT-STATE-AUDIT.md)
 
-> Los números PR 1-9 representan unidades de entrega planificadas, no pull requests ya integradas. El código Rust, schemas y workflow actuales siguen sin formar parte del historial Git de `main`.
+> Los números PR 1-9 representan unidades funcionales del plan, no números literales de pull request. La base Rust y los contratos PR1-PR4 se versionaron en `v0.1.0`; este corte cierra canon, inventario y CI de PR1-PR3.
 
 ## Panel de entrega
 
 | PR | Estado actual | Gate | Bloqueo principal |
 | --- | --- | --- | --- |
-| PR 1 | Parcial, sin entregar | No demostrado | Falta inventario generado, contrato único y commit/PR verificable. |
-| PR 2 | Parcial, sin entregar | No demostrado | No existe CI; `sddk-testkit` carece de fixtures; schema validation es parcial. |
-| PR 3 | Implementado con desviación | Funcional en tests | UUID fallback contradice `workflow.project_identity.fallback: hostname-path`. |
+| PR 1 | Completo | CI + SDDK001-SDDK010 | Contrato único e inventario generado demostrados. |
+| PR 2 | Completo | Required quality gates | Workspace, linter, generadores y testkit tienen pruebas y CI. |
+| PR 3 | Completo | Tests Rust + adopción | UUID persistido, XDG y reparación están alineados con el workflow. |
 | PR 4 | Parcial | API interna verde | CLI de ledger/ciclos ausente; frames y leases no están integrados extremo a extremo. |
 | PR 5 | No iniciado; primitives parciales | No demostrado | No existe capability gateway, runner, Git local ni CAS. |
 | PR 6 | Parcial | No demostrado | Solo schema/modelo; faltan adapter legacy y permisos por fase. |
@@ -22,15 +22,13 @@
 
 ## Próximo corte recomendado
 
-1. **Base versionada:** excluir `target/`, resolver el drift de contratos y convertir PR1-PR4 en work units revisables.
-2. **Gate automático:** CI mínima con fmt, test, Clippy estricto, linter, docs check y tests contractuales.
-3. **Cerrar autoridad local:** exponer ciclo/fase/ledger por CLI e integrar leases, frames y replay.
-4. **No habilitar efectos externos:** capability gateway y approvals default-deny deben preceder a Git/Forge.
-5. **Continuar por dependencia:** PR 5 → PR 6 → PR 7 → PR 8 → PR 9.
+1. **Cerrar autoridad local:** exponer ciclo/fase/ledger por CLI e integrar leases, frames y replay.
+2. **No habilitar efectos externos:** capability gateway y approvals default-deny deben preceder a Git/Forge.
+3. **Continuar por dependencia:** PR 5 → PR 6 → PR 7 → PR 8 → PR 9.
 
 ## PR 1 — Estabilización semántica
 
-**Estado actual:** Parcial, no entregado.
+**Estado actual:** Completo; canon único e inventario protegidos por CI.
 
 ### Alcance
 
@@ -46,7 +44,7 @@ No existen dos definiciones incompatibles de una misma regla operativa.
 
 ## PR 2 — Workspace Rust y linter
 
-**Estado actual:** Parcial, no entregado.
+**Estado actual:** Completo; workspace, testkit, linter y generación protegidos por CI.
 
 ### Entregables
 
@@ -57,6 +55,7 @@ No existen dos definiciones incompatibles de una misma regla operativa.
 - `sddk-testkit`.
 - `sddk lint`.
 - `sddk generate docs`.
+- `sddk generate inventory`.
 
 ### Gate
 
@@ -64,7 +63,7 @@ CI detecta referencias rotas, placeholders y documentación generada desactualiz
 
 ## PR 3 — Identidad, paths y adopción
 
-**Estado actual:** Implementado y probado, con desviación contractual abierta.
+**Estado actual:** Completo; implementado, probado y alineado con el contrato canónico.
 
 ### Entregables
 

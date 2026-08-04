@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  required:
+    name: Required quality gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust toolchain
+        run: rustup toolchain install 1.85.0 --profile minimal --component rustfmt,clippy
+
+      - name: Select Rust toolchain
+        run: rustup default 1.85.0
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run workspace tests
+        run: cargo test --workspace --locked
+
+      - name: Run strict Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Lint repository contracts
+        run: cargo run --locked -q -p sddk-cli -- lint --root . --format json
+
+      - name: Check generated workflow documentation
+        run: cargo run --locked -q -p sddk-cli -- generate docs --root . --check
+
+      - name: Check generated repository inventory
+        run: cargo run --locked -q -p sddk-cli -- generate inventory --root . --check
+
+      - name: Run workflow contract tests
+        run: bash tests/test_workflow_contract.sh
+
+      - name: Run adoption contract tests
+        run: bash tests/test_adoption_contract.sh
