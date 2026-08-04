@@ -23,6 +23,9 @@ const ARTIFACT_TOPOLOGY: &str = "SDDK007";
 const PATH_NOT_TRAVERSABLE: &str = "SDDK008";
 const GENERATED_DOC_STALE: &str = "SDDK009";
 const GENERATED_INVENTORY_STALE: &str = "SDDK010";
+const AGENT_NOT_IN_REGISTRY: &str = "SDDK011";
+const REGISTRY_ORPHAN: &str = "SDDK012";
+const AGENT_NAME_MISMATCH: &str = "SDDK013";
 
 /// Diagnostic severity. Only errors make `sddk lint` fail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -127,6 +130,7 @@ pub fn lint_repository(root: impl AsRef<Path>) -> Result<LintReport, LintError> 
         lint_generated_docs(root, manifest, &mut diagnostics);
     }
     lint_generated_inventory(root, &mut diagnostics);
+    lint_agent_registry(root, &mut diagnostics);
 
     diagnostics.sort_by(|left, right| {
         (
@@ -1117,4 +1121,94 @@ fn wire<T: serde::Serialize>(value: &T) -> String {
         .as_str()
         .expect("workflow enums serialize as strings")
         .to_owned()
+}
+
+fn lint_agent_registry(root: &Path, diagnostics: &mut Vec<Diagnostic>) {
+    let registry_path = root.join("permissions.yaml");
+    let policy = match sddk_gateway::PermissionPolicy::from_file(&registry_path) {
+        Ok(policy) => policy,
+        Err(error) => {
+            diagnostics.push(diagnostic(
+                AGENT_NOT_IN_REGISTRY,
+                Severity::Error,
+                Path::new("permissions.yaml"),
+                None,
+                format!("cannot load the agent permission registry: {error}"),
+                "create permissions.yaml at the repository root with an `agents` mapping",
+            ));
+            return;
+        }
+    };
+    let declared: BTreeSet<String> = policy.agents().map(str::to_owned).collect();
+
+    let agents_dir = root.join("agents");
+    if !agents_dir.is_dir() {
+        return;
+    }
+    for entry in WalkDir::new(&agents_dir)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(Result::ok)
+    {
+        if !entry.file_type().is_file()
+            || entry.path().extension().and_then(|ext| ext.to_str()) != Some("md")
+        {
+            continue;
+        }
+        let stem = entry
+            .path()
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or_default();
+        if let Some(frontmatter_name) = agent_frontmatter_name(entry.path())
+            && frontmatter_name != stem
+        {
+            diagnostics.push(diagnostic(
+                AGENT_NAME_MISMATCH,
+                Severity::Error,
+                &Path::new("agents").join(format!("{stem}.md")),
+                None,
+                format!(
+                    "agent frontmatter name {frontmatter_name:?} does not match file name {stem:?}"
+                ),
+                "align the frontmatter `name` with the file stem",
+            ));
+        }
+        if !declared.contains(stem) {
+            diagnostics.push(diagnostic(
+                AGENT_NOT_IN_REGISTRY,
+                Severity::Error,
+                &Path::new("agents").join(format!("{stem}.md")),
+                None,
+                format!("agent {stem} is not declared in permissions.yaml"),
+                "add the agent to the permission registry (default-deny unless declared)",
+            ));
+        }
+    }
+
+    for name in &declared {
+        if !agents_dir.join(format!("{name}.md")).exists() {
+            diagnostics.push(diagnostic(
+                REGISTRY_ORPHAN,
+                Severity::Warning,
+                Path::new("permissions.yaml"),
+                None,
+                format!(
+                    "permission registry declares agent {name:?} without an agents/{name}.md file"
+                ),
+                "remove the orphan entry or create the agent file",
+            ));
+        }
+    }
+}
+
+fn agent_frontmatter_name(path: &Path) -> Option<String> {
+    let source = fs::read_to_string(path).ok()?;
+    let rest = source.strip_prefix("---")?;
+    let frontmatter = rest.split_once("\n---")?.0;
+    frontmatter
+        .lines()
+        .find_map(|line| line.strip_prefix("name:"))
+        .map(|value| value.trim().trim_matches('"').trim_matches('\'').to_owned())
+        .filter(|value| !value.is_empty())
 }
