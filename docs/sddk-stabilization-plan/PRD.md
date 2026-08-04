@@ -1,6 +1,6 @@
 # PRD — SDDK v3.6 Stabilization
 
-**Estado:** propuesta
+**Estado:** aceptada — entregado entre `v0.1.0` y `v0.14.0`
 **Versión:** 0.1
 **Fecha:** 2026-08-03
 **Producto:** SDDK Framework

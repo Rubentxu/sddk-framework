@@ -9,7 +9,7 @@ Paquete de diseño y ejecución para transformar SDDK Framework en un motor de d
 - `BACKLOG.md`: épicas, historias y criterios de aceptación.
 - `CURRENT-STATE-AUDIT.md`: estado verificado, gaps, desviaciones y orden de remediación.
 - `MIGRATION.md`: transición desde los agentes y prompts actuales.
-- `adr/`: decisiones arquitectónicas propuestas.
+- `adr/`: decisiones arquitectónicas aceptadas (ADR-0001 a ADR-0008).
 - `../../workflow/workflow.yaml`: contrato canónico ejecutable.
 - `../../schemas/`: schemas canónicos ejecutables.
 
@@ -47,4 +47,4 @@ schemas/agent-result.schema.json
 schemas/capability-request.schema.json
 ```
 
-Esta estructura conserva la propuesta original y no representa por sí sola el layout runtime actual. No se recomienda modificar todavía todos los agentes. Primero deben consolidarse el canon raíz, la CI, la identidad de proyecto y el ledger.
+El plan v3.6 está completo y declarado estable: runtime Rust autoritativo, backlog 32/32 y todos los gaps cerrados. El registro de agentes (`permissions.yaml`) está completo y verificado por lint (SDDK011-013).
