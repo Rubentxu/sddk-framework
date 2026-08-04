@@ -13,6 +13,7 @@ const WORKFLOW: &str = include_str!("fixtures/workflow.yaml");
 const WORKFLOW_SCHEMA: &str = include_str!("fixtures/workflow.schema.json");
 const DIAGNOSTICS: &str = include_str!("fixtures/diagnostics.md");
 const REFERENCES: &str = include_str!("fixtures/references.yaml");
+const CANONICAL_WORKFLOW: &str = include_str!("../../../workflow/workflow.yaml");
 
 #[test]
 fn fixture_diagnostics_have_stable_codes_and_locations() {
@@ -470,6 +471,238 @@ fn repair_restores_missing_receipt_and_status_reports_corruption() {
         serde_json::from_slice::<serde_json::Value>(&corrupt.stdout).unwrap()["status"],
         "corrupt"
     );
+}
+
+#[test]
+fn cli_walks_cycle_with_fencing_and_rebuilds_state() {
+    let fixture = CliFixture::new("cycle-authority");
+    write(
+        fixture.root.join("workflow/workflow.yaml"),
+        CANONICAL_WORKFLOW,
+    );
+
+    let adopted = fixture.run_adopt(
+        "apply",
+        &[
+            "--root",
+            fixture.root.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            "https://example.com/acme/repo.git",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(
+        adopted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&adopted.stderr)
+    );
+
+    let started = fixture.run(&[
+        "cycle",
+        "start",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--name",
+        "add-auth",
+        "--path",
+        "a-full",
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+        "--lease-owner",
+        "agent-a",
+        "--lease-ms",
+        "3600000",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        started.status.success(),
+        "{}",
+        String::from_utf8_lossy(&started.stderr)
+    );
+    let started_json: serde_json::Value = serde_json::from_slice(&started.stdout).unwrap();
+    let cycle_id = started_json["cycle_id"].as_str().unwrap().to_owned();
+    assert_eq!(started_json["status"], "OPEN");
+    assert_eq!(started_json["phase"], "explore");
+    assert_eq!(started_json["lease"]["owner"], "agent-a");
+    assert_eq!(started_json["lease"]["fencing_token"], 1);
+
+    let status = fixture.run(&[
+        "cycle",
+        "status",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--cycle",
+        &cycle_id,
+        "--format",
+        "json",
+    ]);
+    assert!(status.status.success());
+    let status_json: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_eq!(status_json["status"], "OPEN");
+    assert_eq!(status_json["path"], "A-full");
+
+    let unfenced = fixture.run(&[
+        "cycle",
+        "transition",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--cycle",
+        &cycle_id,
+        "--transition",
+        "phase.explore.complete",
+        "--artifact",
+        "exploration-report=artifacts/exploration.md",
+        "--gate-pass",
+        "exploration-sufficient",
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+        "--format",
+        "json",
+    ]);
+    assert_eq!(unfenced.status.code(), Some(1));
+
+    let transitioned = fixture.run(&[
+        "cycle",
+        "transition",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--cycle",
+        &cycle_id,
+        "--transition",
+        "phase.explore.complete",
+        "--artifact",
+        "exploration-report=artifacts/exploration.md",
+        "--gate-pass",
+        "exploration-sufficient",
+        "--lease-owner",
+        "agent-a",
+        "--fencing-token",
+        "1",
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        transitioned.status.success(),
+        "{}",
+        String::from_utf8_lossy(&transitioned.stderr)
+    );
+    let transition_json: serde_json::Value = serde_json::from_slice(&transitioned.stdout).unwrap();
+    assert_eq!(transition_json["outcome"], "succeeded");
+    assert_eq!(transition_json["phase"], "specify");
+    assert_eq!(transition_json["sequence"], 2);
+
+    let verified = fixture.run(&[
+        "ledger",
+        "verify",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--format",
+        "json",
+    ]);
+    assert!(verified.status.success());
+    let verify_json: serde_json::Value = serde_json::from_slice(&verified.stdout).unwrap();
+    assert_eq!(verify_json["event_count"], 2);
+
+    let events = fixture.run(&[
+        "ledger",
+        "events",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--format",
+        "json",
+    ]);
+    assert!(events.status.success());
+    let events_json: serde_json::Value = serde_json::from_slice(&events.stdout).unwrap();
+    assert_eq!(events_json.as_array().unwrap().len(), 2);
+    let frames = events_json
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|event| event["frame_id"].as_str().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(frames.len(), 2);
+
+    let rebuilt = fixture.run(&[
+        "cycle",
+        "rebuild",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--cycle",
+        &cycle_id,
+        "--format",
+        "json",
+    ]);
+    assert!(rebuilt.status.success());
+    let rebuild_json: serde_json::Value = serde_json::from_slice(&rebuilt.stdout).unwrap();
+    assert_eq!(rebuild_json["restored"], false);
+    assert_eq!(rebuild_json["phase"], "specify");
+
+    let released = fixture.run(&[
+        "cycle",
+        "lock",
+        "release",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--cycle",
+        &cycle_id,
+        "--owner",
+        "agent-a",
+        "--fencing-token",
+        "1",
+        "--format",
+        "json",
+    ]);
+    assert!(released.status.success());
+    let release_json: serde_json::Value = serde_json::from_slice(&released.stdout).unwrap();
+    assert_eq!(release_json["released"], true);
 }
 
 fn repository_fixture() -> TestRepository {

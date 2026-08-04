@@ -13,7 +13,7 @@
 | PR 1 | Completo | CI + SDDK001-SDDK010 | Contrato único e inventario generado demostrados. |
 | PR 2 | Completo | Required quality gates | Workspace, linter, generadores y testkit tienen pruebas y CI. |
 | PR 3 | Completo | Tests Rust + adopción | UUID persistido, XDG y reparación están alineados con el workflow. |
-| PR 4 | Parcial | API interna verde | CLI de ledger/ciclos ausente; frames y leases no están integrados extremo a extremo. |
+| PR 4 | Completo | Tests Rust + CLI end-to-end | Ciclo, fases, ledger, leases/fencing y rebuild expuestos por CLI y probados. |
 | PR 5 | No iniciado; primitives parciales | No demostrado | No existe capability gateway, runner, Git local ni CAS. |
 | PR 6 | Parcial | No demostrado | Solo schema/modelo; faltan adapter legacy y permisos por fase. |
 | PR 7 | Parcial en modo legacy | No demostrado | Release corregido en prompts, pero no existe Forge ni reconciliación Rust. |
@@ -22,9 +22,8 @@
 
 ## Próximo corte recomendado
 
-1. **Cerrar autoridad local:** exponer ciclo/fase/ledger por CLI e integrar leases, frames y replay.
-2. **No habilitar efectos externos:** capability gateway y approvals default-deny deben preceder a Git/Forge.
-3. **Continuar por dependencia:** PR 5 → PR 6 → PR 7 → PR 8 → PR 9.
+1. **No habilitar efectos externos:** capability gateway y approvals default-deny deben preceder a Git/Forge.
+2. **Continuar por dependencia:** PR 5 → PR 6 → PR 7 → PR 8 → PR 9.
 
 ## PR 1 — Estabilización semántica
 
@@ -78,7 +77,7 @@ Dos repositorios con igual nombre no colisionan y una adopción interrumpida es 
 
 ## PR 4 — Ledger y máquina de estados
 
-**Estado actual:** Parcial; primitives implementados, superficie operativa incompleta.
+**Estado actual:** Completo; autoridad local expuesta por CLI y probada extremo a extremo.
 
 ### Entregables
 
@@ -87,10 +86,11 @@ Dos repositorios con igual nombre no colisionan y una adopción interrumpida es 
 - Frames y cadena hash.
 - Ciclos y fases.
 - Replay.
+- CLI `cycle start|status|transition|rebuild`, `cycle lock`, `ledger verify|events`.
 
 ### Gate
 
-Replay reconstruye el mismo estado lógico y las transiciones inválidas se rechazan.
+Replay reconstruye el mismo estado lógico y las transiciones inválidas se rechazan. El CLI recorre un ciclo completo (adopt → start → transition → verify → rebuild) sin red ni reloj real y las mutaciones exigen fencing cuando el ciclo está leaseado.
 
 ## PR 5 — Gateway de capacidades locales
 

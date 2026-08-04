@@ -10,7 +10,7 @@ members = [
 exclude = ["docs/sddk-stabilization-plan"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 authors = ["SDDK Team"]
 license = "MIT"
@@ -37,7 +37,7 @@ sha2 = "0.10"
 
 # UUIDs
 uuid = { version = "1", features = ["v4", "serde"] }
-time = { version = "=0.3.36", features = ["formatting"] }
+time = { version = "=0.3.36", features = ["formatting", "parsing"] }
 
 # File system
 walkdir = "2"

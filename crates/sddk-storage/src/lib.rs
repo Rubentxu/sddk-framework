@@ -441,6 +441,58 @@ impl Storage {
         rows.map(|row| row.map_err(StorageError::from)).collect()
     }
 
+    /// Lists ledger events sharing one command frame in ascending sequence order.
+    pub fn list_frame_events(&self, frame_id: &str) -> Result<Vec<LedgerEvent>> {
+        let mut statement = self.connection.prepare(
+            "SELECT sequence, event_id, project_id, cycle_id, frame_id,
+                    command_id, actor, event_type, occurred_at,
+                    state_before_json, state_after_json, payload_json,
+                    previous_hash, event_hash
+             FROM ledger_events WHERE frame_id = ?1 ORDER BY sequence ASC",
+        )?;
+        let rows = statement.query_map([frame_id], event_from_row)?;
+        rows.map(|row| row.map_err(StorageError::from)).collect()
+    }
+
+    /// Deletes only the materialized cycle snapshot, preserving its ledger events.
+    ///
+    /// This is a destructive repair primitive used by rebuild workflows and
+    /// tests that simulate a lost snapshot. Foreign-key enforcement is suspended
+    /// for the delete because ledger events reference the snapshot row. The
+    /// causal ledger itself is untouched.
+    pub fn delete_cycle_snapshot(&self, cycle_id: &str) -> Result<()> {
+        self.connection.pragma_update(None, "foreign_keys", false)?;
+        let result = self
+            .connection
+            .execute("DELETE FROM cycles WHERE cycle_id = ?1", [cycle_id]);
+        self.connection.pragma_update(None, "foreign_keys", true)?;
+        let changed = result?;
+        if changed == 0 {
+            return Err(not_found("cycle", cycle_id));
+        }
+        Ok(())
+    }
+
+    /// Verifies that the current lease still matches the caller's fencing token.
+    pub fn verify_cycle_lease(
+        &self,
+        cycle_id: &str,
+        owner: &str,
+        fencing_token: i64,
+    ) -> Result<CycleLease> {
+        let lease = self
+            .get_cycle_lease_on_optional(cycle_id)?
+            .ok_or_else(|| not_found("cycle lease", cycle_id))?;
+        if lease.owner != owner || lease.fencing_token != fencing_token {
+            return Err(StorageError::LeaseConflict {
+                cycle_id: cycle_id.to_owned(),
+                owner: lease.owner,
+                expires_at_ms: lease.expires_at_ms,
+            });
+        }
+        Ok(lease)
+    }
+
     /// Verifies sequence continuity, predecessor links, and event hashes.
     pub fn verify_ledger(&self) -> Result<LedgerVerification> {
         let events = self.list_events()?;
@@ -627,9 +679,12 @@ impl Storage {
 
     /// Loads the current cycle lease.
     pub fn get_cycle_lease(&self, cycle_id: &str) -> Result<CycleLease> {
-        get_cycle_lease_on(&self.connection, cycle_id)
-            .optional()?
+        self.get_cycle_lease_on_optional(cycle_id)?
             .ok_or_else(|| not_found("cycle lease", cycle_id))
+    }
+
+    fn get_cycle_lease_on_optional(&self, cycle_id: &str) -> Result<Option<CycleLease>> {
+        Ok(get_cycle_lease_on(&self.connection, cycle_id).optional()?)
     }
 
     /// Releases a cycle lease only when owner and fencing token still match.

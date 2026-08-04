@@ -20,7 +20,7 @@ use sddk_domain::{
     ArtifactRef, CycleManifest, CyclePath, CycleStatus, Phase, Requirement, StateRef, Transition,
     WORKFLOW_SCHEMA_VERSION, WorkflowManifest,
 };
-use sddk_storage::{CycleRecord, LedgerEvent, LedgerEventInput, Storage, StorageError};
+use sddk_storage::{CycleLease, CycleRecord, LedgerEvent, LedgerEventInput, Storage, StorageError};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use thiserror::Error;
@@ -569,6 +569,18 @@ pub struct ReplayVerification {
     pub sequence: i64,
 }
 
+/// Outcome of restoring a cycle snapshot from its causal ledger events.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct RebuildVerification {
+    /// Reconstructed logical cycle snapshot.
+    pub manifest: CycleManifest,
+    /// Sequence of the state event used for reconstruction.
+    pub sequence: i64,
+    /// Whether the materialized snapshot was missing and had to be restored.
+    pub restored: bool,
+}
+
 /// Errors emitted by deterministic engine operations.
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -887,34 +899,55 @@ impl Engine {
 
     /// Reconstructs the latest logical cycle snapshot from state events.
     pub fn replay_cycle(&self, cycle_id: &str) -> Result<ReplayVerification, EngineError> {
-        let events = self.storage.list_cycle_events(cycle_id)?;
-        let mut latest = None;
-        for event in events.iter().filter(|event| is_cycle_state_event(event)) {
-            let state = event
-                .state_after
-                .as_ref()
-                .ok_or(EngineError::MissingStateAfter {
-                    sequence: event.sequence,
-                })?;
-            if !state.is_object() {
-                return Err(EngineError::NonObjectStateAfter {
-                    sequence: event.sequence,
-                });
-            }
-            let manifest = serde_json::from_value(state.clone()).map_err(|source| {
-                EngineError::CorruptStateAfter {
-                    sequence: event.sequence,
-                    source,
-                }
-            })?;
-            latest = Some(ReplayVerification {
+        let (sequence, manifest, _) = replay_state(cycle_id, &self.storage)?;
+        Ok(ReplayVerification { manifest, sequence })
+    }
+
+    /// Restores a missing materialized snapshot from its causal ledger events.
+    ///
+    /// Returns `restored: true` only when the cycle snapshot row was missing and
+    /// was rebuilt without appending new events. A stored snapshot that disagrees
+    /// with the replayed state is treated as an integrity alarm, never overwritten.
+    pub fn rebuild_cycle(&mut self, cycle_id: &str) -> Result<RebuildVerification, EngineError> {
+        let (sequence, manifest, occurred_at) = replay_state(cycle_id, &self.storage)?;
+        match self.storage.get_cycle(cycle_id) {
+            Ok(record) if record.manifest == manifest => Ok(RebuildVerification {
                 manifest,
-                sequence: event.sequence,
-            });
+                sequence,
+                restored: false,
+            }),
+            Ok(_) => Err(EngineError::SnapshotMismatch {
+                cycle_id: cycle_id.to_owned(),
+            }),
+            Err(StorageError::NotFound {
+                entity: "cycle", ..
+            }) => {
+                let cycle = CycleRecord {
+                    manifest: manifest.clone(),
+                    created_at: occurred_at.clone(),
+                    updated_at: occurred_at,
+                };
+                self.storage.insert_cycle(&cycle)?;
+                Ok(RebuildVerification {
+                    manifest,
+                    sequence,
+                    restored: true,
+                })
+            }
+            Err(error) => Err(error.into()),
         }
-        latest.ok_or_else(|| EngineError::MissingReplayState {
-            cycle_id: cycle_id.to_owned(),
-        })
+    }
+
+    /// Verifies that the current lease still matches the caller's fencing token.
+    pub fn require_lease_fence(
+        &self,
+        cycle_id: &str,
+        owner: &str,
+        fencing_token: i64,
+    ) -> Result<CycleLease, EngineError> {
+        Ok(self
+            .storage
+            .verify_cycle_lease(cycle_id, owner, fencing_token)?)
     }
 
     /// Replays a cycle and verifies it equals the materialized SQLite snapshot.
@@ -1093,6 +1126,37 @@ fn is_cycle_state_event(event: &LedgerEvent) -> bool {
         event.event_type.as_str(),
         "cycle.created" | "cycle.transitioned"
     )
+}
+
+fn replay_state(
+    cycle_id: &str,
+    storage: &Storage,
+) -> Result<(i64, CycleManifest, String), EngineError> {
+    let events = storage.list_cycle_events(cycle_id)?;
+    let mut latest = None;
+    for event in events.iter().filter(|event| is_cycle_state_event(event)) {
+        let state = event
+            .state_after
+            .as_ref()
+            .ok_or(EngineError::MissingStateAfter {
+                sequence: event.sequence,
+            })?;
+        if !state.is_object() {
+            return Err(EngineError::NonObjectStateAfter {
+                sequence: event.sequence,
+            });
+        }
+        let manifest = serde_json::from_value(state.clone()).map_err(|source| {
+            EngineError::CorruptStateAfter {
+                sequence: event.sequence,
+                source,
+            }
+        })?;
+        latest = Some((event.sequence, manifest, event.occurred_at.clone()));
+    }
+    latest.ok_or_else(|| EngineError::MissingReplayState {
+        cycle_id: cycle_id.to_owned(),
+    })
 }
 
 fn cycle_path_name(path: &CyclePath) -> &'static str {
