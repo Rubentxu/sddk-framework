@@ -13,6 +13,7 @@ mod inventory;
 mod ledger;
 mod lint;
 mod permission;
+mod release_cmd;
 mod result_cmd;
 
 use std::ffi::{OsStr, OsString};
@@ -25,6 +26,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 pub(crate) use cycle::{CycleCommand, RuntimeArgs, RuntimeContext};
 use git_cmd::GitCommand;
 use permission::PermissionCommand;
+use release_cmd::ReleaseCommand;
 use result_cmd::{AgentResultCommand, ValidateCommand};
 use sddk_domain::{IdentitySource, normalize_scope, resolve_project_identity, stable_workspace_id};
 use sddk_engine::{
@@ -116,6 +118,11 @@ enum Command {
     AgentResult {
         #[command(subcommand)]
         command: AgentResultCommand,
+    },
+    /// Plan and apply releases through the forge adapter.
+    Release {
+        #[command(subcommand)]
+        command: ReleaseCommand,
     },
 }
 
@@ -331,6 +338,7 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         Command::Permission { command } => permission::run_permission(command, environment),
         Command::Validate { command } => result_cmd::run_validate(command, environment),
         Command::AgentResult { command } => result_cmd::run_agent_result(command, environment),
+        Command::Release { command } => release_cmd::run_release(command, environment),
     }
 }
 
