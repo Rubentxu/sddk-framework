@@ -1,7 +1,7 @@
 # Backlog técnico — SDDK v3.6
 
 **Estado auditado:** 2026-08-04
-**Baseline:** `v0.1.0` (`ee7957f`) más el corte `feat/canonical-ci-gates`
+**Baseline:** `v0.2.0`
 **Informe:** [`CURRENT-STATE-AUDIT.md`](CURRENT-STATE-AUDIT.md)
 
 > El estado mide criterios de aceptación demostrados en el repositorio actual. Código presente sin integración, gate automático o evidencia suficiente se marca como parcial. Nada de este paquete se considera entregado hasta quedar versionado y protegido por CI.
