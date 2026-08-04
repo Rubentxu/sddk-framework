@@ -1220,7 +1220,7 @@ fn cli_validate_agent_result_and_legacy_conversion() {
     let converted_json: serde_json::Value = serde_json::from_slice(&converted.stdout).unwrap();
     assert_eq!(converted_json["result"]["summary"], "Legacy summary");
     assert_eq!(converted_json["schema_errors"].as_array().unwrap().len(), 0);
-    assert!(converted_json["warnings"].as_array().unwrap().len() >= 1);
+    assert!(!converted_json["warnings"].as_array().unwrap().is_empty());
 
     let legacy_file = fixture.root.join("legacy.json");
     fs::write(
