@@ -243,15 +243,28 @@ Before executing ANY SDDK command (`/sddk-new`, `/sddk-ff`, `/sddk-continue`, `/
 
 **Step 0a — Adoption check:**
 
+Before executing any SDDK command, resolve PROJECT_ROOT and PROJECT:
+
 ```bash
-if [ ! -d "~/.sddk-knowledge/{project}" ]; then
+PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+PROJECT="$(basename "$PROJECT_ROOT")"
+VAULT="$HOME/.sddk-knowledge/$PROJECT"
+```
+
+Then check for adoption:
+
+```bash
+if [ ! -d "$VAULT" ]; then
     # ❌ NOT ADOPTED — orchestrator asks user (see below)
+fi
+if [ ! -f "$VAULT/adoption.json" ]; then
+    # ❌ NOT ADOPTED — adoption.json missing
 fi
 ```
 
-The presence of `~/.sddk-knowledge/{project}/` is the single source of truth for "this project uses SDDK". `sddk-adopt` creates this directory (and plants all other SDDK artifacts).
+The presence of `~/.sddk-knowledge/{project}/adoption.json` is the single source of truth for "this project uses SDDK". `sddk-adopt` creates this directory and plants `adoption.json` (along with all other SDDK artifacts).
 
-**If `~/.sddk-knowledge/{project}` doesn't exist, ASK the user explicitly using the `question` tool:**
+**If `~/.sddk-knowledge/{project}/adoption.json` doesn't exist, ASK the user explicitly using the `question` tool:**
 
 ```yaml
 question:
@@ -260,6 +273,7 @@ question:
 
     SDDK needs to plant some files before it can run cycles:
     - ~/.sddk-knowledge/{project}/  (the knowledge vault — in user home, outside this repo)
+    - ~/.sddk-knowledge/{project}/adoption.json  (adoption marker)
     - .gitignore, .ignore  (for SDDK working artifacts)
     - openspec/config.yaml
     - .atl/skill-registry.md
@@ -276,14 +290,14 @@ question:
 ```
 
 Then:
-- **Yes** → `task(subagent_type="sddk-adopt")` → after completion, re-check `test -d ~/.sddk-knowledge/{project}` → proceed
+- **Yes** → `task(subagent_type="sddk-adopt")` → after completion, re-check `test -f "$VAULT/adoption.json"` → proceed
 - **No** → return `status=blocked`, `next_recommended: "/sddk-adopt"`, STOP
-- **Bypass** → log warning, proceed without adoption (NOT RECOMMENDED)
+- **Bypass** → NOT PERMITTED. The adoption guard is a hard gate — bypassing it breaks the hard gate contract and corrupts cycle metrics. Return `status=blocked`, `reason: adoption_required`.
 
 **Step 0b — Init check (silent):**
 
 ```bash
-if [ ! -f "sddk/{project}/testing-capabilities" ]; then
+if [ ! -f "sddk/$PROJECT/testing-capabilities" ]; then
     # Delegate to sddk-init (silent, idempotent)
 fi
 ```
@@ -291,9 +305,9 @@ fi
 This is fast detection + cache, not a structural change. Silent is fine here.
 
 This ensures:
-- **Adoption** is explicit (one-time, user-consented) — `test -d ~/.sddk-knowledge/{project}`
+- **Adoption** is explicit (one-time, user-consented) — `test -f "$VAULT/adoption.json"` (checking both directory AND adoption marker)
 - **Init** is silent (idempotent) — `sddk/{project}/testing-capabilities`
-- **No marker files, no metadata files** — the directory itself is the marker
+- **No marker files, no metadata files** — the `adoption.json` file inside the vault directory is the adoption marker
 
 **Do NOT skip the adoption check. Do NOT run `sddk-init` if the project is not adopted — adoption must come first.**
 
@@ -350,9 +364,9 @@ input: goal
     A-min     if: C2 + scope simple (single apply)
     A-lite    if: C1 (default for bounded work)
     A-full    if: C0 OR architectural OR new domain
-[4.5] assess reversibility (orthogonal to complexity — modulates debt-verify depth):
+[4.5] assess reversibility (orthogonal to complexity — modulates debt-verify depth, never presence):
     HIGH    if: pure code, feature-flagged, isolated module, no schema/API/migration
-            → debt-verify policy: SKIP (even on A-* paths). Verify functional only.
+            → debt-verify policy: smoke (minimum mandatory gate on A-* paths).
     MEDIUM  if: new public API, config format change, new dependency added
             → debt-verify policy: smoke (2 clusters) regardless of path.
     LOW     if: schema change, security-critical, irreversible migration, shared-state
@@ -551,7 +565,7 @@ If you can match a canonical path, **always prefer it** — generated workflows 
    - Include `branch-creation` if any agent produces commits
    - Include `verify` if agents produce code/output
    - Include `debt-verify` (depth derived from path; mandatory — NOT opt-in) for SDD-style changes; skip ONLY when path is B-direct (hotfix)
-   - Include `update-roadmap` if milestone-tracking project
+    - Include `update-knowledge-graph` if milestone tracking is enabled
    - Include `release` (mandatory post-archive, NOT opt-in) if git workflow applies
 
 5. **YAML composition**: emit workflow YAML following the schema in `~/.config/opencode/workflows/README.md`. Required fields:
@@ -658,7 +672,7 @@ Before a kernel command:
 1. **SDD Init Guard** (above — adoption check FIRST, then init check)
 2. Resolve workspace: `git rev-parse --show-toplevel 2>/dev/null || pwd`
 3. Resolve project name: `PROJECT=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")` — this is the basename of the repo root, used for `~/.sddk-knowledge/$PROJECT/`
-4. **Adoption check**: `test -d ~/.sddk-knowledge/$PROJECT` → if missing, ask user about sddk-adopt (see above)
+4. **Adoption check**: validate `$VAULT/adoption.json` → if missing or invalid, block and recommend sddk-adopt
 5. **ROADMAP Serialization Lock** (see below — BLOCKS if another cycle is active)
 6. Ask/cache execution mode: `interactive` (default) or `auto`
 7. Ask/cache artifact store mode: `engram` (default) / `logseq` (if MCP) / `openspec` / `hybrid` / `none`
@@ -679,7 +693,7 @@ The **knowledge graph vault** at `~/.sddk-knowledge/{project}/` is the centraliz
 ### Gate Logic (MCW Step 0.2 — enforced at Preflight step 4)
 
 ```bash
-LOCK=~/.sddk-knowledge/{project}/milestones/_active.md
+LOCK="$VAULT/milestones/_active.md"
 if grep -q "LOCKED" "$LOCK" 2>/dev/null; then
     # Extract the active milestone
     MILESTONE=$(grep "Milestone:" "$LOCK" | head -1)
@@ -745,9 +759,9 @@ Before each phase, produce this compact block:
 - Capability injections: {CogniCode/Chronos/logseq/etc. — which were activated and why}
 - strict_tdd_mode: {bool}
 - debt_clusters: {list of cluster names declared in phase.clusters; derived from path, never user-selected}
-- debt_depth: {smoke | standard | deep — derived from path; **NEVER `skip`** in A-* paths; **overridden by reversibility** (see below)}
-- reversibility: {high | medium | low — assessed at triage step 4.5; HIGH skips debt-verify, LOW forces deep + judgment-day}
-- debt_fix_round: {int, 0 if first attempt, increments on fix cycles}
+- debt_depth: {smoke | standard | deep — derived from path; **NEVER `skip`** in A-* paths; reversibility may increase or reduce depth but never remove the gate}
+- reversibility: {high | medium | low — assessed at triage step 4.5; HIGH uses at least smoke, LOW forces deep + judgment-day}
+- remediation_round: {int, 0 if first attempt, increments during same-cycle remediation}
 - delivery_strategy: {single-pr|auto-chain|exception-ok}
 - per_task_max_attempts: {int}
 ```
@@ -789,7 +803,7 @@ Registry rules:
 ```
 explore → proposal → [spec || design] --> tasks -> apply -> verify -> debt-verify (mandatory on A-*) -> archive -> release (mandatory)
                                    ^                ^          |              |
-                                   |                |__________| correction    | debt-fix cycle
+                                   |                |__________| correction    | remediation round
                               PARALLEL                          cycle         (max 3 rounds, debt-verify reruns on fixed branch — no user prompt)
 ```
 
@@ -797,7 +811,7 @@ explore → proposal → [spec || design] --> tasks -> apply -> verify -> debt-v
 - `tasks` requires both approved.
 - `apply` requires tasks + spec + design.
 - `verify` requires apply progress. FAIL → return to apply (correction cycle, max 2 iterations).
-- `debt-verify` (v3.3 — mandatory on A-*) requires passing verify report (PASS or PW). Depth is path-derived; user is never asked and never allowed to skip. Runs on feature branch BEFORE PR. FAIL → fix cycle on `refactor/debt-<change>-<round>` (max 3 rounds).
+- `debt-verify` (MANDATORY on A-*) requires passing verify report (PASS or PW). Depth is path-derived; user is never asked and never allowed to skip. Runs on feature branch BEFORE PR. FAIL with `re_iterate_from: apply` → remediate on SAME feature branch (increment `remediation_round`, max 3 rounds).
 - `archive` requires passing verify report AND passing debt-report (no exceptions on A-*).
 - `release` (v3.3 — mandatory post-archive) is owned by `sdd-kernel-release`; see orchestrator.md § "Release Is Mandatory Post-Archive".
 
@@ -835,8 +849,8 @@ Config (`sddk-config.json` or env):
 - `CIRCUIT_FAILURE_THRESHOLD`: 3 consecutive failures (default: 3)
 - `CIRCUIT_RESET_TIMEOUT_MS`: 300000 (5 min)
 - `CIRCUIT_AGENT_SCOPE`: `all` or per-agent list
-- `CIRCUIT_PER_TASK_MAX_ATTEMPTS`: 5 (NEW: prevents loop engineering runaway inside apply)
-- `CIRCUIT_NO_PROGRESS_STREAK`: 3 (NEW: same action_signature N times = no progress)
+- `CIRCUIT_PER_TASK_MAX_ATTEMPTS`: 5 (prevents loop engineering runaway inside apply)
+- `CIRCUIT_NO_PROGRESS_STREAK`: 3 (same action_signature N times = no progress)
 
 Tripped state:
 - Block delegation to failing agent.
@@ -844,7 +858,11 @@ Tripped state:
 
 Half-open: after timeout, allow one test delegation. Success → reset; failure → trip again.
 
-**NEW**: Per-task attempt limit + no-progress streak detection (loop engineering freno duro inside apply). See `plugins/circuit-breaker.ts`.
+**Invariant (verified by checklist/tests, not runtime plugin)**: Per-task attempt limit + no-progress streak detection (loop engineering freno duro inside apply) is enforced by:
+- `per_task_max_attempts` hard brake in `sdd-kernel-apply` (default 5, configurable via `CIRCUIT_PER_TASK_MAX_ATTEMPTS`)
+- No-progress streak detection: same `action_signature` 3 times consecutively → BLOCK with `no_progress_streak`
+- The `sdd-kernel-apply` agent tracks action signatures per task and emits `loop.no_progress` when the streak threshold is hit
+- No runtime plugin is required; enforcement is embedded in the agent's loop logic
 
 ---
 
@@ -941,15 +959,15 @@ Escalate for:
 | **`debt-coupling-cluster`** | Debt-verify phase on **A-min / A-lite / A-full** | Hidden dependencies, global state, brittle coupling (3 skills) |
 | **`debt-overeng-cluster`** | Debt-verify phase on **A-min / A-lite / A-full** | Over-engineering audit + ponytail: comment debt ledger (2 skills) |
 
-### Debt-Verify Policy (v3.3 + reversibility override)
+### Debt-Verify Policy (v3.6 + reversibility depth adjustment)
 
 Once `sdd-kernel-verify` returns `PASS` or `PASS_WITH_WARNINGS`, `sdd-kernel-debt-verify` runs with depth **derived from path**, not selected by the user. There is no prompt for "debt-verify or direct to archive".
 
-**Reversibility override (NEW):** the `reversibility` axis assessed at triage step 4.5 can override the path-derived depth:
+The `reversibility` axis assessed at triage step 4.5 may adjust depth but never remove the mandatory A-* gate:
 
 | Reversibility | Override effect |
 |---|---|
-| **HIGH** | Skip debt-verify entirely, even on A-* paths. The change is trivially reversible (`git revert`), so debt audit is wasted cost. |
+| **HIGH** | Use `smoke` as the minimum mandatory depth on A-* paths. |
 | **MEDIUM** | No override — use path-derived depth. |
 | **LOW** | Force depth=`deep` (5 clusters) + invoke `jd-judge-a` + `jd-judge-b` (judgment-day) as additional verify lenses, even if path is A-min. Irreversible changes get maximum scrutiny. |
 
@@ -966,14 +984,14 @@ Once `sdd-kernel-verify` returns `PASS` or `PASS_WITH_WARNINGS`, `sdd-kernel-deb
 
 ### SDDK Artifacts Are Local-Only (v3.3) — Read Path, Not Opt-Out
 
-Every path the SDDK writes during a cycle (`sddk/`, `openspec/changes/`, `docs/ROADMAP.md`, `docs/adr/`, `docs/reports/`, `docs/metrics/`, `sddk-config.json`, `**/apply-checkpoint.json`) is:
+Every repo-local working path the SDDK writes during a cycle (`sddk/`, `openspec/changes/`, `.atl/`, `sddk-config.json`, `**/apply-checkpoint.json`) is:
 
 - **Gitignored** at the project root so it never reaches remote.
 - **Locally readable** by opencode tools (`grep`, `glob`, `Read`) thanks to a companion `.ignore` file with `!`-prefixed overrides.
 
-This is **not** an opt-out from reading them. The opposite: every phase agent MUST be able to read `sddk/{change}/verify-report.md`, `docs/ROADMAP.md`, the archive folder, etc. The contract ensures those reads work while keeping the working artifacts off the remote git history. The single source of truth is `git-contract.md § Local-Only Artifact Policy (v3.3)`. Concrete rules for the orchestrator:
+This is **not** an opt-out from reading them. Every phase agent MUST be able to read `sddk/{change}/verify-report.md` and the archive working folder. Durable milestones, ADRs, requirements, and cycle manifests live outside the repo in `$VAULT`.
 
-- Never `git add docs/ROADMAP.md` (or any other gitignored SDDK path) — it is no-op at best and a hard error at worst; persist rendered content to Engram under topic `sddk/{change}/roadmap`.
+- Never commit a repo-local SDDK working path or copy vault knowledge into `docs/`.
 - Never `git commit` the SDDK-generated artifacts. Commits in a cycle are exclusively for the change's `<type>/<description>` branch and are about product code, not working surface.
 - Never refuse to read an SDDK path because it is gitignored. The `.ignore` override makes it readable; trust the read.
 - If a phase agent reports it cannot find a known SDDK path via `grep` or `glob`, log `sddk-local-read-degraded` and fall back to `Read` with the explicit path — do NOT skip the step.
@@ -1098,7 +1116,7 @@ The MCW runs in **5 phases**, each with numbered steps. Hard gates only where st
 | 1 | 1.6 | Tasks | tasks approved |
 | 1 | 1.7 | Review budget (Forecast guard) | Forecast ≤ budget or user exception |
 | 1 | 1.8 | Branch creation | Name matches regex |
-| 2 | 2.1 | Apply (Strict TDD forwarding if active) | Commits pass git-boundary lint |
+| 2 | 2.1 | Apply (Strict TDD forwarding if active) | Commits pass declarative git checklist |
 | 2 | 2.2 | Coherence apply→verify (A-full, A-lite) | ≥ 60 |
 | 2 | 2.3 | Verify (multi-lens if A-full) | PASS or PW |
 | 2 | 2.4 | Coherence verify→archive (A-full) | ≥ 60 |
@@ -1155,11 +1173,11 @@ Compact operating rules:
 
 ### Quality Gates (Step 0.3)
 
-- [ ] `docs/ROADMAP.md` exists and not stale
-- [ ] `docs/adr/` has README.md index
-- [ ] All ADRs have valid Status field
-- [ ] No orphan ADRs
-- [ ] `CONTEXT.md` exists if project has domain-specific language
+- [ ] `$VAULT/_index.md` exists and is readable
+- [ ] Active milestone and lock agree on the current `cycle_id`
+- [ ] All vault ADR nodes have a valid status
+- [ ] No orphan ADR or requirement links
+- [ ] Vault terms/context exist when the project has domain-specific language
 
 ### Storage Mode Consistency
 
@@ -1169,13 +1187,13 @@ All artifacts in one cycle use the same mode. Mixing breaks the chain.
 
 | Missing | Recovery |
 |---------|----------|
-| ROADMAP.md | Create from `roadmap-template.md` |
-| ADR | Write retroactively, then ADR-N+1 supersedes |
-| ADR README | Re-generate from `ls docs/adr/*.md` |
+| Vault milestone/index | Repair from vault templates and cycle manifests |
+| ADR node | Write retroactively, then ADR-N+1 supersedes |
+| Broken ADR links | Rebuild links from vault ADR metadata |
 | archive-report | Re-run sddk-archive |
 | HTML report | Re-generate via sddk-archive |
 | metrics.jsonl | Cannot reconstruct; record gap in next cycle |
-| CONTEXT.md | Create from glossary extracted during explore |
+| Terms/context | Create vault term nodes from glossary extracted during explore |
 
 ---
 
@@ -1194,7 +1212,7 @@ The orchestrator can answer "what's the current state?" at any time by querying 
 
 ```bash
 # Vault lock check (authoritative)
-cat ~/.sddk-knowledge/{project}/milestones/_active.md | grep "Status:"
+grep "Status:" "$VAULT/milestones/_active.md"
 # "LOCKED" → cycle in progress; "AVAILABLE" → no active cycle
 
 # Git cross-check
@@ -1206,7 +1224,7 @@ git branch -a | grep -E "^.*(feat|fix|chore|refactor)/"
 
 ```bash
 # Open the most recent cycle manifest (traceability hub)
-ls -t ~/.sddk-knowledge/{project}/cycles/CYC-*.md | head -1
+ls -t "$VAULT"/cycles/CYC-*.md | head -1
 # Read it — it links to all artifacts, ADRs, requirements, and incidences
 
 # Check the last tag on main
@@ -1216,7 +1234,7 @@ git tag --points-at main | tail -1
 ### Query: "What ADRs are challenged?"
 
 ```bash
-grep -l "status: challenged" ~/.sddk-knowledge/{project}/adrs/*.md
+grep -l "status: challenged" "$VAULT"/adrs/*.md
 # Each has an Implementation Log explaining what went wrong
 
 # Or in Obsidian: open adrs/_index.md → Dataview shows challenged ADRs
@@ -1225,14 +1243,14 @@ grep -l "status: challenged" ~/.sddk-knowledge/{project}/adrs/*.md
 ### Query: "What requirements exist in auth?"
 
 ```bash
-ls ~/.sddk-knowledge/{project}/specs/auth/REQ-*.md
+ls "$VAULT"/specs/auth/REQ-*.md
 # Each requirement links to its decision authority ADR and test path
 ```
 
 ### Query: "What incidences are open?"
 
 ```bash
-grep -l "status: open" ~/.sddk-knowledge/{project}/incidences/*.md
+grep -l "status: open" "$VAULT"/incidences/*.md
 ```
 
 ### Inconsistency Detection
@@ -1310,9 +1328,11 @@ In interactive mode: stop after each **planning** phase (explore through tasks),
 - `prompts/sdd-kernel/phases/*.md` — phase specs (apply, verify, design, etc.)
 - `prompts/sdd-kernel/phases/apply-strict-tdd.md` — Strict TDD apply module
 - `prompts/sdd-kernel/phases/strict-tdd-verify.md` — Strict TDD verify module
-- `plugins/circuit-breaker.ts` — per-task limit + no-progress streak
-- `plugins/git-boundary.ts` — conventional commits + anti-AI-attribution
-- `plugins/phase-telemetry.ts` — phase telemetry events
+- **Invariants (verified by checklist/tests, no runtime plugins)**:
+  - Per-task attempt limit: enforced by `sdd-kernel-apply` loop logic (hard brake at `per_task_max_attempts`)
+  - No-progress streak: action_signature tracking in `sdd-kernel-apply` loop logic (hard brake at 3 consecutive same signatures)
+  - Conventional commits + anti-AI-attribution: enforced by git-commit lint in `sdd-kernel-apply` + checklist
+  - Phase telemetry: emitted by agent return envelopes + `mem_save` at cycle close
 - `skills/_shared/sddk-phase-common.md` — shared protocol
 
 ---
@@ -1322,4 +1342,3 @@ In interactive mode: stop after each **planning** phase (explore through tasks),
 ZCode no soporta permisos granulares por glob, así que estas restricciones deben respetarse por disciplina del prompt. **Cúmplelas estrictamente**:
 
 - **Delegación (task)**: SOLO puedes delegar trabajo a estos sub-agentes: architecture-critic, auto-grill-*, balance-advisor, debt-architecture-cluster, debt-coupling-cluster, debt-duplication-cluster, debt-overeng-cluster, debt-smells-cluster, jd-fix-agent, jd-judge-a, jd-judge-b, sdd-kernel-*, sdd-kernel-coherence, sddk-debt-verify, studio-analyzer, studio-block, studio-contract-miner, studio-doc-extractor, studio-component, studio-orchestrator, studio-page, studio-reverse-engineer, studio-token, studio-validator. NO invoques ningún otro.
-

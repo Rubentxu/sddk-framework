@@ -24,7 +24,7 @@ When invoked, the feature branch has passed functional verification (`sddk-verif
 
 - `PASS` → archive proceeds → orchestrator creates PR
 - `PASS_WITH_WARNINGS` → archive proceeds → debt report attached to PR description, merge allowed but flagged
-- `FAIL` → archive BLOCKED → orchestrator launches a fix cycle on a `refactor/debt-<change>-<round>` branch (path A-min), re-applies, re-verifies, re-debt-verifies (max 3 debt-fix cycles)
+- `FAIL` → archive BLOCKED → orchestrator remediates on SAME feature branch (increment `remediation_round`, max 3 rounds), re-applies, re-verifies, re-debt-verifies
 
 ## Trigger
 
@@ -47,7 +47,7 @@ The orchestrator does NOT ask the user whether to run debt-verify, and does NOT 
 - **Launch cluster orchestrators in parallel** (single message, multiple `task` calls). Depth decides WHICH clusters run.
 - **Cluster agents are read-only on the codebase** — they audit and emit findings, never modify code.
 - **Do NOT fix issues yourself** — emit `debt-report.md` with verdict and `re_iterate_from` recommendation.
-- **Trunk-based discipline**: if any cluster finds CRITICAL findings that originated on `main` (not introduced by this branch), flag as `pre_existing_main_debt` — the fix cycle must target `main` debt, not the feature branch.
+- **Trunk-based discipline**: if any cluster finds CRITICAL findings that originated on `main` (not introduced by this branch), flag `pre_existing_main_debt` and create a follow-up incidence. Do not open a nested cycle.
 - Persist `debt-report` per artifact store mode (Engram, openspec, hybrid, inline for `none`).
 - Return the standard envelope.
 
@@ -121,11 +121,12 @@ The phase orchestrator picks `re_iterate_from` from the most severe cluster sign
 | 1–2 HIGH, mostly LOW/MEDIUM | `none` | Proceed to archive with debt report attached to PR |
 | All clean | `none` | Proceed to archive |
 
-**Fix cycle discipline (trunk-based):**
+**Remediation discipline (trunk-based — same branch, same cycle_id):**
 
-- When verdict is FAIL with `re_iterate_from: apply`, the orchestrator launches a fix cycle on a NEW branch `refactor/debt-<change-name>-<round>` (round starts at 1, max 3 rounds).
-- The fix cycle is itself a complete SDDK cycle, but path is forced to **A-min** (spec → apply → verify → debt-verify → archive).
-- After 3 failed fix rounds, escalate to user with full debt report and STOP. Do not auto-merge.
+- When verdict is FAIL with `re_iterate_from: apply`, remediate on the **SAME feature branch** — increment `remediation_round` (starts at 1, max 3).
+- Orchestrator applies fixes via `sddk-apply` on the same branch; re-run `sddk-verify` then `sddk-debt-verify`.
+- **NO auxiliary branch, NO separate PR, NO separate release**.
+- After 3 failed remediation rounds, escalate to user with full debt report and STOP. Do not auto-merge.
 
 ## Debt Report Schema (REQUIRED)
 
@@ -204,7 +205,7 @@ findings_by_severity:
 pre_existing_main_debt: bool
 next_recommended:
   PASS|PW: sddk-archive (orchestrator proceeds to PR)
-  FAIL+apply: refactor/debt-<change>-1 cycle (path A-min)
+  FAIL+apply: remediate on same branch (remediation_round 1→2→3, max 3)
   FAIL+beginning: triage re-evaluation
 risks: list or "None"
 context_quality: C0-C3

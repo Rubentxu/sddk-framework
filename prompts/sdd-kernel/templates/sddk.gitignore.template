@@ -20,6 +20,7 @@
 sddk/
 openspec/changes/
 openspec/changes/archive/
+.atl/
 
 # --- SDDK-generated files under docs/ ---
 # (Leave other docs/* files — READMEs, CONTRIBUTING.md, etc. — committed.)

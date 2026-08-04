@@ -143,9 +143,8 @@ The following specs now reflect the new behavior:
 - ADRs superseded: {list}
 - Jurisprudence candidate: {yes/no, topic_key if yes}
 
-### SDD Cycle Complete
-The change has been fully planned, implemented, verified, and archived.
-Ready for the next change.
+### Archive Complete — Release Required
+The change has been planned, implemented, verified, and archived. The cycle remains open until mandatory release completes.
 ```
 
 ## References

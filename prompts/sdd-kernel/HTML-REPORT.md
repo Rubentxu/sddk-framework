@@ -1303,13 +1303,13 @@ Tech debt created or discovered, with plan to address it. This is critical for a
 
     {if re-iterate-from=apply:}
     <div class="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 mb-4">
-      <strong>Fix cycle lanzado:</strong> branch <code class="font-mono">refactor/debt-{change-name}-{round}</code> (path A-min). Max 3 rounds.
+      <strong>Remediación en curso:</strong> misma feature branch, <code class="font-mono">remediation_round={remediation_round}</code> (max 3). Aplica fixes, re-verifica, re-debt-verify.
     </div>
     {endif}
 
     {if pre-existing-main-debt:}
     <div class="p-4 bg-orange-50 border border-orange-200 rounded-xl text-orange-800 mb-4">
-      <strong>⚠ Deuda pre-existente en main detectada.</strong> Estos hallazgos vienen de commits en main anteriores a esta branch. El fix cycle debe abordarlos en main, no en la feature branch.
+      <strong>⚠ Deuda pre-existente en main detectada.</strong> Estos hallazgos vienen de commits en main anteriores a esta feature branch. Deben abordarse en main, no en la feature branch.
     </div>
     {endif}
 

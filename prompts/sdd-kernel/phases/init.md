@@ -68,7 +68,7 @@ What to capture:
    - Resolve project root with `git rev-parse --show-toplevel 2>/dev/null || pwd`.
    - If `${PROJECT_ROOT}/.gitignore` exists, append the contents of `prompts/sdd-kernel/templates/sddk.gitignore.template` under a `# --- SDDK Local-Only Artifact Policy (v3.3) ---` header. Do not overwrite existing rules; merge idempotently.
    - If `${PROJECT_ROOT}/.ignore` does not exist, write the contents of `prompts/sdd-kernel/templates/sddk.dotignore.template` verbatim. If it exists, append the SDDK section under a `# --- SDDK companion ignore (v3.3) ---` header, idempotently (skip patterns already present).
-   - Confirm with `git check-ignore -v sddk/ openspec/changes/ docs/ROADMAP.md` that the listed paths ARE ignored by git. Confirm with `rg --files --hidden sddk/` that the SAME paths ARE searchable by ripgrep (i.e., `.ignore` overrides are effective).
+   - Confirm with `git check-ignore -v sddk/ openspec/changes/ .atl/` that the listed paths ARE ignored by git. Confirm with `rg --files --hidden sddk/` that working paths remain searchable.
    - If either check fails, log `sddk-local-only-policy-applied` (success) or `sddk-local-only-policy-failed` (with reasons) in the return envelope.
 6. Build `.atl/skill-registry.md` using the skill-registry scan rules.
 7. Persist testing capabilities and project context.
@@ -94,7 +94,7 @@ Return `status`, `executive_summary`, `artifacts`, `next_recommended`, `risks`. 
 - **Testing capability table**: layer / command / available
 - **Saved observation IDs/paths**: where things live
 - **Registry path**: `.atl/skill-registry.md`
-- **Local-only policy applied**: `true | false` + verification results (`git check-ignore` + `rg --files --hidden` outputs for sddk/, openspec/changes/, docs/ROADMAP.md)
+- **Local-only policy applied**: `true | false` + verification results for `sddk/`, `openspec/changes/`, and `.atl/`
 - **Next step**: `/sddk-explore` or `/sddk-new`
 
 ## Strict TDD Forwarding (this phase is critical for it)

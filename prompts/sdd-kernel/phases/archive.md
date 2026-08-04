@@ -112,7 +112,7 @@ Include:
 - **Knowledge impact**: which specs became stale, which ADRs superseded
 - **Entropy trend** (when `entropy-sdd` available): delta from pre-cycle to post-cycle
 - **Jurisprudence candidate**: if cycle had `verify_verdict=PASS` + `first_pass_success=true` + reusable decision, flag for F3 jurisprudence save
-- **Roadmap update**: change moves from "Active" to "Completed" in `docs/ROADMAP.md`
+- **Knowledge graph handoff**: list milestone, ADR, requirement, and cycle nodes that release must finalize
 
 ## Conditional Capabilities
 
@@ -152,9 +152,8 @@ The following specs now reflect the new behavior:
 - ADRs superseded: {list}
 - Jurisprudence candidate: {yes/no, topic_key if yes}
 
-### SDD Cycle Complete
-The change has been fully planned, implemented, verified, and archived.
-Ready for the next change.
+### Archive Complete — Release Required
+The change has been planned, implemented, verified, and archived. The cycle remains open until mandatory release completes.
 ```
 
 ## Standard Envelope
@@ -173,8 +172,8 @@ knowledge_impact:
   specs_stale: [list]
   adrs_superseded: [list]
   jurisprudence_candidate: {topic_key or null}
-roadmap_updated: bool
-next_recommended: ready for next cycle
+ready_for_release: true
+next_recommended: /sddk-release {change}
 risks: list or "None"
 ```
 

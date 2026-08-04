@@ -1,0 +1,573 @@
+schema_version: 1
+workflow:
+  id: sddk-standard
+  version: 0.1.0
+  description: Deterministic SDDK workflow with mandatory debt verification in A-* paths
+
+statuses:
+  - OPEN
+  - BLOCKED
+  - REMEDIATING
+  - RELEASE_PENDING
+  - RELEASED
+  - CLOSED
+  - ABANDONED
+  - RECOVERING
+
+phases:
+  - explore
+  - specify
+  - design
+  - plan
+  - build
+  - verify
+  - review
+  - release
+  - archive
+
+paths:
+  A-min:
+    description: Minimal path - fastest route through workflow
+    debt_verification: mandatory
+    phases:
+      - explore
+      - specify
+      - build
+      - verify
+      - release
+  A-lite:
+    description: Lite path - standard with minimal design
+    debt_verification: mandatory
+    phases:
+      - explore
+      - specify
+      - design
+      - build
+      - verify
+      - release
+  A-full:
+    description: Full path A - complete workflow with all phases
+    debt_verification: mandatory
+    phases:
+      - explore
+      - specify
+      - design
+      - plan
+      - build
+      - verify
+      - review
+      - release
+  B-direct:
+    description: Direct path B - disabled by default
+    debt_verification: disabled
+    phases:
+      - build
+      - release
+
+policies:
+  active_cycles_per_project: 1
+  debt_verification:
+    A-min: mandatory
+    A-lite: mandatory
+    A-full: mandatory
+    B-direct: disabled
+  require_clean_worktree_on_start: true
+  shell_arbitrary: forbidden
+
+transitions:
+  - id: cycle.start
+    from: null
+    to:
+      status: OPEN
+      phase: explore
+    requires:
+      - project.adopted
+      - project.initialized
+      - worktree.clean
+      - cycle.no_active_conflict
+    paths:
+      - A-min
+      - A-lite
+      - A-full
+    produces:
+      - cycle-manifest
+
+  - id: cycle.start.b-direct
+    from: null
+    to:
+      status: OPEN
+      phase: build
+    requires:
+      - project.adopted
+      - project.initialized
+      - worktree.clean
+      - cycle.no_active_conflict
+    paths:
+      - B-direct
+    produces:
+      - cycle-manifest
+
+  - id: phase.explore.complete
+    from:
+      status: OPEN
+      phase: explore
+    to:
+      status: OPEN
+      phase: specify
+    requires:
+      - kind: artifact
+        name: exploration-report
+      - kind: gate
+        name: exploration-sufficient
+    paths:
+      - A-min
+      - A-lite
+      - A-full
+    produces:
+      - exploration-report
+
+  - id: phase.specify.complete
+    from:
+      status: OPEN
+      phase: specify
+    to:
+      status: OPEN
+      phase: design
+    requires:
+      - kind: artifact
+        name: specification
+      - kind: gate
+        name: requirements-testable
+    paths:
+      - A-lite
+      - A-full
+    produces:
+      - specification
+
+  - id: phase.specify.complete.a-min
+    from:
+      status: OPEN
+      phase: specify
+    to:
+      status: OPEN
+      phase: build
+    requires:
+      - kind: artifact
+        name: specification
+      - kind: gate
+        name: requirements-testable
+    paths:
+      - A-min
+    produces:
+      - specification
+
+  - id: phase.design.complete
+    from:
+      status: OPEN
+      phase: design
+    to:
+      status: OPEN
+      phase: plan
+    requires:
+      - kind: artifact
+        name: design
+      - kind: gate
+        name: architecture-consistent
+    paths:
+      - A-full
+    produces:
+      - design
+
+  - id: phase.design.complete.a-lite
+    from:
+      status: OPEN
+      phase: design
+    to:
+      status: OPEN
+      phase: build
+    requires:
+      - kind: artifact
+        name: design
+      - kind: gate
+        name: architecture-consistent
+    paths:
+      - A-lite
+    produces:
+      - design
+
+  - id: phase.plan.complete
+    from:
+      status: OPEN
+      phase: plan
+    to:
+      status: OPEN
+      phase: build
+    requires:
+      - kind: artifact
+        name: implementation-plan
+      - kind: gate
+        name: plan-executable
+    paths:
+      - A-full
+    produces:
+      - implementation-plan
+
+  - id: phase.build.complete
+    from:
+      status: OPEN
+      phase: build
+    to:
+      status: OPEN
+      phase: verify
+    requires:
+      - kind: artifact
+        name: implementation-receipt
+      - kind: gate
+        name: implementation-complete
+    paths:
+      - A-min
+      - A-lite
+      - A-full
+    produces:
+      - implementation-receipt
+
+  - id: phase.build.complete.b-direct
+    from:
+      status: OPEN
+      phase: build
+    to:
+      status: RELEASE_PENDING
+      phase: release
+    requires:
+      - kind: artifact
+        name: implementation-receipt
+      - kind: gate
+        name: implementation-complete
+    paths:
+      - B-direct
+    produces:
+      - implementation-receipt
+
+  - id: phase.verify.complete
+    from:
+      status: OPEN
+      phase: verify
+    to:
+      status: OPEN
+      phase: review
+    requires:
+      - kind: artifact
+        name: verification-report
+      - kind: gate
+        name: tests-pass
+      - kind: gate
+        name: policy-compliant
+    paths:
+      - A-full
+    on_failure:
+      status: REMEDIATING
+      phase: verify
+    produces:
+      - verification-report
+
+  - id: phase.verify.complete.a-min
+    from:
+      status: OPEN
+      phase: verify
+    to:
+      status: RELEASE_PENDING
+      phase: release
+    requires:
+      - kind: artifact
+        name: verification-report
+      - kind: gate
+        name: tests-pass
+      - kind: gate
+        name: policy-compliant
+    paths:
+      - A-min
+    on_failure:
+      status: REMEDIATING
+      phase: verify
+    produces:
+      - verification-report
+
+  - id: phase.verify.complete.a-lite
+    from:
+      status: OPEN
+      phase: verify
+    to:
+      status: RELEASE_PENDING
+      phase: release
+    requires:
+      - kind: artifact
+        name: verification-report
+      - kind: gate
+        name: tests-pass
+      - kind: gate
+        name: policy-compliant
+    paths:
+      - A-lite
+    on_failure:
+      status: REMEDIATING
+      phase: verify
+    produces:
+      - verification-report
+
+  - id: phase.verify.remediate
+    from:
+      status: REMEDIATING
+      phase: verify
+    to:
+      status: OPEN
+      phase: verify
+    requires:
+      - kind: gate
+        name: remediation-complete
+    paths:
+      - A-min
+      - A-lite
+      - A-full
+    produces: []
+
+  - id: phase.review.complete
+    from:
+      status: OPEN
+      phase: review
+    to:
+      status: RELEASE_PENDING
+      phase: release
+    requires:
+      - kind: artifact
+        name: review-report
+      - kind: gate
+        name: review-approved
+    paths:
+      - A-full
+    produces:
+      - review-report
+
+  - id: release.complete
+    from:
+      status: RELEASE_PENDING
+      phase: release
+    to:
+      status: RELEASED
+      phase: archive
+    requires:
+      - kind: artifact
+        name: merge-receipt
+      - kind: artifact
+        name: release-receipt
+      - kind: gate
+        name: no-pending-effects
+    produces:
+      - merge-receipt
+      - release-receipt
+
+  - id: archive.complete
+    from:
+      status: RELEASED
+      phase: archive
+    to:
+      status: CLOSED
+      phase: archive
+    requires:
+      - kind: artifact
+        name: archive-manifest
+      - kind: gate
+        name: ledger-valid
+      - kind: gate
+        name: vault-index-current
+    produces:
+      - archive-manifest
+
+  - id: cycle.block
+    from:
+      status: OPEN
+    to:
+      status: BLOCKED
+    requires:
+      - kind: gate
+        name: block-condition-met
+    produces: []
+
+  - id: cycle.unblock
+    from:
+      status: BLOCKED
+    to:
+      status: OPEN
+    requires:
+      - kind: gate
+        name: unblock-condition-met
+    produces: []
+
+artifacts:
+  cycle-manifest:
+    producer: runtime
+    consumers:
+      - engine
+    required: true
+    description: Initial canonical cycle state
+  exploration-report:
+    producer: agent
+    consumers:
+      - reviewer
+    required: true
+    description: Report documenting exploration findings
+  specification:
+    producer: agent
+    consumers:
+      - designer
+    required: true
+    description: Requirements specification document
+  design:
+    producer: designer
+    consumers:
+      - planner
+      - verifier
+    required: true
+    description: Technical design document
+  implementation-plan:
+    producer: planner
+    consumers:
+      - builder
+    required: true
+    description: Implementation plan with tasks
+  implementation-receipt:
+    producer: builder
+    consumers:
+      - verifier
+    required: true
+    description: Receipt confirming implementation completion
+  verification-report:
+    producer: verifier
+    consumers:
+      - reviewer
+    required: true
+    description: Report documenting verification results
+  review-report:
+    producer: reviewer
+    consumers:
+      - release-manager
+    required: true
+    description: Review approval report
+  merge-receipt:
+    producer: forge-provider
+    consumers: []
+    required: true
+    terminal: true
+    description: Receipt confirming merge to target branch
+  release-receipt:
+    producer: forge-provider
+    consumers: []
+    required: true
+    terminal: true
+    description: Receipt confirming release artifacts
+  archive-manifest:
+    producer: archiver
+    consumers: []
+    required: true
+    terminal: true
+    description: Final archive manifest
+
+gates:
+  exploration-sufficient:
+    gate_type:
+      binary: {}
+    description: Exploration produced sufficient information
+  requirements-testable:
+    gate_type:
+      binary: {}
+    description: Requirements are testable
+  architecture-consistent:
+    gate_type:
+      binary: {}
+    description: Architecture is internally consistent
+  plan-executable:
+    gate_type:
+      binary: {}
+    description: Implementation plan is executable
+  implementation-complete:
+    gate_type:
+      binary: {}
+    description: Implementation meets requirements
+  tests-pass:
+    gate_type:
+      binary: {}
+    description: All tests pass
+  policy-compliant:
+    gate_type:
+      binary: {}
+    description: Implementation complies with policies
+  remediation-complete:
+    gate_type:
+      binary: {}
+    description: Remediation addressed failures
+  review-approved:
+    gate_type:
+      binary: {}
+    description: Review approved the work
+  no-pending-effects:
+    gate_type:
+      binary: {}
+    description: No pending external effects
+  ledger-valid:
+    gate_type:
+      binary: {}
+    description: Ledger state is valid
+  vault-index-current:
+    gate_type:
+      binary: {}
+    description: Vault index is current
+  block-condition-met:
+    gate_type:
+      binary: {}
+    description: Block condition is satisfied
+  unblock-condition-met:
+    gate_type:
+      binary: {}
+    description: Unblock condition is satisfied
+
+forge:
+  provider: auto
+  capabilities:
+    git.create_branch:
+      risk: low
+      consequence: creates
+    git.merge:
+      risk: medium
+      consequence: modifies
+    git.delete_branch:
+      risk: medium
+      consequence: irreversible
+    git.push:
+      risk: low
+      consequence: modifies
+    pr.create:
+      risk: low
+      consequence: creates
+    pr.merge:
+      risk: high
+      consequence: modifies
+    pr.close:
+      risk: medium
+      consequence: irreversible
+    release.create:
+      risk: high
+      consequence: creates
+    release.publish:
+      risk: high
+      consequence: creates
+
+storage:
+  xdg: true
+  paths:
+    data: $XDG_DATA_HOME/sddk
+    state: $XDG_STATE_HOME/sddk
+    cache: $XDG_CACHE_HOME/sddk
+
+project_identity:
+  scheme: remote-url-hash
+  scope: required
+  fallback: hostname-path

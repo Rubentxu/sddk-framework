@@ -12,7 +12,7 @@ Close the loop from a completed `sdd-kernel-archive` back to `main`. Without you
 
 ## Activation Contract
 
-You take ownership of MCW Steps 3.1–3.11 (push-branch, create-pr, wait-approval, merge-to-main, semver-tag, html-closing-report, close-tracking-issue, update-roadmap, trunk-sync-end, release-report-persist). You run them in order. Each step has a gate. Missing a step is a release failure even if the trunk looks right.
+You take ownership of the release sequence: push branch, create or reuse PR, wait for checks and approval, request merge, wait for MERGED, verify SHA, tag, report, update the knowledge graph, close the issue, release the lock, sync trunk, and persist the release report. Each step has a gate.
 
 `prompts/sdd-kernel/git-contract.md` is your **source of truth for git invariants** — read it before acting. `skills/sddk-release/SKILL.md` is your **execution contract** — follow its Release Checklist.
 
@@ -25,7 +25,7 @@ Consume the `SDD Kernel Launch Plan`:
 - Mode (`auto | guided`) — from launch plan or launch arg `--mode={auto,guided,strict}`
 - Archive report observation/path — verify verdict ∈ {PASS, PASS_WITH_WARNINGS}
 - Tracking issue (optional) — `gh issue list --search "<change-name>" --state open`
-- ROADMAP milestone (optional) — read `docs/ROADMAP.md`
+- Milestone node — read from `$VAULT/milestones/`
 
 ## Hard Rules
 
@@ -39,23 +39,18 @@ Consume the `SDD Kernel Launch Plan`:
 
 ## Merge Policy Detection (read this carefully)
 
-Three modes drive `wait-approval` (Step 5) and `merge-to-main` (Step 6). v3.3 contract: **mode is decided once at cycle launch, never auto-degraded mid-cycle. Friction that prevents the chosen mode produces `status=blocked` with explicit reason — never silent pause.**
+Three modes drive `merge-pr` (Step 5) and `verify-merge` (Step 6). The mode is decided once at cycle launch and never auto-degraded mid-cycle.
 
-1. **`auto`** (cycle-launched default) — `gh pr merge --auto --merge`. Relies on GitHub auto-merge. The cycle is responsible for the merge; if branch protection requires human review that auto-merge cannot satisfy, you return `status=blocked` in Step 5 with blocker `{step: "wait-approval", reason: "branch protection requires reviewers/CI that auto mode cannot satisfy; re-launch with mode=guided or relax protection"}`. The cycle does NOT silently downgrade.
-2. **`guided`** — Always wait for human approval via Step 5 polling at 60s intervals up to 24h. On 24h timeout → `status=blocked`.
+1. **`auto`** (cycle-launched default) — after checks pass, Step 5b runs `gh pr merge --auto --merge`. If branch protection requires human review that auto mode cannot satisfy, return `status=blocked` with an explicit recovery command. The cycle does NOT silently downgrade.
+2. **`guided`** — Wait for required checks, surface the PR URL for the authorized human merge action, then poll for MERGED up to 24h.
 3. **`strict`** — Wait for human approval AND require at least 1 approving review (`reviewDecision == "APPROVED"`). No auto-merge attempt. On poll timeout beyond 24h → `status=blocked`.
 
 Detection logic (run ONCE at Step 2; the answer is locked for the cycle):
 ```
 1. Read launch plan: explicit `mode=auto|guided|strict` → use it, lock it.
-2. Probe `gh api repos/:owner/:repo/branches/main/protection`:
-     required_pull_request_reviews.required_approving_review_count > 0
-     OR required_status_checks.strict == true
-       AND mode is unset:
-         → DEFAULT in `auto` mode = status=blocked (this is the contract for v3.3+: "no silent pause").
-         → DEFAULT in `guided`/`strict` = proceed (the user explicitly asked for HITL).
-3. If repo has no main branch protection at all:
-       mode = auto (no friction possible).
+2. If mode is unset and required approvals > 0 → guided.
+3. Otherwise → auto. Required status checks are compatible with auto-merge.
+4. If the repository disables auto-merge, Step 5b blocks with an explicit guided recovery command.
 ```
 
 The chosen mode is logged in the release-report under `pr.mode`. Operators may override per-cycle via `--mode=strict|guided` on the command or `launch_plan.merge_policy` field.
@@ -80,12 +75,12 @@ Verdict must be `PASS` or `PASS_WITH_WARNINGS`. If `FAIL`, return `status=blocke
 
 ### Step 2 — Detect merge policy (lock for the cycle)
 
-Run the detection logic above (under "Detection logic (run ONCE at Step 2; the answer is locked for the cycle)"). The chosen mode is LOCKED for the rest of this release invocation. If `auto` is incompatible with branch protection, return `status=blocked` now — do not proceed to Step 3. Blockers[] entry:
+Run the detection logic above. The chosen mode is LOCKED for the rest of this release invocation. Required status checks are compatible with auto-merge. Only required human approvals select guided mode automatically; an unavailable auto-merge capability blocks later at Step 5b with this recovery envelope:
 
 ```json
 {
   "step": "merge-policy",
-  "reason": "auto mode cannot satisfy branch protection (reviewers>0 or required CI). Re-launch with --mode=guided, OR relax repo policy.",
+  "reason": "repository does not allow auto-merge; re-launch with guided mode or enable auto-merge",
   "recovery": "/sddk-release <change> --mode=guided"
 }
 ```
@@ -100,7 +95,7 @@ git ls-remote origin <type>/<description> | awk '{print $1}' | grep -qF "$(git r
 
 If push fails (no upstream, auth error) → `status=blocked`, log, STOP. Do not continue.
 
-### Step 4 — `create-pr`
+### Step 4 — `create-or-reuse-pr`
 
 ```bash
 # Generate body from artifacts
@@ -129,99 +124,111 @@ BODY=$(mktemp)
   echo "Closes #{n}  # if applicable"
 } > "$BODY"
 
-gh pr create --base main --head <type>/<description> \
-  --title "<type>(<scope>): <description>" \
-  --body-file "$BODY"
+PR_NUM=$(gh pr list --head <type>/<description> --state all --json number --jq '.[0].number')
+if [ -z "$PR_NUM" ]; then
+  gh pr create --base main --head <type>/<description> \
+    --title "<type>(<scope>): <description>" \
+    --body-file "$BODY"
+  PR_NUM=$(gh pr list --head <type>/<description> --state all --json number --jq '.[0].number')
+fi
+PR_URL=$(gh pr view "$PR_NUM" --json url --jq '.url')
 ```
 
 Gate: `gh pr view --json number,url,state` returns valid PR with non-empty `url`.
 
-If `gh pr create` fails (already exists, branch is from fork, etc.) → BLOCK + log.
+If neither an existing PR nor a newly created PR can be resolved, BLOCK and log.
 
-### Step 5 — `wait-approval` (mode-dependent; NO auto-degrade)
-
-```bash
-case "$MODE" in
-  auto)
-    # Single probe: trust GitHub auto-merge to complete after CI passes.
-    # If `gh pr view --json mergeStateStatus` shows the PR is NOT auto-mergeable
-    # (e.g. branch protection blocks it), return blocked immediately. No polling.
-    STATE=$(gh pr view --json state,mergeStateStatus,reviewDecision)
-    case "$STATE" in
-      *MERGED*) ;;                           # already merged by GitHub auto-merge
-      *\"mergeStateStatus\":\"CLEAN\"*)       # mergeable when CI passes
-        echo "auto mode: PR auto-merge pending CI; release-report notes this"
-        ;;
-      *) # anything else = blocked
-        blockers+=( '{"step":"wait-approval","reason":"auto mode cannot satisfy branch protection or mergeStateStatus==DIRTY; re-launch with mode=guided or relax repo policy","recovery":"/sddk-release '"$CHANGE"' --mode=guided"}' )
-        return status=blocked
-        ;;
-    esac
-    ;;
-
-  guided|strict)
-    # Polling with 24h deadline.
-    DEADLINE=$(($(date +%s) + 86400))
-    while [ "$(date +%s)" -lt "$DEADLINE" ]; do
-      STATE=$(gh pr view --json state,reviewDecision)
-      [ "$STATE" = *MERGED* ] && break
-      # strict additionally requires reviewDecision=APPROVED
-      [ "$MODE" = "strict" ] && [ "$STATE" != *APPROVED* ] || true
-      sleep 60
-    done
-    [ "$STATE" = *MERGED* ] || { blockers+=( '{"step":"wait-approval","reason":"deadline 24h","recovery":"/sddk-release '"$CHANGE"'"}' ); return status=blocked; }
-    ;;
-esac
-```
-
-If `status=blocked` → STOP. Do NOT continue to merge-to-main, semver-tag, html, roadmap, or trunk-sync-end. They are atomic with the merge.
-```
-
-In `auto` mode this resolves when GitHub auto-merges after CI. In `guided` / `strict` it blocks until human approves (and in `strict`, until reviewDecision == APPROVED).
-
-If timeout → BLOCK + notify user. **Do NOT** proceed to tag/html/roadmap until the PR is merged. They are atomic with merge.
-
-### Step 6 — `merge-to-main`
-
-If mode is `auto`, GitHub already merged via `--auto --merge`. Verify:
+### Step 5 — `merge-pr` (ordered, mode-dependent, NO auto-degrade)
 
 ```bash
-git log origin/main --oneline | head -1 | grep -qF "$(git rev-parse origin/<branch>)"
+# 5a wait-checks-and-approval
+gh pr checks "$PR_NUM" --watch || { blockers+=( '{"step":"wait-checks-and-approval","reason":"required checks failed"}' ); exit 1; }
+if [ "$MODE" = "strict" ]; then
+  gh pr view "$PR_NUM" --json reviewDecision --jq '.reviewDecision' | grep -qx APPROVED \
+    || { blockers+=( '{"step":"wait-checks-and-approval","reason":"approval required"}' ); exit 1; }
+fi
+
+# 5b request-merge
+STATE=$(gh pr view "$PR_NUM" --json state --jq '.state')
+if [ "$STATE" != "MERGED" ]; then
+  if [ "$MODE" = "auto" ]; then
+    gh pr merge "$PR_NUM" --auto --merge || { blockers+=( '{"step":"request-merge","reason":"auto-merge request failed"}' ); exit 1; }
+  else
+    notify_human_merge_required "$PR_NUM" "$MODE"
+  fi
+fi
+
+# 5c wait-merged
+DEADLINE=$(($(date +%s) + 86400))
+while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+  STATE=$(gh pr view "$PR_NUM" --json state --jq '.state')
+  [ "$STATE" = "MERGED" ] && break
+  sleep 60
+done
+[ "$STATE" = "MERGED" ] || { blockers+=( '{"step":"wait-merged","reason":"deadline exceeded"}' ); exit 1; }
 ```
 
-If mode is `guided` or `strict`, the merge happens in Step 5 (human action). Same gate applies.
+If `status=blocked` → STOP. Do NOT continue to verify-merge, semver-tag, HTML, graph update, or trunk-sync-end. They are atomic with the merge.
+
+If timeout → BLOCK + notify user. Do not proceed until the PR is merged.
+
+### Step 6 — `verify-merge`
+
+The PR is already merged. Verify only; never call `gh pr merge` in this step. Use the merge commit recorded by GitHub rather than the first line of `git log`:
+
+```bash
+git fetch origin main <branch>
+BRANCH_HEAD="$(git rev-parse origin/<branch>)"
+MERGE_SHA="$(gh pr view "$PR_NUM" --json mergeCommit --jq '.mergeCommit.oid')"
+git cat-file -e "$MERGE_SHA^{commit}"
+git merge-base --is-ancestor "$BRANCH_HEAD" "$MERGE_SHA"
+git merge-base --is-ancestor "$MERGE_SHA" origin/main
+```
 
 If gate fails → BLOCK. Likely cause: merge conflict, force-push happened, or branch protection rejected. Log details, ask user.
 
 ### Step 7 — `semver-tag`
 
 ```bash
-# Compute bump type:
-#   - any commit footers contain `BREAKING CHANGE:` or any commit subject starts with `feat!:` or `fix!:` → major
-#   - else any commit subject matches `^feat(\(.+\))?:` → minor
-#   - else → patch
-BUMP_TYPE="patch"
-git log origin/main..HEAD~ --first-parent --pretty=%s%n%b | head -50 \
-  | grep -qEi '(^feat[(:]|^fix[!:].*:)' \
-  && BUMP_TYPE="minor"
-git log origin/main..HEAD~ --first-parent --pretty=%s%n%b | head -50 \
-  | grep -qEi '^.+!:.*$|^[a-z]+(\(.+\))?!:' \
-  && BUMP_TYPE="major"
-
-# Compute next version
 git fetch --tags
-LAST=$(git tag --sort=-version:refname | head -1 | sed 's/^v//')
-NEXT=$(semver-cli bump "$BUMP_TYPE" "$LAST" 2>/dev/null || python -c "import semver; print(semver.${BUMP_TYPE}_increment('$LAST'))")
-# Fallback if no semver CLI: hand-rolled python or awk
 
-git tag -a "v$NEXT" -m "${BUMP_TYPE}: <description>"
-git push origin "v$NEXT"
+# Compute bump on every run because later conditional steps consume BUMP_TYPE.
+COMMIT_TEXT=$(gh pr view "$PR_NUM" --json commits --jq '.commits[] | .messageHeadline, .messageBody')
+BUMP_TYPE="patch"
+printf '%s\n' "$COMMIT_TEXT" | grep -qE '(^|[[:space:]])BREAKING CHANGE:|^[a-z]+(\(.+\))?!:' && BUMP_TYPE="major"
+if [ "$BUMP_TYPE" = "patch" ]; then
+  printf '%s\n' "$COMMIT_TEXT" | grep -qE '^feat(\(.+\))?:' && BUMP_TYPE="minor"
+fi
+
+# Idempotent retry: a release tag already on this merge means this step completed.
+TAG=$(git tag --points-at "$MERGE_SHA" --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-version:refname | head -1)
+if [ -n "$TAG" ]; then
+  NEXT="${TAG#v}"
+else
+  LAST=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-version:refname | head -1)
+  LAST="${LAST#v}"
+  [ -n "$LAST" ] || LAST="0.0.0"
+  IFS=. read -r MAJOR MINOR PATCH <<EOF
+$LAST
+EOF
+  case "$BUMP_TYPE" in
+    major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+    minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+    patch) PATCH=$((PATCH + 1)) ;;
+  esac
+  NEXT="$MAJOR.$MINOR.$PATCH"
+  TAG="v$NEXT"
+  git tag -a "$TAG" "$MERGE_SHA" -m "${BUMP_TYPE}: <description>"
+fi
+
+# Safe on first run and retry, including a crash after local tag creation.
+git push origin "$TAG"
 
 # Gate:
-git ls-remote origin "v$NEXT" | grep -qF "v$NEXT"
+git ls-remote origin "$TAG" | grep -qF "refs/tags/$TAG"
 ```
 
-If tag already exists → bump one more time and retry (defensive). If after 3 retries tag still exists → BLOCK.
+If a semver tag already points to `MERGE_SHA`, the step is already complete. Version calculation uses PR commits, not a post-merge revision range, and requires no external semver package.
 
 ### Step 8 — `html-closing-report`
 
@@ -247,10 +254,11 @@ esac
 
 if [ -n "$REPORT_PATH" ]; then
   render_html_report "$REPORT_PATH" "$CHANGE" "$TAG" "$PR_URL"
+  [ -s "$REPORT_PATH" ] || { blockers+=( '{"step":"html-closing-report","reason":"required report is missing or empty"}' ); exit 1; }
 fi
 ```
 
-Gate: report file exists and size > 1KB.
+Gate: when `REPORT_PATH` is non-empty, the report exists and is non-empty. A deliberately skipped report has no file gate.
 
 ### Step 9 — `close-tracking-issue`
 
@@ -267,51 +275,15 @@ fi
 
 If no tracking issue → no-op.
 
-### Step 10 — `update-roadmap` (v3.3 — LOCAL-ONLY + ENGRAM, no `git add`)
+### Step 10 — `update-knowledge-graph`
 
-The roadmap is a **Local-Only Artifact** (see `git-contract.md § Local-Only Artifact Policy v3.3`). Do NOT `git add docs/ROADMAP.md`. Do NOT commit. Do NOT push.
+Update the external vault milestone, every ADR and requirement touched by the cycle, and the cycle manifest. Include PR, tag, verification verdicts, completion time, and HTML report path. Log every write to `_log.md`.
 
-```bash
-# 1. Resolve project root and target ROADMAP path.
-PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-ROADMAP_PATH="${PROJECT_ROOT}/docs/ROADMAP.md"
+Gate: the milestone and cycle manifest are `completed`; touched ADRs and requirements reference this `cycle_id` and tag. This step is blocking because releasing the serialization lock with stale graph state would permit overlapping cycles.
 
-# 2. Defensive: confirm gitignored. If not, the init policy didn't run; log + degrade.
-git check-ignore -v "$ROADMAP_PATH" >/dev/null 2>&1 || {
-  log "sddk-roadmap-not-gitignored" "init policy missing — falling back to Engram-only persistence"
-}
+### Step 10.1 — `release-lock`
 
-# 3. Move change from Active to Completed block, atomically.
-mkdir -p "$(dirname "$ROADMAP_PATH")"
-TMP="$(mktemp)"
-{
-  sed 's|### Active|### Active|' "$ROADMAP_PATH" 2>/dev/null || echo "### Active"  # no-op if file missing
-  cat <<EOF
-
-### Completed
-
-- [${TAG}] ${CHANGE} — PR #${PR_NUM} (${PR_URL}) — HTML: ${REPORT_PATH:-N/A}
-EOF
-} > "$TMP"
-mv "$TMP" "$ROADMAP_PATH"
-
-# 4. Persist full ROADMAP content to Engram — durable cross-machine record.
-ROADMAP_CONTENT=$(cat "$ROADMAP_PATH")
-engram_save \
-  topic_key="sddk/${CHANGE}/roadmap" \
-  type=architecture \
-  content="${ROADMAP_CONTENT}" \
-  scope=project
-
-# NOT done in v3.3:
-#   git add docs/ROADMAP.md
-#   git commit -m "docs(roadmap): mark ..."
-#   git push origin main
-```
-
-Gate: `${ROADMAP_PATH}` exists AND is gitignored AND Engram topic `sddk/${CHANGE}/roadmap` exists.
-
-**This step is NON-BLOCKING.** If `git check-ignore` reports the file is tracked (init policy failed), OR Engram save fails, log a warning, set `roadmap_updated: false`, and continue to Step 11 (trunk-sync-end). The cycle never fails on a roadmap anomaly.
+Write `milestones/_active.md` back to AVAILABLE only after Step 10 succeeds. Log the release with milestone and cycle links. If this fails, BLOCK and retain the lock for recovery.
 
 ### Step 11 — `trunk-sync-end`
 
@@ -356,7 +328,8 @@ pr:
 tag: v{major}.{minor}.{patch}
 bump: major | minor | patch
 html_report: {path | null}
-roadmap_updated: bool
+knowledge_graph_updated: bool
+lock_released: bool
 tracking_issue_closed: {n} | null
 artifacts_persisted:
   - sddk/{change}/release-report

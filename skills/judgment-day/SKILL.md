@@ -48,5 +48,5 @@ Return target identity, round, confirmed/suspect/contradiction/INFO counts, corr
 
 ## References
 
-- [../_shared/review-ledger-contract.md](../_shared/review-ledger-contract.md) — canonical transaction, ledger, persistence, and lifecycle contract.
+- [../_shared/sdd-status-contract.md](../_shared/sdd-status-contract.md) — canonical review lifecycle, receipt binding, persistence paths, and archive gate.
 - [references/prompts-and-formats.md](references/prompts-and-formats.md) — compact judge/fix prompts and verdict shape.

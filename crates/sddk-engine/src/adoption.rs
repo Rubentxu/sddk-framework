@@ -1,0 +1,549 @@
+//! Repairable two-resource project adoption.
+
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use sddk_domain::{
+    AdoptionReceipt, IdentityError, IdentitySource, ResolvedProjectIdentity,
+    resolve_project_identity, stable_workspace_id,
+};
+use sddk_storage::{ProjectRecord, Storage, StorageError, WorkspaceRecord};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use thiserror::Error;
+
+use crate::{AdoptionPaths, PathResolutionError, XdgEnvironment, resolve_xdg_paths};
+
+/// Current adoption receipt schema.
+pub const ADOPTION_SCHEMA_VERSION: i32 = 2;
+
+static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+/// Explicit deterministic input for adoption planning.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdoptionPlanInput {
+    /// Raw remote URL, or `None` for fallback identity.
+    pub remote_url: Option<String>,
+    /// Required monorepo scope.
+    pub scope: String,
+    /// Stable UUID required when no remote is available.
+    pub fallback_seed: Option<String>,
+    /// Canonical absolute checkout or worktree path.
+    pub canonical_workspace_path: PathBuf,
+    /// Human-readable project name.
+    pub display_name: String,
+    /// Explicit environment values for XDG resolution.
+    pub xdg: XdgEnvironment,
+    /// SDDK product version.
+    pub sddk_version: String,
+    /// Runtime implementation version.
+    pub runtime_version: String,
+    /// Caller-supplied receipt timestamp.
+    pub timestamp: String,
+    /// Caller-supplied actor.
+    pub actor: String,
+}
+
+/// Write-free deterministic adoption plan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct AdoptionPlan {
+    /// Resolved logical project identity.
+    pub identity: ResolvedProjectIdentity,
+    /// Stable checkout or worktree identifier.
+    pub workspace_id: String,
+    /// Canonical absolute checkout path.
+    pub canonical_workspace_path: PathBuf,
+    /// Resolved XDG paths.
+    pub paths: AdoptionPaths,
+    /// Receipt that will be written if the plan is applied.
+    pub receipt: AdoptionReceipt,
+}
+
+/// Observable adoption convergence state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AdoptionStatusKind {
+    /// Neither receipt nor SQLite registration exists.
+    Absent,
+    /// Both resources exist and agree.
+    Complete,
+    /// Only the matching receipt exists, or SQLite registration is incomplete.
+    ReceiptOnly,
+    /// Only matching SQLite identity data exists.
+    LedgerOnly,
+    /// Existing valid data disagrees with the requested plan.
+    Conflict,
+    /// A receipt or database cannot be decoded or verified.
+    Corrupt,
+}
+
+/// Detailed adoption status returned by apply, status, and repair.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct AdoptionStatus {
+    /// Classified convergence state.
+    pub status: AdoptionStatusKind,
+    /// Expected logical project identifier.
+    pub project_id: String,
+    /// Expected workspace identifier.
+    pub workspace_id: String,
+    /// Expected receipt path.
+    pub receipt_path: PathBuf,
+    /// Expected project database path.
+    pub ledger_path: PathBuf,
+    /// Existing verified receipt, when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receipt: Option<AdoptionReceipt>,
+    /// Stable explanation for partial or invalid states.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+/// Errors emitted by adoption planning or convergence.
+#[derive(Debug, Error)]
+pub enum AdoptionError {
+    /// Project identity could not be resolved.
+    #[error(transparent)]
+    Identity(#[from] IdentityError),
+    /// XDG paths could not be resolved.
+    #[error(transparent)]
+    Paths(#[from] PathResolutionError),
+    /// Adoption filesystem work failed.
+    #[error("adoption filesystem error: {0}")]
+    Io(#[from] std::io::Error),
+    /// Receipt serialization failed.
+    #[error("adoption receipt serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
+    /// SQLite registration failed.
+    #[error(transparent)]
+    Storage(#[from] StorageError),
+    /// An explicit planning value is empty or invalid.
+    #[error("invalid adoption input: {0}")]
+    InvalidInput(String),
+    /// Apply or repair refused conflicting existing state.
+    #[error("adoption state is {status:?}: {detail}")]
+    UnsafeState {
+        /// Refused state classification.
+        status: AdoptionStatusKind,
+        /// Reason for refusal.
+        detail: String,
+    },
+    /// Repair was requested for a project with no partial adoption state.
+    #[error("adoption is absent; use adopt apply before repair")]
+    NothingToRepair,
+}
+
+/// Builds an adoption plan without reading or writing process or filesystem state.
+pub fn plan_adoption(input: AdoptionPlanInput) -> Result<AdoptionPlan, AdoptionError> {
+    validate_plan_input(&input)?;
+    let identity = resolve_project_identity(
+        input.remote_url.as_deref(),
+        &input.scope,
+        input.fallback_seed.as_deref(),
+    )?;
+    let canonical_workspace_path = path_string(&input.canonical_workspace_path)?;
+    let workspace_id = stable_workspace_id(&identity.project_id, &canonical_workspace_path);
+    let paths = resolve_xdg_paths(&input.xdg, identity.project_id.as_str(), &workspace_id)?;
+    let storage_paths = paths.to_storage_paths()?;
+    let mut receipt = AdoptionReceipt {
+        schema_version: ADOPTION_SCHEMA_VERSION,
+        sddk_version: input.sddk_version,
+        runtime_version: input.runtime_version,
+        project_id: identity.project_id.to_string(),
+        workspace_id: workspace_id.clone(),
+        display_name: input.display_name,
+        canonical_workspace_path,
+        identity_source: identity.identity_source,
+        remote_url: identity.remote_url.clone(),
+        scope: identity.scope.clone(),
+        fallback_seed: identity.fallback_seed.clone(),
+        configuration_hash: String::new(),
+        paths: storage_paths,
+        timestamp: input.timestamp,
+        actor: input.actor,
+    };
+    receipt.configuration_hash = configuration_hash(&receipt)?;
+    Ok(AdoptionPlan {
+        identity,
+        workspace_id,
+        canonical_workspace_path: input.canonical_workspace_path,
+        paths,
+        receipt,
+    })
+}
+
+/// Inspects receipt and SQLite registration without modifying either resource.
+pub fn adoption_status(plan: &AdoptionPlan) -> Result<AdoptionStatus, AdoptionError> {
+    let base = base_status(plan);
+    let receipt = match inspect_receipt(plan) {
+        ReceiptInspection::Absent => None,
+        ReceiptInspection::Matching(receipt) => Some(*receipt),
+        ReceiptInspection::Conflict(detail) => {
+            return Ok(invalid_status(base, AdoptionStatusKind::Conflict, detail));
+        }
+        ReceiptInspection::Corrupt(detail) => {
+            return Ok(invalid_status(base, AdoptionStatusKind::Corrupt, detail));
+        }
+    };
+    let ledger = inspect_ledger(plan);
+    if let Some((status, detail)) = ledger.invalid {
+        return Ok(invalid_status(base, status, detail));
+    }
+
+    let status = match (receipt.is_some(), ledger.any, ledger.complete) {
+        (false, false, false) => AdoptionStatusKind::Absent,
+        (true, _, true) => AdoptionStatusKind::Complete,
+        (true, _, false) => AdoptionStatusKind::ReceiptOnly,
+        (false, true, _) => AdoptionStatusKind::LedgerOnly,
+        (false, false, true) => unreachable!("complete registration must contain records"),
+    };
+    Ok(AdoptionStatus {
+        status,
+        receipt,
+        detail: partial_detail(status),
+        ..base
+    })
+}
+
+/// Applies a plan and converges matching partial state idempotently.
+pub fn apply_adoption(plan: &AdoptionPlan) -> Result<AdoptionStatus, AdoptionError> {
+    let status = adoption_status(plan)?;
+    match status.status {
+        AdoptionStatusKind::Complete => return Ok(status),
+        AdoptionStatusKind::Conflict | AdoptionStatusKind::Corrupt => {
+            return Err(unsafe_status(status));
+        }
+        AdoptionStatusKind::Absent
+        | AdoptionStatusKind::ReceiptOnly
+        | AdoptionStatusKind::LedgerOnly => {}
+    }
+    converge(plan)?;
+    require_complete(adoption_status(plan)?)
+}
+
+/// Repairs a matching receipt-only or ledger-only adoption state.
+pub fn repair_adoption(plan: &AdoptionPlan) -> Result<AdoptionStatus, AdoptionError> {
+    let status = adoption_status(plan)?;
+    match status.status {
+        AdoptionStatusKind::Complete => return Ok(status),
+        AdoptionStatusKind::Absent => return Err(AdoptionError::NothingToRepair),
+        AdoptionStatusKind::Conflict | AdoptionStatusKind::Corrupt => {
+            return Err(unsafe_status(status));
+        }
+        AdoptionStatusKind::ReceiptOnly | AdoptionStatusKind::LedgerOnly => {}
+    }
+    converge(plan)?;
+    require_complete(adoption_status(plan)?)
+}
+
+/// Reads a receipt without interpreting it against a plan.
+pub fn read_adoption_receipt(path: impl AsRef<Path>) -> Result<AdoptionReceipt, AdoptionError> {
+    Ok(serde_json::from_slice(&fs::read(path)?)?)
+}
+
+fn converge(plan: &AdoptionPlan) -> Result<(), AdoptionError> {
+    fs::create_dir_all(&plan.paths.vault)?;
+    fs::create_dir_all(&plan.paths.artifacts)?;
+    fs::create_dir_all(&plan.paths.cache)?;
+    let mut storage = Storage::open(&plan.paths.ledger)?;
+    storage.register_project_workspace(&project_record(plan), &workspace_record(plan))?;
+    if !plan.paths.receipt.exists() {
+        write_receipt_atomically(&plan.paths.receipt, &plan.receipt)?;
+    }
+    Ok(())
+}
+
+fn inspect_receipt(plan: &AdoptionPlan) -> ReceiptInspection {
+    if !plan.paths.receipt.exists() {
+        return ReceiptInspection::Absent;
+    }
+    let bytes = match fs::read(&plan.paths.receipt) {
+        Ok(bytes) => bytes,
+        Err(error) => return ReceiptInspection::Corrupt(format!("receipt read failed: {error}")),
+    };
+    let receipt: AdoptionReceipt = match serde_json::from_slice(&bytes) {
+        Ok(receipt) => receipt,
+        Err(error) => return ReceiptInspection::Corrupt(format!("invalid receipt JSON: {error}")),
+    };
+    if receipt.schema_version != ADOPTION_SCHEMA_VERSION {
+        return ReceiptInspection::Corrupt(format!(
+            "unsupported receipt schema version {}",
+            receipt.schema_version
+        ));
+    }
+    match configuration_hash(&receipt) {
+        Ok(hash) if hash == receipt.configuration_hash => {}
+        Ok(_) => {
+            return ReceiptInspection::Corrupt(
+                "receipt configuration hash does not match its contents".into(),
+            );
+        }
+        Err(error) => return ReceiptInspection::Corrupt(error.to_string()),
+    }
+    if same_configuration(&receipt, &plan.receipt) {
+        ReceiptInspection::Matching(Box::new(receipt))
+    } else {
+        ReceiptInspection::Conflict("receipt identity or configuration differs from plan".into())
+    }
+}
+
+fn inspect_ledger(plan: &AdoptionPlan) -> LedgerInspection {
+    if !plan.paths.ledger.exists() {
+        return LedgerInspection::default();
+    }
+    let storage = match Storage::open_read_only(&plan.paths.ledger) {
+        Ok(storage) => storage,
+        Err(error) => return LedgerInspection::corrupt(format!("ledger open failed: {error}")),
+    };
+    let project = match storage.get_project_optional(plan.identity.project_id.as_str()) {
+        Ok(project) => project,
+        Err(error) => return LedgerInspection::corrupt(format!("project read failed: {error}")),
+    };
+    let workspace = match storage.get_workspace_optional(&plan.workspace_id) {
+        Ok(workspace) => workspace,
+        Err(error) => {
+            return LedgerInspection::corrupt(format!("workspace read failed: {error}"));
+        }
+    };
+    let has_projects = match storage.has_projects() {
+        Ok(has_projects) => has_projects,
+        Err(error) => return LedgerInspection::corrupt(format!("ledger read failed: {error}")),
+    };
+    if project.is_none() && has_projects {
+        return LedgerInspection::conflict("ledger belongs to a different project".into());
+    }
+    if let Some(existing) = &project
+        && (existing.remote_url != plan.identity.remote_url
+            || existing.scope != plan.identity.scope)
+    {
+        return LedgerInspection::conflict("ledger project identity differs from plan".into());
+    }
+    if let Some(existing) = &workspace
+        && (existing.project_id != plan.identity.project_id.as_str()
+            || existing.canonical_path != plan.receipt.canonical_workspace_path)
+    {
+        return LedgerInspection::conflict("ledger workspace identity differs from plan".into());
+    }
+    LedgerInspection {
+        any: project.is_some() || workspace.is_some(),
+        complete: project.is_some() && workspace.is_some(),
+        invalid: None,
+    }
+}
+
+fn write_receipt_atomically(path: &Path, receipt: &AdoptionReceipt) -> Result<(), AdoptionError> {
+    let parent = path.parent().ok_or_else(|| {
+        AdoptionError::InvalidInput(format!("receipt path has no parent: {path:?}"))
+    })?;
+    fs::create_dir_all(parent)?;
+    let sequence = TEMP_FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let temp = parent.join(format!(
+        ".adoption.json.tmp-{}-{sequence}",
+        std::process::id()
+    ));
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    let mut file = options.open(&temp)?;
+    let mut bytes = serde_json::to_vec_pretty(receipt)?;
+    bytes.push(b'\n');
+    if let Err(error) = file.write_all(&bytes).and_then(|()| file.sync_all()) {
+        let _ = fs::remove_file(&temp);
+        return Err(error.into());
+    }
+    drop(file);
+    if path.exists() {
+        fs::remove_file(&temp)?;
+        return Err(AdoptionError::UnsafeState {
+            status: AdoptionStatusKind::Conflict,
+            detail: "receipt appeared during apply; refusing to overwrite it".into(),
+        });
+    }
+    fs::rename(&temp, path)?;
+    OpenOptions::new().read(true).open(parent)?.sync_all()?;
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+struct ConfigurationMaterial<'a> {
+    schema_version: i32,
+    sddk_version: &'a str,
+    runtime_version: &'a str,
+    project_id: &'a str,
+    workspace_id: &'a str,
+    display_name: &'a str,
+    canonical_workspace_path: &'a str,
+    identity_source: IdentitySource,
+    remote_url: &'a Option<String>,
+    scope: &'a str,
+    fallback_seed: &'a Option<String>,
+    paths: &'a sddk_domain::AdoptionStoragePaths,
+}
+
+fn configuration_hash(receipt: &AdoptionReceipt) -> Result<String, AdoptionError> {
+    let material = ConfigurationMaterial {
+        schema_version: receipt.schema_version,
+        sddk_version: &receipt.sddk_version,
+        runtime_version: &receipt.runtime_version,
+        project_id: &receipt.project_id,
+        workspace_id: &receipt.workspace_id,
+        display_name: &receipt.display_name,
+        canonical_workspace_path: &receipt.canonical_workspace_path,
+        identity_source: receipt.identity_source,
+        remote_url: &receipt.remote_url,
+        scope: &receipt.scope,
+        fallback_seed: &receipt.fallback_seed,
+        paths: &receipt.paths,
+    };
+    let mut hasher = Sha256::new();
+    hasher.update(b"sddk.adoption.configuration.v2\0");
+    hasher.update(serde_json::to_vec(&material)?);
+    Ok(format!("sha256:{:x}", hasher.finalize()))
+}
+
+fn same_configuration(left: &AdoptionReceipt, right: &AdoptionReceipt) -> bool {
+    left.schema_version == right.schema_version
+        && left.sddk_version == right.sddk_version
+        && left.runtime_version == right.runtime_version
+        && left.project_id == right.project_id
+        && left.workspace_id == right.workspace_id
+        && left.display_name == right.display_name
+        && left.canonical_workspace_path == right.canonical_workspace_path
+        && left.identity_source == right.identity_source
+        && left.remote_url == right.remote_url
+        && left.scope == right.scope
+        && left.fallback_seed == right.fallback_seed
+        && left.configuration_hash == right.configuration_hash
+        && left.paths == right.paths
+}
+
+fn validate_plan_input(input: &AdoptionPlanInput) -> Result<(), AdoptionError> {
+    for (name, value) in [
+        ("display_name", input.display_name.as_str()),
+        ("sddk_version", input.sddk_version.as_str()),
+        ("runtime_version", input.runtime_version.as_str()),
+        ("timestamp", input.timestamp.as_str()),
+        ("actor", input.actor.as_str()),
+    ] {
+        if value.trim().is_empty() {
+            return Err(AdoptionError::InvalidInput(format!(
+                "{name} cannot be empty"
+            )));
+        }
+    }
+    if !input.canonical_workspace_path.is_absolute() {
+        return Err(AdoptionError::InvalidInput(format!(
+            "canonical workspace path must be absolute: {:?}",
+            input.canonical_workspace_path
+        )));
+    }
+    Ok(())
+}
+
+fn project_record(plan: &AdoptionPlan) -> ProjectRecord {
+    ProjectRecord {
+        project_id: plan.identity.project_id.to_string(),
+        display_name: plan.receipt.display_name.clone(),
+        remote_url: plan.identity.remote_url.clone(),
+        scope: plan.identity.scope.clone(),
+        created_at: plan.receipt.timestamp.clone(),
+    }
+}
+
+fn workspace_record(plan: &AdoptionPlan) -> WorkspaceRecord {
+    WorkspaceRecord {
+        workspace_id: plan.workspace_id.clone(),
+        project_id: plan.identity.project_id.to_string(),
+        canonical_path: plan.receipt.canonical_workspace_path.clone(),
+        created_at: plan.receipt.timestamp.clone(),
+    }
+}
+
+fn path_string(path: &Path) -> Result<String, AdoptionError> {
+    path.to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| AdoptionError::InvalidInput(format!("path is not valid UTF-8: {path:?}")))
+}
+
+fn base_status(plan: &AdoptionPlan) -> AdoptionStatus {
+    AdoptionStatus {
+        status: AdoptionStatusKind::Absent,
+        project_id: plan.identity.project_id.to_string(),
+        workspace_id: plan.workspace_id.clone(),
+        receipt_path: plan.paths.receipt.clone(),
+        ledger_path: plan.paths.ledger.clone(),
+        receipt: None,
+        detail: None,
+    }
+}
+
+fn invalid_status(
+    mut status: AdoptionStatus,
+    kind: AdoptionStatusKind,
+    detail: String,
+) -> AdoptionStatus {
+    status.status = kind;
+    status.detail = Some(detail);
+    status
+}
+
+fn partial_detail(status: AdoptionStatusKind) -> Option<String> {
+    match status {
+        AdoptionStatusKind::Absent => Some("receipt and ledger registration are absent".into()),
+        AdoptionStatusKind::ReceiptOnly => Some("ledger registration is incomplete".into()),
+        AdoptionStatusKind::LedgerOnly => Some("adoption receipt is absent".into()),
+        AdoptionStatusKind::Complete
+        | AdoptionStatusKind::Conflict
+        | AdoptionStatusKind::Corrupt => None,
+    }
+}
+
+fn unsafe_status(status: AdoptionStatus) -> AdoptionError {
+    AdoptionError::UnsafeState {
+        status: status.status,
+        detail: status
+            .detail
+            .unwrap_or_else(|| "existing state cannot be safely converged".into()),
+    }
+}
+
+fn require_complete(status: AdoptionStatus) -> Result<AdoptionStatus, AdoptionError> {
+    if status.status == AdoptionStatusKind::Complete {
+        Ok(status)
+    } else {
+        Err(unsafe_status(status))
+    }
+}
+
+enum ReceiptInspection {
+    Absent,
+    Matching(Box<AdoptionReceipt>),
+    Conflict(String),
+    Corrupt(String),
+}
+
+#[derive(Default)]
+struct LedgerInspection {
+    any: bool,
+    complete: bool,
+    invalid: Option<(AdoptionStatusKind, String)>,
+}
+
+impl LedgerInspection {
+    fn conflict(detail: String) -> Self {
+        Self {
+            invalid: Some((AdoptionStatusKind::Conflict, detail)),
+            ..Self::default()
+        }
+    }
+
+    fn corrupt(detail: String) -> Self {
+        Self {
+            invalid: Some((AdoptionStatusKind::Corrupt, detail)),
+            ..Self::default()
+        }
+    }
+}
