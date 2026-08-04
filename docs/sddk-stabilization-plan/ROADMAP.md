@@ -17,7 +17,7 @@
 | PR 5 | Completo | Gateway + Git + CAS probados | Capability gateway default-deny, runner tipado, filesystem scoped, Git local con postcondiciones y CAS SHA-256. |
 | PR 6 | Completo | Tests Rust + CLI | Schema validation runtime, adaptador legacy y permisos por fase con default-deny. |
 | PR 7 | Completo | Tests Rust + MockForge | Forge trait, adaptador GitHub, release plan/apply idempotente y reconciliación contra el proveedor. |
-| PR 8 | No iniciado | No demostrado | Sin parser de vault, FTS5, backlinks ni `petgraph`. |
+| PR 8 | Completo | Tests Rust + CLI | Parser de vault, índice FTS5 reconstruible, validación y grafo petgraph. |
 | PR 9 | No iniciado | No demostrado | Sin `xtask`, CI/CD, receipts, SBOM ni attestations. |
 
 ## Próximo corte recomendado
@@ -139,7 +139,7 @@ Un fallo durante merge o publicación se reconcilia sin duplicar efectos. `apply
 
 ## PR 8 — Vault, índices e Inspector mínimo
 
-**Estado actual:** No iniciado.
+**Estado actual:** Completo; parser, validación, FTS5 reconstruible, grafo e inspector HTML probados.
 
 ### Entregables
 
@@ -151,7 +151,7 @@ Un fallo durante merge o publicación se reconcilia sin duplicar efectos. `apply
 
 ### Gate
 
-El índice puede borrarse y reconstruirse desde el vault.
+El índice puede borrarse y reconstruirse desde el vault (`vault index` re-crea la tabla FTS5 desde los nodos).
 
 ## PR 9 — Distribución
 
