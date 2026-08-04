@@ -686,6 +686,17 @@ impl Storage {
         rows.map(|row| row.map_err(StorageError::from)).collect()
     }
 
+    /// Lists all capability receipts across projects in insertion order.
+    pub fn list_all_capability_receipts(&self) -> Result<Vec<CapabilityReceipt>> {
+        let mut statement = self.connection.prepare(
+            "SELECT receipt_id, project_id, cycle_id, capability, request_hash,
+                    request_json, status, result_json, started_at, completed_at
+             FROM capability_receipts ORDER BY started_at ASC",
+        )?;
+        let rows = statement.query_map([], capability_receipt_from_row)?;
+        rows.map(|row| row.map_err(StorageError::from)).collect()
+    }
+
     /// Loads a capability receipt by identifier.
     pub fn get_capability_receipt(&self, receipt_id: &str) -> Result<CapabilityReceipt> {
         get_capability_receipt_on(&self.connection, receipt_id)
