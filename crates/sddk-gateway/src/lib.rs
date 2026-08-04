@@ -29,13 +29,59 @@ pub use git::{GitBranch, GitCommit, GitError, GitExecutor, GitInspect, GitTag};
 pub use permissions::{AgentPermissions, PermissionDecision, PermissionPolicy, PermissionsError};
 pub use policy::{CapabilityPolicy, Consequence, PolicyDecision, Risk};
 pub use release::{
-    ReleaseOutcome, ReleasePlan, ReleasePlanInput, ReleaseStep, apply_release, plan_release,
-    reconcile_pending,
+    ReleaseError, ReleaseOutcome, ReleasePlan, ReleasePlanInput, ReleaseStep, apply_release,
+    plan_release, reconcile_pending,
 };
 pub use runner::{RunOutcome, RunSpec, RunnerError, run};
 pub use sddk_storage::CapabilityReceipt;
 
 use serde_json::Value;
+
+impl sddk_domain::SddkErrorCode for GatewayError {
+    fn code(&self) -> &'static str {
+        match self {
+            Self::Denied { .. } => "GATEWAY_DENIED",
+            Self::ApprovalRequired { .. } => "GATEWAY_APPROVAL_REQUIRED",
+            Self::Idempotency(..) => "GATEWAY_IDEMPOTENCY",
+            Self::Runner(..) => "GATEWAY_RUNNER",
+            Self::Serialization(..) => "GATEWAY_SERIALIZATION",
+        }
+    }
+
+    fn recovery(&self) -> &'static str {
+        match self {
+            Self::Denied { .. } => "use a capability declared in the workflow policy",
+            Self::ApprovalRequired { .. } => {
+                "re-run with explicit `--approve` for R3/R4 capabilities"
+            }
+            Self::Idempotency(..) => "use a fresh idempotency key or the original request",
+            Self::Runner(..) => "check the typed runner executable and arguments",
+            Self::Serialization(..) => "fix the structured payload before retrying",
+        }
+    }
+}
+
+impl sddk_domain::SddkErrorCode for crate::release::ReleaseError {
+    fn code(&self) -> &'static str {
+        match self {
+            Self::Forge(..) => "RELEASE_FORGE",
+            Self::Gateway(..) => "RELEASE_GATEWAY",
+            Self::Serialization(..) => "RELEASE_SERIALIZATION",
+            Self::Storage(..) => "RELEASE_STORAGE",
+        }
+    }
+
+    fn recovery(&self) -> &'static str {
+        match self {
+            Self::Forge(..) => {
+                "check the provider state and re-run; apply converges without duplicates"
+            }
+            Self::Gateway(..) => "resolve the underlying gateway error first",
+            Self::Serialization(..) => "fix the release payload before retrying",
+            Self::Storage(..) => "resolve the underlying storage error first",
+        }
+    }
+}
 
 /// Keys whose values are treated as secrets and redacted from persisted output.
 const SECRET_KEY_PATTERN: [&str; 9] = [

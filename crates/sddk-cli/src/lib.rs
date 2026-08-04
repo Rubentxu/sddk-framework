@@ -33,7 +33,9 @@ use pack_cmd::PackCommand;
 use permission::PermissionCommand;
 use release_cmd::ReleaseCommand;
 use result_cmd::{AgentResultCommand, ValidateCommand};
-use sddk_domain::{IdentitySource, normalize_scope, resolve_project_identity, stable_workspace_id};
+use sddk_domain::{
+    IdentitySource, SddkErrorCode, normalize_scope, resolve_project_identity, stable_workspace_id,
+};
 use sddk_engine::{
     AdoptionPlan, AdoptionPlanInput, AdoptionStatus, AdoptionStatusKind, XdgEnvironment,
     adoption_status, apply_adoption, plan_adoption, read_adoption_receipt, repair_adoption,
@@ -680,7 +682,7 @@ fn render_result<T: Serialize>(
             },
             Err(error) => failure(error.to_string()),
         },
-        Err(error) => failure(error.to_string()),
+        Err(error) => failure_envelope(&error),
     }
 }
 
@@ -716,5 +718,41 @@ fn failure(message: String) -> CommandOutput {
         status: 1,
         stdout: String::new(),
         stderr: format!("error: {message}\n"),
+    }
+}
+
+/// Renders a runtime error with the RNF-006 envelope when the concrete type
+/// supports it: stable code, message, first cause, and a recovery hint.
+pub(crate) fn failure_envelope(error: &anyhow::Error) -> CommandOutput {
+    let envelope = error
+        .downcast_ref::<sddk_storage::StorageError>()
+        .map(|e| (e.code(), e.recovery()))
+        .or_else(|| {
+            error
+                .downcast_ref::<sddk_engine::EngineError>()
+                .map(|e| (e.code(), e.recovery()))
+        })
+        .or_else(|| {
+            error
+                .downcast_ref::<sddk_gateway::GatewayError>()
+                .map(|e| (e.code(), e.recovery()))
+        })
+        .or_else(|| {
+            error
+                .downcast_ref::<sddk_gateway::ReleaseError>()
+                .map(|e| (e.code(), e.recovery()))
+        });
+    let Some((code, recovery)) = envelope else {
+        return failure(error.to_string());
+    };
+    let mut stderr = format!("error[{code}]: {error}\n");
+    if let Some(source) = error.source() {
+        stderr.push_str(&format!("  cause: {source}\n"));
+    }
+    stderr.push_str(&format!("  recovery: {recovery}\n"));
+    CommandOutput {
+        status: 1,
+        stdout: String::new(),
+        stderr,
     }
 }

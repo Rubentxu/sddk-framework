@@ -22,12 +22,10 @@ pub enum VaultError {
         source: std::io::Error,
     },
     /// Frontmatter YAML could not be parsed.
-    #[error("invalid frontmatter in {path}: {source}")]
-    Frontmatter {
-        /// Node with invalid frontmatter.
-        path: String,
+    #[error("invalid vault frontmatter: {source}")]
+    Parse {
         /// Parse failure.
-        source: Box<serde_saphyr::Error>,
+        source: serde_saphyr::Error,
     },
 }
 
@@ -81,8 +79,7 @@ fn parse_node(directory: &Path, path: &Path) -> Result<VaultNode, VaultError> {
     })?;
     let (frontmatter, body) = split_frontmatter(&source);
     let meta = frontmatter
-        .map(parse_frontmatter)
-        .transpose()?
+        .and_then(|raw| parse_frontmatter(raw).ok())
         .unwrap_or_default();
 
     let relative = path
@@ -100,6 +97,11 @@ fn parse_node(directory: &Path, path: &Path) -> Result<VaultNode, VaultError> {
         .get("id")
         .and_then(Value::as_str)
         .map(str::to_owned)
+        .or_else(|| {
+            frontmatter
+                .and_then(|raw| raw_scalar(raw, "id"))
+                .map(str::to_owned)
+        })
         .unwrap_or_else(|| stem.clone());
     let kind = meta
         .get("type")
@@ -116,6 +118,11 @@ fn parse_node(directory: &Path, path: &Path) -> Result<VaultNode, VaultError> {
         .get("title")
         .and_then(Value::as_str)
         .map(str::to_owned)
+        .or_else(|| {
+            frontmatter
+                .and_then(|raw| raw_scalar(raw, "title"))
+                .map(str::to_owned)
+        })
         .or_else(|| first_heading(body))
         .unwrap_or_else(|| id.clone());
     let status = meta
@@ -156,12 +163,19 @@ fn split_frontmatter(source: &str) -> (Option<&str>, &str) {
 }
 
 fn parse_frontmatter(raw: &str) -> Result<HashMap<String, Value>, VaultError> {
-    serde_saphyr::from_str::<HashMap<String, Value>>(raw).map_err(|source| {
-        VaultError::Frontmatter {
-            path: String::new(),
-            source: Box::new(source),
-        }
-    })
+    serde_saphyr::from_str::<HashMap<String, Value>>(raw)
+        .map_err(|error| VaultError::Parse { source: error })
+}
+
+/// Reads a `key:` scalar from raw frontmatter without typed parsing.
+fn raw_scalar<'a>(frontmatter: &'a str, key: &str) -> Option<&'a str> {
+    frontmatter
+        .lines()
+        .map(str::trim)
+        .find_map(|line| line.strip_prefix(&format!("{key}:")))
+        .map(str::trim)
+        .map(|value| value.trim_matches('"').trim_matches('\''))
+        .filter(|value| !value.is_empty())
 }
 
 fn first_heading(body: &str) -> Option<String> {
@@ -236,5 +250,27 @@ mod tests {
         assert_eq!(term.kind, NodeKind::Term);
         assert_eq!(term.title, "JWT");
         assert!(term.status.is_none());
+    }
+}
+
+#[cfg(test)]
+mod robustness_tests {
+    use std::fs;
+
+    use super::parse_vault;
+
+    #[test]
+    fn scientific_notation_ids_parse_without_error() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::create_dir_all(directory.path().join("terms")).unwrap();
+        fs::write(
+            directory.path().join("terms/1e848.md"),
+            "---\nid: 1e848\ntype: term\n---\n# Float id\n",
+        )
+        .unwrap();
+        let index = parse_vault(directory.path()).unwrap();
+        let node = index.get("1e848").expect("id derived from raw frontmatter");
+        assert_eq!(node.id, "1e848");
+        assert_eq!(node.title, "Float id");
     }
 }

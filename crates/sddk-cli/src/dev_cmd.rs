@@ -149,7 +149,7 @@ fn run_dev_doctor(args: DoctorArgs) -> CommandOutput {
             }
             command
         }
-        Err(error) => crate::failure(error.to_string()),
+        Err(error) => crate::failure_envelope(&error),
     }
 }
 

@@ -87,16 +87,16 @@ pub struct StepOutcome {
 #[derive(Debug, Error)]
 pub enum ReleaseError {
     /// The forge rejected an operation.
-    #[error(transparent)]
+    #[error("release forge error: {0}")]
     Forge(#[from] ForgeError),
     /// A receipt could not be started or finalized.
-    #[error(transparent)]
+    #[error("release gateway error: {0}")]
     Gateway(#[from] GatewayError),
     /// Structured data could not be encoded.
     #[error("release serialization failed: {0}")]
     Serialization(#[from] serde_json::Error),
     /// Persistence rejected the operation.
-    #[error(transparent)]
+    #[error("release storage error: {0}")]
     Storage(#[from] sddk_storage::StorageError),
 }
 

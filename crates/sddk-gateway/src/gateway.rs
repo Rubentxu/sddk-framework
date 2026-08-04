@@ -70,10 +70,10 @@ pub enum GatewayError {
         capability: String,
     },
     /// The stored request disagrees with the supplied idempotency key.
-    #[error(transparent)]
+    #[error("gateway idempotency error: {0}")]
     Idempotency(#[from] sddk_storage::StorageError),
     /// The runner failed to execute the plan.
-    #[error(transparent)]
+    #[error("gateway runner error: {0}")]
     Runner(#[from] crate::runner::RunnerError),
     /// A structured payload could not be encoded.
     #[error("payload serialization failed: {0}")]

@@ -255,7 +255,7 @@ pub enum WorkflowLoadError {
     #[error("invalid workflow YAML: {0}")]
     Parse(serde_saphyr::Error),
     /// The parsed manifest violates an executable workflow invariant.
-    #[error(transparent)]
+    #[error("workflow validation error: {0}")]
     Validation(#[from] WorkflowValidationError),
 }
 
@@ -782,7 +782,7 @@ pub enum EngineError {
         cycle_id: String,
     },
     /// Persistence rejected the operation.
-    #[error(transparent)]
+    #[error("storage error: {0}")]
     Storage(#[from] StorageError),
 }
 
@@ -1365,4 +1365,76 @@ fn cycle_path_name(path: &CyclePath) -> &'static str {
 
 fn transition_applies_to_path(transition: &Transition, path: &str) -> bool {
     transition.paths.is_empty() || transition.paths.iter().any(|candidate| candidate == path)
+}
+
+impl sddk_domain::SddkErrorCode for EngineError {
+    fn code(&self) -> &'static str {
+        match self {
+            Self::UndeclaredTransition { .. } => "ENGINE_UNDECLARED_TRANSITION",
+            Self::CreationTransitionRequiresStartApi { .. } => {
+                "ENGINE_CREATION_TRANSITION_REQUIRES_START_API"
+            }
+            Self::SourceStateMismatch { .. } => "ENGINE_SOURCE_STATE_MISMATCH",
+            Self::MissingRequirement { .. } => "ENGINE_MISSING_REQUIREMENT",
+            Self::MissingArtifact { .. } => "ENGINE_MISSING_ARTIFACT",
+            Self::MissingGateReceipt { .. } => "ENGINE_MISSING_GATE_RECEIPT",
+            Self::UnknownGateReceipt { .. } => "ENGINE_UNKNOWN_GATE_RECEIPT",
+            Self::GateReceiptMismatch { .. } => "ENGINE_GATE_RECEIPT_MISMATCH",
+            Self::StaleGateReceipt { .. } => "ENGINE_STALE_GATE_RECEIPT",
+            Self::UnregisteredEvaluator { .. } => "ENGINE_UNREGISTERED_EVALUATOR",
+            Self::GateReceiptScopeMismatch { .. } => "ENGINE_GATE_RECEIPT_SCOPE_MISMATCH",
+            Self::GateFailedWithoutTarget { .. } => "ENGINE_GATE_FAILED_WITHOUT_TARGET",
+            Self::UndeclaredProducedArtifact { .. } => "ENGINE_UNDECLARED_PRODUCED_ARTIFACT",
+            Self::ArtifactKindMismatch { .. } => "ENGINE_ARTIFACT_KIND_MISMATCH",
+            Self::UnknownPath { .. } => "ENGINE_UNKNOWN_PATH",
+            Self::TransitionPathMismatch { .. } => "ENGINE_TRANSITION_PATH_MISMATCH",
+            Self::StalePlan { .. } => "ENGINE_STALE_PLAN",
+            Self::InvalidPlan => "ENGINE_INVALID_PLAN",
+            Self::StateSerialization(..) => "ENGINE_STATE_SERIALIZATION",
+            Self::MissingReplayState { .. } => "ENGINE_MISSING_REPLAY_STATE",
+            Self::MissingStateAfter { .. } => "ENGINE_MISSING_STATE_AFTER",
+            Self::NonObjectStateAfter { .. } => "ENGINE_NON_OBJECT_STATE_AFTER",
+            Self::CorruptStateAfter { .. } => "ENGINE_CORRUPT_STATE_AFTER",
+            Self::SnapshotMismatch { .. } => "ENGINE_SNAPSHOT_MISMATCH",
+            Self::Storage(..) => "ENGINE_STORAGE",
+        }
+    }
+
+    fn recovery(&self) -> &'static str {
+        match self {
+            Self::UndeclaredTransition { .. } => {
+                "use a transition declared in the workflow manifest"
+            }
+            Self::CreationTransitionRequiresStartApi { .. } => {
+                "use the cycle-start API for creation transitions"
+            }
+            Self::SourceStateMismatch { .. } => {
+                "check the current cycle state and retry with the matching transition"
+            }
+            Self::MissingRequirement { .. } => "satisfy the declared precondition before retrying",
+            Self::MissingArtifact { .. } => "provide the required artifact in the evidence",
+            Self::MissingGateReceipt { .. } => "evaluate the gate with `cycle evaluate-gate` first",
+            Self::UnknownGateReceipt { .. } => "reference an existing gate receipt",
+            Self::GateReceiptMismatch { .. } => "use a receipt for the same gate and transition",
+            Self::StaleGateReceipt { .. } => "re-evaluate the gate against the current cycle state",
+            Self::UnregisteredEvaluator { .. } => "register the evaluator for the gate",
+            Self::GateReceiptScopeMismatch { .. } => "use a receipt from the same cycle",
+            Self::GateFailedWithoutTarget { .. } => "declare an on_failure target for the gate",
+            Self::UndeclaredProducedArtifact { .. } => {
+                "only offer artifacts the transition produces"
+            }
+            Self::ArtifactKindMismatch { .. } => "match the artifact key to its kind",
+            Self::UnknownPath { .. } => "use a workflow path declared in the manifest",
+            Self::TransitionPathMismatch { .. } => "use a transition allowed for the cycle path",
+            Self::StalePlan { .. } => "re-plan against the current cycle snapshot",
+            Self::InvalidPlan => "recompute the plan deterministically",
+            Self::StateSerialization(..) => "fix the workflow state JSON",
+            Self::MissingReplayState { .. } => "create the cycle before replaying",
+            Self::MissingStateAfter { .. } => "restore the ledger or rebuild the cycle",
+            Self::NonObjectStateAfter { .. } => "repair the corrupted ledger event",
+            Self::CorruptStateAfter { .. } => "repair the corrupted ledger event",
+            Self::SnapshotMismatch { .. } => "rebuild the snapshot from ledger events",
+            Self::Storage(..) => "resolve the underlying storage error first",
+        }
+    }
 }

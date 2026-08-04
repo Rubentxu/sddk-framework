@@ -106,10 +106,10 @@ pub struct AdoptionStatus {
 #[derive(Debug, Error)]
 pub enum AdoptionError {
     /// Project identity could not be resolved.
-    #[error(transparent)]
+    #[error("adoption identity error: {0}")]
     Identity(#[from] IdentityError),
     /// XDG paths could not be resolved.
-    #[error(transparent)]
+    #[error("adoption path error: {0}")]
     Paths(#[from] PathResolutionError),
     /// Adoption filesystem work failed.
     #[error("adoption filesystem error: {0}")]
@@ -118,7 +118,7 @@ pub enum AdoptionError {
     #[error("adoption receipt serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
     /// SQLite registration failed.
-    #[error(transparent)]
+    #[error("adoption storage error: {0}")]
     Storage(#[from] StorageError),
     /// An explicit planning value is empty or invalid.
     #[error("invalid adoption input: {0}")]

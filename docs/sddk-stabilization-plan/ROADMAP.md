@@ -22,7 +22,7 @@
 
 ## Próximo corte recomendado
 
-El roadmap está COMPLETO y cerrado. Post-estabilidad: hardening (property tests, validación de todos los schemas), seam de integración dogfood, registro de agentes verificado por lint (`v0.12.0`-`v0.14.0`), sincronización de estado (`v0.15.0`) y packs declarativos RF-012 (`v0.16.0`).
+El roadmap está COMPLETO y cerrado. Post-estabilidad: hardening, integración dogfood, registro de agentes, packs declarativos, índice incremental y envolvente de error (`v0.12.0`-`v0.18.0`). Con RNF-006, todos los requisitos del PRD (RF-001 a RF-015, RNF-001 a RNF-006) quedan cubiertos.
 
 ## PR 1 — Estabilización semántica
 
