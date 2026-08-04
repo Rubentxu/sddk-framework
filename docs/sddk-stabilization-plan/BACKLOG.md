@@ -10,8 +10,8 @@
 
 | Estado | Historias | Significado |
 | --- | ---: | --- |
-| Completa | 13 | Todos los criterios de la historia tienen implementación y prueba directa. |
-| Parcial | 5 | Existe una base útil, pero falta al menos un criterio o integración obligatoria. |
+| Completa | 15 | Todos los criterios de la historia tienen implementación y prueba directa. |
+| Parcial | 3 | Existe una base útil, pero falta al menos un criterio o integración obligatoria. |
 | Desviada | 0 | No queda ninguna desviación contractual conocida. |
 | No iniciada | 14 | No existe implementación runtime suficiente. |
 | **Total** | **32** | La base Rust es funcional, pero v3.6 todavía no cumple su criterio de salida. |
@@ -34,8 +34,8 @@
 | SDDK-404 | Completa | `sddk cycle rebuild` restaura la base vacía desde eventos sin reescribir el ledger | Sin gap funcional demostrado. |
 | SDDK-501 | Completa | Rechazo de transición, source, artifacts, gates y paths | Sin gap funcional de la API de engine; expuesto por CLI vía `cycle transition`. |
 | SDDK-502 | Completa | Leases con owner, expiry, fencing token y `cycle lock acquire/release/status`; transición exige fence si hay lease | Sin gap funcional demostrado. |
-| SDDK-601 | No iniciada | Solo existe `CapabilityRequest` como contrato | Falta runner tipado, allowlist de entorno, límites y captura sanitizada. |
-| SDDK-602 | Parcial | Escrituras atómicas de adopción/docs y paths XDG | Falta gateway filesystem reutilizable, canonicalización y defensa frente a escapes/symlinks. |
+| SDDK-601 | Completa | Runner tipado (argv separado, env allowlist, timeout y truncado) en `sddk-gateway` | Sin gap funcional demostrado. |
+| SDDK-602 | Completa | `ScopedFs` con raíces restringidas, rechazo de escapes/symlinks y escritura atómica | Sin gap funcional demostrado. |
 | SDDK-603 | No iniciada | Solo lectura fija de `git config --get remote.origin.url` | Faltan inspect/branch/commit/tag y verificación de postcondiciones. |
 | SDDK-604 | Parcial | Metadata de artefactos en SQLite | Falta CAS real, SHA-256 obligatorio, deduplicación y verificación de bytes. |
 | SDDK-701 | Parcial | Schema canónico único y `AgentResult` tipado | El runtime no valida JSON Schema. |
