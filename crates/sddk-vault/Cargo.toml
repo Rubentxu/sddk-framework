@@ -18,4 +18,5 @@ rusqlite = { version = "0.39.0", features = ["bundled"] }
 walkdir = { workspace = true }
 
 [dev-dependencies]
+proptest = "1.11"
 tempfile = { workspace = true }

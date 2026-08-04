@@ -19,4 +19,5 @@ sha2 = { workspace = true }
 sddk-domain = { path = "../sddk-domain" }
 
 [dev-dependencies]
+proptest = "1.11"
 tempfile = { workspace = true }
