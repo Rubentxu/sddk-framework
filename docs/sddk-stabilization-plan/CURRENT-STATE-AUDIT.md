@@ -181,7 +181,7 @@ Quedan fuera: Git local (SDDK-603) y CAS (SDDK-604), que se construirán sobre e
 
 | Gate | Resultado |
 | --- | --- |
-| `cargo test --workspace --locked` | PASS, 175 tests en el corte (incluye 12 property tests). |
+| `cargo test --workspace --locked` | PASS, 177 tests en el corte (incluye 12 property tests). |
 | `sddk lint --format json` | PASS, 0 errores y 0 warnings. |
 | `sddk generate docs --check` | PASS, documentación actual. |
 | `sddk generate inventory --check` | PASS, 64 agentes y 90 skills. |
@@ -199,6 +199,7 @@ Quedan fuera: Git local (SDDK-603) y CAS (SDDK-604), que se construirán sobre e
 | E2E dogfood `cli_full_runtime_pipeline_dogfood` | PASS, recorrido completo del runtime local (adopt → vault → ciclo → gates → capacidad → git → artefactos → ledger → release plan → dev install). |
 | Registro de agentes SDDK011-013 | PASS, `permissions.yaml` completo (64 agentes) y verificado por lint. |
 | Packs RF-012 | PASS, `manifest.toml` del framework, `sddk pack validate`, validación PACK001-007 y SDDK014. |
+| Índice incremental RF-009/RNF-004 | PASS, `vault index` sincroniza por hash (inserted/updated/deleted) y FTS indexa tags/enlaces/backlinks/status. |
 | Gateway release flow (plan, convergencia tras interrupción, reconcile) | PASS, 4 tests. |
 | Gateway forge (MockForge contrato, parseo gh, merge tolerante) | PASS, 3 tests. |
 | CI remota | PASS en [`Required quality gates`](https://github.com/Rubentxu/sddk-framework/actions/runs/30888909675), 53 s. |
