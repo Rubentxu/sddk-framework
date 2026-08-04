@@ -1407,6 +1407,83 @@ agents:
     );
 }
 
+#[test]
+fn cli_release_plan_reports_canonical_sequence() {
+    let fixture = CliFixture::new("release-plan");
+    write(
+        fixture.root.join("workflow/workflow.yaml"),
+        CANONICAL_WORKFLOW,
+    );
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&fixture.root)
+        .output()
+        .unwrap();
+    let common = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+    ];
+    let adopted = fixture.run_adopt(
+        "apply",
+        &[
+            "--root",
+            fixture.root.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            "https://example.com/acme/repo.git",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(adopted.status.success());
+
+    let plan = run_with_root(
+        &fixture,
+        &[
+            "release",
+            "plan",
+            "--repo",
+            "acme/repo",
+            "--branch",
+            "feat/release",
+            "--base",
+            "main",
+            "--title",
+            "Release",
+            "--tag",
+            "v1.0.0",
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert!(
+        plan.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plan.stderr)
+    );
+    let plan_json: serde_json::Value = serde_json::from_slice(&plan.stdout).unwrap();
+    assert_eq!(plan_json["branch"], "feat/release");
+    assert_eq!(plan_json["base"], "main");
+    assert_eq!(plan_json["tag"], "v1.0.0");
+    let steps = plan_json["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|step| step.as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(steps, vec!["create_pr", "merge_pr", "create_release"]);
+}
+
 fn run_with_root(fixture: &CliFixture, args: &[&str], common: &[&str]) -> std::process::Output {
     fixture.run(
         &args

@@ -12,10 +12,10 @@ El estado aceptado del backlog es:
 
 | Estado | Historias | Porcentaje |
 | --- | ---: | ---: |
-| Completa | 20 | 63 % |
+| Completa | 24 | 75 % |
 | Parcial | 0 | 0 % |
 | Desviada | 0 | 0 % |
-| No iniciada | 12 | 37 % |
+| No iniciada | 8 | 25 % |
 
 Los principales bloqueos no son volumen de código. Son fronteras de autoridad:
 
@@ -177,7 +177,7 @@ Quedan fuera: Git local (SDDK-603) y CAS (SDDK-604), que se construirán sobre e
 | PR 4 | SQLite, hash chain, engine, replay, leases y CLI | Completo; autoridad local probada extremo a extremo. |
 | PR 5 | Gateway default-deny, Git local con postcondiciones y CAS SHA-256 | Completo y probado. |
 | PR 6 | Schema validation runtime, adaptador legacy y permisos por fase | Completo y probado. |
-| PR 7 | Contrato legacy de release con tests | Parcial; Forge/reconcile runtime no iniciados. |
+| PR 7 | Forge trait, adaptador GitHub, release idempotente y reconciliación | Completo y probado con MockForge; integración GitHub real manual. |
 | PR 8 | ADRs y templates | No iniciado. |
 | PR 9 | ADR de distribución | No iniciado. |
 
@@ -185,16 +185,16 @@ Quedan fuera: Git local (SDDK-603) y CAS (SDDK-604), que se construirán sobre e
 
 | Gate | Resultado |
 | --- | --- |
-| `cargo test --workspace --locked` | PASS, 133 tests en el corte. |
+| `cargo test --workspace --locked` | PASS, 141 tests en el corte. |
 | `sddk lint --format json` | PASS, 0 errores y 0 warnings. |
 | `sddk generate docs --check` | PASS, documentación actual. |
 | `sddk generate inventory --check` | PASS, 64 agentes y 90 skills. |
 | `tests/test_workflow_contract.sh` | PASS, 117 checks. |
 | `tests/test_adoption_contract.sh` | PASS, 22 checks. |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | PASS (MSRV 1.91). |
-| E2E CLI `cli_validate_agent_result_and_legacy_conversion` | PASS, validación y adaptador con warnings. |
-| E2E CLI `cli_permission_policy_enforces_default_deny` | PASS, default-deny y gate en capability apply. |
-| Gateway (policy, runner, filesystem, Git, CAS, permissions, redacción) | PASS, 28 tests. |
+| E2E CLI `cli_release_plan_reports_canonical_sequence` | PASS. |
+| Gateway release flow (plan, convergencia tras interrupción, reconcile) | PASS, 4 tests. |
+| Gateway forge (MockForge contrato, parseo gh, merge tolerante) | PASS, 3 tests. |
 | CI remota | PASS en [`Required quality gates`](https://github.com/Rubentxu/sddk-framework/actions/runs/30888909675), 53 s. |
 
 ## Plan de acción recomendado
@@ -250,6 +250,8 @@ Quedan fuera: Git local (SDDK-603) y CAS (SDDK-604), que se construirán sobre e
 **Gate:** toda acción produce receipt, postcondición verificada y evento causal.
 
 ### Work unit F — Forge/release
+
+**Estado:** completado en `v0.7.0`.
 
 **Objetivo:** mover la secuencia ya estabilizada desde prompts a runtime reconciliable.
 

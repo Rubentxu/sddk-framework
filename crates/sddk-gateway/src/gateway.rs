@@ -82,8 +82,8 @@ pub enum GatewayError {
 
 /// Default-deny gateway combining policy, execution, and receipt persistence.
 pub struct CapabilityGateway {
-    policy: CapabilityPolicy,
-    storage: Storage,
+    pub(crate) policy: CapabilityPolicy,
+    pub(crate) storage: Storage,
 }
 
 impl CapabilityGateway {

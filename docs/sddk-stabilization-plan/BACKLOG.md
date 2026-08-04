@@ -10,10 +10,10 @@
 
 | Estado | Historias | Significado |
 | --- | ---: | --- |
-| Completa | 20 | Todos los criterios de la historia tienen implementación y prueba directa. |
+| Completa | 24 | Todos los criterios de la historia tienen implementación y prueba directa. |
 | Parcial | 0 | No queda ninguna historia parcial. |
 | Desviada | 0 | No queda ninguna desviación contractual conocida. |
-| No iniciada | 12 | No existe implementación runtime suficiente. |
+| No iniciada | 8 | No existe implementación runtime suficiente. |
 | **Total** | **32** | La base Rust es funcional, pero v3.6 todavía no cumple su criterio de salida. |
 
 ## Matriz de aceptación
@@ -41,10 +41,10 @@
 | SDDK-701 | Completa | Validación JSON Schema runtime con dereferencia local de `$ref` y `sddk validate agent-result` | Sin gap funcional demostrado. |
 | SDDK-702 | Completa | Adaptador legacy (`convert_legacy_map`/`convert_legacy_text`) con warnings de campos no verificables y `sddk agent-result convert` | Sin gap funcional demostrado. |
 | SDDK-703 | Completa | `permissions.yaml` + `PermissionPolicy` default-deny y gate en `capability apply --agent/--phase` + `sddk permission check` | Sin gap funcional demostrado. |
-| SDDK-801 | No iniciada | `ForgeDef` es solo configuración | Falta trait neutral, mock y pruebas de contrato. |
-| SDDK-802 | No iniciada | Release legacy vive en prompts/scripts | Falta adaptador GitHub runtime para PR/checks/merge/release. |
-| SDDK-803 | No iniciada | Existe `CapabilityStatus::Unknown` | Falta lifecycle de receipts y reconciliación contra el proveedor. |
-| SDDK-804 | Parcial | Orden de release corregido y 117 checks contractuales | Sigue siendo lógica de prompts/shell; no existe enforcement Rust. |
+| SDDK-801 | Completa | Trait `Forge` neutral sin tipos de proveedor, `MockForge` y tests de contrato | Sin gap funcional demostrado. |
+| SDDK-802 | Completa | Adaptador `GitHubForge` vía `gh` con runner tipado y tolerancia a ya-mergeado/ya-publicado | La integración contra GitHub real queda como prueba manual; el parseo y postcondiciones están testeados con runner inyectado. |
+| SDDK-803 | Completa | `reconcile_pending` finaliza receipts `started` consultando la realidad del proveedor | Sin gap funcional demostrado. |
+| SDDK-804 | Completa | `plan_release`/`apply_release` en Rust con secuencia canónica, idempotencia y convergencia tras interrupciones | Sin gap funcional demostrado. |
 | SDDK-901 | No iniciada | Solo templates y ADR | Falta parser de frontmatter, IDs, tipos, relaciones y procedencia. |
 | SDDK-902 | No iniciada | Sin migraciones FTS5/backlinks | Falta índice reconstruible e incremental. |
 | SDDK-903 | No iniciada | Sin validador de relaciones | Faltan errores estables y tests de referencias/tipos inválidos. |
