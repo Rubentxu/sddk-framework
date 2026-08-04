@@ -10,8 +10,8 @@
 
 | Estado | Historias | Significado |
 | --- | ---: | --- |
-| Completa | 9 | Todos los criterios de la historia tienen implementación y prueba directa. |
-| Parcial | 9 | Existe una base útil, pero falta al menos un criterio o integración obligatoria. |
+| Completa | 13 | Todos los criterios de la historia tienen implementación y prueba directa. |
+| Parcial | 5 | Existe una base útil, pero falta al menos un criterio o integración obligatoria. |
 | Desviada | 0 | No queda ninguna desviación contractual conocida. |
 | No iniciada | 14 | No existe implementación runtime suficiente. |
 | **Total** | **32** | La base Rust es funcional, pero v3.6 todavía no cumple su criterio de salida. |
@@ -29,11 +29,11 @@
 | SDDK-302 | Completa | Receipt v2, hash de configuración y rename atómico | Sin gap funcional demostrado. |
 | SDDK-303 | Completa | `adopt repair`; tests ReceiptOnly/LedgerOnly/conflicto/corrupción | Sin gap funcional demostrado. |
 | SDDK-401 | Completa | SQLite v1, WAL, foreign keys y migración transaccional | La evolución v2+ queda como riesgo del roadmap, no de este criterio inicial. |
-| SDDK-402 | Parcial | Cadena hash, triggers append-only y `verify_ledger` | Falta el comando `sddk ledger verify` y una prueba CLI de corrupción. |
-| SDDK-403 | Parcial | `frame_id` y `command_id` se persisten | Falta imponer que todos los eventos de un comando compartan frame y consultar por frame. |
-| SDDK-404 | Parcial | Replay y comparación contra snapshot materializado | No reconstruye una base vacía ni expone replay/rebuild por CLI. |
-| SDDK-501 | Completa | Rechazo de transición, source, artifacts, gates y paths | Sin gap funcional de la API de engine; todavía no está expuesta por CLI. |
-| SDDK-502 | Parcial | Leases con owner, expiry y fencing token | El engine/CLI no adquiere, renueva ni aplica el fence en cada mutación. |
+| SDDK-402 | Completa | Cadena hash, triggers append-only, `sddk ledger verify` y test de corrupción | Sin gap funcional demostrado. |
+| SDDK-403 | Completa | `frame_id` y `command_id` compartidos por comando y `sddk ledger events --frame` | Sin gap funcional demostrado. |
+| SDDK-404 | Completa | `sddk cycle rebuild` restaura la base vacía desde eventos sin reescribir el ledger | Sin gap funcional demostrado. |
+| SDDK-501 | Completa | Rechazo de transición, source, artifacts, gates y paths | Sin gap funcional de la API de engine; expuesto por CLI vía `cycle transition`. |
+| SDDK-502 | Completa | Leases con owner, expiry, fencing token y `cycle lock acquire/release/status`; transición exige fence si hay lease | Sin gap funcional demostrado. |
 | SDDK-601 | No iniciada | Solo existe `CapabilityRequest` como contrato | Falta runner tipado, allowlist de entorno, límites y captura sanitizada. |
 | SDDK-602 | Parcial | Escrituras atómicas de adopción/docs y paths XDG | Falta gateway filesystem reutilizable, canonicalización y defensa frente a escapes/symlinks. |
 | SDDK-603 | No iniciada | Solo lectura fija de `git config --get remote.origin.url` | Faltan inspect/branch/commit/tag y verificación de postcondiciones. |

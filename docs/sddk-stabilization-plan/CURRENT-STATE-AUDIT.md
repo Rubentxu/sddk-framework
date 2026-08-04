@@ -12,8 +12,8 @@ El estado aceptado del backlog es:
 
 | Estado | Historias | Porcentaje |
 | --- | ---: | ---: |
-| Completa | 9 | 28 % |
-| Parcial | 9 | 28 % |
+| Completa | 13 | 41 % |
+| Parcial | 5 | 16 % |
 | Desviada | 0 | 0 % |
 | No iniciada | 14 | 44 % |
 
@@ -42,13 +42,13 @@ La clasificación exige evidencia en repositorio. Un tipo, tabla o campo aislado
 | --- | --- | --- | --- | --- |
 | GAP-001 | P0 | Cerrado | Runtime y documentación fundacional versionados en `v0.1.0`; outputs de build excluidos. | Mantener commits por work unit. |
 | GAP-002 | P0 | Cerrado | `.github/workflows/ci.yml` ejecuta gates Rust, linter, generados y contratos. | Mantener `Required quality gates` como check obligatorio. |
-| GAP-003 | P0 | Abierto | El CLI solo expone project/adopt/lint/generate. | Añadir cycle/phase/ledger y conectar Engine + leases + storage. |
+| GAP-003 | P0 | Cerrado | CLI expone cycle/lock/ledger conectados a Engine + storage. | Añadir capabilities y vault como próximos cortes. |
 | GAP-004 | P0 | Abierto | `TransitionEvidence.gates` acepta Passed/Failed del caller. | Introducir GateEvaluator, GateReceipt y autorización del emisor. |
 | GAP-005 | P0 | Abierto | Capability gateway, runner y policy engine no existen. | Mantener efectos externos deshabilitados hasta implementar default-deny. |
 | GAP-006 | P0 | Cerrado | Root workflow/schemas son la única autoridad ejecutable; se retiraron snapshots divergentes. | Impedir nuevas copias mediante revisión y linter. |
 | GAP-007 | P1 | Cerrado | Workflow, código y tests usan fallback UUID persistido. | Mantener el receipt como semilla estable. |
-| GAP-008 | P1 | Abierto | Ledger hash existe, pero no hay CLI verify ni reconstrucción en base vacía. | Cerrar SDDK-402/404 con comandos y fixture de rebuild. |
-| GAP-009 | P1 | Abierto | Frames y leases son primitives sin enforcement extremo a extremo. | Integrarlos en toda mutación y rechazar fencing tokens obsoletos. |
+| GAP-008 | P1 | Cerrado | `sddk ledger verify` y `sddk cycle rebuild` restauran y verifican la base. | Mantener rebuild como primitiva de reparación sin overwrite de divergencias. |
+| GAP-009 | P1 | Cerrado | Frames por comando consultables y leases con fencing exigido en mutaciones de ciclos leaseados. | Aplicar el mismo fence a capabilities y Git cuando existan. |
 | GAP-010 | P1 | Abierto | Artifact metadata no es un CAS; SHA-256 es opcional y no se calcula. | Implementar store por contenido y digest obligatorio. |
 | GAP-011 | P1 | Abierto | Receipts permiten insertar directamente estados terminales y JSON sin sanear. | Separar begin/finalize/reconcile y aplicar schemas/redacción. |
 | GAP-012 | P1 | Abierto | Forge/release está corregido solo en prompts y shell. | Implementar puerto Forge, adaptador GitHub y release reconciliable. |
@@ -83,18 +83,21 @@ bash tests/test_workflow_contract.sh
 bash tests/test_adoption_contract.sh
 ```
 
-### GAP-003 — Rust no es todavía la autoridad operativa
+### GAP-003 — Rust es la autoridad operativa local
 
 `crates/sddk-cli/src/lib.rs` expone:
 
 - `project resolve`;
 - `adopt plan|apply|status|repair`;
 - `lint`;
-- `generate docs|inventory`.
+- `generate docs|inventory`;
+- `cycle start|status|transition|rebuild`;
+- `cycle lock acquire|release|status`;
+- `ledger verify|events`.
 
-No expone los casos de uso centrales del PRD: `cycle start`, `phase complete`, `ledger verify`, `capability plan/apply`, `reconcile`, vault o release. El engine tiene APIs útiles, pero los prompts todavía poseen la ejecución real.
+El flujo local (adopción → ciclo → fases → ledger → rebuild) está controlado por el CLI Rust con timestamps y actores explícitos. Quedan fuera de esta unidad: capabilities, vault, reconcile y release.
 
-**Criterio de cierre:** un test end-to-end debe recorrer CLI → Engine → Storage para crear ciclo, completar fase, bloquear/desbloquear, verificar ledger y replay.
+**Criterio de cierre:** un test end-to-end recorre CLI → Engine → Storage creando ciclo, completando fase, aplicando fencing y reconstruyendo estado desde el ledger.
 
 ### GAP-004 — Los gates no prueban nada por sí mismos
 
@@ -175,7 +178,7 @@ Esta ausencia es un bloqueador de diseño antes de habilitar operaciones mutante
 | PR 1 | Hotfix semántico, contrato único e inventario generado | Completo y protegido por CI. |
 | PR 2 | Cinco crates, testkit, linter, generadores y CI | Completo; JSON Schema runtime queda en SDDK-101, no bloquea esta unidad. |
 | PR 3 | Identidad UUID, XDG y adopción reparable | Completo y alineado con el workflow. |
-| PR 4 | SQLite, hash chain, engine, replay y leases | Parcial; APIs internas sin superficie CLI ni integración de concurrencia. |
+| PR 4 | SQLite, hash chain, engine, replay, leases y CLI | Completo; autoridad local probada extremo a extremo. |
 | PR 5 | Receipts y artifact metadata como foundations | No iniciado como gateway. |
 | PR 6 | AgentResult y schema | Parcial; adapter y permisos no iniciados. |
 | PR 7 | Contrato legacy de release con tests | Parcial; Forge/reconcile runtime no iniciados. |
@@ -186,13 +189,15 @@ Esta ausencia es un bloqueador de diseño antes de habilitar operaciones mutante
 
 | Gate | Resultado |
 | --- | --- |
-| `cargo test --workspace --locked` | PASS, 88 tests en el corte. |
+| `cargo test --workspace --locked` | PASS, 93 tests en el corte. |
 | `sddk lint --format json` | PASS, 0 errores y 0 warnings. |
 | `sddk generate docs --check` | PASS, documentación actual. |
 | `sddk generate inventory --check` | PASS, 64 agentes y 90 skills. |
 | `tests/test_workflow_contract.sh` | PASS, 117 checks. |
 | `tests/test_adoption_contract.sh` | PASS, 22 checks. |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | PASS. |
+| E2E CLI `cli_walks_cycle_with_fencing_and_rebuilds_state` | PASS, ciclo completo con fencing, frames y rebuild. |
+| Engine `cycle_authority` (fencing, rebuild, frames) | PASS, 4 tests. |
 | CI remota | PASS en [`Required quality gates`](https://github.com/Rubentxu/sddk-framework/actions/runs/30888909675), 53 s. |
 
 ## Plan de acción recomendado
@@ -221,7 +226,7 @@ Esta ausencia es un bloqueador de diseño antes de habilitar operaciones mutante
 
 ### Work unit C — Cierre PR4
 
-**Objetivo:** exponer la autoridad local ya construida.
+**Estado:** completado en `v0.3.0`.
 
 **Acciones:** CLI cycle/phase/ledger, frame invariant, leases/fencing, replay rebuild y errores estables.
 
@@ -261,6 +266,7 @@ Ejecutar PR8 y PR9 solo después de cerrar los work units anteriores. LadybugDB 
 | --- | --- | --- |
 | Fallback sin remote | Cerrada | UUID persistido: mover el checkout no cambia la identidad. |
 | Workflow del paquete | Cerrada | Referencia a raíz; no mantener dos contratos ejecutables. |
+| Fencing de mutaciones | Cerrada | Transición exige owner+fencing token cuando el ciclo está leaseado; lease expirado re-acquire con token incrementado. |
 | Validación de gates | Caller assertion vs receipt autorizado | Receipt autorizado y vinculado al plan. |
 | Vault canónico | Paths XDG del runtime vs vault de conocimiento existente | Separar explícitamente estado operativo XDG de conocimiento canónico; documentar ownership y migración. |
 | Migración SQLite | Auto-migrate al abrir vs comando explícito | Backup + lock exclusivo + migración explícita para cambios destructivos. |
