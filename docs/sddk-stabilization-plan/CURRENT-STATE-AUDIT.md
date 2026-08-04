@@ -12,8 +12,8 @@ El estado aceptado del backlog es:
 
 | Estado | Historias | Porcentaje |
 | --- | ---: | ---: |
-| Completa | 15 | 47 % |
-| Parcial | 3 | 9 % |
+| Completa | 17 | 53 % |
+| Parcial | 1 | 3 % |
 | Desviada | 0 | 0 % |
 | No iniciada | 14 | 44 % |
 
@@ -49,7 +49,7 @@ La clasificación exige evidencia en repositorio. Un tipo, tabla o campo aislado
 | GAP-007 | P1 | Cerrado | Workflow, código y tests usan fallback UUID persistido. | Mantener el receipt como semilla estable. |
 | GAP-008 | P1 | Cerrado | `sddk ledger verify` y `sddk cycle rebuild` restauran y verifican la base. | Mantener rebuild como primitiva de reparación sin overwrite de divergencias. |
 | GAP-009 | P1 | Cerrado | Frames por comando consultables y leases con fencing exigido en mutaciones de ciclos leaseados. | Aplicar el mismo fence a capabilities y Git cuando existan. |
-| GAP-010 | P1 | Abierto | Artifact metadata no es un CAS; SHA-256 es opcional y no se calcula. | Implementar store por contenido y digest obligatorio. |
+| GAP-010 | P1 | Cerrado | CAS con SHA-256 obligatorio, deduplicación por contenido y verificación en cada lectura. | Usar digest como clave de artefacto en adaptadores futuros. |
 | GAP-011 | P1 | Cerrado | Receipts con lifecycle begin→finalize; terminal directo y JSON sin sanear rechazados; redacción de secretos. | Aplicar redacción a futuros adaptadores. |
 | GAP-012 | P1 | Abierto | Forge/release está corregido solo en prompts y shell. | Implementar puerto Forge, adaptador GitHub y release reconciliable. |
 | GAP-013 | P1 | Cerrado | `sddk-testkit::TestRepository` ofrece fixture reutilizable con aislamiento de paths. | Extenderlo cuando storage y capabilities requieran harness compartido. |
@@ -175,7 +175,7 @@ Quedan fuera: Git local (SDDK-603) y CAS (SDDK-604), que se construirán sobre e
 | PR 2 | Cinco crates, testkit, linter, generadores y CI | Completo; JSON Schema runtime queda en SDDK-101, no bloquea esta unidad. |
 | PR 3 | Identidad UUID, XDG y adopción reparable | Completo y alineado con el workflow. |
 | PR 4 | SQLite, hash chain, engine, replay, leases y CLI | Completo; autoridad local probada extremo a extremo. |
-| PR 5 | Gateway default-deny, runner tipado, filesystem scoped y receipts con redacción | Parcial; Git local y CAS pendientes sobre el gateway. |
+| PR 5 | Gateway default-deny, Git local con postcondiciones y CAS SHA-256 | Completo y probado. |
 | PR 6 | AgentResult y schema | Parcial; adapter y permisos no iniciados. |
 | PR 7 | Contrato legacy de release con tests | Parcial; Forge/reconcile runtime no iniciados. |
 | PR 8 | ADRs y templates | No iniciado. |
@@ -185,7 +185,7 @@ Quedan fuera: Git local (SDDK-603) y CAS (SDDK-604), que se construirán sobre e
 
 | Gate | Resultado |
 | --- | --- |
-| `cargo test --workspace --locked` | PASS, 113 tests en el corte. |
+| `cargo test --workspace --locked` | PASS, 121 tests en el corte. |
 | `sddk lint --format json` | PASS, 0 errores y 0 warnings. |
 | `sddk generate docs --check` | PASS, documentación actual. |
 | `sddk generate inventory --check` | PASS, 64 agentes y 90 skills. |
@@ -194,8 +194,9 @@ Quedan fuera: Git local (SDDK-603) y CAS (SDDK-604), que se construirán sobre e
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | PASS. |
 | E2E CLI `cli_walks_cycle_with_fencing_and_rebuilds_state` | PASS, ciclo completo con fencing, frames y rebuild. |
 | E2E CLI `cli_capability_gateway_enforces_policy_and_persists_receipts` | PASS, default-deny, approvals y receipts. |
-| Engine `cycle_authority` (fencing, rebuild, frames) | PASS, 4 tests. |
-| Gateway (policy, runner, filesystem, redacción, lifecycle) | PASS, 18 tests. |
+| E2E CLI `cli_git_operations_verify_postconditions_and_record_receipts` | PASS, branch/commit/tag con postcondiciones y receipts. |
+| E2E CLI `cli_artifact_store_and_get_verify_digest` | PASS, CAS con digest obligatorio y verificación. |
+| Gateway (policy, runner, filesystem, Git, CAS, redacción) | PASS, 24 tests. |
 | CI remota | PASS en [`Required quality gates`](https://github.com/Rubentxu/sddk-framework/actions/runs/30888909675), 53 s. |
 
 ## Plan de acción recomendado
@@ -241,6 +242,8 @@ Quedan fuera: Git local (SDDK-603) y CAS (SDDK-604), que se construirán sobre e
 **Gate:** pruebas negativas demuestran que R3/R4, shell arbitrario, path escape y gate autoafirmado son rechazados.
 
 ### Work unit E — Git, CAS y agentes
+
+**Estado:** Git local y CAS completados en `v0.5.0`; adaptador legacy y permisos por fase quedan para PR6.
 
 **Objetivo:** cerrar PR5 y PR6 sobre el gateway.
 

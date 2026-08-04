@@ -10,8 +10,8 @@
 
 | Estado | Historias | Significado |
 | --- | ---: | --- |
-| Completa | 15 | Todos los criterios de la historia tienen implementación y prueba directa. |
-| Parcial | 3 | Existe una base útil, pero falta al menos un criterio o integración obligatoria. |
+| Completa | 17 | Todos los criterios de la historia tienen implementación y prueba directa. |
+| Parcial | 1 | Existe una base útil, pero falta al menos un criterio o integración obligatoria. |
 | Desviada | 0 | No queda ninguna desviación contractual conocida. |
 | No iniciada | 14 | No existe implementación runtime suficiente. |
 | **Total** | **32** | La base Rust es funcional, pero v3.6 todavía no cumple su criterio de salida. |
@@ -36,8 +36,8 @@
 | SDDK-502 | Completa | Leases con owner, expiry, fencing token y `cycle lock acquire/release/status`; transición exige fence si hay lease | Sin gap funcional demostrado. |
 | SDDK-601 | Completa | Runner tipado (argv separado, env allowlist, timeout y truncado) en `sddk-gateway` | Sin gap funcional demostrado. |
 | SDDK-602 | Completa | `ScopedFs` con raíces restringidas, rechazo de escapes/symlinks y escritura atómica | Sin gap funcional demostrado. |
-| SDDK-603 | No iniciada | Solo lectura fija de `git config --get remote.origin.url` | Faltan inspect/branch/commit/tag y verificación de postcondiciones. |
-| SDDK-604 | Parcial | Metadata de artefactos en SQLite | Falta CAS real, SHA-256 obligatorio, deduplicación y verificación de bytes. |
+| SDDK-603 | Completa | `GitExecutor` tipado: inspect, create-branch, commit y tag con postcondiciones verificadas contra Git real | Sin gap funcional demostrado. |
+| SDDK-604 | Completa | CAS `ArtifactStore` con SHA-256 obligatorio, deduplicación por contenido y verificación en lectura | Sin gap funcional demostrado. |
 | SDDK-701 | Parcial | Schema canónico único y `AgentResult` tipado | El runtime no valida JSON Schema. |
 | SDDK-702 | No iniciada | Sin adaptador runtime | Falta convertir resultados legacy y emitir campos no verificables. |
 | SDDK-703 | No iniciada | Riesgos declarativos en workflow | Falta política agent + phase + capability y enforcement default-deny. |
