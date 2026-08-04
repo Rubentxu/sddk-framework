@@ -12,10 +12,10 @@ El estado aceptado del backlog es:
 
 | Estado | Historias | Porcentaje |
 | --- | ---: | ---: |
-| Completa | 28 | 88 % |
+| Completa | 32 | 100 % |
 | Parcial | 0 | 0 % |
 | Desviada | 0 | 0 % |
-| No iniciada | 4 | 12 % |
+| No iniciada | 0 | 0 % |
 
 Los principales bloqueos no son volumen de código. Son fronteras de autoridad:
 
@@ -179,13 +179,13 @@ Quedan fuera: Git local (SDDK-603) y CAS (SDDK-604), que se construirán sobre e
 | PR 6 | Schema validation runtime, adaptador legacy y permisos por fase | Completo y probado. |
 | PR 7 | Forge trait, adaptador GitHub, release idempotente y reconciliación | Completo y probado con MockForge; integración GitHub real manual. |
 | PR 8 | Vault: parser, FTS5 reconstruible, validación, grafo e inspector HTML | Completo y probado. |
-| PR 9 | ADR de distribución | No iniciado. |
+| PR 9 | Distribución con receipt, checksums, SBOM y attestations | Completo y probado. |
 
 ## Verificación ejecutada
 
 | Gate | Resultado |
 | --- | --- |
-| `cargo test --workspace --locked` | PASS, 151 tests en el corte. |
+| `cargo test --workspace --locked` | PASS, 154 tests en el corte. |
 | `sddk lint --format json` | PASS, 0 errores y 0 warnings. |
 | `sddk generate docs --check` | PASS, documentación actual. |
 | `sddk generate inventory --check` | PASS, 64 agentes y 90 skills. |
@@ -194,6 +194,9 @@ Quedan fuera: Git local (SDDK-603) y CAS (SDDK-604), que se construirán sobre e
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | PASS (MSRV 1.91). |
 | E2E CLI `cli_release_plan_reports_canonical_sequence` | PASS. |
 | E2E CLI `cli_vault_index_validate_search_and_export` | PASS, índice FTS5, grafo, validación y export. |
+| E2E CLI `cli_dev_install_verify_uninstall_are_atomic` | PASS, receipt, tamper detectado y uninstall atómico. |
+| E2E CLI `cli_release_dist_and_verify_checksums_and_sbom` | PASS, dist y verificación con tamper. |
+| E2E CLI `cli_dev_doctor_reports_environment` | PASS. |
 | Gateway release flow (plan, convergencia tras interrupción, reconcile) | PASS, 4 tests. |
 | Gateway forge (MockForge contrato, parseo gh, merge tolerante) | PASS, 3 tests. |
 | CI remota | PASS en [`Required quality gates`](https://github.com/Rubentxu/sddk-framework/actions/runs/30888909675), 53 s. |
@@ -266,7 +269,7 @@ Quedan fuera: Git local (SDDK-603) y CAS (SDDK-604), que se construirán sobre e
 
 ### Work unit H — Distribución
 
-Ejecutar PR9 después de cerrar los work units anteriores. LadybugDB permanece fuera de v3.6.
+**Estado:** completado en `v0.9.0`. LadybugDB permanece fuera de v3.6.
 
 ## Decisiones que requieren cierre explícito
 

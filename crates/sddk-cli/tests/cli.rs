@@ -1586,6 +1586,174 @@ fn cli_vault_index_validate_search_and_export() {
     assert_eq!(validation["diagnostics"][0]["code"], "VAULT003");
 }
 
+#[test]
+fn cli_dev_install_verify_uninstall_are_atomic() {
+    let fixture = CliFixture::new("dev-install");
+    let prefix = fixture.root.join("prefix");
+
+    let installed = run_from([
+        "sddk",
+        "dev",
+        "install",
+        "--prefix",
+        prefix.to_str().unwrap(),
+        "--channel",
+        "dev",
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--format",
+        "json",
+    ]);
+    assert_eq!(installed.status, 0, "{}", installed.stderr);
+    let installed_json: serde_json::Value = serde_json::from_str(&installed.stdout).unwrap();
+    assert_eq!(installed_json["channel"], "dev");
+    assert!(prefix.join("bin/sddk").exists());
+    assert!(prefix.join("sddk-install.json").exists());
+
+    let verified = run_from([
+        "sddk",
+        "dev",
+        "verify",
+        "--prefix",
+        prefix.to_str().unwrap(),
+        "--format",
+        "json",
+    ]);
+    assert_eq!(verified.status, 0, "{}", verified.stderr);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&verified.stdout).unwrap()["valid"],
+        true
+    );
+
+    let binary_path = prefix.join("bin/sddk");
+    let mut bytes = fs::read(&binary_path).unwrap();
+    bytes[0] ^= 0xFF;
+    fs::write(&binary_path, &bytes).unwrap();
+    let tampered = run_from([
+        "sddk",
+        "dev",
+        "verify",
+        "--prefix",
+        prefix.to_str().unwrap(),
+    ]);
+    assert_eq!(tampered.status, 1);
+
+    let refused = run_from([
+        "sddk",
+        "dev",
+        "uninstall",
+        "--prefix",
+        prefix.to_str().unwrap(),
+    ]);
+    assert_eq!(refused.status, 1);
+
+    let reinstalled = run_from([
+        "sddk",
+        "dev",
+        "install",
+        "--prefix",
+        prefix.to_str().unwrap(),
+        "--channel",
+        "dev",
+        "--timestamp",
+        "2026-08-04T10:00:01Z",
+    ]);
+    assert_eq!(reinstalled.status, 0, "{}", reinstalled.stderr);
+    let uninstalled = run_from([
+        "sddk",
+        "dev",
+        "uninstall",
+        "--prefix",
+        prefix.to_str().unwrap(),
+        "--format",
+        "json",
+    ]);
+    assert_eq!(uninstalled.status, 0, "{}", uninstalled.stderr);
+    assert!(!binary_path.exists());
+    assert!(!prefix.join("sddk-install.json").exists());
+    assert_eq!(
+        run_from([
+            "sddk",
+            "dev",
+            "verify",
+            "--prefix",
+            prefix.to_str().unwrap()
+        ])
+        .status,
+        1
+    );
+}
+
+#[test]
+fn cli_release_dist_and_verify_checksums_and_sbom() {
+    let fixture = CliFixture::new("release-dist");
+    let prefix = fixture.root.join("dist-prefix");
+
+    let dist = run_from([
+        "sddk",
+        "release",
+        "dist",
+        "--prefix",
+        prefix.to_str().unwrap(),
+        "--channel",
+        "release",
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--format",
+        "json",
+    ]);
+    assert_eq!(dist.status, 0, "{}", dist.stderr);
+    let dist_dir = prefix.join("dist");
+    assert!(dist_dir.join("sddk").exists());
+    assert!(dist_dir.join("checksums.txt").exists());
+    assert!(dist_dir.join("sbom.json").exists());
+    assert!(dist_dir.join("attestation.json").exists());
+    let sbom: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dist_dir.join("sbom.json")).unwrap()).unwrap();
+    assert_eq!(sbom["tool"], "sddk");
+
+    let verified = run_from([
+        "sddk",
+        "release",
+        "verify",
+        "--prefix",
+        prefix.to_str().unwrap(),
+        "--format",
+        "json",
+    ]);
+    assert_eq!(verified.status, 0, "{}", verified.stderr);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&verified.stdout).unwrap()["valid"],
+        true
+    );
+
+    fs::write(dist_dir.join("checksums.txt"), "tampered\n").unwrap();
+    let broken = run_from([
+        "sddk",
+        "release",
+        "verify",
+        "--prefix",
+        prefix.to_str().unwrap(),
+    ]);
+    assert_eq!(broken.status, 1);
+}
+
+#[test]
+fn cli_dev_doctor_reports_environment() {
+    let doctor = run_from(["sddk", "dev", "doctor", "--format", "json"]);
+    assert_eq!(doctor.status, 0, "{}", doctor.stderr);
+    let output: serde_json::Value = serde_json::from_str(&doctor.stdout).unwrap();
+    assert_eq!(output["all_present"], true);
+    let tools = output["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|check| check["tool"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(tools.contains(&"cargo"));
+    assert!(tools.contains(&"git"));
+}
+
 fn run_with_root(fixture: &CliFixture, args: &[&str], common: &[&str]) -> std::process::Output {
     fixture.run(
         &args

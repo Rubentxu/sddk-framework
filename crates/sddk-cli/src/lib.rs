@@ -7,6 +7,7 @@
 mod artifact;
 mod capability;
 mod cycle;
+mod dev_cmd;
 mod docs;
 mod git_cmd;
 mod inventory;
@@ -25,6 +26,7 @@ use artifact::ArtifactCommand;
 use capability::CapabilityCommand;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 pub(crate) use cycle::{CycleCommand, RuntimeArgs, RuntimeContext};
+use dev_cmd::DevCommand;
 use git_cmd::GitCommand;
 use permission::PermissionCommand;
 use release_cmd::ReleaseCommand;
@@ -130,6 +132,11 @@ enum Command {
     Vault {
         #[command(subcommand)]
         command: VaultCommand,
+    },
+    /// Developer tooling: doctor, gates, and atomic install/verify.
+    Dev {
+        #[command(subcommand)]
+        command: DevCommand,
     },
 }
 
@@ -347,6 +354,7 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         Command::AgentResult { command } => result_cmd::run_agent_result(command, environment),
         Command::Release { command } => release_cmd::run_release(command, environment),
         Command::Vault { command } => vault_cmd::run_vault(command),
+        Command::Dev { command } => dev_cmd::run_dev(command),
     }
 }
 
