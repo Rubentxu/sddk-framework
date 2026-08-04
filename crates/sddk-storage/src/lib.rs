@@ -1211,3 +1211,43 @@ fn integrity_error(sequence: i64, reason: &str) -> StorageError {
         reason: reason.to_owned(),
     }
 }
+
+impl sddk_domain::SddkErrorCode for StorageError {
+    fn code(&self) -> &'static str {
+        match self {
+            Self::Database(..) => "STORAGE_DATABASE",
+            Self::Serialization(..) => "STORAGE_SERIALIZATION",
+            Self::Io(..) => "STORAGE_IO",
+            Self::NotFound { .. } => "STORAGE_NOT_FOUND",
+            Self::IdempotencyConflict { .. } => "STORAGE_IDEMPOTENCY_CONFLICT",
+            Self::InvalidReceiptBegin => "STORAGE_INVALID_RECEIPT_BEGIN",
+            Self::TerminalReceipt { .. } => "STORAGE_TERMINAL_RECEIPT",
+            Self::LeaseConflict { .. } => "STORAGE_LEASE_CONFLICT",
+            Self::InvalidLease => "STORAGE_INVALID_LEASE",
+            Self::EventScopeMismatch => "STORAGE_EVENT_SCOPE_MISMATCH",
+            Self::RegistrationConflict { .. } => "STORAGE_REGISTRATION_CONFLICT",
+            Self::SchemaVersion { .. } => "STORAGE_SCHEMA_VERSION",
+            Self::LedgerIntegrity { .. } => "STORAGE_LEDGER_INTEGRITY",
+        }
+    }
+
+    fn recovery(&self) -> &'static str {
+        match self {
+            Self::Database(..) => "retry after checking the SQLite database integrity",
+            Self::Serialization(..) => "fix the malformed JSON value before retrying",
+            Self::Io(..) => "check the filesystem path and permissions",
+            Self::NotFound { .. } => "create the record or fix the reference",
+            Self::IdempotencyConflict { .. } => {
+                "use a fresh idempotency key or the original request"
+            }
+            Self::InvalidReceiptBegin => "begin capability receipts in the started status",
+            Self::TerminalReceipt { .. } => "do not finalize a receipt that is already terminal",
+            Self::LeaseConflict { .. } => "wait for the lease to expire or release it first",
+            Self::InvalidLease => "provide an expiry later than the acquisition time",
+            Self::EventScopeMismatch => "match the event scope to the cycle or project",
+            Self::RegistrationConflict { .. } => "keep the existing identity data consistent",
+            Self::SchemaVersion { .. } => "migrate the database to the supported schema version",
+            Self::LedgerIntegrity { .. } => "restore the ledger from a verified backup",
+        }
+    }
+}

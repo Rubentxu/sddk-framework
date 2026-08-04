@@ -12,7 +12,7 @@ use crate::runner::{RunOutcome, RunSpec, run};
 #[derive(Debug, Error)]
 pub enum GitError {
     /// The typed git run failed to spawn or execute.
-    #[error(transparent)]
+    #[error("git runner error: {0}")]
     Runner(#[from] crate::runner::RunnerError),
     /// The git command exited with a non-zero status.
     #[error("git {command} failed with exit status {status}: {stderr}")]

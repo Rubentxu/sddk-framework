@@ -41,7 +41,7 @@ pub enum ArtifactStoreError {
         digest: String,
     },
     /// The metadata write failed.
-    #[error(transparent)]
+    #[error("artifact storage error: {0}")]
     Storage(#[from] StorageError),
     /// Structured metadata could not be encoded.
     #[error("artifact metadata serialization failed: {0}")]
