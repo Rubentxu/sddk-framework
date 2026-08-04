@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use sddk_domain::{ArtifactRef, CycleManifest, CyclePath, CycleStatus, Phase};
 use sddk_engine::{
-    CycleStartInput, DebtVerificationPolicy, Engine, EngineError, EventContext, GateOutcome,
-    TransitionEvidence, TransitionOutcome, WorkflowLoadError, WorkflowValidationError,
-    load_workflow_path, load_workflow_str,
+    CycleStartInput, DebtVerificationPolicy, Engine, EngineError, EventContext,
+    GateEvaluationInput, GateReceiptRef, TransitionEvidence, TransitionOutcome, WorkflowLoadError,
+    WorkflowValidationError, load_workflow_path, load_workflow_str,
 };
 use sddk_storage::{
     CycleRecord, LedgerEventInput, ProjectRecord, Storage, StorageError, WorkspaceRecord,
@@ -42,12 +42,9 @@ fn creates_cycle_and_applies_declared_transition() {
     assert_eq!(created.status, CycleStatus::Open);
     assert_eq!(created.phase, Phase::Explore);
 
+    let evidence = explore_evidence(&mut engine, &created.cycle_id, true, true);
     let plan = engine
-        .plan_transition(
-            &created.cycle_id,
-            "phase.explore.complete",
-            explore_evidence(true, true),
-        )
+        .plan_transition(&created.cycle_id, "phase.explore.complete", evidence)
         .unwrap();
     assert_eq!(plan.outcome(), TransitionOutcome::Succeeded);
     assert_eq!(plan.state_after().phase, Phase::Specify);
@@ -129,9 +126,17 @@ fn reduced_path_transitions_are_path_scoped() {
         "implementation-receipt".into(),
         ArtifactRef::new("implementation-receipt", "artifacts/implementation.json"),
     );
-    evidence
-        .gates
-        .insert("implementation-complete".into(), GateOutcome::Passed);
+    evidence.gates.insert(
+        "implementation-complete".into(),
+        GateReceiptRef {
+            receipt_id: pass_gate(
+                &mut engine,
+                &cycle.cycle_id,
+                "phase.build.complete.b-direct",
+                "implementation-complete",
+            ),
+        },
+    );
     let release = engine
         .plan_transition(&cycle.cycle_id, "phase.build.complete.b-direct", evidence)
         .unwrap();
@@ -160,22 +165,24 @@ fn rejects_missing_artifact_and_missing_gate() {
     let mut engine = engine();
     let cycle = start_cycle(&mut engine, "event-create");
 
+    let artifact_evidence = explore_evidence(&mut engine, &cycle.cycle_id, false, true);
     assert!(matches!(
         engine.plan_transition(
             &cycle.cycle_id,
             "phase.explore.complete",
-            explore_evidence(false, true)
+            artifact_evidence
         ),
         Err(EngineError::MissingArtifact { artifact, .. })
             if artifact == "exploration-report"
     ));
+    let gate_evidence = explore_evidence(&mut engine, &cycle.cycle_id, true, false);
     assert!(matches!(
         engine.plan_transition(
             &cycle.cycle_id,
             "phase.explore.complete",
-            explore_evidence(true, false)
+            gate_evidence
         ),
-        Err(EngineError::MissingGate { gate, .. }) if gate == "exploration-sufficient"
+        Err(EngineError::MissingGateReceipt { gate, .. }) if gate == "exploration-sufficient"
     ));
 }
 
@@ -183,12 +190,14 @@ fn rejects_missing_artifact_and_missing_gate() {
 fn block_and_unblock_preserve_the_current_phase() {
     let mut engine = engine();
     let cycle = start_cycle(&mut engine, "event-create");
+    let block_evidence = gate_evidence(
+        &mut engine,
+        &cycle.cycle_id,
+        "cycle.block",
+        "block-condition-met",
+    );
     let block = engine
-        .plan_transition(
-            &cycle.cycle_id,
-            "cycle.block",
-            gate_evidence("block-condition-met", GateOutcome::Passed),
-        )
+        .plan_transition(&cycle.cycle_id, "cycle.block", block_evidence)
         .unwrap();
     assert_eq!(block.state_after().status, CycleStatus::Blocked);
     assert_eq!(block.state_after().phase, Phase::Explore);
@@ -196,12 +205,14 @@ fn block_and_unblock_preserve_the_current_phase() {
         .apply_transition(&block, &context("event-block"))
         .unwrap();
 
+    let unblock_evidence = gate_evidence(
+        &mut engine,
+        &cycle.cycle_id,
+        "cycle.unblock",
+        "unblock-condition-met",
+    );
     let unblock = engine
-        .plan_transition(
-            &cycle.cycle_id,
-            "cycle.unblock",
-            gate_evidence("unblock-condition-met", GateOutcome::Passed),
-        )
+        .plan_transition(&cycle.cycle_id, "cycle.unblock", unblock_evidence)
         .unwrap();
     assert_eq!(unblock.state_after().status, CycleStatus::Open);
     assert_eq!(unblock.state_after().phase, Phase::Explore);
@@ -222,13 +233,34 @@ fn failed_verification_uses_declared_remediation_target() {
     );
     evidence.gates.insert(
         "tests-pass".into(),
-        GateOutcome::Failed {
-            reason: Some("one test failed".into()),
+        GateReceiptRef {
+            receipt_id: engine
+                .evaluate_gate(&GateEvaluationInput {
+                    cycle_id: cycle_id.clone(),
+                    transition_id: "phase.verify.complete".into(),
+                    gate: "tests-pass".into(),
+                    evaluator: sddk_engine::DEFAULT_EVALUATOR.into(),
+                    evidence: serde_json::json!({"failed": 1}),
+                    outcome: sddk_storage::GateOutcomeStatus::Failed,
+                    evaluated_at: TIMESTAMP.into(),
+                    actor: "test-runtime".into(),
+                    command_id: "gate-tests-pass".into(),
+                })
+                .unwrap()
+                .receipt_id,
         },
     );
-    evidence
-        .gates
-        .insert("policy-compliant".into(), GateOutcome::Passed);
+    evidence.gates.insert(
+        "policy-compliant".into(),
+        GateReceiptRef {
+            receipt_id: pass_gate(
+                &mut engine,
+                &cycle_id,
+                "phase.verify.complete",
+                "policy-compliant",
+            ),
+        },
+    );
 
     let plan = engine
         .plan_transition(&cycle_id, "phase.verify.complete", evidence)
@@ -248,12 +280,9 @@ fn failed_verification_uses_declared_remediation_target() {
 fn duplicate_event_id_rolls_back_transition_snapshot() {
     let mut engine = engine();
     let cycle = start_cycle(&mut engine, "duplicate-event");
+    let evidence = explore_evidence(&mut engine, &cycle.cycle_id, true, true);
     let plan = engine
-        .plan_transition(
-            &cycle.cycle_id,
-            "phase.explore.complete",
-            explore_evidence(true, true),
-        )
+        .plan_transition(&cycle.cycle_id, "phase.explore.complete", evidence)
         .unwrap();
 
     assert!(matches!(
@@ -276,12 +305,9 @@ fn duplicate_event_id_rolls_back_transition_snapshot() {
 fn replay_matches_the_latest_stored_snapshot() {
     let mut engine = engine();
     let cycle = start_cycle(&mut engine, "event-create");
+    let evidence = explore_evidence(&mut engine, &cycle.cycle_id, true, true);
     let plan = engine
-        .plan_transition(
-            &cycle.cycle_id,
-            "phase.explore.complete",
-            explore_evidence(true, true),
-        )
+        .plan_transition(&cycle.cycle_id, "phase.explore.complete", evidence)
         .unwrap();
     engine
         .apply_transition(&plan, &context("event-explore"))
@@ -469,7 +495,49 @@ fn context(event_id: &str) -> EventContext {
     }
 }
 
-fn explore_evidence(with_artifact: bool, with_gate: bool) -> TransitionEvidence {
+fn pass_gate(engine: &mut Engine, cycle_id: &str, transition_id: &str, gate: &str) -> String {
+    engine
+        .evaluate_gate(&GateEvaluationInput {
+            cycle_id: cycle_id.into(),
+            transition_id: transition_id.into(),
+            gate: gate.into(),
+            evaluator: sddk_engine::DEFAULT_EVALUATOR.into(),
+            evidence: serde_json::json!({"verified": true}),
+            outcome: sddk_storage::GateOutcomeStatus::Passed,
+            evaluated_at: TIMESTAMP.into(),
+            actor: "test-runtime".into(),
+            command_id: format!("gate-{gate}"),
+        })
+        .unwrap()
+        .receipt_id
+}
+
+fn gate_evidence(
+    engine: &mut Engine,
+    cycle_id: &str,
+    transition_id: &str,
+    name: &str,
+) -> TransitionEvidence {
+    TransitionEvidence {
+        requirements: BTreeSet::new(),
+        artifacts: BTreeMap::new(),
+        gates: [(
+            name.to_owned(),
+            GateReceiptRef {
+                receipt_id: pass_gate(engine, cycle_id, transition_id, name),
+            },
+        )]
+        .into_iter()
+        .collect(),
+    }
+}
+
+fn explore_evidence(
+    engine: &mut Engine,
+    cycle_id: &str,
+    with_artifact: bool,
+    with_gate: bool,
+) -> TransitionEvidence {
     let mut evidence = TransitionEvidence::default();
     if with_artifact {
         evidence.artifacts.insert(
@@ -478,19 +546,19 @@ fn explore_evidence(with_artifact: bool, with_gate: bool) -> TransitionEvidence 
         );
     }
     if with_gate {
-        evidence
-            .gates
-            .insert("exploration-sufficient".into(), GateOutcome::Passed);
+        evidence.gates.insert(
+            "exploration-sufficient".into(),
+            GateReceiptRef {
+                receipt_id: pass_gate(
+                    engine,
+                    cycle_id,
+                    "phase.explore.complete",
+                    "exploration-sufficient",
+                ),
+            },
+        );
     }
     evidence
-}
-
-fn gate_evidence(name: &str, outcome: GateOutcome) -> TransitionEvidence {
-    TransitionEvidence {
-        requirements: BTreeSet::new(),
-        artifacts: BTreeMap::new(),
-        gates: [(name.to_owned(), outcome)].into_iter().collect(),
-    }
 }
 
 fn raw_state_event(cycle_id: &str, state_after: Option<serde_json::Value>) -> LedgerEventInput {
