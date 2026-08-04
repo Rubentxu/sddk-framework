@@ -65,6 +65,11 @@ impl PermissionPolicy {
         Self::from_yaml(&yaml)
     }
 
+    /// Returns the declared agent names.
+    pub fn agents(&self) -> impl Iterator<Item = &str> {
+        self.agents.keys().map(String::as_str)
+    }
+
     /// Evaluates one agent/phase/capability request under default-deny.
     pub fn authorize(&self, agent: &str, phase: &str, capability: &str) -> PermissionDecision {
         let Some(permissions) = self.agents.get(agent) else {
