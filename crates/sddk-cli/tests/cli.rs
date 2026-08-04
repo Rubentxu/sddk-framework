@@ -1652,6 +1652,25 @@ fn cli_vault_index_validate_search_and_export() {
     assert_eq!(indexed_json["nodes"], 2);
     assert_eq!(indexed_json["errors"], 0);
     assert_eq!(indexed_json["backlinks"], 2);
+    assert_eq!(indexed_json["inserted"], 2);
+    assert_eq!(indexed_json["updated"], 0);
+
+    let reindexed = run_from([
+        "sddk",
+        "vault",
+        "index",
+        "--vault",
+        vault.to_str().unwrap(),
+        "--db",
+        fixture.root.join("index.sqlite").to_str().unwrap(),
+        "--format",
+        "json",
+    ]);
+    assert_eq!(reindexed.status, 0, "{}", reindexed.stderr);
+    let reindexed_json: serde_json::Value = serde_json::from_str(&reindexed.stdout).unwrap();
+    assert_eq!(reindexed_json["inserted"], 0);
+    assert_eq!(reindexed_json["updated"], 0);
+    assert_eq!(reindexed_json["deleted"], 0);
 
     let searched = run_from([
         "sddk",

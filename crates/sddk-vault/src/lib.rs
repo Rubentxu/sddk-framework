@@ -21,7 +21,8 @@ pub use graph::{GraphView, VaultGraphError, build_graph, graph_view};
 pub use index::{NodeKind, VaultIndex, VaultNode};
 pub use parser::{VaultError, parse_vault};
 pub use search::{
-    SearchHit, SearchIndexError, index_has_rows, open_index, rebuild_search_index, search_index,
+    SearchHit, SearchIndexError, SyncSummary, index_has_rows, open_index, rebuild_search_index,
+    search_index, sync_search_index,
 };
 pub use validate::{Diagnostic, Severity, VaultDiagnosticError, summary, validate_index};
 

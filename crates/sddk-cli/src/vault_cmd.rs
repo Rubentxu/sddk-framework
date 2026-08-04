@@ -81,6 +81,9 @@ struct IndexOutput {
     backlinks: usize,
     errors: usize,
     warnings: usize,
+    inserted: usize,
+    updated: usize,
+    deleted: usize,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -89,6 +92,9 @@ fn run_vault_index(args: VaultIndexArgs, validate_only: bool) -> CommandOutput {
     let result = (|| -> anyhow::Result<IndexOutput> {
         let (index, diagnostics) = sddk_vault::index_vault(&args.vault)?;
         let backlinks: usize = index.backlinks.values().map(Vec::len).sum();
+        let mut inserted = 0;
+        let mut updated = 0;
+        let mut deleted = 0;
         if !validate_only {
             let db = match args.db {
                 Some(db) => db,
@@ -99,7 +105,10 @@ fn run_vault_index(args: VaultIndexArgs, validate_only: bool) -> CommandOutput {
                     .unwrap_or_else(|| PathBuf::from("vault-index.sqlite")),
             };
             let connection = sddk_vault::open_index(&db)?;
-            sddk_vault::rebuild_search_index(&connection, &index)?;
+            let summary = sddk_vault::sync_search_index(&connection, &index)?;
+            inserted = summary.inserted;
+            updated = summary.updated;
+            deleted = summary.deleted;
         }
         let (errors, warnings) = sddk_vault::summary(&diagnostics);
         Ok(IndexOutput {
@@ -107,6 +116,9 @@ fn run_vault_index(args: VaultIndexArgs, validate_only: bool) -> CommandOutput {
             backlinks,
             errors,
             warnings,
+            inserted,
+            updated,
+            deleted,
             diagnostics,
         })
     })();
@@ -158,8 +170,14 @@ fn run_vault_export(args: VaultExportArgs) -> CommandOutput {
 
 fn index_text(output: &IndexOutput) -> String {
     let mut text = format!(
-        "nodes: {}\nbacklinks: {}\nerrors: {}\nwarnings: {}\n",
-        output.nodes, output.backlinks, output.errors, output.warnings
+        "nodes: {}\nbacklinks: {}\nerrors: {}\nwarnings: {}\ninserted: {}\nupdated: {}\ndeleted: {}\n",
+        output.nodes,
+        output.backlinks,
+        output.errors,
+        output.warnings,
+        output.inserted,
+        output.updated,
+        output.deleted
     );
     for diagnostic in &output.diagnostics {
         text.push_str(&format!(

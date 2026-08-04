@@ -10,11 +10,11 @@
 
 | Estado | Historias | Significado |
 | --- | ---: | --- |
-| Completa | 33 | Todos los criterios de la historia tienen implementación y prueba directa. |
+| Completa | 34 | Todos los criterios de la historia tienen implementación y prueba directa. |
 | Parcial | 0 | No queda ninguna historia parcial. |
 | Desviada | 0 | No queda ninguna desviación contractual conocida. |
 | No iniciada | 0 | El backlog v3.6 está completo. |
-| **Total** | **33** | La base Rust es funcional; v3.6 estable con endurecimiento post-estabilidad. |
+| **Total** | **34** | La base Rust es funcional; v3.6 estable con endurecimiento post-estabilidad. |
 
 ## Matriz de aceptación
 
@@ -46,13 +46,14 @@
 | SDDK-803 | Completa | `reconcile_pending` finaliza receipts `started` consultando la realidad del proveedor | Sin gap funcional demostrado. |
 | SDDK-804 | Completa | `plan_release`/`apply_release` en Rust con secuencia canónica, idempotencia y convergencia tras interrupciones | Sin gap funcional demostrado. |
 | SDDK-901 | Completa | Parser de vault: frontmatter, IDs, tipos, títulos, wikilinks y backlinks en `sddk-vault` | Sin gap funcional demostrado. |
-| SDDK-902 | Completa | Índice FTS5 reconstruible (drop → reindex) y backlinks derivados | Sin gap funcional demostrado. |
+| SDDK-902 | Completa | Índice FTS5 reconstruible e incremental por hash (tags, enlaces, backlinks, status) | Sin gap funcional demostrado. |
 | SDDK-903 | Completa | Validación VAULT001-VAULT004: ids, títulos y wikilinks rotos | Sin gap funcional demostrado. |
 | SDDK-904 | Completa | Grafo `petgraph`: ciclos, camino de muestra y orden topológico | Sin gap funcional demostrado. |
 | SDDK-1001 | Completa | `sddk dev doctor|check|install|verify|uninstall` (equivalente a xtask) | Sin gap funcional demostrado. |
 | SDDK-1002 | Completa | Receipt `sddk-install.json` con versión, commit, SHA-256, canal y timestamp; verificación y desinstalación atómicas | Sin gap funcional demostrado. |
 | SDDK-1003 | Completa | `sddk release dist` genera binario, checksums.txt, sbom.json y attestation.json; `release verify` valida todo | Sin gap funcional demostrado. |
 | SDDK-1005 | Completa | Packs declarativos (RF-012/ADR-0004): `manifest.toml`, validación PACK001-007, `sddk pack validate` y SDDK014 | Sin gap funcional demostrado. |
+| SDDK-1006 | Completa | Indexación incremental del vault por hash de contenido (RNF-004) y profundidad FTS con tags/enlaces/backlinks (RF-009) | Sin gap funcional demostrado. |
 
 ## ÉPICA E1 — Fuente canónica del workflow
 
