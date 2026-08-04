@@ -2468,3 +2468,75 @@ paths = ["tests/a.sh"]
             .any(|diagnostic| diagnostic.code == "SDDK014")
     );
 }
+
+#[test]
+fn cli_runtime_errors_include_stable_code_and_recovery() {
+    let fixture = CliFixture::new("error-envelope");
+    write(
+        fixture.root.join("workflow/workflow.yaml"),
+        CANONICAL_WORKFLOW,
+    );
+    let common = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+    ];
+    let adopted = fixture.run_adopt(
+        "apply",
+        &[
+            "--root",
+            fixture.root.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            "https://example.com/acme/repo.git",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(adopted.status.success());
+
+    let missing = run_with_root(
+        &fixture,
+        &[
+            "cycle",
+            "status",
+            "--cycle",
+            "cycle-missing",
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert_eq!(missing.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&missing.stderr);
+    assert!(stderr.contains("error[STORAGE_NOT_FOUND]"), "{}", stderr);
+    assert!(stderr.contains("recovery:"), "{}", stderr);
+
+    let bad_transition = run_with_root(
+        &fixture,
+        &[
+            "cycle",
+            "transition",
+            "--cycle",
+            "cycle-missing",
+            "--transition",
+            "phase.explore.complete",
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert_eq!(bad_transition.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&bad_transition.stderr);
+    assert!(stderr.contains("error[ENGINE_STORAGE]"), "{}", stderr);
+    assert!(stderr.contains("cause:"), "{}", stderr);
+    assert!(stderr.contains("recovery:"), "{}", stderr);
+}

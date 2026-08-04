@@ -151,7 +151,7 @@ fn run_validate_schema(args: ValidateSchemaArgs, environment: &CliEnvironment) -
             }
             command
         }
-        Err(error) => crate::failure(error.to_string()),
+        Err(error) => crate::failure_envelope(&error),
     }
 }
 
