@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use sddk_storage::{CapabilityReceipt, CapabilityReceiptInput, CapabilityStatus, Storage};
-use serde_json::json;
+use serde_json::{Value, json};
 use thiserror::Error;
 
 use crate::policy::{CapabilityPolicy, PolicyDecision};
@@ -139,39 +139,7 @@ impl CapabilityGateway {
     /// The request and result are redacted before persistence. A failed or
     /// timed-out run finalizes the receipt as `Failed`.
     pub fn apply(&mut self, plan: &CapabilityPlan) -> Result<CapabilityReceipt, GatewayError> {
-        let decision = self
-            .policy
-            .authorize(&plan.input.capability, plan.input.approve);
-        if !decision.allowed {
-            if decision.requires_approval {
-                return Err(GatewayError::ApprovalRequired {
-                    capability: plan.input.capability.clone(),
-                });
-            }
-            return Err(GatewayError::Denied {
-                capability: plan.input.capability.clone(),
-            });
-        }
-
-        let request = json!({
-            "capability": plan.input.capability,
-            "arguments": plan.input.args,
-            "reason": plan.input.reason,
-        });
-        let begin = self
-            .storage
-            .begin_capability_receipt(&CapabilityReceiptInput {
-                receipt_id: plan.receipt_id.clone(),
-                project_id: plan.input.project_id.clone(),
-                cycle_id: plan.input.cycle_id.clone(),
-                capability: plan.input.capability.clone(),
-                idempotency_key: plan.idempotency_key.clone(),
-                request: redact(request),
-                status: CapabilityStatus::Started,
-                result: None,
-                started_at: plan.input.timestamp.clone(),
-                completed_at: None,
-            })?;
+        let begin = self.begin_effect(&plan.input)?;
         if begin.status != CapabilityStatus::Started {
             return Ok(begin);
         }
@@ -194,16 +162,74 @@ impl CapabilityGateway {
             )
         };
 
-        let completed_at = if plan.input.timestamp.contains('Z') {
-            plan.input.timestamp.clone()
-        } else {
-            format!("{}Z", plan.input.timestamp)
-        };
+        self.finish_effect(&begin.receipt_id, status, result, &plan.input.timestamp)
+    }
+
+    /// Starts a capability effect under policy and persists a started receipt.
+    ///
+    /// The request is redacted and the idempotency key is derived
+    /// deterministically from the request; replaying the same request returns
+    /// the original receipt.
+    pub fn begin_effect(
+        &mut self,
+        input: &CapabilityPlanInput,
+    ) -> Result<CapabilityReceipt, GatewayError> {
+        let decision = self.policy.authorize(&input.capability, input.approve);
+        if !decision.allowed {
+            if decision.requires_approval {
+                return Err(GatewayError::ApprovalRequired {
+                    capability: input.capability.clone(),
+                });
+            }
+            return Err(GatewayError::Denied {
+                capability: input.capability.clone(),
+            });
+        }
+        let request_key = crate::stable_request_key(
+            &input.project_id,
+            &input.cycle_id,
+            &input.capability,
+            &input.args,
+            &input.reason,
+        );
+        let request = json!({
+            "capability": input.capability,
+            "arguments": input.args,
+            "reason": input.reason,
+        });
+        Ok(self
+            .storage
+            .begin_capability_receipt(&CapabilityReceiptInput {
+                receipt_id: format!(
+                    "cap-{}-{}",
+                    input.capability.replace('.', "-"),
+                    &request_key[..12]
+                ),
+                project_id: input.project_id.clone(),
+                cycle_id: input.cycle_id.clone(),
+                capability: input.capability.clone(),
+                idempotency_key: format!("{}-{}", input.capability, &request_key[..16]),
+                request: redact(request),
+                status: CapabilityStatus::Started,
+                result: None,
+                started_at: input.timestamp.clone(),
+                completed_at: None,
+            })?)
+    }
+
+    /// Finalizes a started effect receipt with a redacted result.
+    pub fn finish_effect(
+        &mut self,
+        receipt_id: &str,
+        status: CapabilityStatus,
+        result: Value,
+        completed_at: &str,
+    ) -> Result<CapabilityReceipt, GatewayError> {
         Ok(self.storage.finalize_capability_receipt(
-            &begin.receipt_id,
+            receipt_id,
             status,
             Some(redact(result)),
-            &completed_at,
+            completed_at,
         )?)
     }
 
