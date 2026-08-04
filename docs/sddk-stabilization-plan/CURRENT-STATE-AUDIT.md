@@ -12,8 +12,8 @@ El estado aceptado del backlog es:
 
 | Estado | Historias | Porcentaje |
 | --- | ---: | ---: |
-| Completa | 13 | 41 % |
-| Parcial | 5 | 16 % |
+| Completa | 15 | 47 % |
+| Parcial | 3 | 9 % |
 | Desviada | 0 | 0 % |
 | No iniciada | 14 | 44 % |
 
@@ -44,13 +44,13 @@ La clasificación exige evidencia en repositorio. Un tipo, tabla o campo aislado
 | GAP-002 | P0 | Cerrado | `.github/workflows/ci.yml` ejecuta gates Rust, linter, generados y contratos. | Mantener `Required quality gates` como check obligatorio. |
 | GAP-003 | P0 | Cerrado | CLI expone cycle/lock/ledger conectados a Engine + storage. | Añadir capabilities y vault como próximos cortes. |
 | GAP-004 | P0 | Abierto | `TransitionEvidence.gates` acepta Passed/Failed del caller. | Introducir GateEvaluator, GateReceipt y autorización del emisor. |
-| GAP-005 | P0 | Abierto | Capability gateway, runner y policy engine no existen. | Mantener efectos externos deshabilitados hasta implementar default-deny. |
+| GAP-005 | P0 | Cerrado | Gateway default-deny con runner tipado, filesystem scoped, approvals R3/R4 y receipts con redacción. | Extenderlo a Git local y CAS antes de habilitar efectos externos. |
 | GAP-006 | P0 | Cerrado | Root workflow/schemas son la única autoridad ejecutable; se retiraron snapshots divergentes. | Impedir nuevas copias mediante revisión y linter. |
 | GAP-007 | P1 | Cerrado | Workflow, código y tests usan fallback UUID persistido. | Mantener el receipt como semilla estable. |
 | GAP-008 | P1 | Cerrado | `sddk ledger verify` y `sddk cycle rebuild` restauran y verifican la base. | Mantener rebuild como primitiva de reparación sin overwrite de divergencias. |
 | GAP-009 | P1 | Cerrado | Frames por comando consultables y leases con fencing exigido en mutaciones de ciclos leaseados. | Aplicar el mismo fence a capabilities y Git cuando existan. |
 | GAP-010 | P1 | Abierto | Artifact metadata no es un CAS; SHA-256 es opcional y no se calcula. | Implementar store por contenido y digest obligatorio. |
-| GAP-011 | P1 | Abierto | Receipts permiten insertar directamente estados terminales y JSON sin sanear. | Separar begin/finalize/reconcile y aplicar schemas/redacción. |
+| GAP-011 | P1 | Cerrado | Receipts con lifecycle begin→finalize; terminal directo y JSON sin sanear rechazados; redacción de secretos. | Aplicar redacción a futuros adaptadores. |
 | GAP-012 | P1 | Abierto | Forge/release está corregido solo en prompts y shell. | Implementar puerto Forge, adaptador GitHub y release reconciliable. |
 | GAP-013 | P1 | Cerrado | `sddk-testkit::TestRepository` ofrece fixture reutilizable con aislamiento de paths. | Extenderlo cuando storage y capabilities requieran harness compartido. |
 | GAP-014 | P2 | Abierto | Vault, FTS5, backlinks y petgraph no están iniciados. | Mantener PR8 detrás de PR5-PR7. |
@@ -115,21 +115,17 @@ Un gate ejecutable necesita:
 
 `tests-pass`, `policy-compliant`, `review-approved`, `no-pending-effects` y `ledger-valid` no deben aceptar autoafirmación del mismo caller que solicita la transición.
 
-### GAP-005 — Falta la frontera de capacidades
+### GAP-005 — Frontera de capacidades implementada
 
-ADR-0005 exige `validate → plan → authorize → apply → verify → receipt`. El workspace solo contiene tipos, metadata y almacenamiento idempotente de receipts.
+ADR-0005 exige `validate → plan → authorize → apply → verify → receipt`. `sddk-gateway` cubre:
 
-No existen:
+- policy default-deny derivada de `forge.capabilities` del workflow;
+- approvals R3/R4: `modifies`/`irreversible` o riesgo `high`/`critical` exigen `--approve`;
+- runner con argv separado, environment allowlist, timeout y truncado (sin shell);
+- filesystem `ScopedFs` con rechazo de escapes, parents y symlinks, y escritura atómica;
+- receipts con lifecycle `started → succeeded|failed` (begin/finalize), idempotencia por clave y redacción de secretos.
 
-- runner con argv tipado y allowlist de entorno;
-- filesystem restringido y seguro frente a symlinks/escapes;
-- Git local;
-- policy decision point;
-- approvals R3/R4;
-- lifecycle `started → succeeded|failed|unknown`;
-- reconciliación.
-
-Esta ausencia es un bloqueador de diseño antes de habilitar operaciones mutantes o externas. No se clasifica como vulnerabilidad remota activa porque el gateway todavía no está expuesto.
+Quedan fuera: Git local (SDDK-603) y CAS (SDDK-604), que se construirán sobre este gateway antes de habilitar efectos externos.
 
 ### GAP-006 — Contratos ejecutables unificados
 
@@ -179,7 +175,7 @@ Esta ausencia es un bloqueador de diseño antes de habilitar operaciones mutante
 | PR 2 | Cinco crates, testkit, linter, generadores y CI | Completo; JSON Schema runtime queda en SDDK-101, no bloquea esta unidad. |
 | PR 3 | Identidad UUID, XDG y adopción reparable | Completo y alineado con el workflow. |
 | PR 4 | SQLite, hash chain, engine, replay, leases y CLI | Completo; autoridad local probada extremo a extremo. |
-| PR 5 | Receipts y artifact metadata como foundations | No iniciado como gateway. |
+| PR 5 | Gateway default-deny, runner tipado, filesystem scoped y receipts con redacción | Parcial; Git local y CAS pendientes sobre el gateway. |
 | PR 6 | AgentResult y schema | Parcial; adapter y permisos no iniciados. |
 | PR 7 | Contrato legacy de release con tests | Parcial; Forge/reconcile runtime no iniciados. |
 | PR 8 | ADRs y templates | No iniciado. |
@@ -189,7 +185,7 @@ Esta ausencia es un bloqueador de diseño antes de habilitar operaciones mutante
 
 | Gate | Resultado |
 | --- | --- |
-| `cargo test --workspace --locked` | PASS, 93 tests en el corte. |
+| `cargo test --workspace --locked` | PASS, 113 tests en el corte. |
 | `sddk lint --format json` | PASS, 0 errores y 0 warnings. |
 | `sddk generate docs --check` | PASS, documentación actual. |
 | `sddk generate inventory --check` | PASS, 64 agentes y 90 skills. |
@@ -197,7 +193,9 @@ Esta ausencia es un bloqueador de diseño antes de habilitar operaciones mutante
 | `tests/test_adoption_contract.sh` | PASS, 22 checks. |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | PASS. |
 | E2E CLI `cli_walks_cycle_with_fencing_and_rebuilds_state` | PASS, ciclo completo con fencing, frames y rebuild. |
+| E2E CLI `cli_capability_gateway_enforces_policy_and_persists_receipts` | PASS, default-deny, approvals y receipts. |
 | Engine `cycle_authority` (fencing, rebuild, frames) | PASS, 4 tests. |
+| Gateway (policy, runner, filesystem, redacción, lifecycle) | PASS, 18 tests. |
 | CI remota | PASS en [`Required quality gates`](https://github.com/Rubentxu/sddk-framework/actions/runs/30888909675), 53 s. |
 
 ## Plan de acción recomendado
@@ -234,6 +232,8 @@ Esta ausencia es un bloqueador de diseño antes de habilitar operaciones mutante
 
 ### Work unit D — Capability gateway
 
+**Estado:** completado en `v0.4.0`.
+
 **Objetivo:** crear una frontera no eludible antes de Git/Forge.
 
 **Acciones:** policy default-deny, approvals vinculadas al plan, begin/finalize/reconcile receipt, runner tipado, filesystem seguro y redacción.
@@ -267,6 +267,8 @@ Ejecutar PR8 y PR9 solo después de cerrar los work units anteriores. LadybugDB 
 | Fallback sin remote | Cerrada | UUID persistido: mover el checkout no cambia la identidad. |
 | Workflow del paquete | Cerrada | Referencia a raíz; no mantener dos contratos ejecutables. |
 | Fencing de mutaciones | Cerrada | Transición exige owner+fencing token cuando el ciclo está leaseado; lease expirado re-acquire con token incrementado. |
+| Approvals R3/R4 | Cerrada | `modifies`/`irreversible` o riesgo high/critical exigen `--approve` explícito; desconocidas → denied. |
+| Lifecycle de receipts | Cerrada | `started → succeeded|failed` vía begin/finalize; terminal directo rechazado; request/result redactados. |
 | Validación de gates | Caller assertion vs receipt autorizado | Receipt autorizado y vinculado al plan. |
 | Vault canónico | Paths XDG del runtime vs vault de conocimiento existente | Separar explícitamente estado operativo XDG de conocimiento canónico; documentar ownership y migración. |
 | Migración SQLite | Auto-migrate al abrir vs comando explícito | Backup + lock exclusivo + migración explícita para cambios destructivos. |
