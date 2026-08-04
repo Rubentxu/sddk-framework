@@ -10,11 +10,11 @@
 
 | Estado | Historias | Significado |
 | --- | ---: | --- |
-| Completa | 32 | Todos los criterios de la historia tienen implementación y prueba directa. |
+| Completa | 33 | Todos los criterios de la historia tienen implementación y prueba directa. |
 | Parcial | 0 | No queda ninguna historia parcial. |
 | Desviada | 0 | No queda ninguna desviación contractual conocida. |
 | No iniciada | 0 | El backlog v3.6 está completo. |
-| **Total** | **32** | La base Rust es funcional, pero v3.6 todavía no cumple su criterio de salida. |
+| **Total** | **33** | La base Rust es funcional; v3.6 estable con endurecimiento post-estabilidad. |
 
 ## Matriz de aceptación
 
@@ -52,6 +52,7 @@
 | SDDK-1001 | Completa | `sddk dev doctor|check|install|verify|uninstall` (equivalente a xtask) | Sin gap funcional demostrado. |
 | SDDK-1002 | Completa | Receipt `sddk-install.json` con versión, commit, SHA-256, canal y timestamp; verificación y desinstalación atómicas | Sin gap funcional demostrado. |
 | SDDK-1003 | Completa | `sddk release dist` genera binario, checksums.txt, sbom.json y attestation.json; `release verify` valida todo | Sin gap funcional demostrado. |
+| SDDK-1005 | Completa | Packs declarativos (RF-012/ADR-0004): `manifest.toml`, validación PACK001-007, `sddk pack validate` y SDDK014 | Sin gap funcional demostrado. |
 
 ## ÉPICA E1 — Fuente canónica del workflow
 
