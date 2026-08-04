@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
 use sddk_domain::{ArtifactRef, CycleId, CycleManifest, CyclePath, normalize_scope};
-use sddk_engine::{CycleStartInput, Engine, EventContext, GateOutcome, TransitionEvidence};
+use sddk_engine::{CycleStartInput, Engine, EventContext, GateEvaluationInput, TransitionEvidence};
 use sddk_storage::Storage;
 use serde::Serialize;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
@@ -98,6 +98,8 @@ pub(crate) enum CycleCommand {
     Status(CycleStatusArgs),
     /// Apply one declared transition with caller evidence.
     Transition(CycleTransitionArgs),
+    /// Authorize and persist one gate evaluation receipt.
+    EvaluateGate(CycleEvaluateGateArgs),
     /// Restore a missing cycle snapshot from its ledger events.
     Rebuild(CycleRebuildArgs),
     /// Acquire, release, or inspect the exclusive cycle lease.
@@ -163,12 +165,9 @@ pub(crate) struct CycleTransitionArgs {
     /// Satisfied non-artifact requirement.
     #[arg(long, action = clap::ArgAction::Append)]
     pub(crate) requirement: Vec<String>,
-    /// Passed gate outcome.
+    /// Persisted gate receipt issued by `cycle evaluate-gate`.
     #[arg(long, action = clap::ArgAction::Append)]
-    pub(crate) gate_pass: Vec<String>,
-    /// Failed gate outcome.
-    #[arg(long, action = clap::ArgAction::Append)]
-    pub(crate) gate_fail: Vec<String>,
+    pub(crate) gate_receipt: Vec<String>,
     /// Produced artifact as `kind=path`.
     #[arg(long, action = clap::ArgAction::Append)]
     pub(crate) artifact: Vec<String>,
@@ -196,6 +195,36 @@ pub(crate) struct CycleRebuildArgs {
     /// Cycle identifier.
     #[arg(long)]
     pub(crate) cycle: String,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct CycleEvaluateGateArgs {
+    #[command(flatten)]
+    pub(crate) runtime: RuntimeArgs,
+    /// Cycle identifier.
+    #[arg(long)]
+    pub(crate) cycle: String,
+    /// Transition that declares the gate.
+    #[arg(long)]
+    pub(crate) transition: String,
+    /// Gate name being evaluated.
+    #[arg(long)]
+    pub(crate) gate: String,
+    /// Evaluator identifier registered for the gate.
+    #[arg(long, default_value = "sddk.cli")]
+    pub(crate) evaluator: String,
+    /// Sanitized evaluation evidence as JSON.
+    #[arg(long, default_value = "{}")]
+    pub(crate) evidence: String,
+    /// Explicit RFC 3339 timestamp for deterministic execution.
+    #[arg(long)]
+    pub(crate) timestamp: Option<String>,
+    /// Explicit actor for deterministic execution.
+    #[arg(long)]
+    pub(crate) actor: Option<String>,
     /// Output format.
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     pub(crate) format: OutputFormat,
@@ -287,6 +316,7 @@ pub(crate) fn run_cycle(command: CycleCommand, environment: &CliEnvironment) -> 
         CycleCommand::Status(args) => run_cycle_status(args, environment),
         CycleCommand::Transition(args) => run_cycle_transition(args, environment),
         CycleCommand::Rebuild(args) => run_cycle_rebuild(args, environment),
+        CycleCommand::EvaluateGate(args) => run_cycle_evaluate_gate(args, environment),
         CycleCommand::Lock(command) => run_cycle_lock(command, environment),
     }
 }
@@ -440,13 +470,14 @@ fn run_cycle_transition(args: CycleTransitionArgs, environment: &CliEnvironment)
                 .artifacts
                 .insert(kind.clone(), ArtifactRef::new(kind, path));
         }
-        for gate in &args.gate_pass {
-            evidence.gates.insert(gate.clone(), GateOutcome::Passed);
-        }
-        for gate in &args.gate_fail {
-            evidence
-                .gates
-                .insert(gate.clone(), GateOutcome::Failed { reason: None });
+        for receipt_id in &args.gate_receipt {
+            let receipt = context.storage.get_gate_receipt(receipt_id)?;
+            evidence.gates.insert(
+                receipt.gate.clone(),
+                sddk_engine::GateReceiptRef {
+                    receipt_id: receipt.receipt_id.clone(),
+                },
+            );
         }
         let plan = context
             .engine
@@ -742,4 +773,60 @@ fn timestamp_ms(timestamp: Option<&str>) -> anyhow::Result<i64> {
         Some(value) => Ok(OffsetDateTime::parse(value, &Rfc3339)?.unix_timestamp() * 1000),
         None => Ok(OffsetDateTime::now_utc().unix_timestamp() * 1000),
     }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+struct GateEvaluationOutput {
+    receipt_id: String,
+    gate: String,
+    evaluator: String,
+    transition_id: String,
+    plan_hash: String,
+}
+
+fn run_cycle_evaluate_gate(
+    args: CycleEvaluateGateArgs,
+    environment: &CliEnvironment,
+) -> CommandOutput {
+    let format = args.format;
+    let result = (|| -> anyhow::Result<GateEvaluationOutput> {
+        let mut context = RuntimeContext::open(&args.runtime, environment, false)?;
+        let timestamp = args
+            .timestamp
+            .clone()
+            .unwrap_or_else(crate::git_cmd::default_timestamp);
+        let actor = args
+            .actor
+            .clone()
+            .or_else(|| environment.sddk_actor.clone())
+            .or_else(|| environment.user.clone())
+            .unwrap_or_else(|| "sddk-cli".into());
+        let receipt = context.engine.evaluate_gate(&GateEvaluationInput {
+            cycle_id: args.cycle.clone(),
+            transition_id: args.transition.clone(),
+            gate: args.gate.clone(),
+            evaluator: args.evaluator.clone(),
+            evidence: serde_json::from_str(&args.evidence)?,
+            outcome: sddk_storage::GateOutcomeStatus::Passed,
+            evaluated_at: timestamp,
+            actor,
+            command_id: format!("gate-{}", uuid::Uuid::new_v4().hyphenated()),
+        })?;
+        Ok(GateEvaluationOutput {
+            receipt_id: receipt.receipt_id,
+            gate: receipt.gate,
+            evaluator: receipt.evaluator,
+            transition_id: receipt.transition_id,
+            plan_hash: receipt.plan_hash,
+        })
+    })();
+    render_result(result, format, gate_evaluation_text)
+}
+
+fn gate_evaluation_text(output: &GateEvaluationOutput) -> String {
+    format!(
+        "receipt_id: {}\ngate: {}\nevaluator: {}\ntransition_id: {}\nplan_hash: {}\n",
+        output.receipt_id, output.gate, output.evaluator, output.transition_id, output.plan_hash
+    )
 }

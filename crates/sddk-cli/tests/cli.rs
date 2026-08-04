@@ -559,6 +559,41 @@ fn cli_walks_cycle_with_fencing_and_rebuilds_state() {
     assert_eq!(status_json["status"], "OPEN");
     assert_eq!(status_json["path"], "A-full");
 
+    let evaluated = fixture.run(&[
+        "cycle",
+        "evaluate-gate",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--cycle",
+        &cycle_id,
+        "--transition",
+        "phase.explore.complete",
+        "--gate",
+        "exploration-sufficient",
+        "--evaluator",
+        "sddk.cli",
+        "--evidence",
+        r#"{"checked": true}"#,
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        evaluated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&evaluated.stderr)
+    );
+    let evaluated_json: serde_json::Value = serde_json::from_slice(&evaluated.stdout).unwrap();
+    let gate_receipt = evaluated_json["receipt_id"].as_str().unwrap().to_owned();
+    assert_eq!(evaluated_json["gate"], "exploration-sufficient");
+
     let unfenced = fixture.run(&[
         "cycle",
         "transition",
@@ -574,8 +609,8 @@ fn cli_walks_cycle_with_fencing_and_rebuilds_state() {
         "phase.explore.complete",
         "--artifact",
         "exploration-report=artifacts/exploration.md",
-        "--gate-pass",
-        "exploration-sufficient",
+        "--gate-receipt",
+        &gate_receipt,
         "--timestamp",
         "2026-08-04T10:00:00Z",
         "--actor",
@@ -600,8 +635,8 @@ fn cli_walks_cycle_with_fencing_and_rebuilds_state() {
         "phase.explore.complete",
         "--artifact",
         "exploration-report=artifacts/exploration.md",
-        "--gate-pass",
-        "exploration-sufficient",
+        "--gate-receipt",
+        &gate_receipt,
         "--lease-owner",
         "agent-a",
         "--fencing-token",
