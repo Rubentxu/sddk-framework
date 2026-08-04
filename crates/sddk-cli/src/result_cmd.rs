@@ -30,15 +30,45 @@ fn load_schema(root: &std::path::Path, name: &str) -> anyhow::Result<Value> {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum ValidateCommand {
-    /// Validate an agent result JSON file against the canonical schema.
-    AgentResult(ValidateAgentResultArgs),
+    /// Validate a JSON document against one canonical schema.
+    Schema(ValidateSchemaArgs),
+}
+
+/// Canonical schema selectable by `sddk validate schema`.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub(crate) enum SchemaName {
+    /// Agent result schema.
+    AgentResult,
+    /// Cycle manifest schema.
+    Cycle,
+    /// Phase result schema.
+    PhaseResult,
+    /// Adoption receipt schema.
+    Adoption,
+    /// Artifact reference schema.
+    ArtifactRef,
+}
+
+impl SchemaName {
+    pub(crate) fn file(self) -> &'static str {
+        match self {
+            SchemaName::AgentResult => "schemas/agent-result.schema.json",
+            SchemaName::Cycle => "schemas/cycle.schema.json",
+            SchemaName::PhaseResult => "schemas/phase-result.schema.json",
+            SchemaName::Adoption => "schemas/adoption.schema.json",
+            SchemaName::ArtifactRef => "schemas/artifact-ref.schema.json",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Args)]
-pub(crate) struct ValidateAgentResultArgs {
+pub(crate) struct ValidateSchemaArgs {
     #[command(flatten)]
     pub(crate) runtime: RuntimeArgs,
-    /// JSON file containing the agent result.
+    /// Schema to validate against.
+    #[arg(long, value_enum)]
+    pub(crate) schema: SchemaName,
+    /// JSON file to validate.
     #[arg(long)]
     pub(crate) file: PathBuf,
     /// Output format.
@@ -81,7 +111,7 @@ pub(crate) fn run_validate(
     environment: &CliEnvironment,
 ) -> CommandOutput {
     match command {
-        ValidateCommand::AgentResult(args) => run_validate_agent_result(args, environment),
+        ValidateCommand::Schema(args) => run_validate_schema(args, environment),
     }
 }
 
@@ -101,15 +131,12 @@ struct ValidationOutput {
     errors: Vec<String>,
 }
 
-fn run_validate_agent_result(
-    args: ValidateAgentResultArgs,
-    environment: &CliEnvironment,
-) -> CommandOutput {
+fn run_validate_schema(args: ValidateSchemaArgs, environment: &CliEnvironment) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<ValidationOutput> {
         let context = RuntimeContext::open(&args.runtime, environment, false)?;
         let instance: Value = serde_json::from_str(&fs::read_to_string(&args.file)?)?;
-        let schema = load_schema(&context.root, AGENT_RESULT_SCHEMA)?;
+        let schema = load_schema(&context.root, args.schema.file())?;
         let errors = sddk_domain::validate_against_schema(&instance, &schema)?;
         Ok(ValidationOutput {
             valid: errors.is_empty(),

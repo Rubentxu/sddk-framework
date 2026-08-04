@@ -1158,6 +1158,14 @@ fn cli_validate_agent_result_and_legacy_conversion() {
         fixture.root.join("schemas/capability-request.schema.json"),
         include_str!("../../../schemas/capability-request.schema.json"),
     );
+    write(
+        fixture.root.join("schemas/cycle.schema.json"),
+        include_str!("../../../schemas/cycle.schema.json"),
+    );
+    write(
+        fixture.root.join("schemas/phase-result.schema.json"),
+        include_str!("../../../schemas/phase-result.schema.json"),
+    );
     let common = [
         "--root",
         fixture.root.to_str().unwrap(),
@@ -1195,6 +1203,8 @@ fn cli_validate_agent_result_and_legacy_conversion() {
         &fixture,
         &[
             "validate",
+            "schema",
+            "--schema",
             "agent-result",
             "--file",
             valid_file.to_str().unwrap(),
@@ -1219,6 +1229,8 @@ fn cli_validate_agent_result_and_legacy_conversion() {
         &fixture,
         &[
             "validate",
+            "schema",
+            "--schema",
             "agent-result",
             "--file",
             invalid_file.to_str().unwrap(),
@@ -1232,6 +1244,58 @@ fn cli_validate_agent_result_and_legacy_conversion() {
         serde_json::from_slice::<serde_json::Value>(&invalid.stdout).unwrap()["valid"],
         false
     );
+
+    let cycle_file = fixture.root.join("valid-cycle.json");
+    fs::write(
+        &cycle_file,
+        r#"{"schema_version":1,"project_id":"p-1234","workspace_id":"w-1234","cycle_id":"cycle-1","display_name":"x","status":"OPEN","phase":"explore","path":"a-full","branch":"feat/x","base":"abc","head":null,"artifacts":{},"release":null,"remediation_round":0,"remote_url":null,"scope":null}"#,
+    )
+    .unwrap();
+    let cycle_ok = run_with_root(
+        &fixture,
+        &[
+            "validate",
+            "schema",
+            "--schema",
+            "cycle",
+            "--file",
+            cycle_file.to_str().unwrap(),
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert!(
+        cycle_ok.status.success(),
+        "{}",
+        String::from_utf8_lossy(&cycle_ok.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&cycle_ok.stdout).unwrap()["valid"],
+        true
+    );
+
+    let phase_file = fixture.root.join("invalid-phase.json");
+    fs::write(
+        &phase_file,
+        r#"{"schema_version":1,"cycle_id":"cycle-1","phase":"explore","success":true,"summary":"","timestamp":"2026-08-04T10:00:00Z"}"#,
+    )
+    .unwrap();
+    let phase_bad = run_with_root(
+        &fixture,
+        &[
+            "validate",
+            "schema",
+            "--schema",
+            "phase-result",
+            "--file",
+            phase_file.to_str().unwrap(),
+            "--format",
+            "json",
+        ],
+        &common,
+    );
+    assert_eq!(phase_bad.status.code(), Some(1));
 
     let converted = run_with_root(
         &fixture,

@@ -31,7 +31,7 @@
     "cycle_id": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^[a-zA-Z][a-zA-Z0-9_-]+/[a-z][a-z0-9_-]*$"
+      "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$"
     },
     "display_name": {
       "type": "string",
@@ -47,7 +47,7 @@
     },
     "path": {
       "type": "string",
-      "enum": ["A-min", "A-lite", "A-full", "B-direct"]
+      "enum": ["a-min", "a-lite", "a-full", "b-direct"]
     },
     "branch": {
       "type": "string",
@@ -58,7 +58,14 @@
       "minLength": 1
     },
     "head": {
-      "type": "string"
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string"
+        }
+      ]
     },
     "artifacts": {
       "type": "object",
@@ -82,10 +89,24 @@
       "default": 0
     },
     "remote_url": {
-      "type": "string"
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string"
+        }
+      ]
     },
     "scope": {
-      "type": "string"
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string"
+        }
+      ]
     }
   },
   "$defs": {
@@ -94,14 +115,34 @@
       "additionalProperties": false,
       "properties": {
         "tag": {
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ]
         },
         "notes": {
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ]
         },
         "timestamp": {
-          "type": "string",
-          "format": "date-time"
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ]
         }
       }
     }
