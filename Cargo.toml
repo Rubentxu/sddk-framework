@@ -37,7 +37,7 @@ sha2 = "0.10"
 
 # UUIDs
 uuid = { version = "1", features = ["v4", "serde"] }
-time = { version = "=0.3.36", features = ["formatting"] }
+time = { version = "=0.3.36", features = ["formatting", "parsing"] }
 
 # File system
 walkdir = "2"

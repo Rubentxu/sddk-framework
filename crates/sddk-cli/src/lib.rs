@@ -4,8 +4,10 @@
 #![deny(clippy::all)]
 #![warn(missing_docs)]
 
+mod cycle;
 mod docs;
 mod inventory;
+mod ledger;
 mod lint;
 
 use std::ffi::{OsStr, OsString};
@@ -13,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
+pub(crate) use cycle::{CycleCommand, RuntimeArgs, RuntimeContext};
 use sddk_domain::{IdentitySource, normalize_scope, resolve_project_identity, stable_workspace_id};
 use sddk_engine::{
     AdoptionPlan, AdoptionPlanInput, AdoptionStatus, AdoptionStatusKind, XdgEnvironment,
@@ -26,6 +29,9 @@ use walkdir::WalkDir;
 pub use docs::{GENERATED_WORKFLOW_DOC, GenerationStatus, generate_workflow_docs};
 pub use inventory::{GENERATED_INVENTORY_DOC, generate_inventory};
 pub use lint::{Diagnostic, LintReport, Severity, lint_repository};
+
+/// Canonical workflow manifest path, relative to the repository root.
+pub(crate) const WORKFLOW_MANIFEST: &str = "workflow/workflow.yaml";
 
 /// Parsed SDDK command line.
 #[derive(Debug, Parser)]
@@ -60,6 +66,16 @@ enum Command {
     Generate {
         #[command(subcommand)]
         command: GenerateCommand,
+    },
+    /// Plan and apply workflow cycles under the local authority.
+    Cycle {
+        #[command(subcommand)]
+        command: CycleCommand,
+    },
+    /// Verify the causal ledger and list its events.
+    Ledger {
+        #[command(subcommand)]
+        command: ledger::LedgerCommand,
     },
 }
 
@@ -267,6 +283,8 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
             "inventory",
             &root,
         ),
+        Command::Cycle { command } => cycle::run_cycle(command, environment),
+        Command::Ledger { command } => ledger::run_ledger(command, environment),
     }
 }
 
