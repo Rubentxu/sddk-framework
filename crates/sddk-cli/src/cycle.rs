@@ -35,13 +35,14 @@ pub(crate) struct RuntimeArgs {
     #[arg(long)]
     pub(crate) fallback_seed: Option<String>,
 }
-
 /// Resolved identity, storage, and engine for one runtime invocation.
 pub(crate) struct RuntimeContext {
+    pub(crate) root: PathBuf,
     pub(crate) identity: sddk_domain::ResolvedProjectIdentity,
     pub(crate) workspace_id: String,
     pub(crate) engine: Engine,
     pub(crate) storage: Storage,
+    pub(crate) artifacts_path: PathBuf,
 }
 
 impl RuntimeContext {
@@ -80,14 +81,15 @@ impl RuntimeContext {
         let workflow = sddk_engine::load_workflow_path(root.join(crate::WORKFLOW_MANIFEST))?;
         let engine = Engine::new(workflow, Storage::open(&paths.ledger)?)?;
         Ok(Self {
+            root,
             identity,
             workspace_id,
             engine,
             storage,
+            artifacts_path: paths.artifacts,
         })
     }
 }
-
 #[derive(Debug, Subcommand)]
 pub(crate) enum CycleCommand {
     /// Create a cycle through the declared `cycle.start` transition.
