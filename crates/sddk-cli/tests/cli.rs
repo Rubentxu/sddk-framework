@@ -38,6 +38,42 @@ fn fixture_diagnostics_have_stable_codes_and_locations() {
 }
 
 #[test]
+fn agent_registry_checks_cover_declaration_orphans_and_names() {
+    let repository = repository_fixture();
+    generate_workflow_docs(repository.path(), false).unwrap();
+    repository
+        .write(
+            "agents/declared-agent.md",
+            "---\nname: declared-agent\n---\n# Agent\n",
+        )
+        .unwrap();
+    repository
+        .write(
+            "agents/mismatch.md",
+            "---\nname: other-name\n---\n# Agent\n",
+        )
+        .unwrap();
+    repository
+        .write(
+            "permissions.yaml",
+            "agents:\n  declared-agent:\n    phases: []\n    capabilities: []\n  orphan-agent:\n    phases: []\n    capabilities: []\n",
+        )
+        .unwrap();
+
+    let report = lint_repository(repository.path()).unwrap();
+    let by_code = |code: &str| {
+        report
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == code)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(by_code("SDDK011").len(), 1);
+    assert_eq!(by_code("SDDK012").len(), 1);
+    assert_eq!(by_code("SDDK013").len(), 1);
+}
+
+#[test]
 fn typed_yaml_references_cover_repository_owned_entities_and_paths() {
     let repository = repository_fixture();
     generate_workflow_docs(repository.path(), false).unwrap();
@@ -2292,6 +2328,9 @@ fn repository_fixture() -> TestRepository {
         .unwrap();
     repository
         .write("schemas/workflow.schema.json", WORKFLOW_SCHEMA)
+        .unwrap();
+    repository
+        .write("permissions.yaml", "agents: {}\n")
         .unwrap();
     repository.write("target/ignored.md", DIAGNOSTICS).unwrap();
     repository.write(".git/ignored.md", DIAGNOSTICS).unwrap();

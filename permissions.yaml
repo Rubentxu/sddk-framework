@@ -1,8 +1,93 @@
 # SDDK agent permission registry — default-deny.
 # Agents absent from this file are denied all phases and capabilities.
+# SDDK011 requires every agents/*.md file to be declared here.
 agents:
+  architecture-critic:
+    phases: []
+    capabilities: []
+  auto-grill-code-researcher:
+    phases: []
+    capabilities: []
+  auto-grill-coverage-auditor:
+    phases: []
+    capabilities: []
+  auto-grill-evidence-synthesizer:
+    phases: []
+    capabilities: []
+  auto-grill-internet-researcher:
+    phases: []
+    capabilities: []
+  auto-grill-interviewer:
+    phases: []
+    capabilities: []
+  auto-grill-judge:
+    phases: []
+    capabilities: []
+  auto-grill-loop-orchestrator:
+    phases: []
+    capabilities: []
+  auto-grill-ops-researcher:
+    phases: []
+    capabilities: []
+  auto-grill-repo-docs-researcher:
+    phases: []
+    capabilities: []
+  auto-grill-reporter:
+    phases: []
+    capabilities: []
+  auto-grill-scribe:
+    phases: []
+    capabilities: []
+  auto-grill-security-researcher:
+    phases: []
+    capabilities: []
+  auto-grill-skeptic:
+    phases: []
+    capabilities: []
+  auto-grill-standards-researcher:
+    phases: []
+    capabilities: []
+  auto-grill-user-proxy:
+    phases: []
+    capabilities: []
+  balance-advisor:
+    phases: []
+    capabilities: []
+  book-orchestrator:
+    phases: []
+    capabilities: []
+  debt-architecture-cluster:
+    phases: []
+    capabilities: []
+  debt-coupling-cluster:
+    phases: []
+    capabilities: []
+  debt-duplication-cluster:
+    phases: []
+    capabilities: []
+  debt-overeng-cluster:
+    phases: []
+    capabilities: []
+  debt-smells-cluster:
+    phases: []
+    capabilities: []
+  gentle-orchestrator:
+    phases: []
+    capabilities: []
+  impeccable-primary:
+    phases: []
+    capabilities: []
+  jd-fix-agent:
+    phases: []
+    capabilities: []
+  jd-judge-a:
+    phases: []
+    capabilities: []
+  jd-judge-b:
+    phases: []
+    capabilities: []
   orchestrator:
-    phases: [explore, specify, design, plan, build, verify, review, release, archive]
+    phases: ['explore', 'specify', 'design', 'plan', 'build', 'verify', 'review', 'release', 'archive']
     capabilities:
       - git.inspect
       - git.create_branch
@@ -11,15 +96,111 @@ agents:
       - git.push
       - pr.create
       - release.create
+  sdd-apply:
+    phases: []
+    capabilities: []
+  sdd-archive:
+    phases: []
+    capabilities: []
+  sdd-design:
+    phases: []
+    capabilities: []
+  sdd-explore:
+    phases: []
+    capabilities: []
+  sdd-init:
+    phases: []
+    capabilities: []
   sdd-kernel-apply:
-    phases: [build, verify]
+    phases: ['build', 'verify']
     capabilities:
       - git.inspect
       - git.commit
+  sdd-kernel-archive:
+    phases: []
+    capabilities: []
+  sdd-kernel-coherence:
+    phases: []
+    capabilities: []
+  sdd-kernel-design:
+    phases: []
+    capabilities: []
+  sdd-kernel-explore:
+    phases: []
+    capabilities: []
+  sdd-kernel-init:
+    phases: []
+    capabilities: []
+  sdd-kernel-propose:
+    phases: []
+    capabilities: []
+  sdd-kernel-release:
+    phases: []
+    capabilities: []
+  sdd-kernel-spec:
+    phases: []
+    capabilities: []
+  sdd-kernel-tasks:
+    phases: []
+    capabilities: []
   sdd-kernel-verify:
-    phases: [verify]
+    phases: ['verify']
     capabilities:
       - git.inspect
+  sdd-onboard:
+    phases: []
+    capabilities: []
+  sdd-propose:
+    phases: []
+    capabilities: []
+  sdd-spec:
+    phases: []
+    capabilities: []
+  sdd-tasks:
+    phases: []
+    capabilities: []
+  sdd-verify:
+    phases: []
+    capabilities: []
+  sddk-adopt:
+    phases: []
+    capabilities: []
   sddk-debt-verify:
-    phases: [verify]
+    phases: ['verify']
+    capabilities: []
+  studio-analyzer:
+    phases: []
+    capabilities: []
+  studio-block:
+    phases: []
+    capabilities: []
+  studio-component:
+    phases: []
+    capabilities: []
+  studio-contract-miner:
+    phases: []
+    capabilities: []
+  studio-doc-extractor:
+    phases: []
+    capabilities: []
+  studio-orchestrator:
+    phases: []
+    capabilities: []
+  studio-page:
+    phases: []
+    capabilities: []
+  studio-reverse-engineer:
+    phases: []
+    capabilities: []
+  studio-token:
+    phases: []
+    capabilities: []
+  studio-validator:
+    phases: []
+    capabilities: []
+  test-pyramid-builder:
+    phases: []
+    capabilities: []
+  ui-auditor:
+    phases: []
     capabilities: []
