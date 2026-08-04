@@ -705,6 +705,166 @@ fn cli_walks_cycle_with_fencing_and_rebuilds_state() {
     assert_eq!(release_json["released"], true);
 }
 
+#[test]
+fn cli_capability_gateway_enforces_policy_and_persists_receipts() {
+    let fixture = CliFixture::new("capability-gateway");
+    write(
+        fixture.root.join("workflow/workflow.yaml"),
+        CANONICAL_WORKFLOW,
+    );
+    let common_root = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+    ];
+    let adopted = fixture.run_adopt(
+        "apply",
+        &[
+            "--root",
+            fixture.root.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            "https://example.com/acme/repo.git",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(adopted.status.success());
+
+    let denied = run_with_root(
+        &fixture,
+        &[
+            "capability",
+            "plan",
+            "--capability",
+            "shell.exec",
+            "--program",
+            "echo",
+            "--format",
+            "json",
+        ],
+        &common_root,
+    );
+    assert_eq!(denied.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&denied.stderr).contains("denied by policy"),
+        "{}",
+        String::from_utf8_lossy(&denied.stderr)
+    );
+
+    let unapproved = run_with_root(
+        &fixture,
+        &[
+            "capability",
+            "apply",
+            "--capability",
+            "git.delete_branch",
+            "--program",
+            "echo",
+            "--format",
+            "json",
+        ],
+        &common_root,
+    );
+    assert_eq!(unapproved.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&unapproved.stderr).contains("requires approval"),
+        "{}",
+        String::from_utf8_lossy(&unapproved.stderr)
+    );
+
+    let applied = run_with_root(
+        &fixture,
+        &[
+            "capability",
+            "apply",
+            "--capability",
+            "git.create_branch",
+            "--program",
+            "echo",
+            "--arg",
+            "feature/x",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ],
+        &common_root,
+    );
+    assert!(
+        applied.status.success(),
+        "{}",
+        String::from_utf8_lossy(&applied.stderr)
+    );
+    let applied_json: serde_json::Value = serde_json::from_slice(&applied.stdout).unwrap();
+    assert_eq!(applied_json["status"], "succeeded");
+
+    let approved = run_with_root(
+        &fixture,
+        &[
+            "capability",
+            "apply",
+            "--capability",
+            "git.delete_branch",
+            "--program",
+            "echo",
+            "--arg",
+            "feature/x",
+            "--approve",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ],
+        &common_root,
+    );
+    assert!(
+        approved.status.success(),
+        "{}",
+        String::from_utf8_lossy(&approved.stderr)
+    );
+    let approved_json: serde_json::Value = serde_json::from_slice(&approved.stdout).unwrap();
+    assert_eq!(approved_json["status"], "succeeded");
+
+    let status = run_with_root(
+        &fixture,
+        &["capability", "status", "--format", "json"],
+        &common_root,
+    );
+    assert!(status.status.success());
+    let status_json: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
+    let receipts = status_json.as_array().unwrap();
+    assert_eq!(receipts.len(), 2);
+    let capabilities = receipts
+        .iter()
+        .map(|receipt| receipt["capability"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(capabilities.contains(&"git.create_branch"));
+    assert!(capabilities.contains(&"git.delete_branch"));
+}
+
+fn run_with_root(fixture: &CliFixture, args: &[&str], common: &[&str]) -> std::process::Output {
+    fixture.run(
+        &args
+            .iter()
+            .chain(common.iter())
+            .copied()
+            .collect::<Vec<_>>(),
+    )
+}
+
 fn repository_fixture() -> TestRepository {
     let repository = TestRepository::new().unwrap();
     repository

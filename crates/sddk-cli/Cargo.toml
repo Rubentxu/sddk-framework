@@ -27,6 +27,7 @@ uuid = { workspace = true }
 time = { workspace = true }
 sddk-domain = { path = "../sddk-domain" }
 sddk-engine = { path = "../sddk-engine" }
+sddk-gateway = { path = "../sddk-gateway" }
 sddk-storage = { path = "../sddk-storage" }
 
 [dev-dependencies]

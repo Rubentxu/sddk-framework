@@ -4,6 +4,7 @@
 #![deny(clippy::all)]
 #![warn(missing_docs)]
 
+mod capability;
 mod cycle;
 mod docs;
 mod inventory;
@@ -14,6 +15,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 
+use capability::CapabilityCommand;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 pub(crate) use cycle::{CycleCommand, RuntimeArgs, RuntimeContext};
 use sddk_domain::{IdentitySource, normalize_scope, resolve_project_identity, stable_workspace_id};
@@ -76,6 +78,11 @@ enum Command {
     Ledger {
         #[command(subcommand)]
         command: ledger::LedgerCommand,
+    },
+    /// Plan and execute typed capabilities under the default-deny policy.
+    Capability {
+        #[command(subcommand)]
+        command: CapabilityCommand,
     },
 }
 
@@ -285,6 +292,7 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         ),
         Command::Cycle { command } => cycle::run_cycle(command, environment),
         Command::Ledger { command } => ledger::run_ledger(command, environment),
+        Command::Capability { command } => capability::run_capability(command, environment),
     }
 }
 
