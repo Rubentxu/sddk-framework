@@ -1,8 +1,8 @@
 use rusqlite::Connection;
 use sddk_domain::{CycleId, CycleManifest, CycleStatus};
 use sddk_storage::{
-    ArtifactRecord, CapabilityReceiptInput, CapabilityStatus, CycleRecord, IdempotencyOutcome,
-    LedgerEventInput, ProjectRecord, Storage, StorageError, WorkspaceRecord,
+    ArtifactRecord, CapabilityReceiptInput, CapabilityStatus, CycleRecord, LedgerEventInput,
+    ProjectRecord, Storage, StorageError, WorkspaceRecord,
 };
 use serde_json::json;
 use tempfile::tempdir;
@@ -164,27 +164,21 @@ fn cycle_event_listing_is_scoped_and_ordered() {
 }
 
 #[test]
-fn capability_receipts_are_idempotent_and_reject_key_reuse() {
+fn capability_receipts_begin_once_and_finalize_only_from_started() {
     let mut storage = Storage::open_in_memory().unwrap();
     storage.insert_project(&project_record()).unwrap();
     let input = capability_receipt("receipt-1", json!({"branch": "feature"}));
 
-    let inserted = storage.record_capability_receipt(&input).unwrap();
+    let inserted = storage.begin_capability_receipt(&input).unwrap();
+    assert_eq!(inserted.status, CapabilityStatus::Started);
+    assert_eq!(inserted.completed_at, None);
+
     let replay_input = CapabilityReceiptInput {
         receipt_id: "receipt-2".into(),
         ..input.clone()
     };
-    let replayed = storage.record_capability_receipt(&replay_input).unwrap();
-
-    let inserted_receipt = match inserted {
-        IdempotencyOutcome::Inserted(receipt) => receipt,
-        IdempotencyOutcome::Replayed(_) => panic!("first write must insert"),
-    };
-    let replayed_receipt = match replayed {
-        IdempotencyOutcome::Replayed(receipt) => receipt,
-        IdempotencyOutcome::Inserted(_) => panic!("retry must replay"),
-    };
-    assert_eq!(replayed_receipt, inserted_receipt);
+    let replayed = storage.begin_capability_receipt(&replay_input).unwrap();
+    assert_eq!(replayed, inserted);
     assert!(matches!(
         storage.get_capability_receipt("receipt-2"),
         Err(StorageError::NotFound { .. })
@@ -196,8 +190,50 @@ fn capability_receipts_are_idempotent_and_reject_key_reuse() {
         ..input
     };
     assert!(matches!(
-        storage.record_capability_receipt(&conflicting),
+        storage.begin_capability_receipt(&conflicting),
         Err(StorageError::IdempotencyConflict { .. })
+    ));
+
+    let finalized = storage
+        .finalize_capability_receipt(
+            "receipt-1",
+            CapabilityStatus::Succeeded,
+            Some(json!({"merged": true})),
+            "2026-08-04T10:00:01Z",
+        )
+        .unwrap();
+    assert_eq!(finalized.status, CapabilityStatus::Succeeded);
+    assert_eq!(
+        finalized.completed_at.as_deref(),
+        Some("2026-08-04T10:00:01Z")
+    );
+
+    assert!(matches!(
+        storage.finalize_capability_receipt(
+            "receipt-1",
+            CapabilityStatus::Failed,
+            None,
+            "2026-08-04T10:00:02Z"
+        ),
+        Err(StorageError::TerminalReceipt { .. })
+    ));
+
+    let listed = storage.list_capability_receipts("project-1").unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].status, CapabilityStatus::Succeeded);
+}
+
+#[test]
+fn capability_receipts_reject_terminal_begins() {
+    let mut storage = Storage::open_in_memory().unwrap();
+    storage.insert_project(&project_record()).unwrap();
+    let input = CapabilityReceiptInput {
+        status: CapabilityStatus::Succeeded,
+        ..capability_receipt("receipt-1", json!({}))
+    };
+    assert!(matches!(
+        storage.begin_capability_receipt(&input),
+        Err(StorageError::InvalidReceiptBegin)
     ));
 }
 
@@ -340,9 +376,9 @@ fn capability_receipt(receipt_id: &str, request: serde_json::Value) -> Capabilit
         capability: "git.create_branch".into(),
         idempotency_key: "create-feature-branch".into(),
         request,
-        status: CapabilityStatus::Succeeded,
-        result: Some(json!({"created": true})),
+        status: CapabilityStatus::Started,
+        result: None,
         started_at: CREATED_AT.into(),
-        completed_at: Some("2026-08-03T12:00:01Z".into()),
+        completed_at: None,
     }
 }

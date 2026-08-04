@@ -54,6 +54,15 @@ pub enum StorageError {
         /// Conflicting idempotency key.
         key: String,
     },
+    /// A capability receipt must be created in the started state.
+    #[error("capability receipt must begin in started status")]
+    InvalidReceiptBegin,
+    /// A capability receipt can only be finalized from the started state.
+    #[error("capability receipt {receipt_id} is already terminal")]
+    TerminalReceipt {
+        /// Receipt that cannot transition again.
+        receipt_id: String,
+    },
     /// A non-expired lease is owned by another runtime.
     #[error("cycle {cycle_id:?} is leased by {owner:?} until {expires_at_ms}")]
     LeaseConflict {
@@ -552,15 +561,19 @@ impl Storage {
             .ok_or_else(|| not_found("artifact", artifact_id))
     }
 
-    /// Records a capability receipt exactly once for an idempotency key.
+    /// Records the start of a capability execution exactly once for an idempotency key.
     ///
-    /// Reusing the key with the same request returns the original receipt.
-    /// Reusing it with a different request returns
-    /// [`StorageError::IdempotencyConflict`].
-    pub fn record_capability_receipt(
+    /// The receipt is created in the started state only. Reusing the key with the
+    /// same request returns the original receipt; reusing it with a different
+    /// request returns [`StorageError::IdempotencyConflict`]. Terminal states are
+    /// written exclusively through [`Storage::finalize_capability_receipt`].
+    pub fn begin_capability_receipt(
         &mut self,
         input: &CapabilityReceiptInput,
-    ) -> Result<IdempotencyOutcome> {
+    ) -> Result<CapabilityReceipt> {
+        if input.status != CapabilityStatus::Started {
+            return Err(StorageError::InvalidReceiptBegin);
+        }
         let request_json = serde_json::to_string(&input.request)?;
         let request_hash = hash_capability_request(input)?;
         let transaction = self
@@ -584,7 +597,7 @@ impl Storage {
             }
             let receipt = get_capability_receipt_on(&transaction, &receipt_id)?;
             transaction.commit()?;
-            return Ok(IdempotencyOutcome::Replayed(receipt));
+            return Ok(receipt);
         }
 
         transaction.execute(
@@ -619,7 +632,58 @@ impl Storage {
         )?;
         let receipt = get_capability_receipt_on(&transaction, &input.receipt_id)?;
         transaction.commit()?;
-        Ok(IdempotencyOutcome::Inserted(receipt))
+        Ok(receipt)
+    }
+
+    /// Finalizes a capability receipt from the started state.
+    ///
+    /// Accepts only terminal outcomes (`Succeeded`, `Failed`, `Unknown`) and
+    /// rejects transitions on receipts that are already terminal.
+    pub fn finalize_capability_receipt(
+        &mut self,
+        receipt_id: &str,
+        status: CapabilityStatus,
+        result: Option<Value>,
+        completed_at: &str,
+    ) -> Result<CapabilityReceipt> {
+        if status == CapabilityStatus::Started {
+            return Err(StorageError::InvalidReceiptBegin);
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current = get_capability_receipt_on(&transaction, receipt_id)?;
+        if current.status != CapabilityStatus::Started {
+            return Err(StorageError::TerminalReceipt {
+                receipt_id: receipt_id.to_owned(),
+            });
+        }
+        transaction.execute(
+            "UPDATE capability_receipts
+             SET status = ?2, result_json = ?3, completed_at = ?4
+             WHERE receipt_id = ?1",
+            params![
+                receipt_id,
+                enum_string(&status)?,
+                optional_json(&result)?,
+                completed_at
+            ],
+        )?;
+        let receipt = get_capability_receipt_on(&transaction, receipt_id)?;
+        transaction.commit()?;
+        Ok(receipt)
+    }
+
+    /// Lists capability receipts for one project in insertion order.
+    pub fn list_capability_receipts(&self, project_id: &str) -> Result<Vec<CapabilityReceipt>> {
+        let mut statement = self.connection.prepare(
+            "SELECT receipt_id, project_id, cycle_id, capability, request_hash,
+                    request_json, status, result_json, started_at, completed_at
+             FROM capability_receipts WHERE project_id = ?1
+             ORDER BY started_at ASC",
+        )?;
+        let rows = statement.query_map([project_id], capability_receipt_from_row)?;
+        rows.map(|row| row.map_err(StorageError::from)).collect()
     }
 
     /// Loads a capability receipt by identifier.
