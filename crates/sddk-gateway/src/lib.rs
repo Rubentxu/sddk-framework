@@ -66,10 +66,8 @@ pub fn redact(value: Value) -> Value {
                     normalized == *pattern || normalized.ends_with(&format!("_{pattern}"))
                 }) {
                     object.insert(key, Value::String("<redacted>".to_owned()));
-                } else {
-                    if let Some(inner) = object.get(&key).cloned() {
-                        object.insert(key, redact(inner));
-                    }
+                } else if let Some(inner) = object.get(&key).cloned() {
+                    object.insert(key, redact(inner));
                 }
             }
             Value::Object(object)
