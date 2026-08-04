@@ -43,7 +43,7 @@ La clasificación exige evidencia en repositorio. Un tipo, tabla o campo aislado
 | GAP-001 | P0 | Cerrado | Runtime y documentación fundacional versionados en `v0.1.0`; outputs de build excluidos. | Mantener commits por work unit. |
 | GAP-002 | P0 | Cerrado | `.github/workflows/ci.yml` ejecuta gates Rust, linter, generados y contratos. | Mantener `Required quality gates` como check obligatorio. |
 | GAP-003 | P0 | Cerrado | CLI expone cycle/lock/ledger conectados a Engine + storage. | Añadir capabilities y vault como próximos cortes. |
-| GAP-004 | P0 | Abierto | `TransitionEvidence.gates` acepta Passed/Failed del caller. | Introducir GateEvaluator, GateReceipt y autorización del emisor. |
+| GAP-004 | P0 | Cerrado | Gates con receipts autorizados: evaluador registrado, plan-hash y frame vinculados; autoafirmación rechazada. | Mantener evaluadores registrados por gate. |
 | GAP-005 | P0 | Cerrado | Gateway default-deny con runner tipado, filesystem scoped, approvals R3/R4 y receipts con redacción. | Extenderlo a Git local y CAS antes de habilitar efectos externos. |
 | GAP-006 | P0 | Cerrado | Root workflow/schemas son la única autoridad ejecutable; se retiraron snapshots divergentes. | Impedir nuevas copias mediante revisión y linter. |
 | GAP-007 | P1 | Cerrado | Workflow, código y tests usan fallback UUID persistido. | Mantener el receipt como semilla estable. |
@@ -99,21 +99,17 @@ El flujo local (adopción → ciclo → fases → ledger → rebuild) está cont
 
 **Criterio de cierre:** un test end-to-end recorre CLI → Engine → Storage creando ciclo, completando fase, aplicando fencing y reconstruyendo estado desde el ledger.
 
-### GAP-004 — Los gates no prueban nada por sí mismos
+### GAP-004 — Gates con receipts autorizados
 
-`TransitionEvidence` recibe un mapa de `GateOutcome` suministrado por el caller. El engine comprueba presencia y estado, pero no quién evaluó el gate, qué comando se ejecutó, qué política se usó ni si la evidencia corresponde al plan.
+El caller ya no puede autoafirmar un gate: `TransitionEvidence.gates` referencia receipts persistidos (`gate_receipts`, migración SQLite v2) emitidos por `engine.evaluate_gate`, que exige:
 
-Un gate ejecutable necesita:
+- evaluador registrado para el gate (registro por defecto `sddk.cli`; ampliable con `register_evaluator`);
+- gate declarado por la transición;
+- hash determinista del plan (`cycle_id + transition_id + state_before`);
+- vinculación a `command_id` y `frame_id` del comando evaluador;
+- evidencia y actor persistidos.
 
-- evaluador registrado;
-- inputs normalizados;
-- actor autorizado;
-- hash del plan;
-- policy version;
-- resultado y evidencia sanitizada;
-- receipt vinculado a `command_id` y `frame_id`.
-
-`tests-pass`, `policy-compliant`, `review-approved`, `no-pending-effects` y `ledger-valid` no deben aceptar autoafirmación del mismo caller que solicita la transición.
+`plan_transition` valida gate, transición, ciclo y plan-hash de cada receipt antes de derivar el outcome; receipts de otros gates, transiciones o ciclos se rechazan. `sddk cycle evaluate-gate` emite el receipt y `cycle transition --gate-receipt` lo consume.
 
 ### GAP-005 — Frontera de capacidades implementada
 
@@ -174,7 +170,7 @@ Quedan fuera: Git local (SDDK-603) y CAS (SDDK-604), que se construirán sobre e
 | PR 1 | Hotfix semántico, contrato único e inventario generado | Completo y protegido por CI. |
 | PR 2 | Cinco crates, testkit, linter, generadores y CI | Completo; JSON Schema runtime queda en SDDK-101, no bloquea esta unidad. |
 | PR 3 | Identidad UUID, XDG y adopción reparable | Completo y alineado con el workflow. |
-| PR 4 | SQLite, hash chain, engine, replay, leases y CLI | Completo; autoridad local probada extremo a extremo. |
+| PR 4 | SQLite, hash chain, engine, replay, leases, gates autorizados y CLI | Completo; autoridad local probada extremo a extremo. |
 | PR 5 | Gateway default-deny, Git local con postcondiciones y CAS SHA-256 | Completo y probado. |
 | PR 6 | Schema validation runtime, adaptador legacy y permisos por fase | Completo y probado. |
 | PR 7 | Forge trait, adaptador GitHub, release idempotente y reconciliación | Completo y probado con MockForge; integración GitHub real manual. |
@@ -185,7 +181,7 @@ Quedan fuera: Git local (SDDK-603) y CAS (SDDK-604), que se construirán sobre e
 
 | Gate | Resultado |
 | --- | --- |
-| `cargo test --workspace --locked` | PASS, 154 tests en el corte. |
+| `cargo test --workspace --locked` | PASS, 156 tests en el corte. |
 | `sddk lint --format json` | PASS, 0 errores y 0 warnings. |
 | `sddk generate docs --check` | PASS, documentación actual. |
 | `sddk generate inventory --check` | PASS, 64 agentes y 90 skills. |
@@ -197,6 +193,7 @@ Quedan fuera: Git local (SDDK-603) y CAS (SDDK-604), que se construirán sobre e
 | E2E CLI `cli_dev_install_verify_uninstall_are_atomic` | PASS, receipt, tamper detectado y uninstall atómico. |
 | E2E CLI `cli_release_dist_and_verify_checksums_and_sbom` | PASS, dist y verificación con tamper. |
 | E2E CLI `cli_dev_doctor_reports_environment` | PASS. |
+| Engine `cycle_authority` (GAP-004: evaluador registrado, plan-hash, receipts) | PASS, 6 tests. |
 | Gateway release flow (plan, convergencia tras interrupción, reconcile) | PASS, 4 tests. |
 | Gateway forge (MockForge contrato, parseo gh, merge tolerante) | PASS, 3 tests. |
 | CI remota | PASS en [`Required quality gates`](https://github.com/Rubentxu/sddk-framework/actions/runs/30888909675), 53 s. |
@@ -280,7 +277,7 @@ Quedan fuera: Git local (SDDK-603) y CAS (SDDK-604), que se construirán sobre e
 | Fencing de mutaciones | Cerrada | Transición exige owner+fencing token cuando el ciclo está leaseado; lease expirado re-acquire con token incrementado. |
 | Approvals R3/R4 | Cerrada | `modifies`/`irreversible` o riesgo high/critical exigen `--approve` explícito; desconocidas → denied. |
 | Lifecycle de receipts | Cerrada | `started → succeeded|failed` vía begin/finalize; terminal directo rechazado; request/result redactados. |
-| Validación de gates | Caller assertion vs receipt autorizado | Receipt autorizado y vinculado al plan. |
+| Validación de gates | Cerrada | Receipt autorizado: evaluador registrado, plan-hash y frame vinculados. |
 | Vault canónico | Paths XDG del runtime vs vault de conocimiento existente | Separar explícitamente estado operativo XDG de conocimiento canónico; documentar ownership y migración. |
 | Migración SQLite | Auto-migrate al abrir vs comando explícito | Backup + lock exclusivo + migración explícita para cambios destructivos. |
 
