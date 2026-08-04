@@ -10,10 +10,10 @@
 
 | Estado | Historias | Significado |
 | --- | ---: | --- |
-| Completa | 28 | Todos los criterios de la historia tienen implementación y prueba directa. |
+| Completa | 32 | Todos los criterios de la historia tienen implementación y prueba directa. |
 | Parcial | 0 | No queda ninguna historia parcial. |
 | Desviada | 0 | No queda ninguna desviación contractual conocida. |
-| No iniciada | 4 | No existe implementación runtime suficiente. |
+| No iniciada | 0 | El backlog v3.6 está completo. |
 | **Total** | **32** | La base Rust es funcional, pero v3.6 todavía no cumple su criterio de salida. |
 
 ## Matriz de aceptación
@@ -49,9 +49,9 @@
 | SDDK-902 | Completa | Índice FTS5 reconstruible (drop → reindex) y backlinks derivados | Sin gap funcional demostrado. |
 | SDDK-903 | Completa | Validación VAULT001-VAULT004: ids, títulos y wikilinks rotos | Sin gap funcional demostrado. |
 | SDDK-904 | Completa | Grafo `petgraph`: ciclos, camino de muestra y orden topológico | Sin gap funcional demostrado. |
-| SDDK-1001 | No iniciada | `bootstrap.sh` solo instala enlaces legacy | Falta `xtask` o equivalente con fmt/clippy/test/install/doctor. |
-| SDDK-1002 | No iniciada | Sin receipt de instalación | Falta versión, commit, hash, canal y promoción verificable. |
-| SDDK-1003 | No iniciada | Sin pipeline de release | Faltan binarios, checksums, SBOM y attestations. |
+| SDDK-1001 | Completa | `sddk dev doctor|check|install|verify|uninstall` (equivalente a xtask) | Sin gap funcional demostrado. |
+| SDDK-1002 | Completa | Receipt `sddk-install.json` con versión, commit, SHA-256, canal y timestamp; verificación y desinstalación atómicas | Sin gap funcional demostrado. |
+| SDDK-1003 | Completa | `sddk release dist` genera binario, checksums.txt, sbom.json y attestation.json; `release verify` valida todo | Sin gap funcional demostrado. |
 
 ## ÉPICA E1 — Fuente canónica del workflow
 

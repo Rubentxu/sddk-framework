@@ -18,12 +18,11 @@
 | PR 6 | Completo | Tests Rust + CLI | Schema validation runtime, adaptador legacy y permisos por fase con default-deny. |
 | PR 7 | Completo | Tests Rust + MockForge | Forge trait, adaptador GitHub, release plan/apply idempotente y reconciliación contra el proveedor. |
 | PR 8 | Completo | Tests Rust + CLI | Parser de vault, índice FTS5 reconstruible, validación y grafo petgraph. |
-| PR 9 | No iniciado | No demostrado | Sin `xtask`, CI/CD, receipts, SBOM ni attestations. |
+| PR 9 | Completo | Tests Rust + CLI | `dev doctor/check/install/verify/uninstall`, dist con checksums/SBOM/attestations y verificación atómica. |
 
 ## Próximo corte recomendado
 
-1. **No habilitar efectos externos:** capability gateway y approvals default-deny deben preceder a Git/Forge.
-2. **Continuar por dependencia:** PR 5 → PR 6 → PR 7 → PR 8 → PR 9.
+El plan PR1-PR9 está completo; el backlog v3.6 queda al 100 %.
 
 ## PR 1 — Estabilización semántica
 
@@ -155,13 +154,12 @@ El índice puede borrarse y reconstruirse desde el vault (`vault index` re-crea 
 
 ## PR 9 — Distribución
 
-**Estado actual:** No iniciado.
+**Estado actual:** Completo; doctor, gates, instalación con receipt y dist verificable probados.
 
 ### Entregables
 
-- `cargo xtask install-dev`.
-- Release-plz.
-- Dist.
+- `sddk dev doctor|check|install|verify|uninstall` (equivalente a xtask).
+- `sddk release dist|verify`.
 - Checksums.
 - SBOM.
 - Attestations.
@@ -169,7 +167,7 @@ El índice puede borrarse y reconstruirse desde el vault (`vault index` re-crea 
 
 ### Gate
 
-Una versión puede instalarse, verificarse, promoverse y revertirse de forma atómica.
+Una versión puede instalarse, verificarse, promoverse y revertirse de forma atómica (`dev install/verify/uninstall` con receipt SHA-256; `release dist/verify` con checksums, SBOM y attestation).
 
 ## Orden recomendado
 
