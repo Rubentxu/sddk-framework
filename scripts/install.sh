@@ -4,7 +4,7 @@
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/Rubentxu/sddk-framework/main/scripts/install.sh | bash
 #   bash install.sh                          # latest, ~/.local/bin
-#   bash install.sh --version v0.18.0        # pinned release
+#   bash install.sh --version v1.0.0        # pinned release
 #   bash install.sh --prefix /usr/local/bin  # custom prefix
 #   bash install.sh --framework              # also clone the framework repo and
 #                                            # link agents/skills/prompts into
