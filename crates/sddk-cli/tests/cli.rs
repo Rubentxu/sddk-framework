@@ -2854,7 +2854,17 @@ fn cli_dev_link_doctor_and_framework_checks() {
     // Minimal framework layout in the fixture repo.
     write(
         root.join("agents/orchestrator.md"),
-        "---\nname: orchestrator\n---\n# Orchestrator\n",
+        "---\nname: orchestrator\ndescription: Test orchestrator\ndescription: test\ndescription: x\n---\n# Orchestrator\n",
+    );
+    // Wait — fix the frontmatter to a single description.
+    fs::write(
+        root.join("agents/orchestrator.md"),
+        "---\nname: orchestrator\ndescription: Test orchestrator agent\nmodel: minimax-coding-plan/MiniMax-M3\n---\n# Orchestrator\n",
+    )
+    .unwrap();
+    write(
+        root.join("permissions.yaml"),
+        "agents:\n  orchestrator:\n    phases: []\n    capabilities: []\n",
     );
     write(root.join("skills/demo/SKILL.md"), "# Demo Skill\n");
     write(
@@ -2873,6 +2883,16 @@ fn cli_dev_link_doctor_and_framework_checks() {
     fs::write(opencode_dir.join("agents/orchestrator.md"), "stale content").unwrap();
     // A local-only agent (no repo counterpart) must be preserved.
     fs::write(opencode_dir.join("agents/local-only.md"), "local agent").unwrap();
+    // opencode.json with a local entry only.
+    write(
+        opencode_dir.join("opencode.json"),
+        r#"{
+  "agent": {
+    "local-only": {"mode": "subagent", "prompt": "{file:/tmp/local.md}", "hidden": true}
+  },
+  "mcp": {}
+}"#,
+    );
 
     // U2: link into both editors.
     let linked = fixture.run(&[
@@ -2913,6 +2933,51 @@ fn cli_dev_link_doctor_and_framework_checks() {
     assert!(orchestrator.file_type().is_symlink());
     // Stale backup exists.
     assert!(opencode_dir.join("agents/orchestrator.sddk-stale").exists());
+
+    // U1: opencode.json now registers the framework agent pointing at the repo.
+    let config: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(opencode_dir.join("opencode.json")).unwrap())
+            .unwrap();
+    let registered = &config["agent"]["orchestrator"];
+    assert_eq!(registered["mode"], "subagent");
+    assert_eq!(
+        registered["prompt"],
+        format!("{{file:{}}}", root.join("agents/orchestrator.md").display())
+    );
+    assert_eq!(registered["description"], "Test orchestrator agent");
+    // Local entry untouched.
+    assert!(config["agent"]["local-only"].is_object());
+
+    // U2: uninstall removes the framework entry + symlink, keeps local.
+    let uninstalled = fixture.run(&[
+        "dev",
+        "uninstall",
+        "--editor",
+        "opencode",
+        "--root",
+        root.to_str().unwrap(),
+        "--opencode-dir",
+        opencode_dir.to_str().unwrap(),
+        "--format",
+        "json",
+    ]);
+    assert!(
+        uninstalled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&uninstalled.stderr)
+    );
+    // Uninstall renders text output; verify the entry removal happened on disk.
+    assert!(String::from_utf8_lossy(&uninstalled.stdout).contains("1 entries"));
+    let after: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(opencode_dir.join("opencode.json")).unwrap())
+            .unwrap();
+    assert!(after["agent"]["orchestrator"].is_null());
+    assert!(after["agent"]["local-only"].is_object());
+    assert!(
+        !opencode_dir.join("agents/orchestrator.md").exists(),
+        "framework symlink removed"
+    );
+    assert!(opencode_dir.join("agents/local-only.md").exists());
 }
 
 #[test]
