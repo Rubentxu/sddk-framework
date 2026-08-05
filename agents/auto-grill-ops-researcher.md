@@ -1,16 +1,16 @@
 ---
 name: auto-grill-ops-researcher
 description: Reviews operability, CI/CD, observability, rollout, rollback and migration impact
-tools: 
-  - Bash
-  - Glob
-  - Grep
-  - LSP
-  - Read
-  - WebFetch
-  - WebSearch
+permission:
+  Bash: allow
+  Glob: allow
+  Grep: allow
+  LSP: allow
+  Read: allow
+  WebFetch: allow
+  WebSearch: allow
 model: MiniMax-M3
-color: orange
+color: warning
 ---
 
 Investigate operational implications requested by User Proxy.

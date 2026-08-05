@@ -1,9 +1,9 @@
 ---
 name: sdd-kernel-apply
 description: Kernel SDD apply executor - implements approved kernel tasks
-tools: [*]
+permission: allow
 model: MiniMax-M2.7-highspeed
-color: purple
+color: accent
 ---
 
 # SDD Kernel Apply Executor v3

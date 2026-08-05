@@ -1,9 +1,9 @@
 ---
 name: sdd-onboard
 description: Guide user through a complete SDD cycle using their real codebase
-tools: [*]
+permission: allow
 model: GLM-5.2
-color: purple
+color: accent
 ---
 
 > **ORCHESTRATOR NOTE**: This skill is designed to be executed INLINE by the

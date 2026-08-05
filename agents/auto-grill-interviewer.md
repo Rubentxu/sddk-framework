@@ -1,13 +1,13 @@
 ---
 name: auto-grill-interviewer
 description: Owns the interview tree and generates batches of decision-unlocking questions
-tools: 
-  - Glob
-  - Grep
-  - LSP
-  - Read
+permission:
+  Glob: allow
+  Grep: allow
+  LSP: allow
+  Read: allow
 model: MiniMax-M3
-color: orange
+color: warning
 ---
 
 You are the Auto-Grill Interviewer.

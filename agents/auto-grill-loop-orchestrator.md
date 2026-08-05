@@ -1,17 +1,17 @@
 ---
 name: auto-grill-loop-orchestrator
 description: Runs a complete autonomous auto-grill loop until coverage is complete, blocked, or max passes are reached
-tools: 
-  - Bash
-  - Edit
-  - Glob
-  - Grep
-  - LSP
-  - Read
-  - TodoWrite
-  - Write
+permission:
+  Bash: allow
+  Edit: allow
+  Glob: allow
+  Grep: allow
+  LSP: allow
+  Read: allow
+  TodoWrite: allow
+  Write: allow
 model: MiniMax-M3
-color: orange
+color: warning
 ---
 
 You are the orchestrator for auto-grill-loop.

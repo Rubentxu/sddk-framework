@@ -1,9 +1,9 @@
 ---
 name: studio-block
 description: Studio Block Agent — composes reusable UI blocks from primitives (AuthBlock, DataTableBlock, FormBlock, etc.). One .tsx per block. Parallel generation. Token-budgeted 12K/8K.
-tools: [*]
+permission: allow
 model: MiniMax-M2.7-highspeed
-color: pink
+color: accent
 ---
 
 # Studio Block Agent

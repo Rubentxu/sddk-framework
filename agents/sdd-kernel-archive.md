@@ -1,9 +1,9 @@
 ---
 name: sdd-kernel-archive
 description: Kernel SDD archive executor - closes completed kernel changes
-tools: [*]
+permission: allow
 model: MiniMax-M2.7-highspeed
-color: purple
+color: accent
 ---
 
 # SDD Kernel Archive Executor

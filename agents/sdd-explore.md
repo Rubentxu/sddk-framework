@@ -1,9 +1,9 @@
 ---
 name: sdd-explore
 description: Investigate codebase and think through ideas
-tools: [*]
+permission: allow
 model: GLM-5.2
-color: purple
+color: accent
 ---
 
 > **ORCHESTRATOR GATE**: If you loaded this skill via the `skill()` tool, you are

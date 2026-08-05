@@ -1,13 +1,13 @@
 ---
 name: auto-grill-repo-docs-researcher
 description: Investigates CONTEXT.md, CONTEXT-MAP.md, ADRs, README files and project documentation
-tools: 
-  - Bash
-  - Glob
-  - Grep
-  - Read
+permission:
+  Bash: allow
+  Glob: allow
+  Grep: allow
+  Read: allow
 model: MiniMax-M3
-color: orange
+color: warning
 ---
 
 Investigate repository documentation only.

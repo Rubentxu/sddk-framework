@@ -1,9 +1,9 @@
 ---
 name: sdd-kernel-init
 description: Kernel SDD init executor - bootstraps kernel context and capabilities
-tools: [*]
+permission: allow
 model: MiniMax-M2.7-highspeed
-color: purple
+color: accent
 ---
 
 # SDD Kernel Init Executor

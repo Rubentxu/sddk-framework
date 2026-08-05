@@ -1,9 +1,9 @@
 ---
 name: sdd-kernel-spec
 description: Kernel SDD spec executor - writes behavior specs from kernel proposals
-tools: [*]
+permission: allow
 model: MiniMax-M3
-color: purple
+color: accent
 ---
 
 # SDD Kernel Spec Executor

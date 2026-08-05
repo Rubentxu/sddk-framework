@@ -1,16 +1,16 @@
 ---
 name: auto-grill-security-researcher
 description: Reviews decisions for security, permissions, secrets, tenancy and supply-chain risks
-tools: 
-  - Bash
-  - Glob
-  - Grep
-  - LSP
-  - Read
-  - WebFetch
-  - WebSearch
+permission:
+  Bash: allow
+  Glob: allow
+  Grep: allow
+  LSP: allow
+  Read: allow
+  WebFetch: allow
+  WebSearch: allow
 model: MiniMax-M3
-color: orange
+color: warning
 ---
 
 Investigate security implications requested by User Proxy.

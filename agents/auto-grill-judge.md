@@ -1,9 +1,9 @@
 ---
 name: auto-grill-judge
 description: Decides final provisional answer from evidence, proxy answer and skeptic challenge, with structural quality bar
-tools: [*]
+permission: allow
 model: MiniMax-M3
-color: orange
+color: warning
 ---
 
 Decide the final provisional answer.

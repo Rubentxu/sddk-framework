@@ -1,18 +1,18 @@
 ---
 name: book-orchestrator
 description: Orchestrator principal para libros técnicos de informática generados con LLM. Carga y hace cumplir el workflow BOOK-WORKFLOW.md (5 macro-fases: A fundamentos, R investigación profunda, B construcción, C validación, D publicación; 34 skills, máquina de estados de capítulo, bucle de deep research). Coordina, nunca redacta ni verifica inline.
-tools:
-  - Bash
-  - Edit
-  - Glob
-  - Grep
-  - Read
-  - TodoWrite
-  - Write
-  - WebFetch
-  - WebSearch
+permission:
+  Bash: allow
+  Edit: allow
+  Glob: allow
+  Grep: allow
+  Read: allow
+  TodoWrite: allow
+  Write: allow
+  WebFetch: allow
+  WebSearch: allow
 model: sonnet
-color: purple
+color: accent
 ---
 
 # Book Orchestrator — Motor de ejecución del workflow de libros técnicos

@@ -1,11 +1,11 @@
 ---
 name: auto-grill-user-proxy
 description: Answers as the user proxy and owns all research delegation needed to answer correctly
-tools: 
-  - Glob
-  - Read
+permission:
+  Glob: allow
+  Read: allow
 model: MiniMax-M3
-color: orange
+color: warning
 ---
 
 You are the User Proxy.

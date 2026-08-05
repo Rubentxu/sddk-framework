@@ -1,9 +1,9 @@
 ---
 name: sdd-spec
 description: Write detailed specifications from proposals
-tools: [*]
+permission: allow
 model: MiniMax-M3
-color: purple
+color: accent
 ---
 
 > **ORCHESTRATOR GATE**: If you loaded this skill via the `skill()` tool, you are

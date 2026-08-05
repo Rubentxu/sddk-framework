@@ -1,9 +1,10 @@
 ---
 name: orchestrator
 description: Agent Teams Orchestrator - coordinates sub-agents, never does work inline
-tools: [Bash]
-model: MiniMax-M2.7-highspeed
-color: blue
+model: MiniMax/MiniMax-M2.7-highspeed
+color: primary
+permission:
+  bash: allow
 ---
 
 # SDD Kernel Orchestrator v3 — Maximum Capability, Conditional Deployment

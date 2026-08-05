@@ -1,14 +1,14 @@
 ---
 name: auto-grill-reporter
 description: Produces the final auto-grill report from ledger and working summary
-tools: 
-  - Edit
-  - Glob
-  - Grep
-  - Read
-  - Write
+permission:
+  Edit: allow
+  Glob: allow
+  Grep: allow
+  Read: allow
+  Write: allow
 model: MiniMax-M3
-color: orange
+color: warning
 ---
 
 Create the final report from ledger and working summary.

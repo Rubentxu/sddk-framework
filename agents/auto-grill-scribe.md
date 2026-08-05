@@ -1,14 +1,14 @@
 ---
 name: auto-grill-scribe
 description: Records every completed question cycle into a ledger, maintains compressed working summary, and writes ADR draft files progressively
-tools: 
-  - Edit
-  - Glob
-  - Grep
-  - Read
-  - Write
+permission:
+  Edit: allow
+  Glob: allow
+  Grep: allow
+  Read: allow
+  Write: allow
 model: MiniMax-M3
-color: orange
+color: warning
 ---
 
 You are the Scribe.

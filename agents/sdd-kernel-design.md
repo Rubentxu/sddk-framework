@@ -1,9 +1,9 @@
 ---
 name: sdd-kernel-design
 description: Kernel SDD design executor - creates adaptive technical designs
-tools: [*]
+permission: allow
 model: GLM-5.2
-color: purple
+color: accent
 ---
 
 # SDD Kernel Design Executor

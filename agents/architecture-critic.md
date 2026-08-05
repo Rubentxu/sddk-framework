@@ -1,9 +1,9 @@
 ---
 name: architecture-critic
 description: "Architecture critic lens — Matsumoto-style critique (scream test, deletion test, dependency direction, hexagonal purity). Read-only subagent invoked by debt-architecture-cluster. Adversarial — looks for over-engineering, missed seams, and simpler alternatives."
-tools: [*]
+permission: allow
 model: MiniMax-M3
-color: amber
+color: warning
 ---
 
 # Architecture Critic — Matsumoto Perspective

@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand, ValueEnum};
-use sddk_gateway::{RunSpec, run};
+use sddk_gateway::{PermissionPolicy, RunSpec, run};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -77,9 +77,21 @@ pub(crate) struct VerifyArgs {
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct UninstallArgs {
-    /// Installation prefix directory.
+    /// Installation prefix directory (optional when removing editor assets only).
     #[arg(long)]
-    pub(crate) prefix: PathBuf,
+    pub(crate) prefix: Option<PathBuf>,
+    /// Also remove framework assets from an editor (opencode|zcode|all).
+    #[arg(long, value_enum)]
+    pub(crate) editor: Option<LinkEditor>,
+    /// Repository root (required with --editor).
+    #[arg(long, default_value = ".")]
+    pub(crate) root: PathBuf,
+    /// Override the OpenCode config dir.
+    #[arg(long)]
+    pub(crate) opencode_dir: Option<PathBuf>,
+    /// Override the ZCode dir.
+    #[arg(long)]
+    pub(crate) zcode_dir: Option<PathBuf>,
     /// Output format.
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     pub(crate) format: OutputFormat,
@@ -351,19 +363,55 @@ fn run_dev_verify(args: VerifyArgs) -> CommandOutput {
 
 fn run_dev_uninstall(args: UninstallArgs) -> CommandOutput {
     let format = args.format;
-    let result = (|| -> anyhow::Result<bool> {
-        let receipt = read_receipt(&args.prefix)?;
-        let binary_path = args.prefix.join(&receipt.binary_path);
-        let bytes = std::fs::read(&binary_path)?;
-        let digest = format!("sha256:{:x}", Sha256::digest(&bytes));
-        if digest != receipt.binary_sha256 {
-            anyhow::bail!("refusing to uninstall: binary does not match the receipt");
+    let result = (|| -> anyhow::Result<String> {
+        let mut output = String::new();
+
+        // Binary prefix removal (existing behavior) — optional when --editor is used.
+        if let Some(prefix) = &args.prefix {
+            let receipt = read_receipt(prefix)?;
+            let binary_path = prefix.join(&receipt.binary_path);
+            let bytes = std::fs::read(&binary_path)?;
+            let digest = format!("sha256:{:x}", Sha256::digest(&bytes));
+            if digest != receipt.binary_sha256 {
+                anyhow::bail!("refusing to uninstall: binary does not match the receipt");
+            }
+            std::fs::remove_file(&binary_path)?;
+            std::fs::remove_file(prefix.join(RECEIPT_FILE))?;
+            output.push_str("binary: removed\n");
         }
-        std::fs::remove_file(&binary_path)?;
-        std::fs::remove_file(args.prefix.join(RECEIPT_FILE))?;
-        Ok(true)
+
+        // Editor framework removal (optional).
+        if let Some(editor) = args.editor {
+            let root = std::fs::canonicalize(&args.root)?;
+            let home = std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("/tmp"));
+            let opencode_dir = args
+                .opencode_dir
+                .clone()
+                .unwrap_or_else(|| home.join(".config/opencode"));
+            let zcode_dir = args
+                .zcode_dir
+                .clone()
+                .unwrap_or_else(|| home.join(".zcode"));
+            if matches!(editor, LinkEditor::OpenCode | LinkEditor::All) {
+                let report = uninstall_editor(&root, &opencode_dir)?;
+                output.push_str(&format!(
+                    "opencode: {} entries, {} symlinks removed, {} kept\n",
+                    report.entries_removed, report.symlinks_removed, report.files_kept
+                ));
+            }
+            if matches!(editor, LinkEditor::ZCode | LinkEditor::All) {
+                let report = uninstall_editor(&root, &zcode_dir)?;
+                output.push_str(&format!(
+                    "zcode: {} entries, {} symlinks removed, {} kept\n",
+                    report.entries_removed, report.symlinks_removed, report.files_kept
+                ));
+            }
+        }
+        Ok(output)
     })();
-    render_result(result, format, |removed| format!("removed: {removed}\n"))
+    render_result(result, format, |output: &String| output.clone())
 }
 
 fn read_receipt(prefix: &Path) -> anyhow::Result<InstallReceipt> {
@@ -638,6 +686,16 @@ fn run_dev_link(args: LinkArgs) -> CommandOutput {
         let mut reports = Vec::new();
         if matches!(args.editor, LinkEditor::OpenCode | LinkEditor::All) {
             reports.push(link_editor(&root, &opencode_dir));
+            // Register framework agents in opencode.json.
+            let opencode_json = opencode_dir.join("opencode.json");
+            if opencode_json.exists() {
+                match register_opencode_agents(&root, &opencode_json) {
+                    Ok(registered) => eprintln!(
+                        "opencode: registered {registered} framework agents in opencode.json"
+                    ),
+                    Err(error) => eprintln!("warning: opencode.json registration failed: {error}"),
+                }
+            }
         }
         if matches!(args.editor, LinkEditor::ZCode | LinkEditor::All) {
             reports.push(link_editor(&root, &zcode_dir));
@@ -756,6 +814,151 @@ fn check_framework(root: &Path, editor_dir: &Path) -> Vec<FrameworkCheck> {
 
     let _ = root;
     checks
+}
+
+// --- Agent registration (opencode.json) ---
+
+/// Names of framework agents: declared in permissions.yaml AND present in agents/*.md.
+fn framework_agent_names(root: &Path) -> Vec<String> {
+    let policy = match PermissionPolicy::from_file(root.join("permissions.yaml")) {
+        Ok(policy) => policy,
+        Err(_) => return Vec::new(),
+    };
+    let agents_dir = root.join("agents");
+    policy
+        .agents()
+        .filter(|name| agents_dir.join(format!("{name}.md")).exists())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Minimal frontmatter extraction (description/model) from an agent .md.
+struct AgentFrontmatter {
+    description: String,
+    model: Option<String>,
+}
+
+fn parse_frontmatter(path: &Path) -> Option<AgentFrontmatter> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let block = content.strip_prefix("---")?.split_once("---")?.0;
+    let mut description = String::new();
+    let mut model = None;
+    for line in block.lines() {
+        if let Some(value) = line.strip_prefix("description:") {
+            description = value.trim().trim_matches('"').to_owned();
+        } else if let Some(value) = line.strip_prefix("model:") {
+            model = Some(value.trim().trim_matches('"').to_owned());
+        }
+    }
+    if description.is_empty() {
+        return None;
+    }
+    Some(AgentFrontmatter { description, model })
+}
+
+/// Upsert framework agent entries into opencode.json.
+fn register_opencode_agents(root: &Path, opencode_json: &Path) -> anyhow::Result<usize> {
+    let content = std::fs::read_to_string(opencode_json)?;
+    let mut config: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| anyhow::anyhow!("opencode.json invalid: {e}"))?;
+    let agents = config
+        .get_mut("agent")
+        .and_then(|value| value.as_object_mut())
+        .ok_or_else(|| anyhow::anyhow!("opencode.json has no agent map"))?;
+    let mut registered = 0usize;
+    for name in framework_agent_names(root) {
+        let md_path = root.join("agents").join(format!("{name}.md"));
+        let Some(frontmatter) = parse_frontmatter(&md_path) else {
+            continue;
+        };
+        let model = frontmatter
+            .model
+            .clone()
+            .unwrap_or_else(|| "minimax-coding-plan/MiniMax-M3".to_owned());
+        agents.insert(
+            name,
+            serde_json::json!({
+                "description": frontmatter.description,
+                "mode": "subagent",
+                "model": model,
+                "prompt": format!("{{file:{}}}", md_path.to_string_lossy()),
+                "hidden": true,
+            }),
+        );
+        registered += 1;
+    }
+    let serialized = serde_json::to_string_pretty(&config)?;
+    std::fs::write(opencode_json, serialized)?;
+    Ok(registered)
+}
+
+/// Remove framework agent entries + framework symlinks from one editor.
+fn uninstall_editor(root: &Path, editor_dir: &Path) -> anyhow::Result<UninstallReport> {
+    let mut report = UninstallReport {
+        editor: editor_dir.to_string_lossy().into_owned(),
+        entries_removed: 0,
+        symlinks_removed: 0,
+        files_kept: 0,
+        errors: Vec::new(),
+    };
+
+    // 1. opencode.json agent entries.
+    let opencode_json = editor_dir.join("opencode.json");
+    if opencode_json.exists()
+        && let Ok(content) = std::fs::read_to_string(&opencode_json)
+        && let Ok(mut config) = serde_json::from_str::<serde_json::Value>(&content)
+        && let Some(agents) = config.get_mut("agent").and_then(|v| v.as_object_mut())
+    {
+        let framework = framework_agent_names(root);
+        let before = agents.len();
+        agents.retain(|name, _| !framework.iter().any(|f| f == name));
+        report.entries_removed = before - agents.len();
+        if report.entries_removed > 0 {
+            let serialized = serde_json::to_string_pretty(&config)?;
+            std::fs::write(&opencode_json, serialized)?;
+        }
+    }
+
+    // 2. Framework symlinks (target points into the repo).
+    let root_canon = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    for category in ["agents", "skills", "prompts", "workflows"] {
+        let dir = editor_dir.join(category);
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Ok(target) = std::fs::read_link(&path) {
+                let absolute = if target.is_absolute() {
+                    target
+                } else {
+                    path.parent()
+                        .map(|parent| parent.join(&target))
+                        .unwrap_or(target)
+                };
+                if absolute.starts_with(&root_canon) {
+                    let _ = std::fs::remove_file(&path);
+                    report.symlinks_removed += 1;
+                } else {
+                    report.files_kept += 1;
+                }
+            } else {
+                // Regular file (not a symlink): preserve local-only assets.
+                report.files_kept += 1;
+            }
+        }
+    }
+    Ok(report)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+struct UninstallReport {
+    editor: String,
+    entries_removed: usize,
+    symlinks_removed: usize,
+    files_kept: usize,
+    errors: Vec<String>,
 }
 
 // --- Update ---
