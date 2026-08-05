@@ -168,6 +168,15 @@ agents:
   sddk-debt-verify:
     phases: ['verify']
     capabilities: []
+  analytics-researcher:
+    phases: ['verify']
+    capabilities: [ledger.read]
+  analytics-judge:
+    phases: ['verify']
+    capabilities: [ledger.read]
+  analytics-reporter:
+    phases: ['verify']
+    capabilities: [ledger.read]
   studio-analyzer:
     phases: []
     capabilities: []

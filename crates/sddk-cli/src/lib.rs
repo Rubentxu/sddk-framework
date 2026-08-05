@@ -4,6 +4,7 @@
 #![deny(clippy::all)]
 #![warn(missing_docs)]
 
+mod analytics;
 mod artifact;
 mod capability;
 mod cycle;
@@ -13,6 +14,7 @@ mod git_cmd;
 mod inventory;
 mod ledger;
 mod lint;
+mod metrics;
 mod pack_cmd;
 mod permission;
 mod release_cmd;
@@ -23,12 +25,14 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 
+use analytics::AnalyticsCommand;
 use artifact::ArtifactCommand;
 use capability::CapabilityCommand;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 pub(crate) use cycle::{CycleCommand, RuntimeArgs, RuntimeContext};
 use dev_cmd::DevCommand;
 use git_cmd::GitCommand;
+use metrics::MetricsCommand;
 use pack_cmd::PackCommand;
 use permission::PermissionCommand;
 use release_cmd::ReleaseCommand;
@@ -146,6 +150,16 @@ enum Command {
     Pack {
         #[command(subcommand)]
         command: PackCommand,
+    },
+    /// Record, aggregate, and tune cycle telemetry metrics.
+    Metrics {
+        #[command(subcommand)]
+        command: MetricsCommand,
+    },
+    /// Report, trend, and bottleneck analytics from cycle metrics.
+    Analytics {
+        #[command(subcommand)]
+        command: AnalyticsCommand,
     },
 }
 
@@ -365,6 +379,8 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         Command::Vault { command } => vault_cmd::run_vault(command, environment),
         Command::Dev { command } => dev_cmd::run_dev(command),
         Command::Pack { command } => pack_cmd::run_pack(command),
+        Command::Metrics { command } => metrics::run_metrics(command, environment),
+        Command::Analytics { command } => analytics::run_analytics(command, environment),
     }
 }
 

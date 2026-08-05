@@ -6,11 +6,14 @@
 
 | Type | Count |
 | --- | ---: |
-| Agents | 64 |
+| Agents | 67 |
 | Skills | 90 |
 
-## Agents (64)
+## Agents (67)
 
+- `agents/analytics-judge.md`
+- `agents/analytics-reporter.md`
+- `agents/analytics-researcher.md`
 - `agents/architecture-critic.md`
 - `agents/auto-grill-code-researcher.md`
 - `agents/auto-grill-coverage-auditor.md`
