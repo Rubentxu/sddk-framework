@@ -1424,6 +1424,152 @@ fn cli_closing_cycle_auto_captures_metrics_record() {
 }
 
 #[test]
+fn cli_metrics_cost_tuning_band_and_backfill() {
+    let fixture = CliFixture::new("metrics-v2");
+    write(
+        fixture.root.join("workflow/workflow.yaml"),
+        CANONICAL_WORKFLOW,
+    );
+    let common = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+        "--format",
+        "json",
+    ];
+    let adopted = fixture.run_adopt("apply", &common);
+    assert!(
+        adopted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&adopted.stderr)
+    );
+
+    // U3: cost estimation from tokens + model.
+    let recorded = fixture.run(&[
+        "metrics",
+        "record",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--cycle",
+        "p-1/cost-cycle",
+        "--tokens",
+        "1000000",
+        "--model",
+        "deepseek-v4-pro",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        recorded.status.success(),
+        "{}",
+        String::from_utf8_lossy(&recorded.stderr)
+    );
+    let record_json: serde_json::Value = serde_json::from_slice(&recorded.stdout).unwrap();
+    assert_eq!(record_json["tokens_used"], 1000000);
+    let cost = record_json["cost_estimate_usd"].as_f64().unwrap();
+    assert!(
+        (cost - 1.20).abs() < 1e-6,
+        "cost should be 1.20 for deepseek-v4-pro, got {cost}"
+    );
+
+    // Record two more with different verdicts to move rate into the middle band (0.6-0.85).
+    let second = fixture.run(&[
+        "metrics",
+        "record",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--cycle",
+        "p-1/pass-cycle",
+        "--verdict",
+        "PASS",
+        "--first-pass",
+        "--format",
+        "json",
+    ]);
+    assert!(second.status.success());
+    let third = fixture.run(&[
+        "metrics",
+        "record",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--cycle",
+        "p-1/pass-cycle-2",
+        "--verdict",
+        "PASS",
+        "--first-pass",
+        "--format",
+        "json",
+    ]);
+    assert!(third.status.success());
+
+    // U2: tuning with rate 2/3 = 0.67 (middle band) must recommend lens + A-lite bias.
+    let tuned = fixture.run(&[
+        "metrics",
+        "tuning",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        tuned.status.success(),
+        "{}",
+        String::from_utf8_lossy(&tuned.stderr)
+    );
+    let tuning_json: serde_json::Value = serde_json::from_slice(&tuned.stdout).unwrap();
+    assert_eq!(tuning_json["path_bias"], "A-lite");
+    let lenses = tuning_json["recommended_lens"].as_array().unwrap();
+    assert!(
+        lenses.iter().any(|lens| lens == "test-quality"),
+        "middle band should recommend test-quality lens: {lenses:?}"
+    );
+
+    // U4: backfill is a no-op when records are already enriched (PASS verdict).
+    let backfilled = fixture.run(&[
+        "metrics",
+        "backfill",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        backfilled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backfilled.stderr)
+    );
+    let backfill_json: serde_json::Value = serde_json::from_slice(&backfilled.stdout).unwrap();
+    assert_eq!(backfill_json.as_array().unwrap().len(), 0);
+}
+
+#[test]
 fn cli_git_operations_verify_postconditions_and_record_receipts() {
     let fixture = CliFixture::new("git-authority");
     write(
