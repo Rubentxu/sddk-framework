@@ -2,7 +2,7 @@
 name: debt-duplication-cluster
 description: "Duplication cluster — structural/logical/semantic duplication + dead/unreachable code. Inline detection catalog (no skill delegation). Subagent of sddk-debt-verify."
 permission: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: warning
 ---
 

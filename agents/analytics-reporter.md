@@ -2,7 +2,7 @@
 name: analytics-reporter
 description: "Final agent of the telemetry self-research loop. Turns confirmed findings into actionable F3 tuning recommendations and a human-readable analytics summary. Read-only; recommendations are advisory."
 permission: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: success
 ---
 

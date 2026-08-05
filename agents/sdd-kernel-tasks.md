@@ -2,7 +2,7 @@
 name: sdd-kernel-tasks
 description: Kernel SDD tasks executor - creates review-aware implementation tasks
 permission: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: accent
 ---
 

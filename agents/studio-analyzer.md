@@ -2,7 +2,7 @@
 name: studio-analyzer
 description: Studio Analyzer Agent — reads backend schema (OpenAPI/GraphQL/tRPC/JSON) and produces domain model + UI capability map. Schema-first inference. One-shot extraction. Output to filesystem (not conversation). Token-budgeted 8K/4K.
 permission: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: accent
 ---
 

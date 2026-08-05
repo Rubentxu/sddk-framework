@@ -2,7 +2,7 @@
 name: sdd-verify
 description: Validate implementation against specs
 permission: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: accent
 ---
 

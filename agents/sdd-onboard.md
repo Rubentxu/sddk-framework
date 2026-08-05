@@ -2,7 +2,7 @@
 name: sdd-onboard
 description: Guide user through a complete SDD cycle using their real codebase
 permission: allow
-model: GLM-5.2
+model: zai-coding-plan/glm-5.2
 color: accent
 ---
 

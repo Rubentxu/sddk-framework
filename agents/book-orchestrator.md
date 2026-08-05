@@ -11,7 +11,7 @@ permission:
   Write: allow
   WebFetch: allow
   WebSearch: allow
-model: sonnet
+model: minimax-coding-plan/MiniMax-M3
 color: accent
 ---
 

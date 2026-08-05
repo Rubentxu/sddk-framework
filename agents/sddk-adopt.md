@@ -2,7 +2,7 @@
 name: sddk-adopt
 description: Onboarding and adoption agent — audit a legacy project that doesn't use SDDK yet, and produce the artifacts needed to start running cycles. Handles initial state detection, knowledge vault initialization, decision history reconstruction (if possible), and gap report.
 permission: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: accent
 ---
 

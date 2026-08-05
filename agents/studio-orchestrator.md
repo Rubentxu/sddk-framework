@@ -2,7 +2,7 @@
 name: studio-orchestrator
 description: Studio Orchestrator — meta-coordinator for the 6-agent frontend generation pipeline (Analyzer → Token → Component → Block → Page → Validator). Lazy-loads from filesystem, dispatches parallel batches, enforces token budgets. Read-only on filesystem except for emitting agent prompts.
 permission: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: accent
 ---
 

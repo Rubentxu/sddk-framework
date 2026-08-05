@@ -1,7 +1,7 @@
 ---
 name: orchestrator
 description: Agent Teams Orchestrator - coordinates sub-agents, never does work inline
-model: MiniMax/MiniMax-M2.7-highspeed
+model: minimax-coding-plan/MiniMax-M2.7-highspeed
 color: primary
 permission:
   bash: allow

@@ -2,7 +2,7 @@
 name: sdd-init
 description: Bootstrap SDD context and project configuration
 permission: allow
-model: MiniMax-M2.7-highspeed
+model: minimax-coding-plan/MiniMax-M2.7-highspeed
 color: accent
 ---
 

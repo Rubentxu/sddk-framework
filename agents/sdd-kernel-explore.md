@@ -2,7 +2,7 @@
 name: sdd-kernel-explore
 description: Kernel SDD explore executor - investigates with context quality and taxonomy
 permission: allow
-model: GLM-5.2
+model: zai-coding-plan/glm-5.2
 color: accent
 ---
 

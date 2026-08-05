@@ -2,7 +2,7 @@
 name: studio-reverse-engineer
 description: Studio Reverse Engineer — derives OpenAPI 3.1 spec from existing UI (screenshots, running SPA, Figma). Multimodal vision to identify forms, tables, navigation. Output to filesystem.
 permission: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: accent
 ---
 

@@ -4,7 +4,7 @@ description: Researches external best practices and public documentation
 permission:
   WebFetch: allow
   WebSearch: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: warning
 ---
 

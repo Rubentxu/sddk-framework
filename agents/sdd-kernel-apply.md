@@ -2,7 +2,7 @@
 name: sdd-kernel-apply
 description: Kernel SDD apply executor - implements approved kernel tasks
 permission: allow
-model: MiniMax-M2.7-highspeed
+model: minimax-coding-plan/MiniMax-M2.7-highspeed
 color: accent
 ---
 

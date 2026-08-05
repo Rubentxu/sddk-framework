@@ -2,7 +2,7 @@
 name: sdd-design
 description: Create technical design from proposals
 permission: allow
-model: GLM-5.2
+model: zai-coding-plan/glm-5.2
 color: accent
 ---
 

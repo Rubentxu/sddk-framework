@@ -2,7 +2,7 @@
 name: studio-token
 description: Studio Token Agent — generates DESIGN.md + tokens.css + Tailwind config from domain model + brand brief. Semantic CSS variables, dark mode mandatory. One-shot. Token-budgeted 4K/3K.
 permission: allow
-model: MiniMax-M2.7-highspeed
+model: minimax-coding-plan/MiniMax-M2.7-highspeed
 color: accent
 ---
 

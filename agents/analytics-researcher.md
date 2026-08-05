@@ -2,7 +2,7 @@
 name: analytics-researcher
 description: "Self-research agent that consumes SDDK cycle metrics aggregates and raw ledger events to detect patterns, anomalies, bottlenecks, and drift. Read-only on codebase and metrics store. First agent in the telemetry self-research loop."
 permission: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: info
 ---
 

@@ -2,7 +2,7 @@
 name: sdd-apply
 description: Implement code changes from task definitions
 permission: allow
-model: MiniMax-M2.7-highspeed
+model: minimax-coding-plan/MiniMax-M2.7-highspeed
 color: accent
 ---
 

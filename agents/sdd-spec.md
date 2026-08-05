@@ -2,7 +2,7 @@
 name: sdd-spec
 description: Write detailed specifications from proposals
 permission: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: accent
 ---
 
