@@ -7,8 +7,9 @@ use sddk_gateway::CapabilityPolicy;
 use sddk_vault::{Diagnostic, GraphView, SearchHit, Severity};
 use serde::Serialize;
 
-use crate::{CliEnvironment, CommandOutput, OutputFormat, RuntimeArgs, RuntimeContext,
-            render_result};
+use crate::{
+    CliEnvironment, CommandOutput, OutputFormat, RuntimeArgs, RuntimeContext, render_result,
+};
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum VaultCommand {
@@ -124,7 +125,11 @@ fn run_vault_index(
     validate_only: bool,
 ) -> CommandOutput {
     let format = args.format;
-    let capability = if validate_only { "vault.validate" } else { "vault.index" };
+    let capability = if validate_only {
+        "vault.validate"
+    } else {
+        "vault.index"
+    };
     let result = (|| -> anyhow::Result<IndexOutput> {
         check_vault_capability(&args.runtime, environment, capability)?;
         let (index, diagnostics) = sddk_vault::index_vault(&args.vault)?;
