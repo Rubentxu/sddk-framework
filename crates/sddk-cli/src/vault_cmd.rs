@@ -3,10 +3,12 @@
 use std::path::PathBuf;
 
 use clap::{Args, Subcommand};
+use sddk_gateway::CapabilityPolicy;
 use sddk_vault::{Diagnostic, GraphView, SearchHit, Severity};
 use serde::Serialize;
 
-use crate::{CommandOutput, OutputFormat, render_result};
+use crate::{CliEnvironment, CommandOutput, OutputFormat, RuntimeArgs, RuntimeContext,
+            render_result};
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum VaultCommand {
@@ -24,6 +26,8 @@ pub(crate) enum VaultCommand {
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct VaultIndexArgs {
+    #[command(flatten)]
+    pub(crate) runtime: RuntimeArgs,
     /// Vault directory.
     #[arg(long)]
     pub(crate) vault: PathBuf,
@@ -37,6 +41,8 @@ pub(crate) struct VaultIndexArgs {
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct VaultSearchArgs {
+    #[command(flatten)]
+    pub(crate) runtime: RuntimeArgs,
     /// SQLite index database path.
     #[arg(long)]
     pub(crate) db: PathBuf,
@@ -53,6 +59,8 @@ pub(crate) struct VaultSearchArgs {
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct VaultExportArgs {
+    #[command(flatten)]
+    pub(crate) runtime: RuntimeArgs,
     /// Vault directory.
     #[arg(long)]
     pub(crate) vault: PathBuf,
@@ -64,14 +72,37 @@ pub(crate) struct VaultExportArgs {
     pub(crate) format: OutputFormat,
 }
 
-pub(crate) fn run_vault(command: VaultCommand) -> CommandOutput {
+pub(crate) fn run_vault(command: VaultCommand, environment: &CliEnvironment) -> CommandOutput {
     match command {
-        VaultCommand::Index(args) => run_vault_index(args, false),
-        VaultCommand::Validate(args) => run_vault_index(args, true),
-        VaultCommand::Search(args) => run_vault_search(args),
-        VaultCommand::Graph(args) => run_vault_graph(args),
-        VaultCommand::Export(args) => run_vault_export(args),
+        VaultCommand::Index(args) => run_vault_index(args, environment, false),
+        VaultCommand::Validate(args) => run_vault_index(args, environment, true),
+        VaultCommand::Search(args) => run_vault_search(args, environment),
+        VaultCommand::Graph(args) => run_vault_graph(args, environment),
+        VaultCommand::Export(args) => run_vault_export(args, environment),
     }
+}
+
+/// Check that a vault capability is authorized under the workflow policy.
+fn check_vault_capability(
+    runtime: &RuntimeArgs,
+    environment: &CliEnvironment,
+    capability: &str,
+) -> anyhow::Result<()> {
+    let context = RuntimeContext::open(runtime, environment, false)?;
+    let policy = CapabilityPolicy::from_workflow(context.engine.workflow());
+    let decision = policy.authorize(capability, false);
+    if !decision.allowed {
+        anyhow::bail!(
+            "error[GATEWAY_DENIED]: capability {} is denied by policy{}",
+            capability,
+            if decision.requires_approval {
+                " (requires --approve)"
+            } else {
+                ""
+            }
+        );
+    }
+    Ok(())
 }
 
 #[derive(Serialize, Clone)]
@@ -87,9 +118,15 @@ struct IndexOutput {
     diagnostics: Vec<Diagnostic>,
 }
 
-fn run_vault_index(args: VaultIndexArgs, validate_only: bool) -> CommandOutput {
+fn run_vault_index(
+    args: VaultIndexArgs,
+    environment: &CliEnvironment,
+    validate_only: bool,
+) -> CommandOutput {
     let format = args.format;
+    let capability = if validate_only { "vault.validate" } else { "vault.index" };
     let result = (|| -> anyhow::Result<IndexOutput> {
+        check_vault_capability(&args.runtime, environment, capability)?;
         let (index, diagnostics) = sddk_vault::index_vault(&args.vault)?;
         let backlinks: usize = index.backlinks.values().map(Vec::len).sum();
         let mut inserted = 0;
@@ -134,9 +171,10 @@ fn run_vault_index(args: VaultIndexArgs, validate_only: bool) -> CommandOutput {
     }
 }
 
-fn run_vault_search(args: VaultSearchArgs) -> CommandOutput {
+fn run_vault_search(args: VaultSearchArgs, environment: &CliEnvironment) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<Vec<SearchHit>> {
+        check_vault_capability(&args.runtime, environment, "vault.search")?;
         let connection = sddk_vault::open_index(&args.db)?;
         Ok(sddk_vault::search_index(
             &connection,
@@ -147,18 +185,20 @@ fn run_vault_search(args: VaultSearchArgs) -> CommandOutput {
     render_result(result, format, search_text)
 }
 
-fn run_vault_graph(args: VaultIndexArgs) -> CommandOutput {
+fn run_vault_graph(args: VaultIndexArgs, environment: &CliEnvironment) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<GraphView> {
+        check_vault_capability(&args.runtime, environment, "vault.graph")?;
         let index = sddk_vault::parse_vault(&args.vault)?;
         Ok(sddk_vault::graph_view(&index)?)
     })();
     render_result(result, format, graph_text)
 }
 
-fn run_vault_export(args: VaultExportArgs) -> CommandOutput {
+fn run_vault_export(args: VaultExportArgs, environment: &CliEnvironment) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<String> {
+        check_vault_capability(&args.runtime, environment, "vault.export")?;
         let (index, _) = sddk_vault::index_vault(&args.vault)?;
         let graph = sddk_vault::graph_view(&index)?;
         let html = sddk_vault::export_html(&index, &graph)?;
