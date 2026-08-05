@@ -48,7 +48,7 @@
 
 - ✅ **Gate 1.0.0 superado: 6/6 criterios PASS** — SDDK está listo para v1.0.0
 - G1 (único gap de framework) cerrado en #52; G2/G4 son mejoras UX opcionales para un ciclo posterior
-- Pendiente: release v1.0.0 (decisión del usuario) y re-validación opcional del pipeline completo sin copia manual
+- ✅ **v1.0.0 publicado** (tag v1.0.0, release con 20 assets, instalador verificado end-to-end)
 
 ## Automatización (reutilizable)
 
