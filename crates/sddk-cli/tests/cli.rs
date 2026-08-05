@@ -510,12 +510,129 @@ fn repair_restores_missing_receipt_and_status_reports_corruption() {
 }
 
 #[test]
+fn adopt_apply_plants_canonical_workflow_manifest() {
+    let fixture = CliFixture::new("adopt-plants-workflow");
+    let common = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+        "--format",
+        "json",
+    ];
+    let applied = fixture.run_adopt("apply", &common);
+    assert!(
+        applied.status.success(),
+        "{}",
+        String::from_utf8_lossy(&applied.stderr)
+    );
+    let planted = fixture.root.join("workflow/workflow.yaml");
+    assert_eq!(
+        fs::read_to_string(&planted).unwrap(),
+        CANONICAL_WORKFLOW,
+        "adopt apply must seed the canonical workflow manifest"
+    );
+}
+
+#[test]
+fn adopt_apply_preserves_existing_custom_workflow_manifest() {
+    let fixture = CliFixture::new("adopt-preserves-workflow");
+    let custom = "schema_version: 1\nworkflow:\n  id: project-custom\n  version: 9.9.9\n";
+    write(fixture.root.join("workflow/workflow.yaml"), custom);
+    let common = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+        "--format",
+        "json",
+    ];
+    let applied = fixture.run_adopt("apply", &common);
+    assert!(
+        applied.status.success(),
+        "{}",
+        String::from_utf8_lossy(&applied.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.root.join("workflow/workflow.yaml")).unwrap(),
+        custom,
+        "adopt apply must not overwrite a project-specific manifest"
+    );
+}
+
+#[test]
+fn cycle_start_falls_back_to_embedded_workflow_when_manifest_absent() {
+    let fixture = CliFixture::new("cycle-embedded-workflow");
+    let common = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+        "--format",
+        "json",
+    ];
+    let adopted = fixture.run_adopt("apply", &common);
+    assert!(
+        adopted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&adopted.stderr)
+    );
+    fs::remove_dir_all(fixture.root.join("workflow")).unwrap();
+
+    let started = fixture.run(&[
+        "cycle",
+        "start",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--name",
+        "add-auth",
+        "--path",
+        "a-full",
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+        "--lease-owner",
+        "agent-a",
+        "--lease-ms",
+        "3600000",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        started.status.success(),
+        "{}",
+        String::from_utf8_lossy(&started.stderr)
+    );
+    let started_json: serde_json::Value = serde_json::from_slice(&started.stdout).unwrap();
+    assert_eq!(started_json["status"], "OPEN");
+}
+
+#[test]
 fn cli_walks_cycle_with_fencing_and_rebuilds_state() {
     let fixture = CliFixture::new("cycle-authority");
-    write(
-        fixture.root.join("workflow/workflow.yaml"),
-        CANONICAL_WORKFLOW,
-    );
 
     let adopted = fixture.run_adopt(
         "apply",
