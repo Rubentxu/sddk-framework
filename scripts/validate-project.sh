@@ -58,10 +58,8 @@ ls -la "$SDDK_BIN/sddk" 2>/dev/null || log "ADOPT: binary copy FAILED"
 
 # --- 3. CYCLE: adopt + open cycle on the cloned project ----------------------
 log "CYCLE: adopting $NAME"
-mkdir -p "$OUT_DIR/clone/logs" "$OUT_DIR/clone/workflow"
-# Plant canonical workflow manifest (cycle start requires workflow/workflow.yaml)
-cp "$SDDK_ROOT/workflow/workflow.yaml" "$OUT_DIR/clone/workflow/workflow.yaml" 2>/dev/null || \
-  cp "$SDDK_ROOT/prompts/sdd-kernel/workflows/sddk-a-lite.yaml" "$OUT_DIR/clone/workflow/workflow.yaml"
+mkdir -p "$OUT_DIR/clone/logs"
+# `sddk adopt apply` seeds the canonical workflow/workflow.yaml itself (G1 closed)
 podman run --rm -v "$OUT_DIR/clone:/workspace:Z" -v "$SDDK_BIN:/sddk-bin:ro,Z" \
   -w /workspace "$IMAGE" \
   bash -c "

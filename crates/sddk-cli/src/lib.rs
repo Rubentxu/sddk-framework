@@ -57,6 +57,10 @@ pub use lint::{Diagnostic, LintReport, Severity, lint_repository};
 /// Canonical workflow manifest path, relative to the repository root.
 pub(crate) const WORKFLOW_MANIFEST: &str = "workflow/workflow.yaml";
 
+/// Canonical workflow manifest embedded in this binary. `adopt apply` seeds it
+/// into adopted repositories that lack one, and cycle commands fall back to it.
+pub(crate) const CANONICAL_WORKFLOW: &str = include_str!("../../../workflow/workflow.yaml");
+
 /// Parsed SDDK command line.
 #[derive(Debug, Parser)]
 #[command(name = "sddk", version, about = "Deterministic SDDK workflow tooling")]
@@ -468,7 +472,11 @@ fn run_adopt(command: AdoptCommand, environment: &CliEnvironment) -> CommandOutp
         let plan = prepare_adoption_plan(args, operation, environment)?;
         Ok(match operation {
             AdoptionOperation::Plan => AdoptionCommandResult::Plan(plan),
-            AdoptionOperation::Apply => AdoptionCommandResult::Status(apply_adoption(&plan)?),
+            AdoptionOperation::Apply => {
+                let status = apply_adoption(&plan)?;
+                plant_workflow_manifest(&plan.canonical_workspace_path)?;
+                AdoptionCommandResult::Status(status)
+            }
             AdoptionOperation::Status => AdoptionCommandResult::Status(adoption_status(&plan)?),
             AdoptionOperation::Repair => AdoptionCommandResult::Status(repair_adoption(&plan)?),
         })
@@ -499,6 +507,21 @@ fn run_adopt(command: AdoptCommand, environment: &CliEnvironment) -> CommandOutp
 enum AdoptionCommandResult {
     Plan(AdoptionPlan),
     Status(AdoptionStatus),
+}
+
+/// Seeds the canonical workflow manifest into an adopted repository when it
+/// has none, never overwriting a project-specific manifest.
+fn plant_workflow_manifest(root: &Path) -> anyhow::Result<()> {
+    let target = root.join(WORKFLOW_MANIFEST);
+    if target.exists() {
+        return Ok(());
+    }
+    let parent = target
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("workflow manifest path has no parent: {target:?}"))?;
+    std::fs::create_dir_all(parent)?;
+    std::fs::write(&target, CANONICAL_WORKFLOW)?;
+    Ok(())
 }
 
 fn prepare_adoption_plan(

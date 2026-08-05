@@ -3,8 +3,13 @@
 use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
-use sddk_domain::{ArtifactRef, CycleId, CycleManifest, CyclePath, normalize_scope};
-use sddk_engine::{CycleStartInput, Engine, EventContext, GateEvaluationInput, TransitionEvidence};
+use sddk_domain::{
+    ArtifactRef, CycleId, CycleManifest, CyclePath, WorkflowManifest, normalize_scope,
+};
+use sddk_engine::{
+    CycleStartInput, Engine, EventContext, GateEvaluationInput, TransitionEvidence,
+    WorkflowLoadError,
+};
 use sddk_storage::Storage;
 use serde::Serialize;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
@@ -78,7 +83,7 @@ impl RuntimeContext {
             &workspace_id,
         )?;
         let storage = Storage::open(&paths.ledger)?;
-        let workflow = sddk_engine::load_workflow_path(root.join(crate::WORKFLOW_MANIFEST))?;
+        let workflow = load_workflow(&root)?;
         let engine = Engine::new(workflow, Storage::open(&paths.ledger)?)?;
         Ok(Self {
             root,
@@ -90,6 +95,22 @@ impl RuntimeContext {
         })
     }
 }
+
+/// Loads the repository workflow manifest, falling back to the canonical
+/// embedded manifest when the repository has none (adopt seeds it, but legacy
+/// adoptions may predate seeding).
+fn load_workflow(root: &std::path::Path) -> anyhow::Result<WorkflowManifest> {
+    match sddk_engine::load_workflow_path(root.join(crate::WORKFLOW_MANIFEST)) {
+        Ok(manifest) => Ok(manifest),
+        Err(WorkflowLoadError::Io { source, .. })
+            if source.kind() == std::io::ErrorKind::NotFound =>
+        {
+            Ok(sddk_engine::load_workflow_str(crate::CANONICAL_WORKFLOW)?)
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
 #[derive(Debug, Subcommand)]
 pub(crate) enum CycleCommand {
     /// Create a cycle through the declared `cycle.start` transition.
