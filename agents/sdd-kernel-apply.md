@@ -449,6 +449,9 @@ recommendation:
 | Skip triangulation with >1 spec scenario | Hardcoded Fake It passes trivially → verify rejects |
 | Write trivial assertions | Worse than no test → verify may reject |
 
+## CLI Ledger Duty (sddk)
+
+Execute the `## CLI Contract (sddk ledger)` section of `skills/sddk-apply/SKILL.md` before returning: check `sddk cycle status --root . --scope .`, evaluate the phase gate with `sddk cycle evaluate-gate`, transition with the phase artifact (`sddk cycle transition --artifact apply={path} --gate-receipt {id}`), and verify with `sddk ledger verify --root . --scope .`. A failed evaluate-gate or transition is a BLOCKER — report it in your envelope and stop. Full protocol: `skills/_shared/persistence-contract.md` → CLI Ledger Channel.
 ## References
 
 - `prompts/sdd-kernel/phases/apply-strict-tdd.md` — Strict TDD module (loaded conditionally)

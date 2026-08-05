@@ -215,6 +215,18 @@ Phase 2: Core Implementation
 {Ready for implementation (sddk-apply) OR ask the user whether to use chained PRs before sddk-apply.}
 ```
 
+## CLI Contract (sddk ledger)
+
+When the project is adopted (`sddk cycle status --root . --scope .` exits 0), record this phase in the cycle ledger BEFORE returning:
+
+1. Evaluate the phase gate:
+   `sddk cycle evaluate-gate --root . --scope . --cycle {cycle_id} --transition phase.plan.complete --gate plan-executable --evaluator sddk.cli --evidence '{"checked": true}' --timestamp {now} --actor sddk-kernel`
+2. Transition with the phase artifact (`tasks.md`; in `engram` mode materialize it to a temp file first):
+   `sddk cycle transition --root . --scope . --cycle {cycle_id} --transition phase.plan.complete --artifact implementation-plan={path} --gate-receipt {receipt_id} --lease-owner {lease_owner} --fencing-token {fencing_token}`
+3. Verify ledger integrity: `sddk ledger verify --root . --scope .`
+
+A failed evaluate-gate or transition is a BLOCKER: report it in the envelope and do not proceed. `{cycle_id}`, `{lease_owner}`, `{fencing_token}` come from the orchestrator launch prompt (the cycle is opened with `sddk cycle start`). Full protocol: `skills/_shared/persistence-contract.md` → CLI Ledger Channel.
+
 ## References
 
 - `prompts/sdd-kernel/phases/tasks.md` — full phase spec

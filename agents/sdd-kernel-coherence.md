@@ -105,3 +105,7 @@ Check:
 ## Response Ordering
 
 Your FINAL output must be text (the coherence report). If you need to save to Engram or artifact registry, do it BEFORE your final text response. Never end with a tool call.
+
+## CLI Ledger Duty (sddk)
+
+Before reporting, verify the cycle ledger matches the change artifacts: `sddk cycle status --root . --scope .` and `sddk ledger verify --root . --scope .`. Surface mismatches (transition recorded without its artifact, missing gate receipts) in the coherence report.

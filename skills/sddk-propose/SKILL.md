@@ -127,6 +127,17 @@ Take the exploration analysis (or direct user input) and produce a structured pr
 **Risks**: {list or "None"}
 ```
 
+## CLI Contract (sddk ledger)
+
+When the project is adopted (`sddk cycle status --root . --scope .` exits 0), register the proposal artifact in the cycle ledger BEFORE returning (proposal has no own workflow transition — it feeds the specify transition):
+
+```
+sddk artifact store --root . --scope . --file {proposal-file} --kind proposal --cycle {cycle_id} --producer sddk-kernel
+sddk ledger verify --root . --scope .
+```
+
+In `engram` mode, materialize the proposal to a temp file first. A failed store is a BLOCKER: report it in the envelope and do not proceed. Full protocol: `skills/_shared/persistence-contract.md` → CLI Ledger Channel.
+
 ## References
 
 - `prompts/sdd-kernel/phases/propose.md` — full phase spec

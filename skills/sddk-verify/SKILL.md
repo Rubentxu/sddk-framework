@@ -205,6 +205,19 @@ Plus the standard envelope:
 - next_recommended: sddk-archive (PASS/PW) | sddk-apply correction cycle (FAIL)
 - risks
 
+## CLI Contract (sddk ledger)
+
+When the project is adopted (`sddk cycle status --root . --scope .` exits 0), record this phase in the cycle ledger BEFORE returning:
+
+1. Evaluate the phase gates (both):
+   `sddk cycle evaluate-gate --root . --scope . --cycle {cycle_id} --transition phase.verify.complete --gate tests-pass --evaluator sddk.cli --evidence '{"checked": true}' --timestamp {now} --actor sddk-kernel`
+   `sddk cycle evaluate-gate --root . --scope . --cycle {cycle_id} --transition phase.verify.complete --gate policy-compliant --evaluator sddk.cli --evidence '{"checked": true}' --timestamp {now} --actor sddk-kernel`
+2. Transition with the phase artifact (`verify-report`; in `engram` mode materialize it to a temp file first):
+   `sddk cycle transition --root . --scope . --cycle {cycle_id} --transition phase.verify.complete --artifact verification-report={path} --gate-receipt {receipt_id_1} --gate-receipt {receipt_id_2} --lease-owner {lease_owner} --fencing-token {fencing_token}`
+3. Verify ledger integrity: `sddk ledger verify --root . --scope .`
+
+A failed evaluate-gate or transition is a BLOCKER: report it in the envelope and do not proceed. `{cycle_id}`, `{lease_owner}`, `{fencing_token}` come from the orchestrator launch prompt (the cycle is opened with `sddk cycle start`). Full protocol: `skills/_shared/persistence-contract.md` → CLI Ledger Channel.
+
 ## References
 
 - `prompts/sdd-kernel/phases/verify.md` — full phase spec
