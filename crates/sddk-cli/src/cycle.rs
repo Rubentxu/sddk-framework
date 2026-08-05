@@ -114,9 +114,9 @@ pub(crate) struct CycleStartArgs {
     /// Display name used to derive the stable cycle identifier.
     #[arg(long)]
     pub(crate) name: String,
-    /// Workflow path applied to the cycle.
-    #[arg(long, value_enum, default_value_t = CyclePathArg::AFull)]
-    pub(crate) path: CyclePathArg,
+    /// Workflow path applied to the cycle (defaults to F3 tuning when available).
+    #[arg(long, value_enum)]
+    pub(crate) path: Option<CyclePathArg>,
     /// Git branch associated with the cycle.
     #[arg(long)]
     pub(crate) branch: Option<String>,
@@ -310,6 +310,17 @@ impl From<CyclePathArg> for CyclePath {
     }
 }
 
+/// Parse a tuning `path_bias` value into a cycle path argument.
+fn parse_tuned_path(bias: &str) -> Option<CyclePathArg> {
+    match bias.trim().to_ascii_lowercase().as_str() {
+        "a-min" | "amin" => Some(CyclePathArg::AMin),
+        "a-lite" | "alite" => Some(CyclePathArg::ALite),
+        "a-full" | "afull" => Some(CyclePathArg::AFull),
+        "b-direct" | "bdirect" => Some(CyclePathArg::BDirect),
+        _ => None,
+    }
+}
+
 pub(crate) fn run_cycle(command: CycleCommand, environment: &CliEnvironment) -> CommandOutput {
     match command {
         CycleCommand::Start(args) => run_cycle_start(args, environment),
@@ -359,7 +370,15 @@ fn run_cycle_start(args: CycleStartArgs, environment: &CliEnvironment) -> Comman
                 .unwrap_or_else(|| format!("feat/{}", args.name)),
             args.base.clone().unwrap_or_else(|| "HEAD".to_owned()),
         );
-        manifest.path = args.path.into();
+        // Resolve the workflow path: explicit --path wins; otherwise the F3
+        // tuning recommendation (path_bias) when present; else the A-full default.
+        let effective_path = match args.path {
+            Some(path) => path,
+            None => crate::metrics::read_tuning_path_bias(&context)
+                .and_then(|bias| parse_tuned_path(&bias))
+                .unwrap_or(CyclePathArg::AFull),
+        };
+        manifest.path = effective_path.into();
         manifest.remote_url = context.identity.remote_url.clone();
         manifest.scope = Some(scope);
         let input = CycleStartInput {
