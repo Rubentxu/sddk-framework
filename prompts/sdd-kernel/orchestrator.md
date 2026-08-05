@@ -386,10 +386,10 @@ After triage selects a path (B-direct / A-min / A-lite / A-full), load the corre
 
 | Path | Workflow YAML |
 |------|---------------|
-| B-direct | `~/.config/opencode/workflows/sddk-b-direct.yaml` |
-| A-min | `~/.config/opencode/workflows/sddk-a-min.yaml` |
-| A-lite | `~/.config/opencode/workflows/sddk-a-lite.yaml` |
-| A-full | `~/.config/opencode/workflows/sddk-a-full.yaml` |
+| B-direct | `prompts/sdd-kernel/workflows/sddk-b-direct.yaml` (repo) → linked to `~/.config/opencode/workflows/` |
+| A-min | `prompts/sdd-kernel/workflows/sddk-a-min.yaml` (repo) → linked to `~/.config/opencode/workflows/` |
+| A-lite | `prompts/sdd-kernel/workflows/sddk-a-lite.yaml` (repo) → linked to `~/.config/opencode/workflows/` |
+| A-full | `prompts/sdd-kernel/workflows/sddk-a-full.yaml` (repo) → linked to `~/.config/opencode/workflows/` |
 
 ### Lazy-load rule
 
