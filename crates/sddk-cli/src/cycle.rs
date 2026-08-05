@@ -494,6 +494,11 @@ fn run_cycle_transition(args: CycleTransitionArgs, environment: &CliEnvironment)
                 &timestamp,
             ),
         )?;
+        if applied.manifest.status == sddk_domain::CycleStatus::Closed
+            && let Err(error) = crate::metrics::capture_cycle_metrics(&context, &applied.manifest)
+        {
+            eprintln!("warning: auto metrics capture failed: {error}");
+        }
         Ok(CycleTransitionOutput {
             cycle_id: applied.manifest.cycle_id,
             transition_id: applied.transition_id,

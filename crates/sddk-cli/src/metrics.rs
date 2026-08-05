@@ -152,6 +152,64 @@ pub(crate) fn read_records(context: &RuntimeContext) -> anyhow::Result<Vec<Metri
     Ok(records)
 }
 
+/// Automatically capture a metrics record when a cycle reaches CLOSED.
+///
+/// Idempotent: if a record for the cycle already exists, this is a no-op.
+/// Best-effort: derivation never blocks; missing data defaults to explicit
+/// sentinels (`UNKNOWN` verdict, false flags, 0 costs).
+pub(crate) fn capture_cycle_metrics(
+    context: &RuntimeContext,
+    manifest: &sddk_domain::CycleManifest,
+) -> anyhow::Result<()> {
+    let existing = read_records(context)?;
+    if existing
+        .iter()
+        .any(|record| record.cycle_id == manifest.cycle_id)
+    {
+        return Ok(());
+    }
+
+    let tag_version = manifest
+        .release
+        .as_ref()
+        .and_then(|release| release.tag.clone());
+    let path = match manifest.path {
+        sddk_domain::CyclePath::BDirect => "b-direct",
+        sddk_domain::CyclePath::AMin => "a-min",
+        sddk_domain::CyclePath::ALite => "a-lite",
+        sddk_domain::CyclePath::AFull => "a-full",
+    }
+    .to_owned();
+
+    let now = OffsetDateTime::now_utc();
+    let recorded_at = now.format(&time::format_description::well_known::Rfc3339)?;
+
+    let record = MetricsRecord {
+        cycle_id: manifest.cycle_id.clone(),
+        path,
+        context_quality: "C2".to_owned(),
+        phase_durations_sec: HashMap::new(),
+        coherence_scores: Vec::new(),
+        correction_cycles: 0,
+        tokens_used: 0,
+        cost_estimate_usd: 0.0,
+        first_pass_success: false,
+        verify_verdict: "UNKNOWN".to_owned(),
+        merged_to_main: false,
+        tag_version,
+        lead_time_hours: None,
+        teleological_coherence_pct: None,
+        costs: HashMap::new(),
+        recorded_at,
+    };
+    append_record(context, &record)?;
+    eprintln!(
+        "metrics: auto-captured record for cycle {}",
+        record.cycle_id
+    );
+    Ok(())
+}
+
 /// Filter records to a window (by recorded_at).
 pub(crate) fn window_records(records: Vec<MetricsRecord>, window_days: u16) -> Vec<MetricsRecord> {
     let cutoff = OffsetDateTime::now_utc() - time::Duration::days(window_days as i64);
