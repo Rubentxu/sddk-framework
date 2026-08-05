@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 use sddk_gateway::{RunSpec, run};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -23,6 +23,10 @@ pub(crate) enum DevCommand {
     Verify(VerifyArgs),
     /// Remove an installed prefix only when it matches its receipt.
     Uninstall(UninstallArgs),
+    /// Symlink the framework assets (agents/skills/prompts/workflows) into an editor.
+    Link(LinkArgs),
+    /// Update the framework: pull, re-link, rebuild, verify.
+    Update(UpdateArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -81,6 +85,46 @@ pub(crate) struct UninstallArgs {
     pub(crate) format: OutputFormat,
 }
 
+/// Target editor for framework linking.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub(crate) enum LinkEditor {
+    #[value(name = "opencode")]
+    OpenCode,
+    #[value(name = "zcode")]
+    ZCode,
+    #[value(name = "all")]
+    All,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct LinkArgs {
+    /// Repository root containing agents/skills/prompts.
+    #[arg(long, default_value = ".")]
+    pub(crate) root: PathBuf,
+    /// Target editor(s).
+    #[arg(long, value_enum, default_value_t = LinkEditor::All)]
+    pub(crate) editor: LinkEditor,
+    /// Override the OpenCode config dir.
+    #[arg(long)]
+    pub(crate) opencode_dir: Option<PathBuf>,
+    /// Override the ZCode dir.
+    #[arg(long)]
+    pub(crate) zcode_dir: Option<PathBuf>,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct UpdateArgs {
+    /// Repository root.
+    #[arg(long, default_value = ".")]
+    pub(crate) root: PathBuf,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
+}
+
 /// Persisted installation receipt for side-by-side prefixes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -106,6 +150,8 @@ pub(crate) fn run_dev(command: DevCommand) -> CommandOutput {
         DevCommand::Install(args) => run_dev_install(args),
         DevCommand::Verify(args) => run_dev_verify(args),
         DevCommand::Uninstall(args) => run_dev_uninstall(args),
+        DevCommand::Link(args) => run_dev_link(args),
+        DevCommand::Update(args) => run_dev_update(args),
     }
 }
 
@@ -133,8 +179,30 @@ fn run_dev_doctor(args: DoctorArgs) -> CommandOutput {
             present,
         });
     }
+    // Framework asset integrity checks for detected editors.
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp"));
+    let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let opencode_dir = home.join(".config/opencode");
+    let zcode_dir = home.join(".zcode");
+    let mut framework_warnings = 0usize;
+    for (label, editor_dir) in [("opencode", opencode_dir), ("zcode", zcode_dir)] {
+        if !editor_dir.is_dir() {
+            continue;
+        }
+        for check in check_framework(&root, &editor_dir) {
+            if check.status != "PASS" {
+                framework_warnings += 1;
+            }
+            checks.push(DoctorCheck {
+                tool: format!("{label}.{}", check.name),
+                present: check.status == "PASS",
+            });
+        }
+    }
     let result = Ok::<_, anyhow::Error>(DoctorOutput {
-        all_present: checks.iter().all(|check| check.present),
+        all_present: checks.iter().all(|check| check.present) && framework_warnings == 0,
         checks,
     });
     match result {
@@ -385,4 +453,374 @@ fn failure_status(message: String) -> CommandOutput {
         stdout: String::new(),
         stderr: format!("error: {message}\n"),
     }
+}
+
+// --- Framework linking (agents/skills/prompts/workflows) ---
+
+/// Report from a framework link operation.
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+struct LinkReport {
+    editor: String,
+    agents_linked: usize,
+    skills_linked: usize,
+    prompts_linked: usize,
+    workflows_linked: usize,
+    stale_replaced: usize,
+    errors: Vec<String>,
+}
+
+fn link_text(report: &LinkReport) -> String {
+    format!(
+        "editor: {}\nagents: {}\nskills: {}\nprompts: {}\nworkflows: {}\nstale_replaced: {}\nerrors: {}\n",
+        report.editor,
+        report.agents_linked,
+        report.skills_linked,
+        report.prompts_linked,
+        report.workflows_linked,
+        report.stale_replaced,
+        report.errors.len()
+    )
+}
+
+/// Replace a regular-file copy with a symlink, backing up the stale copy.
+fn link_file(source: &Path, target: &Path, stale_replaced: &mut usize) -> std::io::Result<()> {
+    if let Ok(metadata) = std::fs::symlink_metadata(target) {
+        if metadata.file_type().is_symlink() {
+            // Already a link: refresh the target.
+            std::fs::remove_file(target)?;
+        } else {
+            // Stale copy: back it up.
+            let backup = target.with_extension("sddk-stale");
+            if !backup.exists() {
+                std::fs::rename(target, &backup)?;
+            } else {
+                std::fs::remove_file(target)?;
+            }
+            *stale_replaced += 1;
+        }
+    }
+    std::fs::create_dir_all(target.parent().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "target has no parent")
+    })?)?;
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(source, target)?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::copy(source, target)?;
+    }
+    Ok(())
+}
+
+/// Link one editor directory: agents, skills, prompts, workflows.
+fn link_editor(root: &Path, editor_dir: &Path) -> LinkReport {
+    let mut report = LinkReport {
+        editor: editor_dir.to_string_lossy().into_owned(),
+        agents_linked: 0,
+        skills_linked: 0,
+        prompts_linked: 0,
+        workflows_linked: 0,
+        stale_replaced: 0,
+        errors: Vec::new(),
+    };
+    let mut stale = 0usize;
+
+    // Agents.
+    let agents_source = root.join("agents");
+    if let Ok(entries) = std::fs::read_dir(&agents_source) {
+        let agents_target = editor_dir.join("agents");
+        for entry in entries.flatten() {
+            if entry.path().extension().and_then(|e| e.to_str()) == Some("md") {
+                let name = entry.file_name();
+                if let Err(error) = link_file(&entry.path(), &agents_target.join(&name), &mut stale)
+                {
+                    report.errors.push(format!("agents/{name:?}: {error}"));
+                } else {
+                    report.agents_linked += 1;
+                }
+            }
+        }
+    }
+
+    // Skills (directories).
+    let skills_source = root.join("skills");
+    if let Ok(entries) = std::fs::read_dir(&skills_source) {
+        let skills_target = editor_dir.join("skills");
+        for entry in entries.flatten() {
+            if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                let name = entry.file_name();
+                if let Err(error) = link_file(&entry.path(), &skills_target.join(&name), &mut stale)
+                {
+                    report.errors.push(format!("skills/{name:?}: {error}"));
+                } else {
+                    report.skills_linked += 1;
+                }
+            }
+        }
+    }
+
+    // Prompts (sdd-kernel tree).
+    let prompts_source = root.join("prompts/sdd-kernel");
+    let prompts_target = editor_dir.join("prompts/sdd-kernel");
+    if prompts_source.is_dir() {
+        for entry in walk_dir(&prompts_source) {
+            if entry.is_file() {
+                let relative = entry
+                    .strip_prefix(&prompts_source)
+                    .unwrap_or(entry.as_path());
+                let target = prompts_target.join(relative);
+                if let Err(error) = link_file(&entry, &target, &mut stale) {
+                    report.errors.push(format!("prompts/{relative:?}: {error}"));
+                } else {
+                    report.prompts_linked += 1;
+                }
+            }
+        }
+    }
+
+    // Workflows (canonical path in repo).
+    let workflows_source = root.join("prompts/sdd-kernel/workflows");
+    let workflows_target = editor_dir.join("workflows");
+    if workflows_source.is_dir() {
+        for entry in walk_dir(&workflows_source) {
+            if entry.is_file()
+                && let Some(name) = entry
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .map(str::to_owned)
+            {
+                if let Err(error) = link_file(&entry, &workflows_target.join(&name), &mut stale) {
+                    report.errors.push(format!("workflows/{name:?}: {error}"));
+                } else {
+                    report.workflows_linked += 1;
+                }
+            }
+        }
+    }
+
+    report.stale_replaced = stale;
+    report
+}
+
+/// Recursively list files under a directory.
+fn walk_dir(dir: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                files.extend(walk_dir(&path));
+            } else {
+                files.push(path);
+            }
+        }
+    }
+    files
+}
+
+fn run_dev_link(args: LinkArgs) -> CommandOutput {
+    let format = args.format;
+    let result = (|| -> anyhow::Result<Vec<LinkReport>> {
+        let root = std::fs::canonicalize(&args.root)?;
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/tmp"));
+        let opencode_dir = args
+            .opencode_dir
+            .clone()
+            .unwrap_or_else(|| home.join(".config/opencode"));
+        let zcode_dir = args
+            .zcode_dir
+            .clone()
+            .unwrap_or_else(|| home.join(".zcode"));
+        let mut reports = Vec::new();
+        if matches!(args.editor, LinkEditor::OpenCode | LinkEditor::All) {
+            reports.push(link_editor(&root, &opencode_dir));
+        }
+        if matches!(args.editor, LinkEditor::ZCode | LinkEditor::All) {
+            reports.push(link_editor(&root, &zcode_dir));
+        }
+        Ok(reports)
+    })();
+    render_result(result, format, |reports: &Vec<LinkReport>| {
+        let mut text = String::new();
+        for report in reports {
+            text.push_str(&link_text(report));
+        }
+        text
+    })
+}
+
+// --- Framework doctor checks ---
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "snake_case")]
+struct FrameworkCheck {
+    name: String,
+    status: String,
+    detail: String,
+}
+
+fn check_framework(root: &Path, editor_dir: &Path) -> Vec<FrameworkCheck> {
+    let mut checks = Vec::new();
+
+    // Broken symlinks in editor agents.
+    let agents_dir = editor_dir.join("agents");
+    if let Ok(entries) = std::fs::read_dir(&agents_dir) {
+        let broken: Vec<String> = entries
+            .flatten()
+            .filter(|entry| {
+                entry
+                    .path()
+                    .symlink_metadata()
+                    .map(|m| m.file_type().is_symlink())
+                    .unwrap_or(false)
+                    && !entry.path().exists()
+            })
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        checks.push(FrameworkCheck {
+            name: "broken_agent_links".into(),
+            status: if broken.is_empty() { "PASS" } else { "WARN" }.into(),
+            detail: if broken.is_empty() {
+                "no broken agent symlinks".into()
+            } else {
+                format!("broken: {}", broken.join(", "))
+            },
+        });
+    }
+
+    // Stale copies: regular files where a symlink is expected AND the repo has
+    // a matching asset (local-only agents are legitimate, not stale).
+    let mut stale: Vec<String> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&agents_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Ok(metadata) = std::fs::symlink_metadata(&path)
+                && metadata.file_type().is_file()
+                && path.extension().and_then(|e| e.to_str()) == Some("md")
+                && root.join("agents").join(entry.file_name()).exists()
+            {
+                stale.push(entry.file_name().to_string_lossy().into_owned());
+            }
+        }
+    }
+    checks.push(FrameworkCheck {
+        name: "stale_agent_copies".into(),
+        status: if stale.is_empty() { "PASS" } else { "WARN" }.into(),
+        detail: if stale.is_empty() {
+            "all agents are symlinks".into()
+        } else {
+            format!("stale copies (run dev link): {}", stale.join(", "))
+        },
+    });
+
+    // Workflow origin: editor workflows must be symlinks to repo.
+    let workflows_dir = editor_dir.join("workflows");
+    let mut orphan_workflows = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&workflows_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e == "yaml")
+                && path
+                    .symlink_metadata()
+                    .map(|m| m.file_type().is_file())
+                    .unwrap_or(false)
+            {
+                orphan_workflows.push(entry.file_name().to_string_lossy().into_owned());
+            }
+        }
+    }
+    checks.push(FrameworkCheck {
+        name: "workflow_origin".into(),
+        status: if orphan_workflows.is_empty() {
+            "PASS"
+        } else {
+            "WARN"
+        }
+        .into(),
+        detail: if orphan_workflows.is_empty() {
+            "workflows are linked from repo".into()
+        } else {
+            format!(
+                "orphan copies (run dev link): {}",
+                orphan_workflows.join(", ")
+            )
+        },
+    });
+
+    let _ = root;
+    checks
+}
+
+// --- Update ---
+
+fn run_dev_update(args: UpdateArgs) -> CommandOutput {
+    let format = args.format;
+    let result = (|| -> anyhow::Result<String> {
+        let root = std::fs::canonicalize(&args.root)?;
+        let mut output = String::new();
+
+        // 1. git pull --ff-only.
+        let pull = std::process::Command::new("git")
+            .args(["pull", "--ff-only"])
+            .current_dir(&root)
+            .output()?;
+        output.push_str(&format!(
+            "git pull: {} {}\n",
+            if pull.status.success() {
+                "ok"
+            } else {
+                "failed"
+            },
+            String::from_utf8_lossy(&pull.stderr).trim()
+        ));
+
+        // 2. Re-link detected editors.
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/tmp"));
+        let opencode_dir = home.join(".config/opencode");
+        let zcode_dir = home.join(".zcode");
+        if opencode_dir.is_dir() {
+            let report = link_editor(&root, &opencode_dir);
+            output.push_str(&format!(
+                "opencode: {} agents, {} stale replaced\n",
+                report.agents_linked, report.stale_replaced
+            ));
+        }
+        if zcode_dir.is_dir() {
+            let report = link_editor(&root, &zcode_dir);
+            output.push_str(&format!(
+                "zcode: {} agents, {} stale replaced\n",
+                report.agents_linked, report.stale_replaced
+            ));
+        }
+
+        // 3. Rebuild the binary.
+        let build = std::process::Command::new("cargo")
+            .args(["build", "--release", "-p", "sddk-cli"])
+            .current_dir(&root)
+            .output()?;
+        output.push_str(&format!(
+            "build: {} {}\n",
+            if build.status.success() {
+                "ok"
+            } else {
+                "failed"
+            },
+            String::from_utf8_lossy(&build.stderr)
+                .lines()
+                .last()
+                .unwrap_or("")
+                .trim()
+        ));
+        Ok(output)
+    })();
+    render_result(result, format, |output: &String| output.clone())
 }
