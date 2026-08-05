@@ -927,6 +927,186 @@ fn cli_capability_gateway_enforces_policy_and_persists_receipts() {
 }
 
 #[test]
+fn cli_metrics_record_aggregate_tuning_and_analytics() {
+    let fixture = CliFixture::new("metrics-analytics");
+    write(
+        fixture.root.join("workflow/workflow.yaml"),
+        CANONICAL_WORKFLOW,
+    );
+
+    let common = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+        "--format",
+        "json",
+    ];
+    let adopted = fixture.run_adopt("apply", &common);
+    assert!(
+        adopted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&adopted.stderr)
+    );
+
+    // Record two metrics entries: one first-pass PASS, one FAIL with corrections.
+    let recorded = fixture.run(&[
+        "metrics",
+        "record",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--cycle",
+        "p-1/cycle-alpha",
+        "--verdict",
+        "PASS",
+        "--first-pass",
+        "--cost",
+        "1.5",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        recorded.status.success(),
+        "{}",
+        String::from_utf8_lossy(&recorded.stderr)
+    );
+    let recorded_json: serde_json::Value = serde_json::from_slice(&recorded.stdout).unwrap();
+    assert_eq!(recorded_json["cycle_id"], "p-1/cycle-alpha");
+    assert_eq!(recorded_json["verify_verdict"], "PASS");
+
+    let recorded_fail = fixture.run(&[
+        "metrics",
+        "record",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--cycle",
+        "p-1/cycle-beta",
+        "--verdict",
+        "FAIL",
+        "--corrections",
+        "3",
+        "--cost",
+        "4.0",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        recorded_fail.status.success(),
+        "{}",
+        String::from_utf8_lossy(&recorded_fail.stderr)
+    );
+
+    // Aggregate should show 2 samples, 0.5 first-pass rate, median cost 2.75.
+    let aggregated = fixture.run(&[
+        "metrics",
+        "aggregate",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--window",
+        "7d",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        aggregated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&aggregated.stderr)
+    );
+    let aggregate_json: serde_json::Value = serde_json::from_slice(&aggregated.stdout).unwrap();
+    assert_eq!(aggregate_json["sample_size"], 2);
+    assert_eq!(aggregate_json["first_pass_success_rate"], 0.5);
+    assert_eq!(aggregate_json["median_cost_usd"], 2.75);
+    assert_eq!(aggregate_json["verdict_distribution"]["PASS"], 1);
+    assert_eq!(aggregate_json["verdict_distribution"]["FAIL"], 1);
+
+    // Tuning with sample < 3 should produce no recommendations.
+    let tuned = fixture.run(&[
+        "metrics",
+        "tuning",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        tuned.status.success(),
+        "{}",
+        String::from_utf8_lossy(&tuned.stderr)
+    );
+    let tuning_json: serde_json::Value = serde_json::from_slice(&tuned.stdout).unwrap();
+    assert_eq!(tuning_json["path_bias"], serde_json::Value::Null);
+    assert_eq!(tuning_json["recommended_deepen"], serde_json::json!([]));
+
+    // Analytics report (JSON) mirrors the aggregate.
+    let report = fixture.run(&[
+        "analytics",
+        "report",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--window",
+        "30d",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        report.status.success(),
+        "{}",
+        String::from_utf8_lossy(&report.stderr)
+    );
+    let report_json: serde_json::Value = serde_json::from_slice(&report.stdout).unwrap();
+    assert_eq!(report_json["sample_size"], 2);
+    assert_eq!(report_json["first_pass_success_rate"], 0.5);
+
+    // Trends command renders both windows.
+    let trends = fixture.run(&[
+        "analytics",
+        "trends",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        trends.status.success(),
+        "{}",
+        String::from_utf8_lossy(&trends.stderr)
+    );
+    let trends_json: serde_json::Value = serde_json::from_slice(&trends.stdout).unwrap();
+    assert_eq!(trends_json["window_7d"]["sample_size"], 2);
+    assert_eq!(trends_json["window_30d"]["sample_size"], 2);
+}
+
+#[test]
 fn cli_git_operations_verify_postconditions_and_record_receipts() {
     let fixture = CliFixture::new("git-authority");
     write(
