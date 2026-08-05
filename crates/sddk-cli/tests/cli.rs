@@ -3098,6 +3098,99 @@ fn cli_dev_link_doctor_and_framework_checks() {
 }
 
 #[test]
+fn cli_dev_link_creates_opencode_json_and_links_markdown_skills() {
+    let fixture = CliFixture::new("dev-link-fresh");
+    let root = fixture.root.clone();
+    write(
+        root.join("agents/orchestrator.md"),
+        "---\nname: orchestrator\ndescription: Test orchestrator agent\n---\n# Orchestrator\n",
+    );
+    write(
+        root.join("permissions.yaml"),
+        "agents:\n  orchestrator:\n    phases: []\n    capabilities: []\n",
+    );
+    write(root.join("skills/demo/SKILL.md"), "# Demo\n");
+    write(root.join("skills/BOOK-WORKFLOW.md"), "# Book workflow\n");
+    // Fresh editor install: config dir exists but has NO opencode.json.
+    let opencode_dir = fixture.root.join("opencode");
+    fs::create_dir_all(&opencode_dir).unwrap();
+
+    let linked = fixture.run(&[
+        "dev",
+        "link",
+        "--root",
+        root.to_str().unwrap(),
+        "--editor",
+        "opencode",
+        "--opencode-dir",
+        opencode_dir.to_str().unwrap(),
+        "--format",
+        "json",
+    ]);
+    assert!(
+        linked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&linked.stderr)
+    );
+
+    // G5: opencode.json is created and the framework agent is registered.
+    let config: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(opencode_dir.join("opencode.json")).unwrap())
+            .unwrap();
+    assert!(config["agent"]["orchestrator"].is_object());
+    assert_eq!(config["agent"]["orchestrator"]["mode"], "subagent");
+    assert_eq!(
+        config["agent"]["orchestrator"]["prompt"],
+        format!("{{file:{}}}", root.join("agents/orchestrator.md").display())
+    );
+    // Agent + skill directory + top-level markdown skill are all symlinked.
+    assert!(
+        fs::symlink_metadata(opencode_dir.join("agents/orchestrator.md"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert!(
+        fs::symlink_metadata(opencode_dir.join("skills/demo"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    // G6: top-level markdown skills (BOOK-*.md) are linked too.
+    assert!(
+        fs::symlink_metadata(opencode_dir.join("skills/BOOK-WORKFLOW.md"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+
+    // Uninstall removes the created registration and links, keeps the file.
+    let uninstalled = fixture.run(&[
+        "dev",
+        "uninstall",
+        "--editor",
+        "opencode",
+        "--root",
+        root.to_str().unwrap(),
+        "--opencode-dir",
+        opencode_dir.to_str().unwrap(),
+        "--format",
+        "json",
+    ]);
+    assert!(
+        uninstalled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&uninstalled.stderr)
+    );
+    let after: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(opencode_dir.join("opencode.json")).unwrap())
+            .unwrap();
+    assert!(after["agent"]["orchestrator"].is_null());
+    assert!(!opencode_dir.join("agents/orchestrator.md").exists());
+    assert!(!opencode_dir.join("skills/BOOK-WORKFLOW.md").exists());
+}
+
+#[test]
 fn cli_full_runtime_pipeline_dogfood() {
     let fixture = CliFixture::new("dogfood");
     write(
