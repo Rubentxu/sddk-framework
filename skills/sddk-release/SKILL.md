@@ -133,6 +133,20 @@ The `release-report` is MANDATORY even on BLOCK. It records what was reached and
 
 Recovery: re-running `/sddk-release <change>` resumes from the first uncompleted step. Idempotent by design.
 
+## CLI Contract (sddk ledger)
+
+When the project is adopted (`sddk cycle status --root . --scope .` exits 0), record the release in the cycle ledger BEFORE returning:
+
+1. Evaluate the release gates:
+   `sddk cycle evaluate-gate --root . --scope . --cycle {cycle_id} --transition release.complete --gate release-receipt --evaluator sddk.cli --evidence '{"checked": true}' --timestamp {now} --actor sddk-kernel`
+   `sddk cycle evaluate-gate --root . --scope . --cycle {cycle_id} --transition release.complete --gate no-pending-effects --evaluator sddk.cli --evidence '{"checked": true}' --timestamp {now} --actor sddk-kernel`
+2. Transition with the merge receipt:
+   `sddk cycle transition --root . --scope . --cycle {cycle_id} --transition release.complete --artifact merge-receipt={path} --gate-receipt {receipt_id_1} --gate-receipt {receipt_id_2} --lease-owner {lease_owner} --fencing-token {fencing_token}`
+3. Close the loop with telemetry: `sddk metrics record --root . --scope . --cycle {cycle_id} --verdict {PASS|PW|FAIL}`
+4. Verify ledger integrity: `sddk ledger verify --root . --scope .`
+
+A failed evaluate-gate or transition is a BLOCKER: report it in the envelope and do not proceed. `{cycle_id}`, `{lease_owner}`, `{fencing_token}` come from the orchestrator launch prompt (the cycle is opened with `sddk cycle start`). Full protocol: `skills/_shared/persistence-contract.md` → CLI Ledger Channel.
+
 ## References
 
 - `prompts/sdd-kernel/git-contract.md` — git invariants (source of truth)

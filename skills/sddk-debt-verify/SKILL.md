@@ -211,6 +211,17 @@ risks: list or "None"
 context_quality: C0-C3
 ```
 
+## CLI Contract (sddk ledger)
+
+When the project is adopted (`sddk cycle status --root . --scope .` exits 0), register the debt report in the cycle ledger BEFORE returning (debt-verify has no own workflow transition — it runs between verify and review):
+
+```
+sddk artifact store --root . --scope . --file {debt-report-file} --kind verification-report --cycle {cycle_id} --producer sddk-kernel
+sddk ledger verify --root . --scope .
+```
+
+In `engram` mode, materialize the debt report to a temp file first. A failed store is a BLOCKER: report it in the envelope and do not proceed. Full protocol: `skills/_shared/persistence-contract.md` → CLI Ledger Channel.
+
 ## References
 
 - `prompts/sdd-kernel/phases/debt-verify.md` — full phase spec
