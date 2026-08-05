@@ -3749,3 +3749,108 @@ fn cli_runtime_errors_include_stable_code_and_recovery() {
     assert!(stderr.contains("cause:"), "{}", stderr);
     assert!(stderr.contains("recovery:"), "{}", stderr);
 }
+
+#[test]
+fn skills_and_agents_reference_only_real_sddk_commands() {
+    // Drift gate: every `sddk <cmd>` / `sddk <cmd> <sub>` token found in the
+    // framework's skills and agents must exist in the real CLI. Keeps the
+    // agent ecosystem aligned with the shipped binary (skills adapted for the
+    // sddk CLI must never reference a command that does not exist).
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut documents = Vec::new();
+    for entry in walkdir::WalkDir::new(root.join("skills"))
+        .into_iter()
+        .flatten()
+        .filter(|entry| entry.file_type().is_file())
+    {
+        if entry.path().extension().and_then(|e| e.to_str()) == Some("md") {
+            documents.push(entry.into_path());
+        }
+    }
+    for entry in std::fs::read_dir(root.join("agents")).unwrap().flatten() {
+        if entry.path().extension().and_then(|e| e.to_str()) == Some("md") {
+            documents.push(entry.path());
+        }
+    }
+    assert!(
+        documents.len() > 80,
+        "expected the full skills+agents corpus, found {}",
+        documents.len()
+    );
+
+    // Extract command tokens only from code blocks and inline backtick
+    // commands, so prose mentions and skill triggers create no false
+    // positives.
+    let mut references: Vec<(String, Option<String>)> = Vec::new();
+    let mut in_block = false;
+    for document in &documents {
+        let content = std::fs::read_to_string(document).unwrap();
+        for line in content.lines() {
+            if line.trim_start().starts_with("```") {
+                in_block = !in_block;
+                continue;
+            }
+            let mut candidates: Vec<&str> = Vec::new();
+            if line.trim_start().starts_with("sddk ") {
+                candidates.push(line.trim_start());
+            }
+            for span in line.split('`') {
+                if span.starts_with("sddk ") {
+                    candidates.push(span);
+                }
+            }
+            for candidate in candidates {
+                let tokens: Vec<&str> = candidate.split_whitespace().take(3).collect();
+                let command = tokens.get(1).copied().unwrap_or("");
+                if command.is_empty() {
+                    continue;
+                }
+                let subcommand = tokens
+                    .get(2)
+                    .copied()
+                    .filter(|token| token.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+                references.push((command.to_owned(), subcommand.map(str::to_owned)));
+            }
+        }
+    }
+    assert!(
+        references.len() > 30,
+        "expected a substantial CLI reference corpus, found {}",
+        references.len()
+    );
+
+    let help = |args: &[&str]| -> String {
+        let output = Command::new(env!("CARGO_BIN_EXE_sddk"))
+            .args(args)
+            .arg("--help")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        format!("{stdout}\n{stderr}")
+    };
+    let top_level = help(&[]);
+    let mut help_cache: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    let mut broken: Vec<String> = Vec::new();
+    for (command, subcommand) in references {
+        if subcommand.is_none() {
+            if !top_level.contains(&command) {
+                broken.push(format!("sddk {command}"));
+            }
+            continue;
+        }
+        let sub = subcommand.as_deref().unwrap();
+        let page = help_cache
+            .entry(command.clone())
+            .or_insert_with(|| help(&[&command]));
+        if !page.contains(sub) {
+            broken.push(format!("sddk {command} {sub}"));
+        }
+    }
+    assert!(
+        broken.is_empty(),
+        "skills/agents reference CLI commands that do not exist:\n  {}",
+        broken.join("\n  ")
+    );
+}

@@ -100,6 +100,16 @@ Include:
 **Risks**: None
 ```
 
+## CLI Contract (sddk ledger)
+
+When the project is NOT yet adopted, adopt it so the cycle ledger becomes operative:
+
+```
+sddk adopt apply --root . --scope .
+```
+
+`adopt apply` plants `workflow/workflow.yaml` (canonical, embedded in the binary) and registers the project in the ledger. Verify with `sddk cycle status --root . --scope .`. Init has no workflow transition — the ledger duty starts at the first phase (explore). Full protocol: `skills/_shared/persistence-contract.md` → CLI Ledger Channel.
+
 ## References
 
 - `prompts/sdd-kernel/phases/init.md` — full phase spec

@@ -1,5 +1,35 @@
 # Persistence Contract (shared across all SDD skills)
 
+## CLI Ledger Channel (sddk CLI)
+
+The `sddk` CLI is the **canonical cycle ledger** when the project is adopted: `sddk adopt apply` plants `workflow/workflow.yaml`, and `sddk cycle status` then works. When operative, every phase MUST ALSO record its phase in the ledger — this is additive to the artifact mode below, never a substitute for it.
+
+**Operativity check** (single command, at phase start):
+
+```
+sddk cycle status --root . --scope . --cycle {cycle_id} 2>/dev/null
+```
+
+- Exit 0 + OPEN cycle → operative; use the passed `{cycle_id}` for every command.
+- No cycle → the orchestrator opens one with `sddk cycle start --name {change-name} --path {path}` before launching the first phase.
+- Not adopted / no workflow → skip the CLI ledger channel entirely, continue with the artifact mode only.
+
+**Cycle context**: the orchestrator passes `{cycle_id}` (and `{lease_owner}` / `{fencing_token}` from the start output) in every phase launch prompt. If the prompt lacks it, read the last cycle id from `sddk ledger events --root . --scope .`.
+
+**Phase duty** (after producing the phase artifact, before returning):
+
+```
+sddk cycle evaluate-gate --cycle {cycle_id} --transition {phase-transition} \
+  --gate {gate} --evaluator sddk.cli --evidence '{"checked": true}'
+sddk cycle transition --cycle {cycle_id} --transition {phase-transition} \
+  --artifact {artifact-name}={artifact-path} --gate-receipt {receipt_id}
+sddk ledger verify --root . --scope .
+```
+
+- `{artifact-path}` is the file written by the phase (openspec/hybrid) or the temp file materialized from the artifact content.
+- A failed transition is a BLOCKER: report it in the phase envelope, do not proceed.
+- Phase → transition/gate/artifact mapping is declared in each phase skill's `## CLI Contract` section. The workflow manifest at `workflow/workflow.yaml` is the source of truth for transition ids.
+
 ## Mode Resolution
 
 The orchestrator passes `artifact_store.mode` with one of: `engram | openspec | hybrid | none`.

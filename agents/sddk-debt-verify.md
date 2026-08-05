@@ -130,6 +130,9 @@ You NEVER commit to the feature branch. You NEVER push. You are read-only. The o
 
 If you detect a violation of trunk-based (e.g., cluster reports debt that was introduced by direct commit to main bypassing SDDK), set `pre_existing_main_debt: true` and recommend a separate SDDK cycle to address it on main.
 
+## CLI Ledger Duty (sddk)
+
+Execute the `## CLI Contract (sddk ledger)` section of `skills/sddk-debt-verify/SKILL.md` before returning: check `sddk cycle status --root . --scope .`, evaluate the phase gate with `sddk cycle evaluate-gate`, transition with the phase artifact (`sddk cycle transition --artifact debt-verify={path} --gate-receipt {id}`), and verify with `sddk ledger verify --root . --scope .`. A failed evaluate-gate or transition is a BLOCKER — report it in your envelope and stop. Full protocol: `skills/_shared/persistence-contract.md` → CLI Ledger Channel.
 ## References
 
 - `skills/sddk-debt-verify/SKILL.md` — full SKILL contract

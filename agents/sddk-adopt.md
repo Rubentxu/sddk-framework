@@ -534,6 +534,9 @@ risks: list or "None"
 | **entropy-sdd** | If user wants to know current connascence state — useful for baseline |
 | **Web Search** | If project has unfamiliar dependencies — verify their nature |
 
+## CLI Ledger Duty (sddk)
+
+After producing the adoption report, make the CLI ledger operative: `sddk adopt apply --root . --scope .` (plants `workflow/workflow.yaml` and registers the project in the ledger). Verify with `sddk cycle status --root . --scope .`. A failed adopt is a BLOCKER — report it and stop.
 ## References
 
 - `skills/sddk-init/SKILL.md` — what runs after adoption completes
