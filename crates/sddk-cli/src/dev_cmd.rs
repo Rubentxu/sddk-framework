@@ -592,15 +592,17 @@ fn link_editor(root: &Path, editor_dir: &Path) -> LinkReport {
         }
     }
 
-    // Skills (directories).
+    // Skills (directories + top-level markdown like BOOK-*.md).
     let skills_source = root.join("skills");
     if let Ok(entries) = std::fs::read_dir(&skills_source) {
         let skills_target = editor_dir.join("skills");
         for entry in entries.flatten() {
-            if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            let path = entry.path();
+            let is_skill_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            let is_markdown = path.extension().and_then(|e| e.to_str()) == Some("md");
+            if is_skill_dir || is_markdown {
                 let name = entry.file_name();
-                if let Err(error) = link_file(&entry.path(), &skills_target.join(&name), &mut stale)
-                {
+                if let Err(error) = link_file(&path, &skills_target.join(&name), &mut stale) {
                     report.errors.push(format!("skills/{name:?}: {error}"));
                 } else {
                     report.skills_linked += 1;
@@ -686,15 +688,14 @@ fn run_dev_link(args: LinkArgs) -> CommandOutput {
         let mut reports = Vec::new();
         if matches!(args.editor, LinkEditor::OpenCode | LinkEditor::All) {
             reports.push(link_editor(&root, &opencode_dir));
-            // Register framework agents in opencode.json.
+            // Register framework agents in opencode.json (created when absent,
+            // so a fresh editor install still gets its agents registered).
             let opencode_json = opencode_dir.join("opencode.json");
-            if opencode_json.exists() {
-                match register_opencode_agents(&root, &opencode_json) {
-                    Ok(registered) => eprintln!(
-                        "opencode: registered {registered} framework agents in opencode.json"
-                    ),
-                    Err(error) => eprintln!("warning: opencode.json registration failed: {error}"),
+            match register_opencode_agents(&root, &opencode_json) {
+                Ok(registered) => {
+                    eprintln!("opencode: registered {registered} framework agents in opencode.json")
                 }
+                Err(error) => eprintln!("warning: opencode.json registration failed: {error}"),
             }
         }
         if matches!(args.editor, LinkEditor::ZCode | LinkEditor::All) {
@@ -832,6 +833,10 @@ fn framework_agent_names(root: &Path) -> Vec<String> {
         .collect()
 }
 
+/// Orchestrator agents registered as primary (user-selectable) agents in
+/// opencode; every other framework agent stays a hidden subagent.
+const PRIMARY_AGENTS: [&str; 3] = ["orchestrator", "gentle-orchestrator", "book-orchestrator"];
+
 /// Minimal frontmatter extraction (description/model) from an agent .md.
 struct AgentFrontmatter {
     description: String,
@@ -856,11 +861,19 @@ fn parse_frontmatter(path: &Path) -> Option<AgentFrontmatter> {
     Some(AgentFrontmatter { description, model })
 }
 
-/// Upsert framework agent entries into opencode.json.
+/// Upsert framework agent entries into opencode.json, creating the file when
+/// absent so a fresh editor install still registers its agents.
 fn register_opencode_agents(root: &Path, opencode_json: &Path) -> anyhow::Result<usize> {
-    let content = std::fs::read_to_string(opencode_json)?;
-    let mut config: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| anyhow::anyhow!("opencode.json invalid: {e}"))?;
+    let mut config: serde_json::Value = if opencode_json.exists() {
+        serde_json::from_str(&std::fs::read_to_string(opencode_json)?)
+            .map_err(|e| anyhow::anyhow!("opencode.json invalid: {e}"))?
+    } else {
+        serde_json::json!({
+            "$schema": "https://opencode.ai/config.json",
+            "agent": {},
+            "mcp": {}
+        })
+    };
     let agents = config
         .get_mut("agent")
         .and_then(|value| value.as_object_mut())
@@ -875,16 +888,17 @@ fn register_opencode_agents(root: &Path, opencode_json: &Path) -> anyhow::Result
             .model
             .clone()
             .unwrap_or_else(|| "minimax-coding-plan/MiniMax-M3".to_owned());
-        agents.insert(
-            name,
-            serde_json::json!({
-                "description": frontmatter.description,
-                "mode": "subagent",
-                "model": model,
-                "prompt": format!("{{file:{}}}", md_path.to_string_lossy()),
-                "hidden": true,
-            }),
-        );
+        let primary = PRIMARY_AGENTS.contains(&name.as_str());
+        let mut entry = serde_json::json!({
+            "description": frontmatter.description,
+            "mode": if primary { "primary" } else { "subagent" },
+            "model": model,
+            "prompt": format!("{{file:{}}}", md_path.to_string_lossy()),
+        });
+        if !primary {
+            entry["hidden"] = serde_json::Value::Bool(true);
+        }
+        agents.insert(name, entry);
         registered += 1;
     }
     let serialized = serde_json::to_string_pretty(&config)?;
