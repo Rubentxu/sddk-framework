@@ -568,6 +568,21 @@ forge:
     release.publish:
       risk: high
       consequence: creates
+    vault.index:
+      risk: low
+      consequence: creates
+    vault.validate:
+      risk: low
+      consequence: read
+    vault.search:
+      risk: low
+      consequence: read
+    vault.graph:
+      risk: low
+      consequence: read
+    vault.export:
+      risk: low
+      consequence: creates
 
 storage:
   xdg: true

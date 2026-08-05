@@ -362,7 +362,7 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         Command::Validate { command } => result_cmd::run_validate(command, environment),
         Command::AgentResult { command } => result_cmd::run_agent_result(command, environment),
         Command::Release { command } => release_cmd::run_release(command, environment),
-        Command::Vault { command } => vault_cmd::run_vault(command),
+        Command::Vault { command } => vault_cmd::run_vault(command, environment),
         Command::Dev { command } => dev_cmd::run_dev(command),
         Command::Pack { command } => pack_cmd::run_pack(command),
     }
