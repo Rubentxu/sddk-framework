@@ -24,7 +24,7 @@ jobs:
             os: ubuntu-latest
             asset: sddk-linux-x86_64-musl
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-24.04-arm
             asset: sddk-linux-aarch64
           - target: aarch64-apple-darwin
             os: macos-latest
@@ -41,15 +41,15 @@ jobs:
       - name: Add target
         run: rustup target add ${{ matrix.target }}
 
-      - name: Install aarch64 cross linker
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+      - name: Install musl cross tools
+        if: matrix.target == 'x86_64-unknown-linux-musl'
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
+          sudo apt-get install -y musl-tools
 
       - name: Build release binary
         env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
         run: cargo build --release --target ${{ matrix.target }} -p sddk-cli --locked
 
       - name: Package dist (checksums + SBOM + attestation)
