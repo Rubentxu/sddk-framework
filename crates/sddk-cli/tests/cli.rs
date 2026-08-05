@@ -1671,6 +1671,171 @@ fn cli_metrics_dedupe_merged_context_and_tuning_file() {
 }
 
 #[test]
+fn cli_f3_tuning_influences_cycle_start_and_research_packet() {
+    let fixture = CliFixture::new("f3-closed-loop");
+    write(
+        fixture.root.join("workflow/workflow.yaml"),
+        CANONICAL_WORKFLOW,
+    );
+    let remote = "https://example.com/acme/repo.git";
+    let common = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        remote,
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+        "--format",
+        "json",
+    ];
+    let adopted = fixture.run_adopt("apply", &common);
+    assert!(
+        adopted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&adopted.stderr)
+    );
+    let adopted_json: serde_json::Value = serde_json::from_slice(&adopted.stdout).unwrap();
+    let project_id = adopted_json["project_id"].as_str().unwrap();
+    let metrics_dir = fixture
+        .data
+        .join("sddk/projects")
+        .join(project_id)
+        .join("metrics");
+
+    // Record enough cycles (rate 1.0 > 0.85) so tuning recommends A-min.
+    for (index, name) in ["alpha", "beta", "gamma"].iter().enumerate() {
+        let recorded = fixture.run(&[
+            "metrics",
+            "record",
+            "--root",
+            fixture.root.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            remote,
+            "--cycle",
+            &format!("{project_id}/{name}"),
+            "--verdict",
+            "PASS",
+            "--first-pass",
+            "--format",
+            "json",
+        ]);
+        assert!(
+            recorded.status.success(),
+            "{index}: {}",
+            String::from_utf8_lossy(&recorded.stderr)
+        );
+    }
+    // Generate aggregate + tuning.
+    let tuned = fixture.run(&[
+        "metrics",
+        "tuning",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        remote,
+        "--format",
+        "json",
+    ]);
+    assert!(tuned.status.success());
+    let tuning_md = fs::read_to_string(metrics_dir.join("tuning.md")).unwrap();
+    assert!(
+        tuning_md.contains("path_bias: A-min"),
+        "rate 1.0 should recommend A-min, got: {tuning_md}"
+    );
+
+    // U1: cycle start WITHOUT --path uses the tuned path (A-min).
+    let started = fixture.run(&[
+        "cycle",
+        "start",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        remote,
+        "--name",
+        "tuned-cycle",
+        "--lease-owner",
+        "agent-a",
+        "--lease-ms",
+        "3600000",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        started.status.success(),
+        "{}",
+        String::from_utf8_lossy(&started.stderr)
+    );
+    let started_json: serde_json::Value = serde_json::from_slice(&started.stdout).unwrap();
+    assert_eq!(started_json["path"], "A-min");
+
+    // Explicit --path still wins.
+    let explicit = fixture.run(&[
+        "cycle",
+        "start",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        remote,
+        "--name",
+        "explicit-cycle",
+        "--path",
+        "a-full",
+        "--lease-owner",
+        "agent-a",
+        "--lease-ms",
+        "3600000",
+        "--format",
+        "json",
+    ]);
+    assert!(explicit.status.success());
+    let explicit_json: serde_json::Value = serde_json::from_slice(&explicit.stdout).unwrap();
+    assert_eq!(explicit_json["path"], "A-full");
+
+    // U2: research packet contains aggregate + cycles + signals.
+    let research = fixture.run(&[
+        "analytics",
+        "research",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        remote,
+        "--window",
+        "30d",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        research.status.success(),
+        "{}",
+        String::from_utf8_lossy(&research.stderr)
+    );
+    let packet: serde_json::Value = serde_json::from_slice(&research.stdout).unwrap();
+    assert_eq!(packet["aggregate"]["sample_size"], 3);
+    assert_eq!(packet["cycles"].as_array().unwrap().len(), 3);
+    assert!(
+        packet["signals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|signal| signal == "path_bias: A-min")
+    );
+}
+
+#[test]
 fn cli_git_operations_verify_postconditions_and_record_receipts() {
     let fixture = CliFixture::new("git-authority");
     write(

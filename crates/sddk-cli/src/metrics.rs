@@ -221,7 +221,16 @@ fn read_context_quality(context: &RuntimeContext, cycle_id: &str) -> Option<Stri
         serde_json::from_str(&std::fs::read_to_string(&path).ok()?).ok()?;
     map.get(cycle_id).cloned()
 }
-///
+
+/// Read the F3 `path_bias` recommendation from `tuning.md`, if present.
+pub(crate) fn read_tuning_path_bias(context: &RuntimeContext) -> Option<String> {
+    let path = metrics_dir(context).ok()?.join("tuning.md");
+    let content = std::fs::read_to_string(path).ok()?;
+    content
+        .lines()
+        .find_map(|line| line.strip_prefix("- path_bias: ").map(str::to_owned))
+}
+
 /// Idempotent: if a record for the cycle already exists, this is a no-op.
 /// Best-effort: derivation never blocks; missing data defaults to explicit
 /// sentinels (`UNKNOWN` verdict, false flags, 0 costs).
