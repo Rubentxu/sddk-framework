@@ -46,9 +46,9 @@ detect_asset() {
     esac
     # musl Linux is the portable static build; glibc otherwise.
     if [ "$os" = "linux" ] && ldd --version 2>/dev/null | grep -qi musl; then
-        echo "${os}-${arch}-musl"
+        echo "sddk-${os}-${arch}-musl"
     else
-        echo "${os}-${arch}"
+        echo "sddk-${os}-${arch}"
     fi
 }
 
