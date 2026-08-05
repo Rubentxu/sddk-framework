@@ -1394,7 +1394,19 @@ fn cli_closing_cycle_auto_captures_metrics_record() {
         .find(|record| record["cycle_id"] == cycle_id)
         .expect("auto-captured metrics record for the closed cycle");
     assert_eq!(record["path"], "a-lite");
-    assert_eq!(record["verify_verdict"], "UNKNOWN");
+    assert_eq!(record["verify_verdict"], "PASS");
+    assert_eq!(record["tag_version"], "v0.0.1");
+    assert_eq!(record["first_pass_success"], true);
+    assert_eq!(record["correction_cycles"], 0);
+    let durations = record["phase_durations_sec"].as_object().unwrap();
+    assert!(
+        !durations.is_empty(),
+        "phase durations must be derived from ledger events"
+    );
+    assert!(
+        record["lead_time_hours"].as_f64().is_some(),
+        "lead time must be derived from created -> archive"
+    );
 
     // Exactly one record for this cycle: capture appended once during close.
     let count = jsonl
