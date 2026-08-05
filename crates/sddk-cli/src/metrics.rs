@@ -61,6 +61,12 @@ pub(crate) struct MetricsRecordArgs {
     /// Context quality at triage (C0..C3).
     #[arg(long, default_value = "C2")]
     pub(crate) context_quality: String,
+    /// Workflow path taken (b-direct | a-min | a-lite | a-full).
+    #[arg(long)]
+    pub(crate) path: Option<String>,
+    /// Semantic version tag when released.
+    #[arg(long)]
+    pub(crate) tag: Option<String>,
     /// Estimated cost in USD.
     #[arg(long)]
     pub(crate) cost: Option<f64>,
@@ -282,7 +288,7 @@ fn run_metrics_record(args: MetricsRecordArgs, environment: &CliEnvironment) -> 
         let recorded_at = now.format(&time::format_description::well_known::Rfc3339)?;
         let record = MetricsRecord {
             cycle_id: args.cycle.clone(),
-            path: "unknown".to_owned(),
+            path: args.path.clone().unwrap_or_else(|| "unknown".to_owned()),
             context_quality: args.context_quality.clone(),
             phase_durations_sec: HashMap::new(),
             coherence_scores: Vec::new(),
@@ -292,7 +298,7 @@ fn run_metrics_record(args: MetricsRecordArgs, environment: &CliEnvironment) -> 
             first_pass_success: args.first_pass,
             verify_verdict: args.verdict.clone(),
             merged_to_main: args.merged,
-            tag_version: None,
+            tag_version: args.tag.clone(),
             lead_time_hours: None,
             teleological_coherence_pct: None,
             costs: HashMap::new(),
