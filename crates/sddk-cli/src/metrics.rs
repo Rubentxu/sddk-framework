@@ -37,6 +37,17 @@ pub(crate) enum MetricsCommand {
     Aggregate(MetricsAggregateArgs),
     /// Emit the F3 self-tuning recommendation block.
     Tuning(MetricsTuningArgs),
+    /// Re-derive records for cycles with poor fields from ledger events.
+    Backfill(MetricsBackfillArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct MetricsBackfillArgs {
+    #[command(flatten)]
+    pub(crate) runtime: RuntimeArgs,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -70,6 +81,12 @@ pub(crate) struct MetricsRecordArgs {
     /// Estimated cost in USD.
     #[arg(long)]
     pub(crate) cost: Option<f64>,
+    /// Estimated tokens used (for cost estimation when --cost is absent).
+    #[arg(long)]
+    pub(crate) tokens: Option<u64>,
+    /// Model used (for cost estimation when --cost is absent).
+    #[arg(long)]
+    pub(crate) model: Option<String>,
     /// Output format.
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     pub(crate) format: OutputFormat,
@@ -334,6 +351,27 @@ pub(crate) fn window_records(records: Vec<MetricsRecord>, window_days: u16) -> V
         .collect()
 }
 
+/// Known per-token USD rates for cost estimation (approximate list prices).
+const MODEL_RATES: [(&str, f64); 4] = [
+    ("mini-m2.7", 0.50 / 1_000_000.0),
+    ("deepseek-v4-pro", 1.20 / 1_000_000.0),
+    ("glm-4.7", 0.80 / 1_000_000.0),
+    ("deepseek-v4-flash", 0.30 / 1_000_000.0),
+];
+
+/// Estimate cost in USD from tokens and model, or fall back to a default rate.
+fn estimate_cost(tokens: u64, model: Option<&str>) -> f64 {
+    let rate = model
+        .and_then(|name| {
+            MODEL_RATES
+                .iter()
+                .find(|(key, _)| *key == name)
+                .map(|(_, r)| *r)
+        })
+        .unwrap_or(0.50 / 1_000_000.0);
+    tokens as f64 * rate
+}
+
 fn median(values: &mut [f64]) -> Option<f64> {
     if values.is_empty() {
         return None;
@@ -403,13 +441,19 @@ pub(crate) fn tuning_from_aggregate(aggregate: &MetricsAggregate) -> F3Tuning {
     if aggregate.sample_size >= 3 {
         if aggregate.first_pass_success_rate > 0.85 {
             tuning.path_bias = Some("A-min".to_owned());
-        } else if aggregate.first_pass_success_rate < 0.6 {
+        } else if aggregate.first_pass_success_rate >= 0.6 {
+            // Middle band: keep A-lite, add verification lens to close the gap.
+            tuning.path_bias = Some("A-lite".to_owned());
+            tuning.recommended_lens.push("test-quality".to_owned());
+        } else {
             tuning.recommended_deepen.push("spec".to_owned());
             tuning.recommended_deepen.push("verify".to_owned());
         }
     }
-    if aggregate.top_bottleneck_phase.as_deref() == Some("apply") {
-        tuning.recommended_lens.push("test-quality".to_owned());
+    match aggregate.top_bottleneck_phase.as_deref() {
+        Some("apply") => tuning.recommended_lens.push("test-quality".to_owned()),
+        Some("release") => tuning.recommended_skip.push("manual-merge".to_owned()),
+        _ => {}
     }
     tuning
 }
@@ -443,7 +487,108 @@ pub(crate) fn run_metrics(command: MetricsCommand, environment: &CliEnvironment)
         MetricsCommand::Record(args) => run_metrics_record(args, environment),
         MetricsCommand::Aggregate(args) => run_metrics_aggregate(args, environment),
         MetricsCommand::Tuning(args) => run_metrics_tuning(args, environment),
+        MetricsCommand::Backfill(args) => run_metrics_backfill(args, environment),
     }
+}
+
+/// A record is considered poor when enrichment would add signal.
+fn record_is_poor(record: &MetricsRecord) -> bool {
+    record.verify_verdict == "UNKNOWN"
+        || record.tag_version.is_none()
+        || record.phase_durations_sec.is_empty()
+        || record.lead_time_hours.is_none()
+}
+
+fn run_metrics_backfill(args: MetricsBackfillArgs, environment: &CliEnvironment) -> CommandOutput {
+    let format = args.format;
+    let result = (|| -> anyhow::Result<Vec<MetricsRecord>> {
+        let context = RuntimeContext::open(&args.runtime, environment, false)?;
+        let events = context.storage.list_events()?;
+        // Group events by cycle; find cycles whose final state is CLOSED.
+        let mut cycles: std::collections::BTreeMap<String, Vec<sddk_storage::LedgerEvent>> =
+            std::collections::BTreeMap::new();
+        for event in &events {
+            if let Some(cycle_id) = &event.cycle_id {
+                cycles
+                    .entry(cycle_id.clone())
+                    .or_default()
+                    .push(event.clone());
+            }
+        }
+
+        let existing = read_records(&context)?;
+        let mut backfilled = Vec::new();
+        for (cycle_id, cycle_events) in &cycles {
+            // Determine final status from the last state_after.
+            let closed = cycle_events.iter().rev().find_map(|event| {
+                event
+                    .state_after
+                    .as_ref()
+                    .and_then(|state| state.get("status"))
+                    .and_then(|value| value.as_str())
+                    .map(|status| status == "CLOSED")
+            });
+            if closed != Some(true) {
+                continue;
+            }
+            let already_enriched = existing
+                .iter()
+                .any(|record| record.cycle_id == *cycle_id && !record_is_poor(record));
+            if already_enriched {
+                continue;
+            }
+            let derived = derive_from_events(cycle_events);
+            let now = OffsetDateTime::now_utc();
+            let recorded_at = now.format(&time::format_description::well_known::Rfc3339)?;
+            let path = match cycle_events.iter().rev().find_map(|event| {
+                event
+                    .state_after
+                    .as_ref()
+                    .and_then(|state| state.get("path"))
+                    .and_then(|value| value.as_str())
+                    .map(str::to_owned)
+            }) {
+                Some(path) => path,
+                None => "unknown".to_owned(),
+            };
+            let record = MetricsRecord {
+                cycle_id: cycle_id.clone(),
+                path,
+                context_quality: "C2".to_owned(),
+                phase_durations_sec: derived.phase_durations_sec,
+                coherence_scores: Vec::new(),
+                correction_cycles: derived.correction_cycles,
+                tokens_used: 0,
+                cost_estimate_usd: 0.0,
+                first_pass_success: derived.first_pass_success,
+                verify_verdict: derived.verify_verdict,
+                merged_to_main: false,
+                tag_version: derived.tag_version,
+                lead_time_hours: derived.lead_time_hours,
+                teleological_coherence_pct: None,
+                costs: HashMap::new(),
+                recorded_at,
+            };
+            append_record(&context, &record)?;
+            backfilled.push(record);
+        }
+        eprintln!("metrics: backfilled {} records", backfilled.len());
+        Ok(backfilled)
+    })();
+    render_result(result, format, backfill_text)
+}
+
+fn backfill_text(records: &Vec<MetricsRecord>) -> String {
+    let mut text = format!("backfilled: {}\n", records.len());
+    for record in records {
+        text.push_str(&format!(
+            "- {} verdict={} tag={}\n",
+            record.cycle_id,
+            record.verify_verdict,
+            record.tag_version.as_deref().unwrap_or("None")
+        ));
+    }
+    text
 }
 
 fn run_metrics_record(args: MetricsRecordArgs, environment: &CliEnvironment) -> CommandOutput {
@@ -459,8 +604,10 @@ fn run_metrics_record(args: MetricsRecordArgs, environment: &CliEnvironment) -> 
             phase_durations_sec: HashMap::new(),
             coherence_scores: Vec::new(),
             correction_cycles: args.corrections,
-            tokens_used: 0,
-            cost_estimate_usd: args.cost.unwrap_or(0.0),
+            tokens_used: args.tokens.unwrap_or(0),
+            cost_estimate_usd: args
+                .cost
+                .unwrap_or_else(|| estimate_cost(args.tokens.unwrap_or(0), args.model.as_deref())),
             first_pass_success: args.first_pass,
             verify_verdict: args.verdict.clone(),
             merged_to_main: args.merged,
