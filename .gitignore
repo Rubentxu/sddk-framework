@@ -33,3 +33,6 @@ package-lock.json
 __pycache__/
 *.pyc
 .venv/
+
+# SDDK local-only working paths (never committed)
+sddk/
