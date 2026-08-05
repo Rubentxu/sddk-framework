@@ -20,7 +20,7 @@ REPO="${SDDK_REPO:-Rubentxu/sddk-framework}"
 VERSION="${SDDK_VERSION:-latest}"
 PREFIX="${SDDK_PREFIX:-$HOME/.local/bin}"
 WITH_FRAMEWORK="${SDDK_WITH_FRAMEWORK:-0}"
-BASE_URL="${SDDK_BASE_URL:-https://github.com/$REPO/releases/download}"
+BASE_URL="${SDDK_BASE_URL:-https://github.com/$REPO/releases}"
 FRAMEWORK_DIR="${SDDK_SHARED_DIR:-$HOME/.sddk-shared}"
 
 while [ $# -gt 0 ]; do
@@ -86,8 +86,8 @@ if [ "$VERSION" = "latest" ]; then
     BIN_URL="$BASE_URL/latest/download/$ASSET"
     SUM_URL="$BASE_URL/latest/download/$ASSET.sha256"
 else
-    BIN_URL="$BASE_URL/$VERSION/$ASSET"
-    SUM_URL="$BASE_URL/$VERSION/$ASSET.sha256"
+    BIN_URL="$BASE_URL/download/$VERSION/$ASSET"
+    SUM_URL="$BASE_URL/download/$VERSION/$ASSET.sha256"
 fi
 
 download "$BIN_URL" "$TMP_DIR/sddk"
