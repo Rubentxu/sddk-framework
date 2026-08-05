@@ -1107,6 +1107,311 @@ fn cli_metrics_record_aggregate_tuning_and_analytics() {
 }
 
 #[test]
+fn cli_closing_cycle_auto_captures_metrics_record() {
+    let fixture = CliFixture::new("auto-metrics");
+    write(
+        fixture.root.join("workflow/workflow.yaml"),
+        CANONICAL_WORKFLOW,
+    );
+    let remote = "https://example.com/acme/repo.git";
+    let common = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        remote,
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+        "--format",
+        "json",
+    ];
+
+    let adopted = fixture.run_adopt("apply", &common);
+    assert!(
+        adopted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&adopted.stderr)
+    );
+
+    // Start an A-lite cycle.
+    let started = fixture.run(&[
+        "cycle",
+        "start",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        remote,
+        "--name",
+        "auto-capture-test",
+        "--path",
+        "a-lite",
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+        "--lease-owner",
+        "agent-a",
+        "--lease-ms",
+        "3600000",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        started.status.success(),
+        "{}",
+        String::from_utf8_lossy(&started.stderr)
+    );
+    let started_json: serde_json::Value = serde_json::from_slice(&started.stdout).unwrap();
+    let cycle_id = started_json["cycle_id"].as_str().unwrap().to_owned();
+
+    // Helper closures for gate + transition pairs.
+    let evaluate = |transition: &str, gate: &str, evidence: &str| {
+        fixture.run(&[
+            "cycle",
+            "evaluate-gate",
+            "--root",
+            fixture.root.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            remote,
+            "--cycle",
+            &cycle_id,
+            "--transition",
+            transition,
+            "--gate",
+            gate,
+            "--evaluator",
+            "sddk.cli",
+            "--evidence",
+            evidence,
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ])
+    };
+    let transition = |transition: &str, artifacts: &[&str], receipts: &[&str]| {
+        let mut args = vec![
+            "cycle",
+            "transition",
+            "--root",
+            fixture.root.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            remote,
+            "--cycle",
+            &cycle_id,
+            "--transition",
+            transition,
+            "--lease-owner",
+            "agent-a",
+            "--fencing-token",
+            "1",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ];
+        for artifact in artifacts {
+            args.push("--artifact");
+            args.push(artifact);
+        }
+        for receipt in receipts {
+            args.push("--gate-receipt");
+            args.push(receipt);
+        }
+        fixture.run(&args)
+    };
+
+    // explore.complete
+    let receipt = evaluate(
+        "phase.explore.complete",
+        "exploration-sufficient",
+        r#"{"ok":true}"#,
+    );
+    assert!(receipt.status.success());
+    let gate_json: serde_json::Value = serde_json::from_slice(&receipt.stdout).unwrap();
+    let receipt_id = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let step = transition(
+        "phase.explore.complete",
+        &["exploration-report=artifacts/exploration.md"],
+        &[receipt_id.as_str()],
+    );
+    assert!(
+        step.status.success(),
+        "{}",
+        String::from_utf8_lossy(&step.stderr)
+    );
+
+    // specify.complete (A-lite -> design)
+    let receipt = evaluate(
+        "phase.specify.complete",
+        "requirements-testable",
+        r#"{"ok":true}"#,
+    );
+    assert!(receipt.status.success());
+    let gate_json: serde_json::Value = serde_json::from_slice(&receipt.stdout).unwrap();
+    let receipt_id = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let step = transition(
+        "phase.specify.complete",
+        &["specification=artifacts/spec.md"],
+        &[receipt_id.as_str()],
+    );
+    assert!(
+        step.status.success(),
+        "{}",
+        String::from_utf8_lossy(&step.stderr)
+    );
+
+    // design.complete.a-lite (A-lite -> build)
+    let receipt = evaluate(
+        "phase.design.complete.a-lite",
+        "architecture-consistent",
+        r#"{"ok":true}"#,
+    );
+    assert!(receipt.status.success());
+    let gate_json: serde_json::Value = serde_json::from_slice(&receipt.stdout).unwrap();
+    let receipt_id = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let step = transition(
+        "phase.design.complete.a-lite",
+        &["design=artifacts/design.md"],
+        &[receipt_id.as_str()],
+    );
+    assert!(
+        step.status.success(),
+        "{}",
+        String::from_utf8_lossy(&step.stderr)
+    );
+
+    // build.complete
+    let receipt = evaluate(
+        "phase.build.complete",
+        "implementation-complete",
+        r#"{"ok":true}"#,
+    );
+    assert!(receipt.status.success());
+    let gate_json: serde_json::Value = serde_json::from_slice(&receipt.stdout).unwrap();
+    let receipt_id = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let step = transition(
+        "phase.build.complete",
+        &["implementation-receipt=artifacts/receipt.md"],
+        &[receipt_id.as_str()],
+    );
+    assert!(
+        step.status.success(),
+        "{}",
+        String::from_utf8_lossy(&step.stderr)
+    );
+
+    // verify.complete.a-lite (A-lite -> RELEASE_PENDING) with two gates
+    let receipt_pass = evaluate(
+        "phase.verify.complete.a-lite",
+        "tests-pass",
+        r#"{"ok":true}"#,
+    );
+    assert!(receipt_pass.status.success());
+    let gate_json: serde_json::Value = serde_json::from_slice(&receipt_pass.stdout).unwrap();
+    let receipt_pass_id = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let receipt_policy = evaluate(
+        "phase.verify.complete.a-lite",
+        "policy-compliant",
+        r#"{"ok":true}"#,
+    );
+    assert!(receipt_policy.status.success());
+    let gate_json: serde_json::Value = serde_json::from_slice(&receipt_policy.stdout).unwrap();
+    let receipt_policy_id = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let step = transition(
+        "phase.verify.complete.a-lite",
+        &["verification-report=artifacts/verify.md"],
+        &[receipt_pass_id.as_str(), receipt_policy_id.as_str()],
+    );
+    assert!(
+        step.status.success(),
+        "{}",
+        String::from_utf8_lossy(&step.stderr)
+    );
+
+    // release.complete -> RELEASED
+    let receipt = evaluate("release.complete", "no-pending-effects", r#"{"ok":true}"#);
+    assert!(receipt.status.success());
+    let gate_json: serde_json::Value = serde_json::from_slice(&receipt.stdout).unwrap();
+    let receipt_id = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let step = transition(
+        "release.complete",
+        &["merge-receipt=main", "release-receipt=v0.0.1"],
+        &[receipt_id.as_str()],
+    );
+    assert!(
+        step.status.success(),
+        "{}",
+        String::from_utf8_lossy(&step.stderr)
+    );
+
+    // archive.complete -> CLOSED (auto-capture fires here)
+    let receipt_valid = evaluate("archive.complete", "ledger-valid", r#"{"ok":true}"#);
+    assert!(receipt_valid.status.success());
+    let gate_json: serde_json::Value = serde_json::from_slice(&receipt_valid.stdout).unwrap();
+    let receipt_valid_id = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let receipt_vault = evaluate("archive.complete", "vault-index-current", r#"{"ok":true}"#);
+    assert!(receipt_vault.status.success());
+    let gate_json: serde_json::Value = serde_json::from_slice(&receipt_vault.stdout).unwrap();
+    let receipt_vault_id = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let closed = transition(
+        "archive.complete",
+        &["archive-manifest=artifacts/archive.md"],
+        &[receipt_valid_id.as_str(), receipt_vault_id.as_str()],
+    );
+    assert!(
+        closed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&closed.stderr)
+    );
+    let closed_json: serde_json::Value = serde_json::from_slice(&closed.stdout).unwrap();
+    assert_eq!(closed_json["status"], "CLOSED");
+
+    // Auto-capture: metrics record for the cycle must exist with path a-lite.
+    let project_id = cycle_id.split('/').next().unwrap();
+    let metrics_dir = fixture
+        .data
+        .join("sddk/projects")
+        .join(project_id)
+        .join("metrics");
+    let jsonl = fs::read_to_string(metrics_dir.join("metrics.jsonl")).unwrap();
+    let record: serde_json::Value = jsonl
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .find(|record| record["cycle_id"] == cycle_id)
+        .expect("auto-captured metrics record for the closed cycle");
+    assert_eq!(record["path"], "a-lite");
+    assert_eq!(record["verify_verdict"], "UNKNOWN");
+
+    // Exactly one record for this cycle: capture appended once during close.
+    let count = jsonl
+        .lines()
+        .filter(|line| {
+            serde_json::from_str::<serde_json::Value>(line)
+                .map(|record| record["cycle_id"] == cycle_id)
+                .unwrap_or(false)
+        })
+        .count();
+    assert_eq!(
+        count, 1,
+        "capture must append exactly one record per closed cycle"
+    );
+}
+
+#[test]
 fn cli_git_operations_verify_postconditions_and_record_receipts() {
     let fixture = CliFixture::new("git-authority");
     write(
