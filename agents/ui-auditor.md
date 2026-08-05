@@ -2,7 +2,7 @@
 name: ui-auditor
 description: Dedicated frontend UI auditor for browser-based visual, responsive, layout, and accessibility verification
 permission: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: info
 ---
 

@@ -2,7 +2,7 @@
 name: sdd-kernel-release
 description: Kernel SDD release executor - owns Phase 3 (push + PR + wait + merge + tag + html + close-issue + roadmap + trunk-sync). MANDATORY post-sddk-archive, no opt-out. v3.3 collapsed the 8 inline sub-steps into a single agent to prevent silent HITL-gate aborts.
 permission: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: accent
 ---
 

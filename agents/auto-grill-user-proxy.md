@@ -4,7 +4,7 @@ description: Answers as the user proxy and owns all research delegation needed t
 permission:
   Glob: allow
   Read: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: warning
 ---
 

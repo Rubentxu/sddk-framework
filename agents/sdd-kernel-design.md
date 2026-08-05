@@ -2,7 +2,7 @@
 name: sdd-kernel-design
 description: Kernel SDD design executor - creates adaptive technical designs
 permission: allow
-model: GLM-5.2
+model: zai-coding-plan/glm-5.2
 color: accent
 ---
 

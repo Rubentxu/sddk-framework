@@ -7,7 +7,7 @@ permission:
   Grep: allow
   Read: allow
   Write: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: warning
 ---
 

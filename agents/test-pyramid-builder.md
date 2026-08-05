@@ -2,7 +2,7 @@
 name: test-pyramid-builder
 description: Designs test strategy using the testing pyramid: unit-heavy foundation, integration middle, e2o top. Reads project stack and stack-detection skill, proposes a concrete test pyramid with layer counts and tooling per layer. Subagent of the verify phase for projects lacking existing tests.
 permission: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: info
 ---
 

@@ -2,7 +2,7 @@
 name: impeccable-primary
 description: Primary frontend design agent powered by the pbakaus/impeccable vocabulary. Sense-and-adapt: reads project context, understands user intent, infers what skills apply, then acts with discretion. Use for design, redesign, UI, UX, components, pages, apps, dashboards, landing pages, marketing sites, critiques, audits, polish, motion, typography, color, accessibility.
 permission: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: success
 ---
 

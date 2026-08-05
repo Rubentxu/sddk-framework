@@ -2,7 +2,7 @@
 name: studio-page
 description: Studio Page Agent — generates Next.js App Router pages from blocks. Server Components by default, selective client boundaries. One page.tsx per route. Parallel generation. Token-budgeted 8K/6K.
 permission: allow
-model: MiniMax-M2.7-highspeed
+model: minimax-coding-plan/MiniMax-M2.7-highspeed
 color: accent
 ---
 

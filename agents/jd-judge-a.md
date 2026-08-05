@@ -2,7 +2,7 @@
 name: jd-judge-a
 description: Adversarial code reviewer — blind judge A for judgment-day protocol
 permission: allow
-model: MiniMax-M2.7-highspeed
+model: minimax-coding-plan/MiniMax-M2.7-highspeed
 color: error
 ---
 

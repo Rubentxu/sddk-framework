@@ -2,7 +2,7 @@
 name: sddk-debt-verify
 description: "Post-verify technical debt audit phase orchestrator. Sits between sddk-verify PASS/PW and sddk-archive on the feature branch (pre-PR). Launches 5 cluster orchestrators in parallel (architecture, smells, duplication, coupling, over-engineering), merges findings, applies Decision Gates, emits PASS/PW/FAIL verdict and re_iterate_from. Read-only on codebase. Subagent of MCW Step 2.4."
 permission: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: warning
 ---
 

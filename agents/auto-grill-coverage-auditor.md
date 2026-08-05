@@ -3,7 +3,7 @@ name: auto-grill-coverage-auditor
 description: Audits whether the autonomous grill loop has covered all relevant branches
 permission:
   Read: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: warning
 ---
 

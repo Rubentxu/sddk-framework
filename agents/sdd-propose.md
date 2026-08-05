@@ -2,7 +2,7 @@
 name: sdd-propose
 description: Create change proposals from explorations
 permission: allow
-model: GLM-5.2
+model: zai-coding-plan/glm-5.2
 color: accent
 ---
 

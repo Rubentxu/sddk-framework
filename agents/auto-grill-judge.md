@@ -2,7 +2,7 @@
 name: auto-grill-judge
 description: Decides final provisional answer from evidence, proxy answer and skeptic challenge, with structural quality bar
 permission: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: warning
 ---
 

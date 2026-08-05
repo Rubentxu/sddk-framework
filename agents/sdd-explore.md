@@ -2,7 +2,7 @@
 name: sdd-explore
 description: Investigate codebase and think through ideas
 permission: allow
-model: GLM-5.2
+model: zai-coding-plan/glm-5.2
 color: accent
 ---
 

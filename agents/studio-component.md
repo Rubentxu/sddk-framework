@@ -2,7 +2,7 @@
 name: studio-component
 description: Studio Component Agent — generates shadcn-style source-owned UI primitives from DESIGN.md. Radix + Tailwind. One .tsx per primitive. Parallel generation. Token-budgeted 12K/8K.
 permission: allow
-model: MiniMax-M2.7-highspeed
+model: minimax-coding-plan/MiniMax-M2.7-highspeed
 color: accent
 ---
 

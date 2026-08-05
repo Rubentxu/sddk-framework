@@ -2,7 +2,7 @@
 name: gentle-orchestrator
 description: Gentle AI SDD Orchestrator - coordinates sub-agents, never does work inline
 permission: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: info
 ---
 

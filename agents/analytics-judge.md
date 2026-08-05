@@ -2,7 +2,7 @@
 name: analytics-judge
 description: "Adversarial validator for the telemetry self-research loop. Cross-checks analytics-researcher findings against raw ledger events and metrics records; rejects unsupported claims. Second agent in the loop."
 permission: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: accent
 ---
 

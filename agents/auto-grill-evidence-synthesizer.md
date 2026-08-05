@@ -2,7 +2,7 @@
 name: auto-grill-evidence-synthesizer
 description: Synthesizes all research into compact evidence packets
 permission: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: warning
 ---
 

@@ -2,7 +2,7 @@
 name: sdd-kernel-coherence
 description: Coherence checker between SDDK phases - validates artifact consistency
 permission: allow
-model: MiniMax-M2.7-highspeed
+model: minimax-coding-plan/MiniMax-M2.7-highspeed
 color: accent
 ---
 

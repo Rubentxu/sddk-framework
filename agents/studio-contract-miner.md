@@ -2,7 +2,7 @@
 name: studio-contract-miner
 description: Studio Contract Miner — extracts OpenAPI 3.1 spec from source code (Python/Node/Go/Rust) when no schema exists. Clones repo, parses routes + handlers + models. Output to filesystem.
 permission: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: accent
 ---
 

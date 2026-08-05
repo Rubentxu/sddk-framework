@@ -2,7 +2,7 @@
 name: studio-doc-extractor
 description: Studio Doc Extractor — extracts OpenAPI 3.1 spec from unstructured docs (Markdown/Notion/Confluence/wiki). Parses endpoint descriptions, request/response shapes from prose.
 permission: allow
-model: MiniMax-M3
+model: minimax-coding-plan/MiniMax-M3
 color: accent
 ---
 

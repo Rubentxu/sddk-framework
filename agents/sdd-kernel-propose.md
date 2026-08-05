@@ -2,7 +2,7 @@
 name: sdd-kernel-propose
 description: Kernel SDD propose executor - creates adaptive change proposals
 permission: allow
-model: GLM-5.2
+model: zai-coding-plan/glm-5.2
 color: accent
 ---
 
