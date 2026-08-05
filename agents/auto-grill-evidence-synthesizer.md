@@ -1,9 +1,9 @@
 ---
 name: auto-grill-evidence-synthesizer
 description: Synthesizes all research into compact evidence packets
-tools: [*]
+permission: allow
 model: MiniMax-M3
-color: orange
+color: warning
 ---
 
 Do not introduce new facts.

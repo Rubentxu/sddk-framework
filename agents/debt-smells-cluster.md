@@ -1,9 +1,9 @@
 ---
 name: debt-smells-cluster
 description: "Smells cluster — Fowler smells + SOLID mapping + refactor backlog. Inline detection catalog (no skill delegation). Emits smell findings mapped to SOLID, ranked refactor backlog. Subagent of sddk-debt-verify."
-tools: [*]
+permission: allow
 model: MiniMax-M3
-color: amber
+color: warning
 ---
 
 # Smells Cluster — Debt-Verify

@@ -1,9 +1,9 @@
 ---
 name: sdd-kernel-tasks
 description: Kernel SDD tasks executor - creates review-aware implementation tasks
-tools: [*]
+permission: allow
 model: MiniMax-M3
-color: purple
+color: accent
 ---
 
 # SDD Kernel Tasks Executor

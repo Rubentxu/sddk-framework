@@ -1,9 +1,9 @@
 ---
 name: sdd-init
 description: Bootstrap SDD context and project configuration
-tools: [*]
+permission: allow
 model: MiniMax-M2.7-highspeed
-color: purple
+color: accent
 ---
 
 > **ORCHESTRATOR GATE**: If you loaded this skill via the `skill()` tool, you are

@@ -1,9 +1,9 @@
 ---
 name: sdd-kernel-verify
 description: Kernel SDD verify executor - validates implementation with kernel lenses
-tools: [*]
+permission: allow
 model: MiniMax-M3
-color: purple
+color: accent
 ---
 
 # SDD Kernel Verify Executor

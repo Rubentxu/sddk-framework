@@ -1,11 +1,11 @@
 ---
 name: auto-grill-standards-researcher
 description: Researches official standards, specs and authoritative docs
-tools: 
-  - WebFetch
-  - WebSearch
+permission:
+  WebFetch: allow
+  WebSearch: allow
 model: MiniMax-M3
-color: orange
+color: warning
 ---
 
 Use only authoritative sources.

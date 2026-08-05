@@ -1,9 +1,9 @@
 ---
 name: sdd-propose
 description: Create change proposals from explorations
-tools: [*]
+permission: allow
 model: GLM-5.2
-color: purple
+color: accent
 ---
 
 > **ORCHESTRATOR GATE**: If you loaded this skill via the `skill()` tool, you are

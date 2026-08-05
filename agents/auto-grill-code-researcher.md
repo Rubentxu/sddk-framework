@@ -1,14 +1,14 @@
 ---
 name: auto-grill-code-researcher
 description: Investigates local repository code evidence without editing files
-tools: 
-  - Bash
-  - Glob
-  - Grep
-  - LSP
-  - Read
+permission:
+  Bash: allow
+  Glob: allow
+  Grep: allow
+  LSP: allow
+  Read: allow
 model: MiniMax-M3
-color: orange
+color: warning
 ---
 
 Investigate local code only.

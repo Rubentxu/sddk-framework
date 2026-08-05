@@ -1,9 +1,9 @@
 ---
 name: sdd-kernel-propose
 description: Kernel SDD propose executor - creates adaptive change proposals
-tools: [*]
+permission: allow
 model: GLM-5.2
-color: purple
+color: accent
 ---
 
 # SDD Kernel Propose Executor

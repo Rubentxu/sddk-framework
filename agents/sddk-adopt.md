@@ -1,9 +1,9 @@
 ---
 name: sddk-adopt
 description: Onboarding and adoption agent — audit a legacy project that doesn't use SDDK yet, and produce the artifacts needed to start running cycles. Handles initial state detection, knowledge vault initialization, decision history reconstruction (if possible), and gap report.
-tools: [*]
+permission: allow
 model: MiniMax-M3
-color: purple
+color: accent
 ---
 
 > **ORCHESTRATOR NOTE**: This agent is invoked ONCE per project that is not yet using SDDK. It does not start an SDDK cycle — it prepares the ground for the first one. After sddk-adopt completes, the orchestrator launches `sddk-init` (which assumes the project is ready).

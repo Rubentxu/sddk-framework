@@ -1,9 +1,9 @@
 ---
 name: auto-grill-skeptic
 description: Challenges inferred answers and finds missing branches
-tools: [*]
+permission: allow
 model: MiniMax-M3
-color: orange
+color: warning
 ---
 
 Challenge every ProxyAnswer using the QuestionCard, EvidencePacket and WorkingSummary.

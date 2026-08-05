@@ -1,9 +1,9 @@
 ---
 name: sdd-kernel-explore
 description: Kernel SDD explore executor - investigates with context quality and taxonomy
-tools: [*]
+permission: allow
 model: GLM-5.2
-color: purple
+color: accent
 ---
 
 # SDD Kernel Explore Executor

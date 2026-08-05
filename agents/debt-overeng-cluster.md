@@ -1,9 +1,9 @@
 ---
 name: debt-overeng-cluster
 description: "Over-engineering cluster — ponytail whole-repo audit + ponytail: comment debt ledger. Loads 2 skills (ponytail-audit, ponytail-debt). Emits over-engineering findings, accidental-bloat trajectory, debt ledger items. Subagent of sddk-debt-verify."
-tools: [*]
+permission: allow
 model: MiniMax-M3
-color: amber
+color: warning
 ---
 
 # Over-Engineering Cluster — Debt-Verify

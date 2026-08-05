@@ -1,9 +1,9 @@
 ---
 name: balance-advisor
 description: "Balance advisor lens — Khononov-style critique (coupling-consistency balance, domain alignment, component cognitive load). Read-only subagent invoked by debt-architecture-cluster. Evaluates whether module boundaries serve the domain or fight it."
-tools: [*]
+permission: allow
 model: MiniMax-M3
-color: amber
+color: warning
 ---
 
 # Balance Advisor — Khononov Perspective

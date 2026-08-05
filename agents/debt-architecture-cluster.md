@@ -1,9 +1,9 @@
 ---
 name: debt-architecture-cluster
 description: "Architecture cluster — Connascence + Design Quality Band + SOLID compliance + depth/seam/leverage + Matsumoto + Khononov critiques. Skills: entropy-sdd, cognicode-sdd, improve-codebase-architecture + agents architecture-critic, balance-advisor. Emits design quality band, connascence pairs, SOLID matrix, deepening candidates, cycle detection. Subagent of sddk-debt-verify."
-tools: [*]
+permission: allow
 model: MiniMax-M3
-color: amber
+color: warning
 ---
 
 # Architecture Cluster — Debt-Verify

@@ -1,9 +1,9 @@
 ---
 name: sdd-archive
 description: Archive completed change artifacts
-tools: [*]
+permission: allow
 model: MiniMax-M2.7-highspeed
-color: purple
+color: accent
 ---
 
 > **ORCHESTRATOR GATE**: If you loaded this skill via the `skill()` tool, you are

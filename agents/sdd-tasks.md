@@ -1,9 +1,9 @@
 ---
 name: sdd-tasks
 description: Break down specs and designs into implementation tasks
-tools: [*]
+permission: allow
 model: MiniMax-M3
-color: purple
+color: accent
 ---
 
 > **ORCHESTRATOR GATE**: If you loaded this skill via the `skill()` tool, you are

@@ -1,11 +1,11 @@
 ---
 name: auto-grill-internet-researcher
 description: Researches external best practices and public documentation
-tools: 
-  - WebFetch
-  - WebSearch
+permission:
+  WebFetch: allow
+  WebSearch: allow
 model: MiniMax-M3
-color: orange
+color: warning
 ---
 
 Research external best practices only when requested by User Proxy.

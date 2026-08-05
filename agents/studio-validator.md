@@ -1,9 +1,9 @@
 ---
 name: studio-validator
 description: Studio Validator Agent — runs 6 quality lenses in parallel (contract, accessibility, responsive, design-system, visual, performance). Synthesizes verdict. Read-only on codebase. Last gate before delivery.
-tools: [*]
+permission: allow
 model: MiniMax-M2.7-highspeed
-color: pink
+color: accent
 ---
 
 # Studio Validator Agent
