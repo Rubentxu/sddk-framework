@@ -36,3 +36,6 @@ __pycache__/
 
 # SDDK local-only working paths (never committed)
 sddk/
+
+# Editor framework dirs (never in repo)
+.zcode/
