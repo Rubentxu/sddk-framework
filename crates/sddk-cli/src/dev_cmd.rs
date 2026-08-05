@@ -833,6 +833,10 @@ fn framework_agent_names(root: &Path) -> Vec<String> {
         .collect()
 }
 
+/// Orchestrator agents registered as primary (user-selectable) agents in
+/// opencode; every other framework agent stays a hidden subagent.
+const PRIMARY_AGENTS: [&str; 3] = ["orchestrator", "gentle-orchestrator", "book-orchestrator"];
+
 /// Minimal frontmatter extraction (description/model) from an agent .md.
 struct AgentFrontmatter {
     description: String,
@@ -884,16 +888,17 @@ fn register_opencode_agents(root: &Path, opencode_json: &Path) -> anyhow::Result
             .model
             .clone()
             .unwrap_or_else(|| "minimax-coding-plan/MiniMax-M3".to_owned());
-        agents.insert(
-            name,
-            serde_json::json!({
-                "description": frontmatter.description,
-                "mode": "subagent",
-                "model": model,
-                "prompt": format!("{{file:{}}}", md_path.to_string_lossy()),
-                "hidden": true,
-            }),
-        );
+        let primary = PRIMARY_AGENTS.contains(&name.as_str());
+        let mut entry = serde_json::json!({
+            "description": frontmatter.description,
+            "mode": if primary { "primary" } else { "subagent" },
+            "model": model,
+            "prompt": format!("{{file:{}}}", md_path.to_string_lossy()),
+        });
+        if !primary {
+            entry["hidden"] = serde_json::Value::Bool(true);
+        }
+        agents.insert(name, entry);
         registered += 1;
     }
     let serialized = serde_json::to_string_pretty(&config)?;

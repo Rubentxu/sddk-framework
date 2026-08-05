@@ -3056,7 +3056,11 @@ fn cli_dev_link_doctor_and_framework_checks() {
         serde_json::from_str(&fs::read_to_string(opencode_dir.join("opencode.json")).unwrap())
             .unwrap();
     let registered = &config["agent"]["orchestrator"];
-    assert_eq!(registered["mode"], "subagent");
+    assert_eq!(registered["mode"], "primary");
+    assert!(
+        registered.get("hidden").is_none(),
+        "primary agents are selectable"
+    );
     assert_eq!(
         registered["prompt"],
         format!("{{file:{}}}", root.join("agents/orchestrator.md").display())
@@ -3138,7 +3142,7 @@ fn cli_dev_link_creates_opencode_json_and_links_markdown_skills() {
         serde_json::from_str(&fs::read_to_string(opencode_dir.join("opencode.json")).unwrap())
             .unwrap();
     assert!(config["agent"]["orchestrator"].is_object());
-    assert_eq!(config["agent"]["orchestrator"]["mode"], "subagent");
+    assert_eq!(config["agent"]["orchestrator"]["mode"], "primary");
     assert_eq!(
         config["agent"]["orchestrator"]["prompt"],
         format!("{{file:{}}}", root.join("agents/orchestrator.md").display())
