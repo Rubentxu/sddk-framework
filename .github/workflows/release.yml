@@ -65,7 +65,7 @@ jobs:
           (cd assets && sha256sum "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256")
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@4bfcbc44a24676683587b320f2640544bc1294a2 # v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.asset }}
           path: assets/*
