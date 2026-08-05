@@ -169,10 +169,11 @@ pub(crate) fn capture_cycle_metrics(
         return Ok(());
     }
 
-    let tag_version = manifest
-        .release
-        .as_ref()
-        .and_then(|release| release.tag.clone());
+    let events = context.storage.list_cycle_events(&manifest.cycle_id)?;
+    let derived = derive_from_events(&events);
+    let tag_version = derived
+        .tag_version
+        .or_else(|| manifest.release.as_ref().and_then(|r| r.tag.clone()));
     let path = match manifest.path {
         sddk_domain::CyclePath::BDirect => "b-direct",
         sddk_domain::CyclePath::AMin => "a-min",
@@ -188,16 +189,16 @@ pub(crate) fn capture_cycle_metrics(
         cycle_id: manifest.cycle_id.clone(),
         path,
         context_quality: "C2".to_owned(),
-        phase_durations_sec: HashMap::new(),
+        phase_durations_sec: derived.phase_durations_sec,
         coherence_scores: Vec::new(),
-        correction_cycles: 0,
+        correction_cycles: derived.correction_cycles,
         tokens_used: 0,
         cost_estimate_usd: 0.0,
-        first_pass_success: false,
-        verify_verdict: "UNKNOWN".to_owned(),
+        first_pass_success: derived.first_pass_success,
+        verify_verdict: derived.verify_verdict,
         merged_to_main: false,
         tag_version,
-        lead_time_hours: None,
+        lead_time_hours: derived.lead_time_hours,
         teleological_coherence_pct: None,
         costs: HashMap::new(),
         recorded_at,
@@ -208,6 +209,113 @@ pub(crate) fn capture_cycle_metrics(
         record.cycle_id
     );
     Ok(())
+}
+
+/// Fields derived from a cycle's ledger event history.
+struct DerivedFields {
+    phase_durations_sec: HashMap<String, u64>,
+    verify_verdict: String,
+    lead_time_hours: Option<f64>,
+    tag_version: Option<String>,
+    correction_cycles: u8,
+    first_pass_success: bool,
+}
+
+/// Derive metrics fields from the cycle's ledger events.
+///
+/// Best-effort per field: a corrupt timestamp degrades one field, not the
+/// record. Defaults match the pre-enrichment behavior.
+fn derive_from_events(events: &[sddk_storage::LedgerEvent]) -> DerivedFields {
+    let mut phase_durations_sec = HashMap::new();
+    let mut phase_start: Option<(String, OffsetDateTime)> = None;
+    let mut verify_verdict = "UNKNOWN".to_owned();
+    let mut lead_time_hours: Option<f64> = None;
+    let mut tag_version: Option<String> = None;
+    let mut correction_cycles: u8 = 0;
+    let mut first_ts: Option<OffsetDateTime> = None;
+    let mut last_ts: Option<OffsetDateTime> = None;
+
+    for event in events {
+        let ts = match OffsetDateTime::parse(
+            &event.occurred_at,
+            &time::format_description::well_known::Rfc3339,
+        ) {
+            Ok(ts) => ts,
+            Err(_) => continue,
+        };
+        if first_ts.is_none() {
+            first_ts = Some(ts);
+        }
+        last_ts = Some(ts);
+
+        // Phase duration accumulation: when phase changes, close the previous
+        // phase with the time delta.
+        let phase = event
+            .state_after
+            .as_ref()
+            .and_then(|state| state.get("phase"))
+            .and_then(|value| value.as_str())
+            .map(str::to_owned);
+        if let Some(current_phase) = phase {
+            if let Some((start_phase, start_ts)) = &phase_start {
+                if start_phase != &current_phase {
+                    let seconds = (ts - *start_ts).whole_seconds().max(0) as u64;
+                    *phase_durations_sec.entry(start_phase.clone()).or_insert(0) += seconds;
+                    phase_start = Some((current_phase, ts));
+                }
+            } else {
+                phase_start = Some((current_phase, ts));
+            }
+        }
+
+        // Remediation detection for corrections + verdict.
+        let status = event
+            .state_after
+            .as_ref()
+            .and_then(|state| state.get("status"))
+            .and_then(|value| value.as_str());
+        if status == Some("REMEDIATING") {
+            correction_cycles = correction_cycles.saturating_add(1);
+            verify_verdict = "FAIL".to_owned();
+        } else if status == Some("RELEASED") && verify_verdict == "UNKNOWN" {
+            verify_verdict = "PASS".to_owned();
+        }
+
+        // Release receipt tag extraction.
+        if event.event_type == "cycle.transitioned"
+            && status == Some("RELEASED")
+            && let Some(state) = &event.state_after
+            && let Some(artifacts) = state.get("artifacts")
+            && let Some(receipt) = artifacts.get("release-receipt")
+        {
+            tag_version = receipt
+                .get("path")
+                .and_then(|value| value.as_str())
+                .or_else(|| receipt.as_str())
+                .map(str::to_owned);
+        }
+    }
+
+    // Close the final open phase with the last timestamp.
+    if let Some((start_phase, start_ts)) = &phase_start
+        && let Some(last) = last_ts
+    {
+        let seconds = (last - *start_ts).whole_seconds().max(0) as u64;
+        *phase_durations_sec.entry(start_phase.clone()).or_insert(0) += seconds;
+    }
+
+    if let (Some(first), Some(last)) = (first_ts, last_ts) {
+        lead_time_hours = Some((last - first).whole_seconds() as f64 / 3600.0);
+    }
+
+    DerivedFields {
+        phase_durations_sec,
+        verify_verdict,
+        lead_time_hours,
+        tag_version,
+        correction_cycles,
+        first_pass_success: correction_cycles == 0,
+    }
 }
 
 /// Filter records to a window (by recorded_at).
