@@ -87,6 +87,9 @@ pub(crate) struct MetricsRecordArgs {
     /// Model used (for cost estimation when --cost is absent).
     #[arg(long)]
     pub(crate) model: Option<String>,
+    /// Persist a context quality override for this cycle (C0..C3).
+    #[arg(long)]
+    pub(crate) set_context: Option<String>,
     /// Output format.
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     pub(crate) format: OutputFormat,
@@ -169,7 +172,55 @@ pub(crate) fn read_records(context: &RuntimeContext) -> anyhow::Result<Vec<Metri
     Ok(records)
 }
 
-/// Automatically capture a metrics record when a cycle reaches CLOSED.
+/// Atomically replace the metrics JSONL with the given records.
+fn write_jsonl(context: &RuntimeContext, records: &[MetricsRecord]) -> anyhow::Result<()> {
+    let dir = metrics_dir(context)?;
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(METRICS_JSONL);
+    let tmp = dir.join(format!("{METRICS_JSONL}.tmp"));
+    let mut content = String::new();
+    for record in records {
+        content.push_str(&serde_json::to_string(record)?);
+        content.push('\n');
+    }
+    std::fs::write(&tmp, content)?;
+    std::fs::rename(&tmp, &path)?;
+    Ok(())
+}
+
+/// Context quality store file: maps cycle_id -> C0..C3.
+const CONTEXT_JSON: &str = "context.json";
+
+/// Persist a context quality override for a cycle.
+fn write_context_quality(
+    context: &RuntimeContext,
+    cycle_id: &str,
+    quality: &str,
+) -> anyhow::Result<()> {
+    let dir = metrics_dir(context)?;
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(CONTEXT_JSON);
+    let mut map: std::collections::BTreeMap<String, String> = if path.exists() {
+        serde_json::from_str(&std::fs::read_to_string(&path)?).unwrap_or_default()
+    } else {
+        std::collections::BTreeMap::new()
+    };
+    map.insert(cycle_id.to_owned(), quality.to_owned());
+    std::fs::write(&path, serde_json::to_string_pretty(&map)?)?;
+    Ok(())
+}
+
+/// Read the persisted context quality for a cycle, if any.
+fn read_context_quality(context: &RuntimeContext, cycle_id: &str) -> Option<String> {
+    let dir = metrics_dir(context).ok()?;
+    let path = dir.join(CONTEXT_JSON);
+    if !path.exists() {
+        return None;
+    }
+    let map: std::collections::BTreeMap<String, String> =
+        serde_json::from_str(&std::fs::read_to_string(&path).ok()?).ok()?;
+    map.get(cycle_id).cloned()
+}
 ///
 /// Idempotent: if a record for the cycle already exists, this is a no-op.
 /// Best-effort: derivation never blocks; missing data defaults to explicit
@@ -201,11 +252,13 @@ pub(crate) fn capture_cycle_metrics(
 
     let now = OffsetDateTime::now_utc();
     let recorded_at = now.format(&time::format_description::well_known::Rfc3339)?;
+    let context_quality =
+        read_context_quality(context, &manifest.cycle_id).unwrap_or_else(|| "C2".to_owned());
 
     let record = MetricsRecord {
         cycle_id: manifest.cycle_id.clone(),
         path,
-        context_quality: "C2".to_owned(),
+        context_quality,
         phase_durations_sec: derived.phase_durations_sec,
         coherence_scores: Vec::new(),
         correction_cycles: derived.correction_cycles,
@@ -213,7 +266,7 @@ pub(crate) fn capture_cycle_metrics(
         cost_estimate_usd: 0.0,
         first_pass_success: derived.first_pass_success,
         verify_verdict: derived.verify_verdict,
-        merged_to_main: false,
+        merged_to_main: derived.merged_to_main,
         tag_version,
         lead_time_hours: derived.lead_time_hours,
         teleological_coherence_pct: None,
@@ -236,6 +289,7 @@ struct DerivedFields {
     tag_version: Option<String>,
     correction_cycles: u8,
     first_pass_success: bool,
+    merged_to_main: bool,
 }
 
 /// Derive metrics fields from the cycle's ledger events.
@@ -249,6 +303,7 @@ fn derive_from_events(events: &[sddk_storage::LedgerEvent]) -> DerivedFields {
     let mut lead_time_hours: Option<f64> = None;
     let mut tag_version: Option<String> = None;
     let mut correction_cycles: u8 = 0;
+    let mut merged_to_main = false;
     let mut first_ts: Option<OffsetDateTime> = None;
     let mut last_ts: Option<OffsetDateTime> = None;
 
@@ -294,8 +349,9 @@ fn derive_from_events(events: &[sddk_storage::LedgerEvent]) -> DerivedFields {
         if status == Some("REMEDIATING") {
             correction_cycles = correction_cycles.saturating_add(1);
             verify_verdict = "FAIL".to_owned();
-        } else if status == Some("RELEASED") && verify_verdict == "UNKNOWN" {
+        } else if status == Some("RELEASED") {
             verify_verdict = "PASS".to_owned();
+            merged_to_main = true;
         }
 
         // Release receipt tag extraction.
@@ -332,6 +388,7 @@ fn derive_from_events(events: &[sddk_storage::LedgerEvent]) -> DerivedFields {
         tag_version,
         correction_cycles,
         first_pass_success: correction_cycles == 0,
+        merged_to_main,
     }
 }
 
@@ -497,6 +554,7 @@ fn record_is_poor(record: &MetricsRecord) -> bool {
         || record.tag_version.is_none()
         || record.phase_durations_sec.is_empty()
         || record.lead_time_hours.is_none()
+        || !record.merged_to_main
 }
 
 fn run_metrics_backfill(args: MetricsBackfillArgs, environment: &CliEnvironment) -> CommandOutput {
@@ -517,7 +575,27 @@ fn run_metrics_backfill(args: MetricsBackfillArgs, environment: &CliEnvironment)
         }
 
         let existing = read_records(&context)?;
+        // Deduplicate: keep at most one record per cycle (the richest).
+        let mut best_per_cycle: std::collections::BTreeMap<String, MetricsRecord> =
+            std::collections::BTreeMap::new();
+        for record in existing {
+            let insert = match best_per_cycle.get(&record.cycle_id) {
+                None => true,
+                Some(current) => {
+                    // Rich wins over poor; for equal richness keep the latest.
+                    !record_is_poor(&record) && record_is_poor(current)
+                }
+            };
+            if insert {
+                best_per_cycle.insert(record.cycle_id.clone(), record);
+            }
+        }
+        let existing: Vec<MetricsRecord> = best_per_cycle.into_values().collect();
+        // Persist the deduplicated set so duplicates are removed even when no
+        // cycle needs backfilling below.
+        write_jsonl(&context, &existing)?;
         let mut backfilled = Vec::new();
+        let mut rewritten = false;
         for (cycle_id, cycle_events) in &cycles {
             // Determine final status from the last state_after.
             let closed = cycle_events.iter().rev().find_map(|event| {
@@ -551,10 +629,12 @@ fn run_metrics_backfill(args: MetricsBackfillArgs, environment: &CliEnvironment)
                 Some(path) => path,
                 None => "unknown".to_owned(),
             };
+            let context_quality =
+                read_context_quality(&context, cycle_id).unwrap_or_else(|| "C2".to_owned());
             let record = MetricsRecord {
                 cycle_id: cycle_id.clone(),
                 path,
-                context_quality: "C2".to_owned(),
+                context_quality,
                 phase_durations_sec: derived.phase_durations_sec,
                 coherence_scores: Vec::new(),
                 correction_cycles: derived.correction_cycles,
@@ -562,13 +642,31 @@ fn run_metrics_backfill(args: MetricsBackfillArgs, environment: &CliEnvironment)
                 cost_estimate_usd: 0.0,
                 first_pass_success: derived.first_pass_success,
                 verify_verdict: derived.verify_verdict,
-                merged_to_main: false,
+                merged_to_main: derived.merged_to_main,
                 tag_version: derived.tag_version,
                 lead_time_hours: derived.lead_time_hours,
                 teleological_coherence_pct: None,
                 costs: HashMap::new(),
                 recorded_at,
             };
+            // Replace: drop any existing (poor) records for this cycle, then append the enriched one.
+            if !rewritten {
+                let kept: Vec<MetricsRecord> = existing
+                    .iter()
+                    .filter(|record| record.cycle_id != *cycle_id)
+                    .cloned()
+                    .collect();
+                write_jsonl(&context, &kept)?;
+                rewritten = true;
+            } else {
+                // Subsequent cycles: drop their records too before appending.
+                let current = read_records(&context)?;
+                let kept: Vec<MetricsRecord> = current
+                    .into_iter()
+                    .filter(|record| record.cycle_id != *cycle_id)
+                    .collect();
+                write_jsonl(&context, &kept)?;
+            }
             append_record(&context, &record)?;
             backfilled.push(record);
         }
@@ -595,6 +693,9 @@ fn run_metrics_record(args: MetricsRecordArgs, environment: &CliEnvironment) -> 
     let format = args.format;
     let result = (|| -> anyhow::Result<MetricsRecord> {
         let context = RuntimeContext::open(&args.runtime, environment, false)?;
+        if let Some(quality) = &args.set_context {
+            write_context_quality(&context, &args.cycle, quality)?;
+        }
         let now = OffsetDateTime::now_utc();
         let recorded_at = now.format(&time::format_description::well_known::Rfc3339)?;
         let record = MetricsRecord {
@@ -653,9 +754,38 @@ fn run_metrics_tuning(args: MetricsTuningArgs, environment: &CliEnvironment) -> 
                 compute_aggregate(&records, args.window.days())
             }
         };
-        Ok(tuning_from_aggregate(&aggregate))
+        let tuning = tuning_from_aggregate(&aggregate);
+        // Persist the tuning block for the next cycle's launch plan.
+        let dir = metrics_dir(&context)?;
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(dir.join("tuning.md"), tuning_markdown(&tuning))?;
+        Ok(tuning)
     })();
     render_result(result, format, tuning_text)
+}
+
+/// Render the F3 tuning block as markdown for `tuning.md`.
+fn tuning_markdown(tuning: &F3Tuning) -> String {
+    let mut text = String::from("# F3 Tuning (from aggregate)\n\n");
+    if let Some(path_bias) = &tuning.path_bias {
+        text.push_str(&format!("- path_bias: {path_bias}\n"));
+    }
+    if let Some(threshold) = tuning.circuit_threshold {
+        text.push_str(&format!("- circuit_threshold: {threshold}\n"));
+    }
+    if let Some(attempts) = tuning.per_task_max_attempts {
+        text.push_str(&format!("- per_task_max_attempts: {attempts}\n"));
+    }
+    for phase in &tuning.recommended_skip {
+        text.push_str(&format!("- recommended_skip: {phase}\n"));
+    }
+    for phase in &tuning.recommended_deepen {
+        text.push_str(&format!("- recommended_deepen: {phase}\n"));
+    }
+    for lens in &tuning.recommended_lens {
+        text.push_str(&format!("- recommended_lens: {lens}\n"));
+    }
+    text
 }
 
 fn metrics_record_text(record: &MetricsRecord) -> String {

@@ -1570,6 +1570,107 @@ fn cli_metrics_cost_tuning_band_and_backfill() {
 }
 
 #[test]
+fn cli_metrics_dedupe_merged_context_and_tuning_file() {
+    let fixture = CliFixture::new("metrics-perfection");
+    write(
+        fixture.root.join("workflow/workflow.yaml"),
+        CANONICAL_WORKFLOW,
+    );
+    let common = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+        "--format",
+        "json",
+    ];
+    let adopted = fixture.run_adopt("apply", &common);
+    assert!(
+        adopted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&adopted.stderr)
+    );
+    let adopted_json: serde_json::Value = serde_json::from_slice(&adopted.stdout).unwrap();
+    let project_id = adopted_json["project_id"].as_str().unwrap();
+
+    let metrics_dir = fixture
+        .data
+        .join("sddk/projects")
+        .join(project_id)
+        .join("metrics");
+
+    // U3: set-context persists an override for a cycle.
+    let set_ctx = fixture.run(&[
+        "metrics",
+        "record",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--cycle",
+        "p-1/ctx-cycle",
+        "--set-context",
+        "C0",
+        "--format",
+        "json",
+    ]);
+    assert!(set_ctx.status.success());
+    let context_file = fs::read_to_string(metrics_dir.join("context.json")).unwrap();
+    let context_json: serde_json::Value = serde_json::from_str(&context_file).unwrap();
+    assert_eq!(context_json["p-1/ctx-cycle"], "C0");
+
+    // U4: tuning writes tuning.md with the F3 block.
+    let tuned = fixture.run(&[
+        "metrics",
+        "tuning",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--format",
+        "json",
+    ]);
+    assert!(tuned.status.success());
+    let tuning_md = fs::read_to_string(metrics_dir.join("tuning.md")).unwrap();
+    assert!(
+        tuning_md.contains("F3 Tuning"),
+        "tuning.md should contain the F3 block header"
+    );
+
+    // U1 + U2: backfill dedupes records per cycle and derives merged from RELEASED.
+    // (No closed cycles in this fixture, so backfill returns 0 but must not error.)
+    let backfilled = fixture.run(&[
+        "metrics",
+        "backfill",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        backfilled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backfilled.stderr)
+    );
+    let backfill_json: serde_json::Value = serde_json::from_slice(&backfilled.stdout).unwrap();
+    assert_eq!(backfill_json.as_array().unwrap().len(), 0);
+}
+
+#[test]
 fn cli_git_operations_verify_postconditions_and_record_receipts() {
     let fixture = CliFixture::new("git-authority");
     write(
