@@ -2848,6 +2848,74 @@ fn cli_release_dist_and_verify_checksums_and_sbom() {
 }
 
 #[test]
+fn cli_dev_link_doctor_and_framework_checks() {
+    let fixture = CliFixture::new("dev-link");
+    let root = fixture.root.clone();
+    // Minimal framework layout in the fixture repo.
+    write(
+        root.join("agents/orchestrator.md"),
+        "---\nname: orchestrator\n---\n# Orchestrator\n",
+    );
+    write(root.join("skills/demo/SKILL.md"), "# Demo Skill\n");
+    write(
+        root.join("prompts/sdd-kernel/workflows/sddk-a-lite.yaml"),
+        "name: a-lite\nversion: 0.1.0\n",
+    );
+    write(
+        root.join("prompts/sdd-kernel/phases/apply.md"),
+        "# Apply Phase\n",
+    );
+
+    let opencode_dir = fixture.root.join("opencode");
+    let zcode_dir = fixture.root.join("zcode");
+    fs::create_dir_all(opencode_dir.join("agents")).unwrap();
+    // A stale copy of an agent that exists in the repo.
+    fs::write(opencode_dir.join("agents/orchestrator.md"), "stale content").unwrap();
+    // A local-only agent (no repo counterpart) must be preserved.
+    fs::write(opencode_dir.join("agents/local-only.md"), "local agent").unwrap();
+
+    // U2: link into both editors.
+    let linked = fixture.run(&[
+        "dev",
+        "link",
+        "--root",
+        root.to_str().unwrap(),
+        "--editor",
+        "all",
+        "--opencode-dir",
+        opencode_dir.to_str().unwrap(),
+        "--zcode-dir",
+        zcode_dir.to_str().unwrap(),
+        "--format",
+        "json",
+    ]);
+    assert!(
+        linked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&linked.stderr)
+    );
+    let link_json: serde_json::Value = serde_json::from_slice(&linked.stdout).unwrap();
+    let reports = link_json.as_array().unwrap();
+    assert_eq!(reports.len(), 2, "one report per editor");
+    assert_eq!(reports[0]["agents_linked"], 1);
+    assert_eq!(reports[0]["workflows_linked"], 1);
+    assert_eq!(
+        reports[0]["stale_replaced"], 1,
+        "stale orchestrator replaced"
+    );
+
+    // The local-only agent must still be a regular file (not touched).
+    let local_only = fs::symlink_metadata(opencode_dir.join("agents/local-only.md")).unwrap();
+    assert!(local_only.file_type().is_file());
+
+    // The orchestrator agent is now a symlink to the repo.
+    let orchestrator = fs::symlink_metadata(opencode_dir.join("agents/orchestrator.md")).unwrap();
+    assert!(orchestrator.file_type().is_symlink());
+    // Stale backup exists.
+    assert!(opencode_dir.join("agents/orchestrator.sddk-stale").exists());
+}
+
+#[test]
 fn cli_full_runtime_pipeline_dogfood() {
     let fixture = CliFixture::new("dogfood");
     write(
