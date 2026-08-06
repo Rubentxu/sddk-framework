@@ -111,7 +111,12 @@ jobs:
             git config user.email "sddk-release-bot@users.noreply.github.com"
             git tag "$TAG"
             git push origin "$TAG"
-            echo "pushed tag $TAG — Release workflow triggered"
+            echo "pushed tag $TAG"
+            # A tag push performed with GITHUB_TOKEN does not emit a push
+            # event (GitHub suppresses bot-triggered workflows), so dispatch
+            # the Release workflow explicitly on the new tag.
+            gh workflow run release.yml --ref "$TAG"
+            echo "dispatched Release workflow on $TAG"
           else
             echo "main version $VERSION already tagged; nothing to do"
           fi
