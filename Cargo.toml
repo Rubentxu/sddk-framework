@@ -30,6 +30,7 @@ anyhow = "1"
 
 # CLI
 clap = { version = "4.6.5", features = ["derive"] }
+clap_complete = "4"
 
 # Database
 rusqlite = { version = "0.39.0", features = ["bundled"] }

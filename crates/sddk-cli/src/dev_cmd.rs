@@ -129,9 +129,22 @@ pub(crate) struct LinkArgs {
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct UpdateArgs {
-    /// Repository root.
+    /// Framework root containing agents/skills/prompts (bundle install)
+    /// or a git checkout (developer install).
     #[arg(long, default_value = ".")]
     pub(crate) root: PathBuf,
+    /// Release version to fetch when the root is not a git checkout.
+    #[arg(long)]
+    pub(crate) version: Option<String>,
+    /// GitHub repository (owner/name) providing release assets.
+    #[arg(long, default_value = "Rubentxu/sddk-framework")]
+    pub(crate) repo: String,
+    /// Release base URL override (testing with file://).
+    #[arg(long)]
+    pub(crate) base_url: Option<String>,
+    /// Target editor(s) to re-link after the update.
+    #[arg(long, value_enum, default_value_t = LinkEditor::All)]
+    pub(crate) editor: LinkEditor,
     /// Output format.
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     pub(crate) format: OutputFormat,
@@ -983,61 +996,161 @@ fn run_dev_update(args: UpdateArgs) -> CommandOutput {
         let root = std::fs::canonicalize(&args.root)?;
         let mut output = String::new();
 
-        // 1. git pull --ff-only.
-        let pull = std::process::Command::new("git")
-            .args(["pull", "--ff-only"])
-            .current_dir(&root)
-            .output()?;
-        output.push_str(&format!(
-            "git pull: {} {}\n",
-            if pull.status.success() {
-                "ok"
-            } else {
-                "failed"
-            },
-            String::from_utf8_lossy(&pull.stderr).trim()
-        ));
+        if root.join(".git").is_dir() {
+            // Developer checkout: pull, re-link, rebuild.
+            output.push_str(&update_checkout(&root)?);
+        } else {
+            // Bundle install: download the framework release bundle, verify, extract.
+            output.push_str(&update_bundle(&root, &args)?);
+        }
 
-        // 2. Re-link detected editors.
+        // Re-link the requested editors.
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("/tmp"));
         let opencode_dir = home.join(".config/opencode");
         let zcode_dir = home.join(".zcode");
-        if opencode_dir.is_dir() {
+        if matches!(args.editor, LinkEditor::OpenCode | LinkEditor::All) && opencode_dir.is_dir() {
             let report = link_editor(&root, &opencode_dir);
             output.push_str(&format!(
-                "opencode: {} agents, {} stale replaced\n",
-                report.agents_linked, report.stale_replaced
+                "opencode: {} agents, {} skills, {} stale replaced\n",
+                report.agents_linked, report.skills_linked, report.stale_replaced
             ));
         }
-        if zcode_dir.is_dir() {
+        if matches!(args.editor, LinkEditor::ZCode | LinkEditor::All) && zcode_dir.is_dir() {
             let report = link_editor(&root, &zcode_dir);
             output.push_str(&format!(
-                "zcode: {} agents, {} stale replaced\n",
-                report.agents_linked, report.stale_replaced
+                "zcode: {} agents, {} skills, {} stale replaced\n",
+                report.agents_linked, report.skills_linked, report.stale_replaced
             ));
         }
 
-        // 3. Rebuild the binary.
-        let build = std::process::Command::new("cargo")
-            .args(["build", "--release", "-p", "sddk-cli"])
-            .current_dir(&root)
-            .output()?;
-        output.push_str(&format!(
-            "build: {} {}\n",
-            if build.status.success() {
-                "ok"
-            } else {
-                "failed"
-            },
-            String::from_utf8_lossy(&build.stderr)
-                .lines()
-                .last()
-                .unwrap_or("")
-                .trim()
-        ));
         Ok(output)
     })();
     render_result(result, format, |output: &String| output.clone())
+}
+
+/// Update a developer checkout (git work tree): pull, re-link, rebuild.
+fn update_checkout(root: &Path) -> anyhow::Result<String> {
+    let mut output = String::new();
+    let pull = std::process::Command::new("git")
+        .args(["pull", "--ff-only"])
+        .current_dir(root)
+        .output()?;
+    output.push_str(&format!(
+        "git pull: {} {}\n",
+        if pull.status.success() {
+            "ok"
+        } else {
+            "failed"
+        },
+        String::from_utf8_lossy(&pull.stderr).trim()
+    ));
+
+    let build = std::process::Command::new("cargo")
+        .args(["build", "--release", "-p", "sddk-cli"])
+        .current_dir(root)
+        .output()?;
+    output.push_str(&format!(
+        "build: {} {}\n",
+        if build.status.success() {
+            "ok"
+        } else {
+            "failed"
+        },
+        String::from_utf8_lossy(&build.stderr)
+            .lines()
+            .last()
+            .unwrap_or("")
+            .trim()
+    ));
+    Ok(output)
+}
+
+/// Download and extract the framework release bundle into a bundle install root.
+fn update_bundle(root: &Path, args: &UpdateArgs) -> anyhow::Result<String> {
+    let version = args.version.as_deref().unwrap_or("latest");
+    let base_url = match &args.base_url {
+        Some(base) => base.clone(),
+        None => format!("https://github.com/{}/releases", args.repo),
+    };
+    let asset = "sddk-framework.tar.gz";
+    let url = if version == "latest" {
+        format!("{base_url}/latest/download/{asset}")
+    } else {
+        format!("{base_url}/download/{version}/{asset}")
+    };
+
+    let tmp = std::env::temp_dir().join(format!("sddk-update-{}", std::process::id()));
+    let tmp_dir = tmp.join("dl");
+    let bundle = tmp_dir.join(asset);
+    let checksum = tmp_dir.join(format!("{asset}.sha256"));
+    std::fs::create_dir_all(&tmp_dir)?;
+
+    download_to(&url, &bundle)?;
+    download_to(&format!("{url}.sha256"), &checksum)?;
+
+    let expected = std::fs::read_to_string(&checksum)?
+        .split_whitespace()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("empty checksum file: {}", checksum.display()))?
+        .to_owned();
+    let actual = sha256_hex(&bundle)?;
+    if expected != actual {
+        anyhow::bail!("framework sha256 mismatch\n  expected: {expected}\n  actual:   {actual}");
+    }
+
+    let extract = std::process::Command::new("tar")
+        .args([
+            "xzf",
+            bundle.to_str().unwrap_or_default(),
+            "-C",
+            root.to_str().unwrap_or_default(),
+        ])
+        .output()?;
+    if !extract.status.success() {
+        anyhow::bail!(
+            "extract failed: {}",
+            String::from_utf8_lossy(&extract.stderr).trim()
+        );
+    }
+    let _ = std::fs::remove_dir_all(&tmp);
+    Ok(format!(
+        "framework: {version} ({asset}) sha256 verified: {actual}\n"
+    ))
+}
+
+/// Download a URL to a destination via curl/wget, or copy from file://.
+fn download_to(url: &str, destination: &Path) -> anyhow::Result<()> {
+    if let Some(source) = url.strip_prefix("file://") {
+        std::fs::copy(source, destination)?;
+        return Ok(());
+    }
+    let status = std::process::Command::new("curl")
+        .args(["-fsSL", "--retry", "3", "-o"])
+        .arg(destination)
+        .arg(url)
+        .status();
+    match status {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => anyhow::bail!("curl exited {status} for {url}"),
+        Err(_) => {
+            let status = std::process::Command::new("wget")
+                .args(["-qO"])
+                .arg(destination)
+                .arg(url)
+                .status()?;
+            if status.success() {
+                Ok(())
+            } else {
+                anyhow::bail!("wget exited {status} for {url}")
+            }
+        }
+    }
+}
+
+/// Compute the plain lowercase hex SHA-256 of a file.
+fn sha256_hex(path: &Path) -> anyhow::Result<String> {
+    let bytes = std::fs::read(path)?;
+    Ok(format!("{:x}", Sha256::digest(&bytes)))
 }
