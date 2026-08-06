@@ -31,7 +31,7 @@ jobs:
             os: macos-latest
             asset: sddk-darwin-arm64
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-latest
             asset: sddk-darwin-x86_64
     steps:
       - name: Check out repository
