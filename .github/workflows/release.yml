@@ -156,3 +156,53 @@ jobs:
             echo "signed: $f"
           done
           gh release upload "$TAG" assets/*.sig assets/*.pem --clobber --repo "${{ github.repository }}"
+
+  smoke-test:
+    name: Smoke test installer (end-to-end)
+    needs: [sign]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@053f9b74638557590800a301da1ba82351507e2c # v3.8.1
+
+      - name: Install via scripts/install.sh against the real release
+        env:
+          HOME: /tmp/sddk-smoke-home
+          SDDK_PREFIX: /tmp/sddk-smoke-prefix
+          SDDK_FRAMEWORK_DIR: /tmp/sddk-smoke-framework
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo "manual run (no tag): smoke test skipped"
+            exit 0
+          fi
+          bash scripts/install.sh --editor all --version "$TAG" 2>&1 | tee /tmp/smoke-install.log
+          grep -q "sha256 verified" /tmp/smoke-install.log
+          grep -q "signature verified (cosign keyless)" /tmp/smoke-install.log
+          grep -q "agents: 67" /tmp/smoke-install.log || grep -q "agents: " /tmp/smoke-install.log
+          grep -q "errors: 0" /tmp/smoke-install.log
+          test -L /tmp/sddk-smoke-home/.config/opencode/agents/orchestrator.md
+          test -L /tmp/sddk-smoke-home/.zcode/agents/orchestrator.md
+
+      - name: Verify binary, completions, and dev update against the real release
+        env:
+          HOME: /tmp/sddk-smoke-home
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo "manual run (no tag): smoke test skipped"
+            exit 0
+          fi
+          /tmp/sddk-smoke-prefix/sddk --version
+          /tmp/sddk-smoke-prefix/sddk completion bash | head -1 | grep -q "_sddk"
+          /tmp/sddk-smoke-prefix/sddk completion zsh | head -1 | grep -q "#compdef"
+          mkdir -p /tmp/sddk-smoke-framework-2
+          /tmp/sddk-smoke-prefix/sddk dev update --root /tmp/sddk-smoke-framework-2 \
+            --version "$TAG" --editor all | tee /tmp/smoke-update.log
+          grep -q "sha256 verified" /tmp/smoke-update.log
+          test -d /tmp/sddk-smoke-framework-2/agents
+          test "$(ls /tmp/sddk-smoke-framework-2/agents | wc -l)" -ge 60
+          echo "SMOKE TEST PASS"
