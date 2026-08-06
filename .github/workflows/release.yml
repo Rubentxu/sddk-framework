@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   build:
@@ -29,6 +30,9 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-latest
             asset: sddk-darwin-arm64
+          - target: x86_64-apple-darwin
+            os: macos-13
+            asset: sddk-darwin-x86_64
     steps:
       - name: Check out repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -117,3 +121,38 @@ jobs:
           else
             echo "manual run (no tag): framework staged in workflow artifacts"
           fi
+
+  sign:
+    name: Sign release assets (cosign keyless)
+    needs: [build, framework-bundle]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: Sign every asset (keyless)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo "manual run (no tag): signing skipped"
+            exit 0
+          fi
+          for f in assets/*; do
+            [ -f "$f" ] || continue
+            case "$f" in
+              *.sig|*.pem) continue ;;
+            esac
+            cosign sign-blob --yes "$f" \
+              --output-signature "$f.sig" \
+              --output-certificate "$f.pem"
+            echo "signed: $f"
+          done
+          gh release upload "$TAG" assets/*.sig assets/*.pem --clobber --repo "${{ github.repository }}"

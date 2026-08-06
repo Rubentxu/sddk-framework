@@ -20,6 +20,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
+clap_complete = { workspace = true }
 regex = { workspace = true }
 serde-saphyr = { workspace = true }
 walkdir = { workspace = true }
