@@ -197,15 +197,15 @@ La consolidación exige: cambios versionados, CI obligatoria, criterios del back
 - Diagramas renderizados y verificados visualmente (SVG + screenshots)
 - Report E2E publicado con evidencia embebida
 
-## Modo de operación: LOCAL-FIRST (2026-08-06)
+## Modo de operación: LOCAL-FIRST con act (2026-08-06)
 
-**GitHub Actions DESACTIVADO** (minutos del plan agotados; decisión: no depender de CI remoto).
-- `actions/permissions.enabled = false` (API)
-- Branch protection de main: sin required status checks (nada bloquea merges)
-- CI, auto-merge y release automation: **inactivos** — no son parte del flujo operativo
-- El flujo de validación y release es **local**: podman (sandbox), scripts `scripts/*.sh`, binario `sddk` (release dist/verify locales), merges vía `gh pr merge`
+**GitHub Actions cloud DESACTIVADO** (`actions/permissions.enabled = false`). El CI corre **localmente con `act`** (nektos/act v0.2.89) + podman + imágenes `catthehacker/ubuntu:*` (config en `~/.config/act/actrc`).
+- Branch protection de main: sin required status checks (los merges no dependen de checks remotos)
+- CI validado en local: `act -j required` (fmt + clippy + 39 tests en container) — verde
+- auto-merge/release-automation cloud: inactivos (dependían de events de Actions cloud)
+- Flujo operativo: validación con `act`, merges vía `gh pr merge`, releases con scripts locales
 
 **Consecuencias:**
-- Los PRs se validan localmente (tests + clippy + fmt) antes de mergear
-- Los releases se generan localmente (`sddk release dist`) y se publican con `gh release create`
+- Cada cambio se valida localmente con act antes de mergear (sin consumir minutos del plan)
 - El milestone E2E-2026-08 se ejecuta 100% local (podman + mmdc)
+- Nota: act no ejecuta jobs de `macos-*` ni `ubuntu-24.04-arm` (solo ubuntu-latest mapeado); el release multi-target sigue siendo un flujo local separado
