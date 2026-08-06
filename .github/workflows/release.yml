@@ -18,15 +18,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            asset: sddk-linux-x86_64
+          # ALL Linux targets are musl STATIC builds: standalone, run on any
+          # distribution regardless of glibc version. glibc builds removed
+          # (2026-08-06): the installer only ever downloads musl assets.
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             asset: sddk-linux-x86_64-musl
-          - target: aarch64-unknown-linux-gnu
+          - target: aarch64-unknown-linux-musl
             os: ubuntu-24.04-arm
-            asset: sddk-linux-aarch64
+            asset: sddk-linux-aarch64-musl
           - target: aarch64-apple-darwin
             os: macos-latest
             asset: sddk-darwin-arm64
@@ -46,7 +46,7 @@ jobs:
         run: rustup target add ${{ matrix.target }}
 
       - name: Install musl cross tools
-        if: matrix.target == 'x86_64-unknown-linux-musl'
+        if: contains(matrix.target, 'linux-musl')
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
@@ -54,6 +54,7 @@ jobs:
       - name: Build release binary
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
         run: cargo build --release --target ${{ matrix.target }} -p sddk-cli --locked
 
       - name: Package dist (checksums + SBOM + attestation)
