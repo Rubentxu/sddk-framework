@@ -70,7 +70,8 @@ jobs:
         run: |
           PRS="$(gh pr list --state open --json number,headRefName --jq '.[] | select(.headRefName | startswith("release/")) | .number' || true)"
           for pr in $PRS; do
-            echo "enabling auto-merge on PR #$pr"
+            echo "updating branch and enabling auto-merge on PR #$pr"
+            gh pr update-branch "$pr" 2>/dev/null || true
             gh pr merge "$pr" --auto --squash --delete-branch || true
           done
 
