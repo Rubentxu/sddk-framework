@@ -43,8 +43,8 @@ jobs:
         run: |
           OUTPUT="$(bash scripts/release-bump.sh --dry-run 2>&1 || true)"
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -q '^release bump:'; then
-            NEW_TAG="$(echo "$OUTPUT" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)"
+          if echo "$OUTPUT" | grep -q '^new tag:'; then
+            NEW_TAG="$(echo "$OUTPUT" | grep -oE '^new tag: v[0-9]+\.[0-9]+\.[0-9]+$' | awk '{print $3}')"
             echo "pending=$NEW_TAG" >> "$GITHUB_OUTPUT"
           else
             echo "pending=" >> "$GITHUB_OUTPUT"
