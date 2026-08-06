@@ -30,3 +30,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixes
   - fix(ci): dispatch Release workflow explicitly from tag-release (#77)
 
+## [1.3.1] - 2026-08-06
+
+### Fixes
+  - fix(ci): tag-release reads version from origin/main, not dirty worktree (#86)
+
