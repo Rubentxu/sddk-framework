@@ -40,7 +40,7 @@ if [ -z "$LAST_TAG" ]; then
 fi
 CURRENT="${LAST_TAG#v}"
 
-COMMITS="$(git log --oneline --no-merges "${LAST_TAG}..HEAD" 2>/dev/null || true)"
+COMMITS="$(git log --oneline --no-merges "${LAST_TAG}..HEAD" 2>/dev/null | grep -vE 'chore\(release\)' || true)"
 if [ -z "$COMMITS" ]; then
     echo "no commits since $LAST_TAG — nothing to release"
     exit 0
