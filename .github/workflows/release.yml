@@ -83,3 +83,37 @@ jobs:
           else
             echo "manual run (no tag): assets staged in workflow artifacts"
           fi
+
+  framework-bundle:
+    name: Bundle framework assets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Bundle framework (agents/skills/prompts)
+        run: |
+          mkdir -p bundle
+          tar czf bundle/sddk-framework.tar.gz agents skills prompts/sdd-kernel
+          (cd bundle && sha256sum sddk-framework.tar.gz > sddk-framework.tar.gz.sha256)
+          ls -la bundle/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sddk-framework
+          path: bundle/*
+          if-no-files-found: error
+
+      - name: Publish to GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            gh release create "$TAG" --generate-notes --title "$TAG" \
+              --repo "${{ github.repository }}" || true
+            gh release upload "$TAG" bundle/* --clobber --repo "${{ github.repository }}"
+          else
+            echo "manual run (no tag): framework staged in workflow artifacts"
+          fi

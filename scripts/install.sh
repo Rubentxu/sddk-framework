@@ -1,33 +1,40 @@
 #!/usr/bin/env bash
-# install.sh — Install the sddk binary from GitHub Releases.
+# install.sh — Install the sddk binary and framework from GitHub Releases.
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/Rubentxu/sddk-framework/main/scripts/install.sh | bash
-#   bash install.sh                          # latest, ~/.local/bin
+#   bash install.sh                          # interactive: asks which editor to configure
+#   bash install.sh --editor opencode       # non-interactive: configure OpenCode only
+#   bash install.sh --editor zcode          # non-interactive: configure ZCode only
+#   bash install.sh --editor all            # non-interactive: configure both
+#   bash install.sh --editor none           # binary only, skip framework
 #   bash install.sh --version v1.0.0        # pinned release
 #   bash install.sh --prefix /usr/local/bin  # custom prefix
-#   bash install.sh --framework              # also clone the framework repo and
-#                                            # link agents/skills/prompts into
-#                                            # opencode (and zcode if present)
 #
-# The binary is verified against its published sha256 before installation.
-# Environment overrides: SDDK_REPO, SDDK_VERSION, SDDK_PREFIX,
-# SDDK_WITH_FRAMEWORK, SDDK_ASSET, SDDK_BASE_URL (testing).
+# The binary AND the framework bundle are verified against their published
+# sha256 before installation. No git required.
+#
+# Environment overrides:
+#   SDDK_REPO, SDDK_VERSION, SDDK_PREFIX, SDDK_FRAMEWORK_DIR, SDDK_EDITOR,
+#   SDDK_ASSET, SDDK_BASE_URL (testing).
 
 set -euo pipefail
 
 REPO="${SDDK_REPO:-Rubentxu/sddk-framework}"
 VERSION="${SDDK_VERSION:-latest}"
 PREFIX="${SDDK_PREFIX:-$HOME/.local/bin}"
-WITH_FRAMEWORK="${SDDK_WITH_FRAMEWORK:-0}"
+FRAMEWORK_DIR="${SDDK_FRAMEWORK_DIR:-$HOME/.sddk-shared/framework}"
+EDITOR="${SDDK_EDITOR:-}"
 BASE_URL="${SDDK_BASE_URL:-https://github.com/$REPO/releases}"
-FRAMEWORK_DIR="${SDDK_SHARED_DIR:-$HOME/.sddk-shared}"
 
+# Backwards compatibility: --framework used to mean "also clone and link".
+# Framework setup is now the default interactive path; accept the flag as a no-op.
 while [ $# -gt 0 ]; do
     case "$1" in
         --version) VERSION="$2"; shift 2 ;;
         --prefix) PREFIX="$2"; shift 2 ;;
-        --framework) WITH_FRAMEWORK=1; shift ;;
+        --editor) EDITOR="$2"; shift 2 ;;
+        --framework) shift ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
 done
@@ -82,16 +89,19 @@ download() {
     esac
 }
 
-if [ "$VERSION" = "latest" ]; then
-    BIN_URL="$BASE_URL/latest/download/$ASSET"
-    SUM_URL="$BASE_URL/latest/download/$ASSET.sha256"
-else
-    BIN_URL="$BASE_URL/download/$VERSION/$ASSET"
-    SUM_URL="$BASE_URL/download/$VERSION/$ASSET.sha256"
-fi
+release_url() {
+    local name="$1"
+    if [ "$VERSION" = "latest" ]; then
+        echo "$BASE_URL/latest/download/$name"
+    else
+        echo "$BASE_URL/download/$VERSION/$name"
+    fi
+}
 
-download "$BIN_URL" "$TMP_DIR/sddk"
-download "$SUM_URL" "$TMP_DIR/sddk.sha256"
+# --- 1. Binary ---
+
+download "$(release_url "$ASSET")" "$TMP_DIR/sddk"
+download "$(release_url "$ASSET.sha256")" "$TMP_DIR/sddk.sha256"
 
 EXPECTED="$(awk '{print $1}' "$TMP_DIR/sddk.sha256")"
 ACTUAL="$(sha256sum "$TMP_DIR/sddk" | awk '{print $1}')"
@@ -108,25 +118,71 @@ install -m 0755 "$TMP_DIR/sddk" "$PREFIX/sddk"
 echo "  installed: $PREFIX/sddk"
 "$PREFIX/sddk" --version
 
-if [ "$WITH_FRAMEWORK" = "1" ]; then
-    echo "framework: cloning $REPO into $FRAMEWORK_DIR"
-    if [ -d "$FRAMEWORK_DIR/.git" ]; then
-        git -C "$FRAMEWORK_DIR" fetch --tags --quiet
-        if [ "$VERSION" != "latest" ]; then
-            git -C "$FRAMEWORK_DIR" checkout "$VERSION" --quiet
-        else
-            git -C "$FRAMEWORK_DIR" pull --ff-only --quiet
-        fi
+# --- 2. Ask which editor to configure ---
+
+if [ -z "$EDITOR" ]; then
+    if [ -t 0 ] || [ -e /dev/tty ]; then
+        echo
+        echo "¿Querés configurar el framework SDDK en un editor de IA?"
+        echo "  1) OpenCode"
+        echo "  2) ZCode"
+        echo "  3) Ambos"
+        echo "  4) Ninguno (solo binario)"
+        # shellcheck disable=SC2162
+        read -rp "Elección [3]: " choice < /dev/tty 2>/dev/null || choice="3"
+        case "${choice:-3}" in
+            1) EDITOR=opencode ;;
+            2) EDITOR=zcode ;;
+            3) EDITOR=all ;;
+            4) EDITOR=none ;;
+            *) echo "opción inválida: $choice" >&2; exit 2 ;;
+        esac
     else
-        git clone --quiet --depth 1 "$(printf 'https://github.com/%s.git' "$REPO")" "$FRAMEWORK_DIR"
-        if [ "$VERSION" != "latest" ] && [ "$VERSION" != "main" ]; then
-            git -C "$FRAMEWORK_DIR" fetch --quiet --depth 1 origin "refs/tags/$VERSION:refs/tags/$VERSION"
-            git -C "$FRAMEWORK_DIR" checkout --quiet "$VERSION"
-        fi
+        echo "  (no TTY: using --editor all; pass --editor none for binary only)"
+        EDITOR=all
     fi
-    echo "framework: linking agents/skills/prompts into editors"
-    "$PREFIX/sddk" dev link --root "$FRAMEWORK_DIR" --editor opencode
 fi
 
+if [ "$EDITOR" = "none" ]; then
+    echo
+    echo "Framework no configurado. Cuando quieras:"
+    echo "  sddk dev link --root <framework-dir> --editor opencode|zcode|all"
+    echo "Done. Run 'sddk --help' to get started."
+    exit 0
+fi
+
+# --- 3. Framework bundle ---
+
+if [ -d "$FRAMEWORK_DIR/.git" ]; then
+    echo
+    echo "framework: existing git checkout detected at $FRAMEWORK_DIR (using as-is)"
+else
+    download "$(release_url "sddk-framework.tar.gz")" "$TMP_DIR/sddk-framework.tar.gz"
+    download "$(release_url "sddk-framework.tar.gz.sha256")" "$TMP_DIR/sddk-framework.sha256"
+
+    EXPECTED="$(awk '{print $1}' "$TMP_DIR/sddk-framework.sha256")"
+    ACTUAL="$(sha256sum "$TMP_DIR/sddk-framework.tar.gz" | awk '{print $1}')"
+    if [ "$EXPECTED" != "$ACTUAL" ]; then
+        echo "error: framework sha256 mismatch" >&2
+        echo "  expected: $EXPECTED" >&2
+        echo "  actual:   $ACTUAL" >&2
+        exit 1
+    fi
+    echo "  framework sha256 verified: $ACTUAL"
+
+    mkdir -p "$FRAMEWORK_DIR"
+    tar xzf "$TMP_DIR/sddk-framework.tar.gz" -C "$FRAMEWORK_DIR"
+    echo "  framework extracted: $FRAMEWORK_DIR"
+fi
+
+# --- 4. Link into the chosen editor(s) ---
+
+echo
+"$PREFIX/sddk" dev link --root "$FRAMEWORK_DIR" --editor "$EDITOR" --format text
+
+# --- 5. Doctor ---
+
+echo
+"$PREFIX/sddk" dev doctor --format text || true
 echo
 echo "Done. Run 'sddk --help' to get started."
