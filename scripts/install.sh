@@ -53,8 +53,11 @@ detect_asset() {
         arm64|aarch64) arch=aarch64 ;;
         *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
     esac
-    # musl Linux is the portable static build; glibc otherwise.
-    if [ "$os" = "linux" ] && ldd --version 2>/dev/null | grep -qi musl; then
+    # musl is the portable static build: it runs on ANY glibc version
+    # (the glibc build compiled on ubuntu-24.04 requires GLIBC >= 2.39,
+    # which excludes Debian 12, Ubuntu <= 23.10, CentOS 9, etc.).
+    # aarch64 musl is not published yet, so aarch64 keeps the glibc build.
+    if [ "$os" = "linux" ] && [ "$arch" = "x86_64" ]; then
         echo "sddk-${os}-${arch}-musl"
     else
         echo "sddk-${os}-${arch}"
