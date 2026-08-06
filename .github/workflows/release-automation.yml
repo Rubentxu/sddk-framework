@@ -114,7 +114,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION="$(grep -m1 '^version = ' manifest.toml | sed -E 's/version = "([^"]+)"/\1/')"
+          # Read the version from origin/main, never from the dirty working
+          # tree (the bump step leaves release/ branches checked out).
+          VERSION="$(git show origin/main:manifest.toml | grep -m1 '^version = ' | sed -E 's/version = "([^"]+)"/\1/')"
           LAST="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)"
           CURRENT="${LAST#v}"
           echo "manifest version: $VERSION, last tag: $LAST"
