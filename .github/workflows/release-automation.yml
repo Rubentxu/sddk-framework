@@ -49,7 +49,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
-          PRS="$(gh pr list --head 'release/*' --state open --json number --jq '.[].number' || true)"
+          PRS="$(gh pr list --state open --json number,headRefName --jq '.[] | select(.headRefName | startswith("release/")) | .number' || true)"
           if [ -z "$PRS" ]; then
             echo "no open release PRs"
             exit 0
@@ -68,7 +68,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          PRS="$(gh pr list --head 'release/*' --state open --json number --jq '.[].number' || true)"
+          PRS="$(gh pr list --state open --json number,headRefName --jq '.[] | select(.headRefName | startswith("release/")) | .number' || true)"
           for pr in $PRS; do
             echo "enabling auto-merge on PR #$pr"
             gh pr merge "$pr" --auto --squash --delete-branch || true
