@@ -165,12 +165,40 @@ enum Command {
         #[command(subcommand)]
         command: AnalyticsCommand,
     },
-    /// Generate shell completion scripts.
+    /// Generate or install shell completion scripts.
     Completion {
-        /// Target shell.
-        #[arg(value_enum)]
-        shell: CompletionShell,
+        #[command(subcommand)]
+        command: CompletionCommand,
     },
+}
+
+/// Completion subcommands; shell names are subcommands so
+/// `sddk completion bash` keeps working while `sddk completion install`
+/// adds installation.
+#[derive(Debug, Subcommand)]
+enum CompletionCommand {
+    /// Print the bash completion script.
+    Bash,
+    /// Print the zsh completion script.
+    Zsh,
+    /// Print the fish completion script.
+    Fish,
+    /// Print the elvish completion script.
+    Elvish,
+    /// Print the powershell completion script.
+    PowerShell,
+    /// Install completions into the detected or requested shell.
+    Install(CompletionInstallArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+struct CompletionInstallArgs {
+    /// Target shell (default: detect from $SHELL).
+    #[arg(long, value_enum)]
+    shell: Option<CompletionShell>,
+    /// Print target paths without writing any file.
+    #[arg(long)]
+    dry_run: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -401,27 +429,172 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         Command::Pack { command } => pack_cmd::run_pack(command),
         Command::Metrics { command } => metrics::run_metrics(command, environment),
         Command::Analytics { command } => analytics::run_analytics(command, environment),
-        Command::Completion { shell } => run_completion(shell),
+        Command::Completion { command } => run_completion(command),
     }
 }
 
-/// Generates a shell completion script for the `sddk` command line.
-fn run_completion(shell: CompletionShell) -> CommandOutput {
-    let clap_shell = match shell {
-        CompletionShell::Bash => clap_complete::Shell::Bash,
-        CompletionShell::Zsh => clap_complete::Shell::Zsh,
-        CompletionShell::Fish => clap_complete::Shell::Fish,
-        CompletionShell::Elvish => clap_complete::Shell::Elvish,
-        CompletionShell::PowerShell => clap_complete::Shell::PowerShell,
-    };
+/// Renders or installs shell completion scripts for the `sddk` command line.
+fn run_completion(command: CompletionCommand) -> CommandOutput {
+    match command {
+        CompletionCommand::Bash => completion_print(clap_complete::Shell::Bash),
+        CompletionCommand::Zsh => completion_print(clap_complete::Shell::Zsh),
+        CompletionCommand::Fish => completion_print(clap_complete::Shell::Fish),
+        CompletionCommand::Elvish => completion_print(clap_complete::Shell::Elvish),
+        CompletionCommand::PowerShell => completion_print(clap_complete::Shell::PowerShell),
+        CompletionCommand::Install(args) => completion_install(args),
+    }
+}
+
+/// Prints a completion script for a shell to stdout.
+fn completion_print(shell: clap_complete::Shell) -> CommandOutput {
     let mut command = Cli::command();
     let mut stdout = Vec::new();
-    clap_complete::generate(clap_shell, &mut command, "sddk", &mut stdout);
-    let script = String::from_utf8(stdout).unwrap_or_default();
+    clap_complete::generate(shell, &mut command, "sddk", &mut stdout);
     CommandOutput {
-        stdout: script,
+        stdout: String::from_utf8(stdout).unwrap_or_default(),
         ..CommandOutput::default()
     }
+}
+
+/// Resolves the completion target path for a shell given config/home dirs.
+fn completion_install_path(
+    shell: CompletionShell,
+    xdg_config: &Path,
+    home: &Path,
+) -> Option<PathBuf> {
+    match shell {
+        CompletionShell::Fish => Some(xdg_config.join("fish/completions/sddk.fish")),
+        CompletionShell::Bash => Some(home.join(".bash_completion.d/sddk.bash")),
+        CompletionShell::Zsh => Some(home.join(".zfunc/_sddk")),
+        CompletionShell::Elvish | CompletionShell::PowerShell => None,
+    }
+}
+
+/// Activation hint printed after a successful install.
+fn completion_hint(shell: CompletionShell) -> &'static str {
+    match shell {
+        CompletionShell::Bash => "add to ~/.bashrc: source ~/.bash_completion.d/sddk.bash",
+        CompletionShell::Zsh => "add to ~/.zshrc: fpath=(~/.zfunc $fpath); compinit",
+        CompletionShell::Fish => "already active for new fish sessions",
+        CompletionShell::Elvish | CompletionShell::PowerShell => "",
+    }
+}
+
+/// Installs the completion script for the detected or requested shell.
+fn completion_install(args: CompletionInstallArgs) -> CommandOutput {
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .ok_or_else(|| anyhow::anyhow!("HOME is not set"));
+    let xdg_config = home.as_ref().ok().map(|home| {
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".config"))
+    });
+    match (home, xdg_config) {
+        (Ok(home), Some(xdg)) => match completion_install_to(args.shell, args.dry_run, &xdg, &home)
+        {
+            Ok(stdout) => CommandOutput {
+                stdout: format!("{stdout}\n"),
+                ..CommandOutput::default()
+            },
+            Err(error) => failure(error.to_string()),
+        },
+        (Err(error), _) => failure(error.to_string()),
+        _ => failure("HOME is not set".to_string()),
+    }
+}
+
+/// Pure install logic: resolves the shell, writes the script, prints hints.
+fn completion_install_to(
+    requested_shell: Option<CompletionShell>,
+    dry_run: bool,
+    xdg_config: &Path,
+    home: &Path,
+) -> anyhow::Result<String> {
+    let shell = match requested_shell {
+        Some(shell) => shell,
+        None => {
+            let shell = std::env::var("SHELL")
+                .ok()
+                .and_then(|value| {
+                    PathBuf::from(value)
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                })
+                .unwrap_or_default();
+            match shell.as_str() {
+                "bash" => CompletionShell::Bash,
+                "zsh" => CompletionShell::Zsh,
+                "fish" => CompletionShell::Fish,
+                "elvish" => CompletionShell::Elvish,
+                other => {
+                    anyhow::bail!(
+                        "cannot detect a supported shell from $SHELL ({other:?}); pass --shell"
+                    )
+                }
+            }
+        }
+    };
+    let path = completion_install_path(shell, xdg_config, home)
+        .ok_or_else(|| anyhow::anyhow!("completion install is not supported for {shell:?}"))?;
+
+    if dry_run {
+        return Ok(format!(
+            "dry-run: would write {}\n  {}",
+            path.display(),
+            completion_hint(shell)
+        ));
+    }
+
+    let mut command = Cli::command();
+    let mut script = Vec::new();
+    clap_complete::generate(
+        clap_complete::Shell::from(shell),
+        &mut command,
+        "sddk",
+        &mut script,
+    );
+    atomic_write_path(&path, &script)?;
+    Ok(format!(
+        "installed: {}\n  {}",
+        path.display(),
+        completion_hint(shell)
+    ))
+}
+
+impl From<CompletionShell> for clap_complete::Shell {
+    fn from(shell: CompletionShell) -> Self {
+        match shell {
+            CompletionShell::Bash => clap_complete::Shell::Bash,
+            CompletionShell::Zsh => clap_complete::Shell::Zsh,
+            CompletionShell::Fish => clap_complete::Shell::Fish,
+            CompletionShell::Elvish => clap_complete::Shell::Elvish,
+            CompletionShell::PowerShell => clap_complete::Shell::PowerShell,
+        }
+    }
+}
+
+/// Writes bytes atomically via a temporary sibling file and rename.
+fn atomic_write_path(destination: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    use std::io::Write;
+    let parent = destination
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("destination has no parent: {destination:?}"))?;
+    std::fs::create_dir_all(parent)?;
+    let temporary = parent.join(format!(
+        ".{}.tmp-{}",
+        destination
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("sddk"),
+        std::process::id()
+    ));
+    let mut file = std::fs::File::create(&temporary)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    drop(file);
+    std::fs::rename(&temporary, destination)?;
+    Ok(())
 }
 
 fn run_generation<E: std::fmt::Display>(
@@ -829,5 +1002,72 @@ pub(crate) fn failure_envelope(error: &anyhow::Error) -> CommandOutput {
         status: 1,
         stdout: String::new(),
         stderr,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn completion_paths_are_shell_specific() {
+        let home = PathBuf::from("/home/user");
+        let xdg = PathBuf::from("/home/user/.config");
+        assert_eq!(
+            completion_install_path(CompletionShell::Fish, &xdg, &home),
+            Some(PathBuf::from(
+                "/home/user/.config/fish/completions/sddk.fish"
+            ))
+        );
+        assert_eq!(
+            completion_install_path(CompletionShell::Bash, &xdg, &home),
+            Some(PathBuf::from("/home/user/.bash_completion.d/sddk.bash"))
+        );
+        assert_eq!(
+            completion_install_path(CompletionShell::Zsh, &xdg, &home),
+            Some(PathBuf::from("/home/user/.zfunc/_sddk"))
+        );
+        assert_eq!(
+            completion_install_path(CompletionShell::Elvish, &xdg, &home),
+            None
+        );
+        assert_eq!(
+            completion_install_path(CompletionShell::PowerShell, &xdg, &home),
+            None
+        );
+    }
+
+    #[test]
+    fn completion_install_dry_run_does_not_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let xdg = dir.path().join("cfg");
+        let out =
+            completion_install_to(Some(CompletionShell::Fish), true, &xdg, dir.path()).unwrap();
+        assert!(out.contains("dry-run: would write"));
+        assert!(!xdg.join("fish/completions/sddk.fish").exists());
+    }
+
+    #[test]
+    fn completion_install_writes_atomically() {
+        let dir = tempfile::tempdir().unwrap();
+        let xdg = dir.path().join("cfg");
+        let out =
+            completion_install_to(Some(CompletionShell::Fish), false, &xdg, dir.path()).unwrap();
+        assert!(out.contains("installed:"));
+        let target = xdg.join("fish/completions/sddk.fish");
+        assert!(target.exists());
+        let content = std::fs::read_to_string(&target).unwrap();
+        assert!(content.contains("_sddk"));
+    }
+
+    #[test]
+    fn completion_print_still_works() {
+        let output = run_from(["sddk", "completion", "bash"]);
+        assert_eq!(output.status, 0);
+        assert!(output.stdout.contains("_sddk"));
+        let output = run_from(["sddk", "completion", "zsh"]);
+        assert_eq!(output.status, 0);
+        assert!(output.stdout.contains("#compdef"));
     }
 }
