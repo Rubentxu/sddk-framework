@@ -179,16 +179,16 @@ La consolidación exige: cambios versionados, CI obligatoria, criterios del back
 
 ## Milestone E2E-2026-08 — Validación E2E ampliada (post-v1.3.0)
 
-**Estado:** planificado (2026-08-06) — ADR-0001 + e2e-plan.md aprobados
+**Estado:** IMPLEMENTADO (2026-08-06) — 7/7 suites PASS (PR #91)
 **Objetivo:** probar instalación real, despliegue, multi-lenguaje y render de diagramas.
 
 | Work item | Tipo | Depende de | Estado |
 |-----------|------|-----------|--------|
-| scripts/e2e-install.sh (N1) | feature | ADR-0001 | planificado |
-| scripts/e2e-render.sh (N2) | feature | ADR-0001 | planificado |
-| validate-project.sh --lang (matrix 5 lenguajes) | feature | ADR-0001 | planificado |
-| scripts/e2e-all.sh (orquestador) | feature | N1+N2+matrix | planificado |
-| docs/validation/e2e-report.md + evidencia | docs | e2e-all | planificado |
+| scripts/e2e-install.sh (N1) | feature | ADR-0001 | **done** |
+| scripts/e2e-render.sh (N2) | feature | ADR-0001 | **done** |
+| validate-project.sh --lang (matrix 5 lenguajes) | feature | ADR-0001 | **done** |
+| scripts/e2e-all.sh (orquestador) | feature | N1+N2+matrix | **done** |
+| docs/validation/e2e-report.md + evidencia | docs | e2e-all | **done** |
 | Checklist N3 (editor real) | docs | dev link | planificado |
 
 **Criterios de salida:**
