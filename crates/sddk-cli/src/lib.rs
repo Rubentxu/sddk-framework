@@ -28,7 +28,7 @@ use std::process::Command as ProcessCommand;
 use analytics::AnalyticsCommand;
 use artifact::ArtifactCommand;
 use capability::CapabilityCommand;
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 pub(crate) use cycle::{CycleCommand, RuntimeArgs, RuntimeContext};
 use dev_cmd::DevCommand;
 use git_cmd::GitCommand;
@@ -165,6 +165,12 @@ enum Command {
         #[command(subcommand)]
         command: AnalyticsCommand,
     },
+    /// Generate shell completion scripts.
+    Completion {
+        /// Target shell.
+        #[arg(value_enum)]
+        shell: CompletionShell,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -255,6 +261,16 @@ enum GenerateCommand {
 enum OutputFormat {
     Text,
     Json,
+}
+
+/// Shells supported by `sddk completion`.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum CompletionShell {
+    Bash,
+    Zsh,
+    Fish,
+    Elvish,
+    PowerShell,
 }
 
 /// Captured process output and exit status.
@@ -385,6 +401,26 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         Command::Pack { command } => pack_cmd::run_pack(command),
         Command::Metrics { command } => metrics::run_metrics(command, environment),
         Command::Analytics { command } => analytics::run_analytics(command, environment),
+        Command::Completion { shell } => run_completion(shell),
+    }
+}
+
+/// Generates a shell completion script for the `sddk` command line.
+fn run_completion(shell: CompletionShell) -> CommandOutput {
+    let clap_shell = match shell {
+        CompletionShell::Bash => clap_complete::Shell::Bash,
+        CompletionShell::Zsh => clap_complete::Shell::Zsh,
+        CompletionShell::Fish => clap_complete::Shell::Fish,
+        CompletionShell::Elvish => clap_complete::Shell::Elvish,
+        CompletionShell::PowerShell => clap_complete::Shell::PowerShell,
+    };
+    let mut command = Cli::command();
+    let mut stdout = Vec::new();
+    clap_complete::generate(clap_shell, &mut command, "sddk", &mut stdout);
+    let script = String::from_utf8(stdout).unwrap_or_default();
+    CommandOutput {
+        stdout: script,
+        ..CommandOutput::default()
     }
 }
 
