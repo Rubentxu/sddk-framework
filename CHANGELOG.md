@@ -30,3 +30,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixes
   - fix(ci): dispatch Release workflow explicitly from tag-release (#77)
 
+## [1.3.0] - 2026-08-06
+
+### Features
+  - feat(cli): completion install — installs shell completions (#84)
+
+### Fixes
+  - fix(ci): gh pr list --head does not glob; filter with startswith (#81)
+
