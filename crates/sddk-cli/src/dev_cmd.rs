@@ -993,7 +993,11 @@ struct UninstallReport {
 fn run_dev_update(args: UpdateArgs) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<String> {
-        let root = std::fs::canonicalize(&args.root)?;
+        let root = std::fs::canonicalize(&args.root).or_else(|_| {
+            // Bundle installs may target a directory that does not exist yet.
+            std::fs::create_dir_all(&args.root)?;
+            std::fs::canonicalize(&args.root)
+        })?;
         let mut output = String::new();
 
         if root.join(".git").is_dir() {

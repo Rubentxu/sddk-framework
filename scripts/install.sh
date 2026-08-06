@@ -127,7 +127,7 @@ verify_signature() {
         return 0
     fi
     if cosign verify-blob \
-        --certificate-identity "https://github.com/$REPO/.github/workflows/release.yml@refs/tags/v*" \
+        --certificate-identity-regexp "https://github.com/$REPO/.github/workflows/release.yml@refs/tags/v.*" \
         --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
         --signature "$sig" --certificate "$pem" "$file" >/dev/null 2>&1; then
         echo "  signature verified (cosign keyless)"
