@@ -22,3 +22,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Other
   - docs(validation): v1.0.0 published (#62)
 
+## [1.2.0] - 2026-08-06
+
+### Features
+  - feat(ci): release robot — cron poller that removes all bot friction (#79)
+
+### Fixes
+  - fix(ci): dispatch Release workflow explicitly from tag-release (#77)
+
