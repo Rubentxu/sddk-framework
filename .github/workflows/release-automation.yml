@@ -1,20 +1,22 @@
 name: Release automation
 
-# Fully automatic release pipeline:
-#   1. On push to main with conventional commits since the last tag,
-#      create/update a release PR (version bump + CHANGELOG) on a
-#      release/vX.Y.Z branch.
-#   2. When the release PR merges, main carries a version with no tag yet;
-#      tag-release pushes vX.Y.Z, which triggers the Release workflow
-#      (build + framework bundle + cosign signatures).
+# Fully automatic release pipeline. Triggered by the Auto-merge workflow
+# completing (the auto-merge squash to main does NOT emit a push event, so
+# `push: branches: [main]` would never fire for bot merges):
+#   1. maybe-release: conventional commits since the last tag produce a
+#      release PR (version bump + CHANGELOG) on a release/vX.Y.Z branch.
+#   2. tag-release: when main carries a version with no tag yet, push
+#      vX.Y.Z, which triggers the Release workflow.
 #
-# Loop protection: maybe-release skips when the version on main already has
-# a tag (the release PR merge case), and tag-release only acts when the
-# version is ahead of the last tag. Serialized via concurrency.
+# Loop protection: maybe-release skips when main's version is already
+# tagged (the release PR merge case), chore(release) commits are excluded
+# from the bump calculation, and tag-release only acts when the version is
+# ahead of the last tag. Serialized via concurrency.
 
 on:
-  push:
-    branches: [main]
+  workflow_run:
+    workflows: [Auto-merge]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -29,6 +31,7 @@ jobs:
   maybe-release:
     name: Maybe open release PR
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
