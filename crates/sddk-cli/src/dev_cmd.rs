@@ -1097,13 +1097,16 @@ fn update_bundle(root: &Path, args: &UpdateArgs) -> anyhow::Result<String> {
         .to_owned();
     let actual = sha256_hex(&bundle)?;
     if expected != actual {
-        anyhow::bail!(
-            "framework sha256 mismatch\n  expected: {expected}\n  actual:   {actual}"
-        );
+        anyhow::bail!("framework sha256 mismatch\n  expected: {expected}\n  actual:   {actual}");
     }
 
     let extract = std::process::Command::new("tar")
-        .args(["xzf", bundle.to_str().unwrap_or_default(), "-C", root.to_str().unwrap_or_default()])
+        .args([
+            "xzf",
+            bundle.to_str().unwrap_or_default(),
+            "-C",
+            root.to_str().unwrap_or_default(),
+        ])
         .output()?;
     if !extract.status.success() {
         anyhow::bail!(
