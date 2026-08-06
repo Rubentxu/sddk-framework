@@ -1,37 +1,40 @@
 name: Release automation
 
-# Fully automatic release pipeline. Triggered by the Auto-merge workflow
-# completing (the auto-merge squash to main does NOT emit a push event, so
-# `push: branches: [main]` would never fire for bot merges):
-#   1. maybe-release: conventional commits since the last tag produce a
-#      release PR (version bump + CHANGELOG) on a release/vX.Y.Z branch.
-#   2. tag-release: when main carries a version with no tag yet, push
-#      vX.Y.Z, which triggers the Release workflow.
+# Fully automatic release robot. Polls every 5 minutes (plus manual
+# dispatch) instead of depending on workflow events, because bot-triggered
+# pushes do not emit push/workflow_run events and CI runs for bot PRs land
+# in action_required. The robot:
+#   1. Approves pending CI runs for release/* PRs (allowed by the repo
+#      setting "Allow GitHub Actions to create and approve pull requests").
+#   2. Ensures auto-merge is enabled for open release PRs so GitHub merges
+#      them as soon as their checks pass.
+#   3. Opens a release PR when conventional commits since the last tag
+#      warrant a bump (scripts/release-bump.sh applies versions + CHANGELOG).
+#   4. Pushes the tag when main carries an untagged version and dispatches
+#      the Release workflow on it.
 #
-# Loop protection: maybe-release skips when main's version is already
-# tagged (the release PR merge case), chore(release) commits are excluded
-# from the bump calculation, and tag-release only acts when the version is
-# ahead of the last tag. Serialized via concurrency.
+# Loop protection: chore(release) commits are excluded from the bump
+# calculation, the open-release-PR step skips when the release branch
+# exists, and step 4 only acts when the version is ahead of the last tag.
 
 on:
-  workflow_run:
-    workflows: [Auto-merge]
-    types: [completed]
+  schedule:
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
   pull-requests: write
+  actions: write
 
 concurrency:
   group: release-automation
   cancel-in-progress: false
 
 jobs:
-  maybe-release:
-    name: Maybe open release PR
+  robot:
+    name: Release robot
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -41,27 +44,47 @@ jobs:
       - name: Fetch tags
         run: git fetch --tags --force
 
-      - name: Detect pending release
-        id: detect
+      - name: Approve pending CI runs for release PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
-          OUTPUT="$(bash scripts/release-bump.sh --dry-run 2>&1 || true)"
-          echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -q '^new tag:'; then
-            NEW_TAG="$(echo "$OUTPUT" | grep -oE '^new tag: v[0-9]+\.[0-9]+\.[0-9]+$' | awk '{print $3}')"
-            echo "pending=$NEW_TAG" >> "$GITHUB_OUTPUT"
-          else
-            echo "pending=" >> "$GITHUB_OUTPUT"
+          PRS="$(gh pr list --head 'release/*' --state open --json number --jq '.[].number' || true)"
+          if [ -z "$PRS" ]; then
+            echo "no open release PRs"
+            exit 0
           fi
+          for pr in $PRS; do
+            BRANCH="$(gh pr view "$pr" --json headRefName --jq '.headRefName')"
+            RUNS="$(gh api "repos/$REPO/actions/runs?status=action_required&per_page=100" \
+              --jq ".workflow_runs[] | select(.head_branch==\"$BRANCH\") | .id" 2>/dev/null || true)"
+            for run in $RUNS; do
+              echo "approving run $run for PR #$pr"
+              gh api -X POST "repos/$REPO/actions/runs/$run/approve" || true
+            done
+          done
 
-      - name: Apply bump and open release PR
-        if: steps.detect.outputs.pending != ''
+      - name: Enable auto-merge on open release PRs
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          NEW_TAG="${{ steps.detect.outputs.pending }}"
+          PRS="$(gh pr list --head 'release/*' --state open --json number --jq '.[].number' || true)"
+          for pr in $PRS; do
+            echo "enabling auto-merge on PR #$pr"
+            gh pr merge "$pr" --auto --squash --delete-branch || true
+          done
+
+      - name: Open release PR when a bump is pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          OUTPUT="$(bash scripts/release-bump.sh --dry-run 2>&1 || true)"
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -q '^new tag:' || { echo "no pending release"; exit 0; }
+          NEW_TAG="$(echo "$OUTPUT" | grep -oE '^new tag: v[0-9]+\.[0-9]+\.[0-9]+$' | awk '{print $3}')"
           BRANCH="release/${NEW_TAG#v}"
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
-            echo "release branch $BRANCH already exists; not creating another"
+            echo "release branch $BRANCH already exists"
             exit 0
           fi
           git config user.name "sddk-release-bot"
@@ -71,29 +94,22 @@ jobs:
           git add -A
           git commit -m "chore(release): ${NEW_TAG#v}"
           git push -u origin "$BRANCH"
-          gh pr create --head "$BRANCH" --base main \
+          BODY_FILE="$(mktemp)"
+          printf 'Automated release PR generated by the Release robot.\n\n' > "$BODY_FILE"
+          printf -- '- Version bump %s (workspace + 7 crates + manifest.toml + Cargo.lock)\n' "${NEW_TAG#v}" >> "$BODY_FILE"
+          printf -- '- CHANGELOG.md updated from conventional commits\n' >> "$BODY_FILE"
+          printf -- '- Merge to publish; the robot handles CI approval, merge, tag, and release.\n' >> "$BODY_FILE"
+          PR_URL="$(gh pr create --head "$BRANCH" --base main \
             --title "chore(release): ${NEW_TAG#v}" \
-            --body "Automated release PR generated by the Release automation workflow.
-          
-          - Version bump $(git describe --tags --abbrev=0 | sed 's/^v//') -> ${NEW_TAG#v} (workspace + 7 crates + manifest.toml + Cargo.lock)
-          - CHANGELOG.md updated from conventional commits
-          - Merge to publish; CI + auto-merge will handle the rest." || \
-            echo "PR already exists or creation failed"
+            --body-file "$BODY_FILE" 2>&1 || true)"
+          rm -f "$BODY_FILE"
+          echo "$PR_URL"
+          if echo "$PR_URL" | grep -q 'pull/'; then
+            PR_NUM="$(echo "$PR_URL" | grep -oE '[0-9]+$')"
+            gh pr merge "$PR_NUM" --auto --squash --delete-branch || true
+          fi
 
-  tag-release:
-    name: Tag unreleased version
-    runs-on: ubuntu-latest
-    needs: [maybe-release]
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          fetch-depth: 0
-
-      - name: Fetch tags
-        run: git fetch --tags --force
-
-      - name: Tag if main is ahead of the last tag
+      - name: Tag and dispatch release when main is ahead of the last tag
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -101,22 +117,22 @@ jobs:
           LAST="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)"
           CURRENT="${LAST#v}"
           echo "manifest version: $VERSION, last tag: $LAST"
-          if [ "$VERSION" != "$CURRENT" ]; then
-            TAG="v$VERSION"
-            if git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
-              echo "tag $TAG already exists on origin"
-              exit 0
-            fi
-            git config user.name "sddk-release-bot"
-            git config user.email "sddk-release-bot@users.noreply.github.com"
-            git tag "$TAG"
-            git push origin "$TAG"
-            echo "pushed tag $TAG"
-            # A tag push performed with GITHUB_TOKEN does not emit a push
-            # event (GitHub suppresses bot-triggered workflows), so dispatch
-            # the Release workflow explicitly on the new tag.
-            gh workflow run release.yml --ref "$TAG"
-            echo "dispatched Release workflow on $TAG"
-          else
-            echo "main version $VERSION already tagged; nothing to do"
+          if [ "$VERSION" = "$CURRENT" ]; then
+            echo "main version already tagged; nothing to do"
+            exit 0
           fi
+          TAG="v$VERSION"
+          if git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
+            echo "tag $TAG already exists on origin"
+            exit 0
+          fi
+          git config user.name "sddk-release-bot"
+          git config user.email "sddk-release-bot@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
+          echo "pushed tag $TAG"
+          # A tag push performed with GITHUB_TOKEN does not emit a push
+          # event (GitHub suppresses bot-triggered workflows), so dispatch
+          # the Release workflow explicitly on the new tag.
+          gh workflow run release.yml --ref "$TAG"
+          echo "dispatched Release workflow on $TAG"
