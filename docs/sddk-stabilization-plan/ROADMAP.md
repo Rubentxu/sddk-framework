@@ -196,3 +196,16 @@ La consolidación exige: cambios versionados, CI obligatoria, criterios del back
 - Instalador probado en sandbox sin git (variantes a-d)
 - Diagramas renderizados y verificados visualmente (SVG + screenshots)
 - Report E2E publicado con evidencia embebida
+
+## Modo de operación: LOCAL-FIRST (2026-08-06)
+
+**GitHub Actions DESACTIVADO** (minutos del plan agotados; decisión: no depender de CI remoto).
+- `actions/permissions.enabled = false` (API)
+- Branch protection de main: sin required status checks (nada bloquea merges)
+- CI, auto-merge y release automation: **inactivos** — no son parte del flujo operativo
+- El flujo de validación y release es **local**: podman (sandbox), scripts `scripts/*.sh`, binario `sddk` (release dist/verify locales), merges vía `gh pr merge`
+
+**Consecuencias:**
+- Los PRs se validan localmente (tests + clippy + fmt) antes de mergear
+- Los releases se generan localmente (`sddk release dist`) y se publican con `gh release create`
+- El milestone E2E-2026-08 se ejecuta 100% local (podman + mmdc)
