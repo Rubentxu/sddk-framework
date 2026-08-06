@@ -83,6 +83,7 @@ fi
 NEW_TAG="v$NEXT"
 
 echo "release bump: $LAST_TAG -> $NEW_TAG ($LEVEL)"
+echo "new tag: $NEW_TAG"
 if [ "$DRY_RUN" = "1" ]; then
     echo "--- commits ---"
     echo "$COMMITS"
