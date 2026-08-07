@@ -34,6 +34,7 @@ clap_complete = "4"
 
 # Database
 rusqlite = { version = "0.39.0", features = ["bundled"] }
+dirs = "6.0.0"
 
 # Crypto/Hashing
 sha2 = "0.10"

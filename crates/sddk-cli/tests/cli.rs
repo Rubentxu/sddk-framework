@@ -510,7 +510,7 @@ fn repair_restores_missing_receipt_and_status_reports_corruption() {
 }
 
 #[test]
-fn adopt_apply_plants_canonical_workflow_manifest() {
+fn adopt_apply_is_non_intrusive_and_does_not_plant_workflow() {
     let fixture = CliFixture::new("adopt-plants-workflow");
     let common = [
         "--root",
@@ -533,10 +533,9 @@ fn adopt_apply_plants_canonical_workflow_manifest() {
         String::from_utf8_lossy(&applied.stderr)
     );
     let planted = fixture.root.join("workflow/workflow.yaml");
-    assert_eq!(
-        fs::read_to_string(&planted).unwrap(),
-        CANONICAL_WORKFLOW,
-        "adopt apply must seed the canonical workflow manifest"
+    assert!(
+        !planted.exists(),
+        "adopt apply must NOT write framework files into the project repo (ADR-0011)"
     );
 }
 
@@ -595,7 +594,8 @@ fn cycle_start_falls_back_to_embedded_workflow_when_manifest_absent() {
         "{}",
         String::from_utf8_lossy(&adopted.stderr)
     );
-    fs::remove_dir_all(fixture.root.join("workflow")).unwrap();
+    // Non-intrusive (ADR-0011): adopt never creates workflow/ in the repo, so
+    // the embedded canonical workflow is the only source here.
 
     let started = fixture.run(&[
         "cycle",
@@ -4063,4 +4063,23 @@ fn skills_and_agents_reference_only_real_sddk_commands() {
         "skills/agents reference CLI commands that do not exist:\n  {}",
         broken.join("\n  ")
     );
+}
+
+#[test]
+fn lint_passes_without_workflow_file_in_repo() {
+    // Non-intrusive policy (ADR-0011): a project without workflow/workflow.yaml
+    // must still lint cleanly because the canonical manifest is embedded.
+    let fixture = CliFixture::new("lint-no-workflow");
+    let report = lint_repository(&fixture.root).unwrap();
+    let workflow_errors = report
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.file == "workflow/workflow.yaml")
+        .filter(|diagnostic| diagnostic.severity == Severity::Error)
+        .count();
+    assert_eq!(
+        workflow_errors, 0,
+        "lint must fall back to the embedded canonical workflow (ADR-0011)"
+    );
+    assert!(!fixture.root.join("workflow/workflow.yaml").exists());
 }

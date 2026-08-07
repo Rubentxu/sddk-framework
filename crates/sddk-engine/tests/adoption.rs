@@ -221,6 +221,7 @@ impl Fixture {
             xdg: XdgEnvironment {
                 home: None,
                 data_home: Some(self.data.clone()),
+                sddk_data_dir: None,
                 state_home: Some(self.state.clone()),
                 cache_home: Some(self.cache.clone()),
             },

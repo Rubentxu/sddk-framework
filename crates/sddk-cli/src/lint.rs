@@ -170,19 +170,12 @@ pub fn lint_repository(root: impl AsRef<Path>) -> Result<LintReport, LintError> 
 fn lint_workflow(root: &Path, diagnostics: &mut Vec<Diagnostic>) -> Option<WorkflowManifest> {
     let relative = Path::new(WORKFLOW_MANIFEST);
     let path = root.join(relative);
+    // Non-intrusive: when the repo has no workflow/workflow.yaml, lint falls
+    // back to the canonical manifest embedded in the binary (ADR-0011). A
+    // project must never be required to carry framework files.
     let yaml = match fs::read_to_string(&path) {
         Ok(yaml) => yaml,
-        Err(error) => {
-            diagnostics.push(diagnostic(
-                INVALID_CONTRACT,
-                Severity::Error,
-                relative,
-                None,
-                format!("cannot read canonical workflow: {error}"),
-                "create workflow/workflow.yaml and make it readable",
-            ));
-            return None;
-        }
+        Err(_) => crate::CANONICAL_WORKFLOW.to_owned(),
     };
 
     match serde_saphyr::from_str::<Value>(&yaml) {
@@ -197,7 +190,11 @@ fn lint_workflow(root: &Path, diagnostics: &mut Vec<Diagnostic>) -> Option<Workf
         )),
     }
 
-    match sddk_engine::load_workflow_path(&path) {
+    let load_result = match fs::read_to_string(&path) {
+        Ok(_) => sddk_engine::load_workflow_path(&path),
+        Err(_) => sddk_engine::load_workflow_str(crate::CANONICAL_WORKFLOW),
+    };
+    match load_result {
         Ok(manifest) => {
             lint_workflow_topology(relative, &yaml, &manifest, diagnostics);
             Some(manifest)

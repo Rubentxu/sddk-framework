@@ -325,6 +325,8 @@ pub struct CliEnvironment {
     pub home: Option<PathBuf>,
     /// `XDG_DATA_HOME`, when set and non-empty.
     pub data_home: Option<PathBuf>,
+    /// `SDDK_DATA_DIR`, when set and non-empty (takes precedence over data_home).
+    pub sddk_data_dir: Option<PathBuf>,
     /// `XDG_STATE_HOME`, when set and non-empty.
     pub state_home: Option<PathBuf>,
     /// `XDG_CACHE_HOME`, when set and non-empty.
@@ -340,6 +342,7 @@ impl CliEnvironment {
         Self {
             home: nonempty_env_path("HOME"),
             data_home: nonempty_env_path("XDG_DATA_HOME"),
+            sddk_data_dir: nonempty_env_path("SDDK_DATA_DIR"),
             state_home: nonempty_env_path("XDG_STATE_HOME"),
             cache_home: nonempty_env_path("XDG_CACHE_HOME"),
             sddk_actor: nonempty_env_string("SDDK_ACTOR"),
@@ -351,6 +354,7 @@ impl CliEnvironment {
         XdgEnvironment {
             home: self.home.clone(),
             data_home: self.data_home.clone(),
+            sddk_data_dir: self.sddk_data_dir.clone(),
             state_home: self.state_home.clone(),
             cache_home: self.cache_home.clone(),
         }
@@ -690,7 +694,6 @@ fn run_adopt(command: AdoptCommand, environment: &CliEnvironment) -> CommandOutp
             AdoptionOperation::Plan => AdoptionCommandResult::Plan(plan),
             AdoptionOperation::Apply => {
                 let status = apply_adoption(&plan)?;
-                plant_workflow_manifest(&plan.canonical_workspace_path)?;
                 AdoptionCommandResult::Status(status)
             }
             AdoptionOperation::Status => AdoptionCommandResult::Status(adoption_status(&plan)?),
@@ -723,21 +726,6 @@ fn run_adopt(command: AdoptCommand, environment: &CliEnvironment) -> CommandOutp
 enum AdoptionCommandResult {
     Plan(AdoptionPlan),
     Status(AdoptionStatus),
-}
-
-/// Seeds the canonical workflow manifest into an adopted repository when it
-/// has none, never overwriting a project-specific manifest.
-fn plant_workflow_manifest(root: &Path) -> anyhow::Result<()> {
-    let target = root.join(WORKFLOW_MANIFEST);
-    if target.exists() {
-        return Ok(());
-    }
-    let parent = target
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("workflow manifest path has no parent: {target:?}"))?;
-    std::fs::create_dir_all(parent)?;
-    std::fs::write(&target, CANONICAL_WORKFLOW)?;
-    Ok(())
 }
 
 fn prepare_adoption_plan(

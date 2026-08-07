@@ -13,6 +13,9 @@ pub struct XdgEnvironment {
     pub home: Option<PathBuf>,
     /// Optional `XDG_DATA_HOME` override.
     pub data_home: Option<PathBuf>,
+    /// Optional `SDDK_DATA_DIR` override (takes precedence over `XDG_DATA_HOME`
+    /// for the data root; all framework state lives under it).
+    pub sddk_data_dir: Option<PathBuf>,
     /// Optional `XDG_STATE_HOME` override.
     pub state_home: Option<PathBuf>,
     /// Optional `XDG_CACHE_HOME` override.
@@ -80,23 +83,30 @@ pub fn resolve_xdg_paths(
     WorkspaceId::new(workspace_id).map_err(|_| unsafe_identity(workspace_id))?;
     validate_optional("HOME", environment.home.as_deref())?;
     validate_optional("XDG_DATA_HOME", environment.data_home.as_deref())?;
+    validate_optional("SDDK_DATA_DIR", environment.sddk_data_dir.as_deref())?;
     validate_optional("XDG_STATE_HOME", environment.state_home.as_deref())?;
     validate_optional("XDG_CACHE_HOME", environment.cache_home.as_deref())?;
 
     let data_home = resolve_base(
-        environment.data_home.as_deref(),
+        environment
+            .sddk_data_dir
+            .as_deref()
+            .or(environment.data_home.as_deref()),
         environment.home.as_deref(),
         ".local/share",
+        dirs::data_dir(),
     )?;
     let state_home = resolve_base(
         environment.state_home.as_deref(),
         environment.home.as_deref(),
         ".local/state",
+        dirs::state_dir(),
     )?;
     let cache_home = resolve_base(
         environment.cache_home.as_deref(),
         environment.home.as_deref(),
         ".cache",
+        dirs::cache_dir(),
     )?;
     let project_data = data_home.join("sddk/projects").join(project_id);
     let project_state = state_home.join("sddk/projects").join(project_id);
@@ -127,14 +137,21 @@ fn validate_optional(
     Ok(())
 }
 
+/// Resolution order for a base directory:
+/// 1. Explicit override (XDG_* or SDDK_DATA_DIR).
+/// 2. `HOME` fallback for the given subdirectory (Unix convention).
+/// 3. Platform dir via the `dirs` crate (macOS `~/Library/...`, Windows
+///    `%APPDATA%`/`%LOCALAPPDATA%`) — required where `HOME` does not exist.
 fn resolve_base(
     override_path: Option<&Path>,
     home: Option<&Path>,
     fallback: &str,
+    platform_dir: Option<PathBuf>,
 ) -> Result<PathBuf, PathResolutionError> {
     override_path
         .map(Path::to_path_buf)
         .or_else(|| home.map(|home| home.join(fallback)))
+        .or(platform_dir)
         .ok_or(PathResolutionError::MissingHome)
 }
 
@@ -159,6 +176,7 @@ mod tests {
             data_home: Some("/xdg/data".into()),
             state_home: Some("/xdg/state".into()),
             cache_home: Some("/xdg/cache".into()),
+            ..XdgEnvironment::default()
         };
         let paths = resolve_xdg_paths(&environment, "p-project", "w-workspace").unwrap();
         assert_eq!(
@@ -173,6 +191,26 @@ mod tests {
         assert_eq!(
             paths.receipt,
             Path::new("/xdg/data/sddk/projects/p-project/workspaces/w-workspace/adoption.json")
+        );
+    }
+
+    #[test]
+    fn sddk_data_dir_overrides_data_home() {
+        let environment = XdgEnvironment {
+            home: None,
+            data_home: Some("/xdg/data".into()),
+            sddk_data_dir: Some("/sddk-root".into()),
+            state_home: Some("/xdg/state".into()),
+            cache_home: Some("/xdg/cache".into()),
+        };
+        let paths = resolve_xdg_paths(&environment, "p-project", "w-workspace").unwrap();
+        assert_eq!(
+            paths.vault,
+            Path::new("/sddk-root/sddk/projects/p-project/vault")
+        );
+        assert_eq!(
+            paths.receipt,
+            Path::new("/sddk-root/sddk/projects/p-project/workspaces/w-workspace/adoption.json")
         );
     }
 
@@ -195,16 +233,29 @@ mod tests {
     }
 
     #[test]
-    fn rejects_missing_relative_and_unsafe_inputs() {
-        assert_eq!(
-            resolve_xdg_paths(&XdgEnvironment::default(), "p-project", "w-workspace"),
-            Err(PathResolutionError::MissingHome)
+    fn falls_back_to_platform_dirs_without_home() {
+        // Simulates macOS/Windows where HOME may not exist: resolution must
+        // fall back to `dirs` platform directories instead of failing.
+        let environment = XdgEnvironment::default();
+        let paths = resolve_xdg_paths(&environment, "p-project", "w-workspace").unwrap();
+        assert!(paths.vault.is_absolute());
+        assert!(paths.artifacts.is_absolute());
+        assert!(paths.ledger.is_absolute());
+        assert!(paths.cache.is_absolute());
+        assert!(paths.vault.ends_with("sddk/projects/p-project/vault"));
+        assert!(
+            paths
+                .ledger
+                .ends_with("sddk/projects/p-project/ledger.sqlite")
         );
+        assert!(paths.cache.ends_with("sddk"));
+    }
+
+    #[test]
+    fn rejects_relative_and_unsafe_inputs() {
         let relative = XdgEnvironment {
             home: Some("relative".into()),
-            data_home: Some("/data".into()),
-            state_home: Some("/state".into()),
-            cache_home: Some("/cache".into()),
+            ..XdgEnvironment::default()
         };
         assert!(matches!(
             resolve_xdg_paths(&relative, "p-project", "w-workspace"),
