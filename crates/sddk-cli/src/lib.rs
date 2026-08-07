@@ -279,6 +279,9 @@ enum GenerateCommand {
         /// Check generated output without writing it.
         #[arg(long)]
         check: bool,
+        /// Write into the repo (docs/generated/) instead of XDG — dogfooding only.
+        #[arg(long)]
+        in_repo: bool,
     },
     /// Render a deterministic inventory of repository agents and skills.
     Inventory {
@@ -288,6 +291,9 @@ enum GenerateCommand {
         /// Check generated output without writing it.
         #[arg(long)]
         check: bool,
+        /// Write into the repo (docs/generated/) instead of XDG — dogfooding only.
+        #[arg(long)]
+        in_repo: bool,
     },
 }
 
@@ -410,17 +416,27 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
             Err(error) => failure(error.to_string()),
         },
         Command::Generate {
-            command: GenerateCommand::Docs { root, check },
+            command:
+                GenerateCommand::Docs {
+                    root,
+                    check,
+                    in_repo,
+                },
         } => run_generation(
-            generate_workflow_docs(&root, check),
+            generate_workflow_docs_dest(&root, environment, in_repo, check),
             GENERATED_WORKFLOW_DOC,
             "docs",
             &root,
         ),
         Command::Generate {
-            command: GenerateCommand::Inventory { root, check },
+            command:
+                GenerateCommand::Inventory {
+                    root,
+                    check,
+                    in_repo,
+                },
         } => run_generation(
-            generate_inventory(&root, check),
+            generate_inventory_dest(&root, environment, in_repo, check),
             GENERATED_INVENTORY_DOC,
             "inventory",
             &root,
@@ -606,6 +622,79 @@ fn atomic_write_path(destination: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     drop(file);
     std::fs::rename(&temporary, destination)?;
     Ok(())
+}
+
+/// Resolve the generation destination: the repo (`docs/generated/`) only when
+/// `--in-repo` (dogfooding); otherwise the project XDG `generated/` dir.
+/// When the project identity cannot be resolved (not adopted, no remote), fall
+/// back to in-repo so `generate` never fails on unadopted repos.
+fn generation_destination(
+    root: &Path,
+    environment: &CliEnvironment,
+    in_repo: bool,
+) -> anyhow::Result<PathBuf> {
+    if in_repo {
+        return Ok(root.to_path_buf());
+    }
+    // Resolve the project identity to find its XDG generated dir. We reuse the
+    // same resolution as adoption so the destination is stable per project.
+    let remote = resolve_remote(root, None)?;
+    let fallback_seed = if remote.is_none() {
+        find_persisted_fallback_seed(environment, root, ".")?
+    } else {
+        None
+    };
+    let identity = match resolve_project_identity(remote.as_deref(), ".", fallback_seed.as_deref())
+    {
+        Ok(identity) => identity,
+        Err(_) => return Ok(root.to_path_buf()), // not adopted → in-repo fallback
+    };
+    let workspace_id = stable_workspace_id(&identity.project_id, &path_string(root)?);
+    let paths = sddk_engine::resolve_xdg_paths(
+        &environment.xdg(),
+        identity.project_id.as_str(),
+        &workspace_id,
+    )?;
+    std::fs::create_dir_all(&paths.generated)?;
+    Ok(paths.generated)
+}
+
+fn generate_workflow_docs_dest(
+    root: &Path,
+    environment: &CliEnvironment,
+    in_repo: bool,
+    check: bool,
+) -> Result<GenerationStatus, docs::GenerationError> {
+    let destination = generation_destination(root, environment, in_repo).map_err(|error| {
+        docs::GenerationError::Io {
+            path: root.to_path_buf(),
+            source: std::io::Error::other(error.to_string()),
+        }
+    })?;
+    if in_repo {
+        generate_workflow_docs(root, check)
+    } else {
+        docs::generate_workflow_docs_to(root, destination, check)
+    }
+}
+
+fn generate_inventory_dest(
+    root: &Path,
+    environment: &CliEnvironment,
+    in_repo: bool,
+    check: bool,
+) -> Result<GenerationStatus, inventory::InventoryError> {
+    let destination = generation_destination(root, environment, in_repo).map_err(|error| {
+        inventory::InventoryError::Io {
+            path: root.to_path_buf(),
+            source: std::io::Error::other(error.to_string()),
+        }
+    })?;
+    if in_repo {
+        generate_inventory(root, check)
+    } else {
+        inventory::generate_inventory_to(root, destination, check)
+    }
 }
 
 fn run_generation<E: std::fmt::Display>(

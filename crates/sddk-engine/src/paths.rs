@@ -32,6 +32,8 @@ pub struct AdoptionPaths {
     pub artifacts: PathBuf,
     /// Project-shared cycle artifact directory.
     pub cycle_artifacts: PathBuf,
+    /// Project-shared generated docs directory.
+    pub generated: PathBuf,
     /// Project-shared SQLite database.
     pub ledger: PathBuf,
     /// SDDK-wide cache directory.
@@ -47,6 +49,7 @@ impl AdoptionPaths {
             vault: path_string(&self.vault)?,
             artifacts: path_string(&self.artifacts)?,
             cycle_artifacts: path_string(&self.cycle_artifacts)?,
+            generated: path_string(&self.generated)?,
             ledger: path_string(&self.ledger)?,
             cache: path_string(&self.cache)?,
             receipt: path_string(&self.receipt)?,
@@ -117,6 +120,7 @@ pub fn resolve_xdg_paths(
         vault: project_data.join("vault"),
         artifacts: project_data.join("artifacts"),
         cycle_artifacts: project_data.join("cycle-artifacts"),
+        generated: project_data.join("generated"),
         ledger: project_state.join("ledger.sqlite"),
         cache: cache_home.join("sddk"),
         receipt: project_data

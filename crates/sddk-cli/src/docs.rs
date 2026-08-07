@@ -52,6 +52,30 @@ pub fn generate_workflow_docs(
     })
 }
 
+/// Like `generate_workflow_docs`, but writes to `destination_dir` (XDG) instead
+/// of the repo — non-intrusive policy (ADR-0011). The workflow manifest is
+/// resolved from the embedded canonical when the repo has none.
+pub(crate) fn generate_workflow_docs_to(
+    root: impl AsRef<Path>,
+    destination_dir: impl AsRef<Path>,
+    check: bool,
+) -> Result<GenerationStatus, GenerationError> {
+    let root = root.as_ref();
+    let manifest = match sddk_engine::load_workflow_path(root.join(WORKFLOW_MANIFEST)) {
+        Ok(manifest) => manifest,
+        Err(error) if matches!(&error, sddk_engine::WorkflowLoadError::Io { .. }) => {
+            sddk_engine::load_workflow_str(crate::CANONICAL_WORKFLOW)?
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let rendered = render_workflow_docs(&manifest);
+    let destination = destination_dir.as_ref().join(GENERATED_WORKFLOW_DOC);
+    sync_generated_file(&destination, &rendered, check).map_err(|source| GenerationError::Io {
+        path: destination,
+        source,
+    })
+}
+
 pub(crate) fn render_workflow_docs(manifest: &WorkflowManifest) -> String {
     let mut output = String::new();
     writeln!(output, "# Generated Workflow Reference").expect("writing to a string cannot fail");

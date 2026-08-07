@@ -47,6 +47,23 @@ pub fn generate_inventory(
     })
 }
 
+/// Like `generate_inventory`, but writes to `destination_dir` (XDG) instead of
+/// the repo — non-intrusive policy (ADR-0011). The inventory is rendered from
+/// the repo root but stored outside it.
+pub(crate) fn generate_inventory_to(
+    root: impl AsRef<Path>,
+    destination_dir: impl AsRef<Path>,
+    check: bool,
+) -> Result<GenerationStatus, InventoryError> {
+    let root = root.as_ref();
+    let rendered = render_inventory(root)?;
+    let destination = destination_dir.as_ref().join(GENERATED_INVENTORY_DOC);
+    sync_generated_file(&destination, &rendered, check).map_err(|source| InventoryError::Io {
+        path: destination,
+        source,
+    })
+}
+
 pub(crate) fn render_inventory(root: &Path) -> Result<String, InventoryError> {
     let agents = collect_paths(root, "agents", |path| {
         path.extension().and_then(|extension| extension.to_str()) == Some("md")
