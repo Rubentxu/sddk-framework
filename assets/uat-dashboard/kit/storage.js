@@ -1,7 +1,28 @@
-/* Storage helpers: localStorage persistence + export/import JSON (zero backend). */
+/* Storage helpers: localStorage persistence + export/import JSON (zero backend).
+ *
+ * The exported JSON is the canonical `UatSession` shape consumed by
+ * `sddk uat ingest` (crates/sddk-cli/src/uat.rs):
+ *   schema_version, session_id, plan_ref, release, executor, executed_by,
+ *   started_at, finished_at, results: [{ scenario_id, status, comment,
+ *   evidence: [{ kind, ref, note }], duration_minutes }].
+ *
+ * Keeping the localStorage shape and the export shape in sync is the whole
+ * point of this module: a tester hits "Finalizar y exportar" and gets a file
+ * that drops straight into the CLI.
+ */
 
 const UAT = (() => {
-  const KEY = (release) => `sddk-uat-${release}`;
+  const KEY = (release) => `sddk-${release}`;
+
+  function nowRfc3339() {
+    return new Date().toISOString();
+  }
+
+  function uuid() {
+    // Cheap UUID v4-ish (crypto.randomUUID when available, fallback otherwise).
+    if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+    return "uat-" + Math.random().toString(36).slice(2) + "-" + Date.now().toString(36);
+  }
 
   function loadSession(release) {
     try {
@@ -17,16 +38,94 @@ const UAT = (() => {
     } catch (e) { return false; }
   }
 
-  function exportSession(release) {
-    const session = loadSession(release);
-    if (!session) return null;
-    const blob = new Blob([JSON.stringify(session, null, 2)], { type: "application/json" });
+  // Legacy formats the wizard may have written before canonicalization.
+  function fromLegacy(legacy, plan) {
+    if (!legacy) return null;
+    if (Array.isArray(legacy.results)) return legacy; // already canonical
+    if (legacy.scenario_results && plan) {
+      const order = [];
+      for (const f of plan.features || []) {
+        for (const s of f.scenarios || []) order.push(s.id);
+      }
+      const results = [];
+      for (const id of order) {
+        const r = legacy.scenario_results[id];
+        if (!r || !r.status) continue;
+        results.push({
+          scenario_id: id,
+          status: r.status,
+          comment: r.comment || "",
+          evidence: r.evidence || [],
+          duration_minutes: r.duration_minutes || 0,
+        });
+      }
+      return {
+        schema_version: 1,
+        session_id: legacy.session_id || uuid(),
+        plan_ref: legacy.plan_ref || plan.release?.candidate || "",
+        release: legacy.release || "",
+        executor: legacy.executor || "human",
+        executed_by: legacy.executed_by || "",
+        started_at: legacy.started_at || nowRfc3339(),
+        finished_at: legacy.finished_at || null,
+        results,
+      };
+    }
+    return null;
+  }
+
+  // Build the canonical `UatSession` from the wizard's internal verdicts.
+  function buildUatSession({ release, planRef, executedBy, startedAt, verdicts, scenarioOrder, finishedAt }) {
+    const results = [];
+    for (const id of scenarioOrder) {
+      const v = verdicts[id];
+      if (!v || !v.status) continue;
+      results.push({
+        scenario_id: id,
+        status: v.status,
+        comment: v.comment || "",
+        evidence: v.evidence || [],
+        duration_minutes: v.duration_minutes || 0,
+      });
+    }
+    return {
+      schema_version: 1,
+      session_id: uuid(),
+      plan_ref: planRef || release,
+      release,
+      executor: "human",
+      executed_by: executedBy || "tester",
+      started_at: startedAt || nowRfc3339(),
+      finished_at: finishedAt || nowRfc3339(),
+      results,
+    };
+  }
+
+  function downloadBlob(filename, json) {
+    const blob = new Blob([JSON.stringify(json, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `uat-session-${release}.json`;
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  // Finalize the wizard: compose canonical UatSession, persist, download.
+  function finalizeAndExport({ release, planRef, executedBy, startedAt, verdicts, scenarioOrder }) {
+    const session = buildUatSession({
+      release, planRef, executedBy, startedAt, verdicts, scenarioOrder,
+      finishedAt: nowRfc3339(),
+    });
+    saveSession(release, session);
+    downloadBlob(`uat-session-${release}.json`, session);
+    return session;
+  }
+
+  function exportSession(release) {
+    const session = loadSession(release);
+    if (!session) return null;
+    downloadBlob(`uat-session-${release}.json`, session);
     return session;
   }
 
@@ -51,12 +150,14 @@ const UAT = (() => {
   }
 
   function addEvidence(release, scenarioId, evidence) {
-    const session = loadSession(release) || { scenario_results: {} };
-    if (!session.scenario_results) session.scenario_results = {};
-    const entry = session.scenario_results[scenarioId] || { evidence: [] };
+    const session = loadSession(release) || { release, results: [] };
+    let entry = (session.results || []).find(r => r.scenario_id === scenarioId);
+    if (!entry) {
+      entry = { scenario_id: scenarioId, status: "PASS", evidence: [] };
+      (session.results || (session.results = [])).push(entry);
+    }
     if (!entry.evidence) entry.evidence = [];
     entry.evidence.push(evidence);
-    session.scenario_results[scenarioId] = entry;
     saveSession(release, session);
   }
 
@@ -73,7 +174,7 @@ const UAT = (() => {
             addEvidence(release, scenarioId, {
               kind: "screenshot",
               ref: "sha256:clipboard-" + Date.now(),
-              note: "pegado desde portapapeles"
+              note: "pegado desde portapapeles",
             });
             callback(reader.result);
           };
@@ -84,5 +185,9 @@ const UAT = (() => {
     });
   }
 
-  return { loadSession, saveSession, exportSession, importSession, addEvidence, pasteScreenshot };
+  return {
+    loadSession, saveSession, exportSession, importSession, addEvidence,
+    pasteScreenshot, buildUatSession, fromLegacy, finalizeAndExport,
+    nowRfc3339, uuid,
+  };
 })();

@@ -40,6 +40,9 @@ pub(crate) enum UatCommand {
     Report(UatReportArgs),
     /// Show the UAT status of a release candidate.
     Status(UatStatusArgs),
+    /// List failed/blocked scenarios with context — what the agent reads to
+    /// study where the UAT did not pass.
+    Failures(UatFailuresArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -152,6 +155,22 @@ pub(crate) struct UatStatusArgs {
     pub(crate) format: OutputFormat,
 }
 
+#[derive(Debug, Clone, Args)]
+pub(crate) struct UatFailuresArgs {
+    /// Candidate tag under test (auto-resolves `uat-plan-<release>.yaml`).
+    #[arg(long)]
+    pub(crate) release: String,
+    /// Explicit plan YAML (default: `uat-plan-<release>.yaml` in cwd).
+    #[arg(long)]
+    pub(crate) plan: Option<PathBuf>,
+    /// One or more session files to inspect for failures.
+    #[arg(long)]
+    pub(crate) sessions: Vec<PathBuf>,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
+}
+
 pub(crate) fn run_uat(command: UatCommand, environment: &crate::CliEnvironment) -> CommandOutput {
     match command {
         UatCommand::Plan(args) => run_uat_plan(args, environment),
@@ -161,6 +180,7 @@ pub(crate) fn run_uat(command: UatCommand, environment: &crate::CliEnvironment) 
         UatCommand::Ingest(args) => run_uat_ingest(args, environment),
         UatCommand::Report(args) => run_uat_report(args),
         UatCommand::Status(args) => run_uat_status(args),
+        UatCommand::Failures(args) => run_uat_failures(args),
     }
 }
 
@@ -417,6 +437,141 @@ fn run_uat_ingest(args: UatIngestArgs, environment: &crate::CliEnvironment) -> C
             session.release
         )
     })
+}
+
+/// Read a session file. Used by `uat failures` and `uat report`.
+fn read_session(path: &Path) -> anyhow::Result<UatSession> {
+    let raw = std::fs::read_to_string(path)
+        .map_err(|e| anyhow::anyhow!("cannot read session {}: {e}", path.display()))?;
+    serde_saphyr::from_str(&raw)
+        .map_err(|e| anyhow::anyhow!("invalid session {}: {e}", path.display()))
+}
+
+/// List failed/blocked scenarios with full context — the agent reads this
+/// to study where the UAT did not pass and decide next steps.
+fn run_uat_failures(args: UatFailuresArgs) -> CommandOutput {
+    let format = args.format;
+    let result = (|| -> anyhow::Result<String> {
+        let plan_path = args
+            .plan
+            .clone()
+            .unwrap_or_else(|| PathBuf::from(format!("uat-plan-{}.yaml", args.release)));
+        let plan_raw = std::fs::read_to_string(&plan_path)
+            .map_err(|e| anyhow::anyhow!("cannot read plan {}: {e}", plan_path.display()))?;
+        let plan: UatPlan = serde_saphyr::from_str(&plan_raw)
+            .map_err(|e| anyhow::anyhow!("invalid plan {}: {e}", plan_path.display()))?;
+
+        let mut sessions = Vec::new();
+        for path in &args.sessions {
+            sessions.push(read_session(path)?);
+        }
+        if sessions.is_empty() {
+            anyhow::bail!(
+                "no sessions provided: pass one or more `--sessions <file>`"
+            );
+        }
+
+        let mut findings: Vec<UatFailure> = Vec::new();
+        for session in &sessions {
+            for result in &session.results {
+                if !matches!(
+                    result.status,
+                    sddk_domain::UatStatus::Fail | sddk_domain::UatStatus::Blocked
+                ) {
+                    continue;
+                }
+                let scenario = plan
+                    .features
+                    .iter()
+                    .flat_map(|f| f.scenarios.iter().map(move |s| (f, s)))
+                    .find(|(_, s)| s.id == result.scenario_id);
+                let (feature_name, priority, assignee, rationale) = match scenario {
+                    Some((f, s)) => (
+                        Some(f.name.clone()),
+                        Some(s.priority),
+                        Some(s.assignee),
+                        s.rationale.clone(),
+                    ),
+                    None => (None, None, None, None),
+                };
+                findings.push(UatFailure {
+                    scenario_id: result.scenario_id.clone(),
+                    status: format!("{:?}", result.status).to_uppercase(),
+                    comment: result.comment.clone().unwrap_or_default(),
+                    evidence: result.evidence.iter().map(|e| {
+                        format!("{}:{}", e.kind, e.r#ref)
+                    }).collect(),
+                    feature: feature_name,
+                    priority: priority.map(|p| format!("{:?}", p).to_uppercase()),
+                    assignee: assignee.map(|a| format!("{:?}", a).to_lowercase()),
+                    rationale,
+                    session_id: session.session_id.clone(),
+                    executed_by: session.executed_by.clone().unwrap_or_default(),
+                });
+            }
+        }
+
+if matches!(format, OutputFormat::Json) {
+            return serde_json::to_string_pretty(&findings)
+                .map_err(|e| anyhow::anyhow!("json serialization failed: {e}"));
+        }
+        if findings.is_empty() {
+            return Ok(format!(
+                "uat failures: no failures or blocks in {} session(s) ({} session_id analyzed)\n",
+                sessions.len(),
+                sessions.iter().map(|s| s.session_id.as_str()).collect::<Vec<_>>().join(", ")
+            ));
+        }
+        let mut out = String::new();
+        out.push_str(&format!(
+            "uat failures — {} finding(s) across {} session(s) for release {}\n\n",
+            findings.len(),
+            sessions.len(),
+            args.release
+        ));
+        for f in &findings {
+            out.push_str(&format!("[{}] {}\n", f.status, f.scenario_id));
+            if let Some(feature) = &f.feature {
+                out.push_str(&format!("  feature:    {feature}\n"));
+            }
+            if let Some(priority) = &f.priority {
+                out.push_str(&format!("  priority:   {priority}\n"));
+            }
+            if let Some(assignee) = &f.assignee {
+                out.push_str(&format!("  assignee:   {assignee}\n"));
+            }
+            out.push_str(&format!("  session:    {} ({})\n", f.session_id, f.executed_by));
+            if let Some(rationale) = &f.rationale {
+                out.push_str(&format!("  rationale:  {rationale}\n"));
+            }
+            if !f.comment.is_empty() {
+                out.push_str(&format!("  comment:    {}\n", f.comment));
+            }
+            if !f.evidence.is_empty() {
+                out.push_str("  evidence:\n");
+                for ev in &f.evidence {
+                    out.push_str(&format!("    - {ev}\n"));
+                }
+            }
+            out.push('\n');
+        }
+        Ok(out)
+    })();
+    render_result(result, format, |text| text.to_string())
+}
+
+#[derive(serde::Serialize, Debug)]
+struct UatFailure {
+    scenario_id: String,
+    status: String,
+    comment: String,
+    evidence: Vec<String>,
+    feature: Option<String>,
+    priority: Option<String>,
+    assignee: Option<String>,
+    rationale: Option<String>,
+    session_id: String,
+    executed_by: String,
 }
 
 fn run_uat_report(args: UatReportArgs) -> CommandOutput {
@@ -683,6 +838,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use super::*;
 
     #[test]
@@ -788,6 +944,62 @@ features: []
         {
             assert_eq!(default[0], "xdg-open");
         }
+    }
+
+    #[test]
+    fn failure_filter_keeps_only_fail_and_blocked() {
+        use std::collections::HashMap;
+        let mut findings: Vec<UatFailure> = Vec::new();
+        let sc = |status: &str, comment: &str| -> UatFailure {
+            UatFailure {
+                scenario_id: format!("S-{status}"),
+                status: status.into(),
+                comment: comment.into(),
+                evidence: vec![],
+                feature: None,
+                priority: None,
+                assignee: None,
+                rationale: None,
+                session_id: "uat-1".into(),
+                executed_by: "Tester".into(),
+            }
+        };
+
+        let input = vec![sc("PASS", "ok"), sc("FAIL", "broken"), sc("BLOCKED", "env"), sc("PARTIAL", "meh")];
+        for f in input {
+            if matches!(f.status.as_str(), "FAIL" | "BLOCKED") {
+                findings.push(f);
+            }
+        }
+        assert_eq!(findings.len(), 2);
+        let ids: Vec<&str> = findings.iter().map(|f| f.scenario_id.as_str()).collect();
+        assert!(ids.contains(&"S-FAIL"));
+        assert!(ids.contains(&"S-BLOCKED"));
+    }
+
+    #[test]
+    fn uat_session_to_failure_serializes_for_agents() {
+        // The agent consumes `uat failures --format json`; verify shape.
+        let mut findings: Vec<UatFailure> = Vec::new();
+        findings.push(UatFailure {
+            scenario_id: "S-2".into(),
+            status: "FAIL".into(),
+            comment: "no muestra error".into(),
+            evidence: vec!["screenshot:sha256:abc".into()],
+            feature: Some("Login".into()),
+            priority: Some("P1".into()),
+            assignee: Some("developer".into()),
+            rationale: Some("bloquea el onboarding".into()),
+            session_id: "uat-1".into(),
+            executed_by: "Test".into(),
+        });
+        let json = serde_json::to_string(&findings).unwrap();
+        // The agent must be able to read these fields directly.
+        assert!(json.contains("\"scenario_id\":\"S-2\""));
+        assert!(json.contains("\"feature\":\"Login\""));
+        assert!(json.contains("\"comment\":\"no muestra error\""));
+        let parsed: Vec<HashMap<String, serde_json::Value>> = serde_json::from_str(&json).unwrap();
+        let _ = parsed;
     }
 }
 

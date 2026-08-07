@@ -10,29 +10,89 @@
 <h1>UAT guiado — @RELEASE@</h1>
 <div class="sub">Un escenario por pantalla &middot; plan: @PLAN_REF@ &middot; recuerda: el humano valida, el agente ejecuta</div>
 
+<div id="tester-bar" style="display:flex;gap:.6rem;align-items:center;margin:.75rem 0">
+  <label for="tester-name" style="color:var(--muted);font-size:.85rem">Tester (executed_by):</label>
+  <input id="tester-name" type="text" placeholder="Tu nombre o alias" style="flex:1;background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:.45rem .6rem;font-family:inherit">
+</div>
+
 <div class="progress-bar"><div id="bar" style="width:0%"></div></div>
 <div class="progress-label" id="progress-label">Escenario 1 / N</div>
 
 <div id="wizard" class="scenario-card"></div>
 
-<footer>sddk uat dashboard &middot; guided view &middot; pega el screenshot con Ctrl+V cuando lo pida</footer>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-top:1.5rem;gap:.6rem;flex-wrap:wrap">
+  <div class="sub" id="progress-summary">Progreso: 0/N escenarios valorados</div>
+  <div style="display:flex;gap:.6rem;flex-wrap:wrap">
+    <button class="btn" onclick="UAT.exportSession('@RELEASE@')">Exportar sesión (en curso)</button>
+    <button class="btn" onclick="finalizeReport()" id="finalize-btn" style="background:rgba(76,175,80,.18);border-color:var(--ok);color:var(--ok);font-weight:600">
+      ✅ Finalizar y exportar reporte
+    </button>
+  </div>
+</div>
+
+<footer>sddk uat dashboard &middot; guided view &middot; pega el screenshot con Ctrl+V cuando lo pida &middot;
+al finalizar pulsa <strong>✅ Finalizar y exportar reporte</strong>; el JSON se ingiere con <code>sddk uat ingest --session &lt;file&gt;</code></footer>
 
 <script>
 const PLAN = @PLAN_JSON@;
 const RELEASE = '@RELEASE@';
 const all = [];
 for (const f of PLAN.features || []) for (const s of f.scenarios || []) all.push({feature: f, scenario: s});
+const SCENARIO_ORDER = all.map(({scenario}) => scenario.id);
 let idx = 0;
 let verdicts = {};
+let startedAt = null;
 
 function loadVerdicts() {
-  const s = UAT.loadSession(RELEASE);
-  verdicts = (s && s.scenario_results) ? s.scenario_results : {};
+  const raw = UAT.loadSession(RELEASE);
+  const plan = { release: { candidate: PLAN.release?.candidate || RELEASE } };
+  const session = UAT.fromLegacy(raw, plan);
+  if (!session) return;
+  verdicts = {};
+  for (const r of session.results || []) {
+    verdicts[r.scenario_id] = {
+      status: r.status,
+      comment: r.comment || "",
+      evidence: r.evidence || [],
+      duration_minutes: r.duration_minutes || 0,
+    };
+  }
+  startedAt = session.started_at || null;
+  const testerEl = document.getElementById('tester-name');
+  if (testerEl && session.executed_by && session.executed_by !== 'tester') testerEl.value = session.executed_by;
 }
 function saveVerdicts() {
-  const s = UAT.loadSession(RELEASE) || { release: RELEASE, scenario_results: {} };
-  s.scenario_results = verdicts;
-  UAT.saveSession(RELEASE, s);
+  const tester = document.getElementById('tester-name').value.trim() || 'tester';
+  const session = {
+    schema_version: 1,
+    session_id: UAT.uuid(),
+    plan_ref: PLAN.release?.candidate || RELEASE,
+    release: RELEASE,
+    executor: 'human',
+    executed_by: tester,
+    started_at: startedAt || UAT.nowRfc3339(),
+    finished_at: null,
+    results: [],
+  };
+  for (const id of SCENARIO_ORDER) {
+    const v = verdicts[id];
+    if (!v || !v.status) continue;
+    session.results.push({
+      scenario_id: id,
+      status: v.status,
+      comment: v.comment || '',
+      evidence: v.evidence || [],
+      duration_minutes: v.duration_minutes || 0,
+    });
+  }
+  UAT.saveSession(RELEASE, session);
+}
+
+function startIfNeeded() {
+  if (!startedAt) {
+    startedAt = UAT.nowRfc3339();
+    saveVerdicts();
+  }
 }
 
 function render() {
@@ -45,7 +105,7 @@ function render() {
   `).join("");
   const current = verdicts[scenario.id] || {};
   const btn = (key, label, cls) =>
-    `<button class="btn ${cls} ${current.status === key ? 'active-' + key.toLowerCase() : ''}" onclick="setVerdict('${scenario.id}', '${key}')">${label}</button>`;
+    `<button class="btn ${cls} ${current.status === key ? 'active-' + key.toLowerCase() : ''} onclick="setVerdict('${scenario.id}', '${key}')">${label}</button>`;
   const ev = current.evidence && current.evidence.length
     ? `<div class="sub">Evidencia: ${current.evidence.map(e => e.kind).join(", ")}</div>` : "";
   document.getElementById('wizard').innerHTML = `
@@ -66,13 +126,20 @@ function render() {
       <button class="btn" ${idx === 0 ? 'disabled' : ''} onclick="nav(-1)">← Anterior</button>
       <button class="btn" ${idx === total - 1 ? 'disabled' : ''} onclick="nav(1)">Siguiente →</button>
     </div>`;
-  const done = Object.keys(verdicts).length;
-  document.getElementById('bar').style.width = (100 * done / total) + "%";
-  document.getElementById('progress-label').textContent = `Progreso: ${done}/${total} escenarios valorados`;
+  updateProgress();
   UAT.pasteScreenshot(RELEASE, scenario.id, () => { document.getElementById('drop').textContent = "✅ Screenshot capturado"; });
 }
 
+function updateProgress() {
+  const total = all.length;
+  const done = Object.keys(verdicts).filter(id => verdicts[id] && verdicts[id].status).length;
+  document.getElementById('bar').style.width = (100 * done / total) + "%";
+  document.getElementById('progress-label').textContent = `Escenario ${idx + 1} / ${total}`;
+  document.getElementById('progress-summary').textContent = `Progreso: ${done}/${total} escenarios valorados`;
+}
+
 function setVerdict(id, status) {
+  startIfNeeded();
   const entry = verdicts[id] || {};
   entry.status = status;
   entry.comment = document.getElementById('comment') ? document.getElementById('comment').value : (entry.comment || "");
@@ -89,6 +156,51 @@ function nav(delta) {
   saveVerdicts();
   idx = Math.max(0, Math.min(all.length - 1, idx + delta));
   render();
+}
+
+function finalizeReport() {
+  startIfNeeded();
+  const cur = all[idx].scenario;
+  const entry = verdicts[cur.id] || {};
+  entry.comment = document.getElementById('comment').value;
+  verdicts[cur.id] = entry;
+  saveVerdicts();
+
+  const tester = document.getElementById('tester-name').value.trim();
+  if (!tester) {
+    alert("Por favor, indica tu nombre o alias arriba (campo 'Tester'). Se incluye en la sesión como executed_by.");
+    return;
+  }
+
+  const missing = SCENARIO_ORDER.filter(id => !verdicts[id] || !verdicts[id].status);
+  if (missing.length > 0) {
+    const proceed = confirm(
+      `Faltan ${missing.length} escenario(s) sin valorar:\n  ${missing.join(", ")}\n\n` +
+      `¿Finalizar igualmente? Quedarán como "no valorados" y no se incluyen en el reporte.`
+    );
+    if (!proceed) return;
+  }
+
+  const session = UAT.finalizeAndExport({
+    release: RELEASE,
+    planRef: PLAN.release?.candidate || RELEASE,
+    executedBy: tester,
+    startedAt,
+    verdicts,
+    scenarioOrder: SCENARIO_ORDER,
+  });
+
+  const ok = Object.values(verdicts).filter(v => v.status === 'PASS').length;
+  const fail = Object.values(verdicts).filter(v => v.status === 'FAIL').length;
+  const block = Object.values(verdicts).filter(v => v.status === 'BLOCKED').length;
+  alert(
+    `Reporte finalizado y descargado:\n\n` +
+    `  pass: ${ok} | fail: ${fail} | blocked: ${block}\n` +
+    `  session_id: ${session.session_id}\n\n` +
+    `Siguiente paso:\n` +
+    `  sddk uat ingest --session uat-session-${RELEASE}.json\n` +
+    `  sddk uat failures --release ${RELEASE}   # para que el agente estudie los fallos`
+  );
 }
 
 loadVerdicts();
