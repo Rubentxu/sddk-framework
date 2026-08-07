@@ -62,6 +62,7 @@ features:
 6. **`flags` from closed vocabulary only**: `smoke | warning | optional | data-verify`.
 7. **Cover every P0 acceptance criterion** from the spec. P1/P2 as effort allows.
 8. **Prefer fewer, sharper scenarios over many vague ones.** 20 good scenarios beat 60 filler ones.
+9. **YAML-safe plain text**: any `action`/`expected`/`rationale` containing `: ` (colon-space), `#`, or leading `- ` MUST be quoted (single quotes preferred). A plan that fails `sddk uat validate` is a blocker — quoting mistakes are the #1 cause. When in doubt, quote.
 
 ## CLI contract
 
