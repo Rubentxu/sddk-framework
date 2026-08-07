@@ -2,7 +2,266 @@
 //! (ADR-012/ADR-013): agents produce YAML artifacts, a deterministic renderer
 //! turns them into self-contained HTML dashboards.
 
+//! UAT (User Acceptance Testing) domain types — data-driven YAML model
+//! (ADR-012/ADR-013): agents produce YAML artifacts, a deterministic renderer
+//! turns them into self-contained HTML dashboards.
+//!
+//! `#![allow(missing_docs)]` — the schema itself is the contract for v2 types;
+//! the canonical doc lives in the `uat-plan` skill and
+//! `PLAN-uat-scenario-v2-context.md` in the knowledge vault.
+#![allow(missing_docs)]
+
 use serde::{Deserialize, Serialize};
+
+// ---------------------------------------------------------------------------
+// Scenario v2 extensions (ADR-012 §4, §7 + ISO/IEC/IEEE 29119-3 alignment).
+//
+// All v2 fields are `Option<...>` or `Vec<...>` with `#[serde(default)]` so a
+// v1 plan round-trips through `UatPlan` unchanged. Schema is bumped to v2
+// only when at least one v2 field is used; the renderer degrades gracefully
+// when v2 fields are absent (per the uat-guided-mode skill contract).
+// ---------------------------------------------------------------------------
+
+/// Closed vocabulary for the kind of a step (v2). Drives wizard rendering.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatStepKind {
+    #[default]
+    Shell,
+    Ui,
+    Api,
+    File,
+    Manual,
+}
+
+/// How strict the comparison between `expected` and `observed` should be (v2).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatExpectedCheck {
+    #[default]
+    ExactMatch,
+    Contains,
+    Regex,
+    JsonPath,
+    ExitCode,
+}
+
+/// Closed vocabulary for risk classification (v2).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatRiskClassification {
+    Critical,
+    High,
+    #[default]
+    Medium,
+    Low,
+}
+
+/// How much a single scenario failure can impact the release (v2).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatBlastRadius {
+    #[default]
+    FeatureBlocker,
+    ReleaseBlocker,
+    Advisory,
+}
+
+/// Status of automation for a scenario (v2). Metadata-only.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatAutomationStatus {
+    #[default]
+    Manual,
+    Scripted,
+    Automated,
+}
+
+/// Origin of a scenario (v2): why this test exists.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatOrigin {
+    Spec,
+    Bug,
+    Incident,
+    #[default]
+    Regression,
+}
+
+/// Closed vocabulary for evidence kinds (v2).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatEvidenceKind {
+    File,
+    Screenshot,
+    CommandOutput,
+    Assertion,
+    Metric,
+    #[default]
+    Note,
+}
+
+/// One evidence kind descriptor (v2).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatEvidenceKindItem {
+    pub kind: UatEvidenceKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r#ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub match_mode: Option<UatExpectedCheck>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_bytes: Option<u64>,
+}
+
+/// Structured evidence specification for a scenario (v2).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatEvidenceSpec {
+    #[serde(default = "default_true")]
+    pub required: bool,
+    #[serde(default)]
+    pub kinds: Vec<UatEvidenceKindItem>,
+    #[serde(default = "default_retention_days")]
+    pub retention_days: u32,
+}
+fn default_retention_days() -> u32 { 90 }
+
+/// One piece of deterministic test data (v2).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatTestDataItem {
+    pub kind: String,
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// Workspace description (v2).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatWorkspace {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shell: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub editor: Option<String>,
+    #[serde(default)]
+    pub files_open: Vec<String>,
+    #[serde(default)]
+    pub external_urls: Vec<String>,
+}
+
+/// Timing metadata (v2).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatTiming {
+    #[serde(default = "default_window")]
+    pub window: String,
+    #[serde(default)]
+    pub parallel_safe: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order_hint: Option<String>,
+    #[serde(default = "default_timeout_min")]
+    pub timeout_min: u32,
+}
+
+fn default_window() -> String { "smoke".into() }
+fn default_timeout_min() -> u32 { 10 }
+
+impl Default for UatTiming {
+    fn default() -> Self {
+        Self { window: default_window(), parallel_safe: false, order_hint: None, timeout_min: default_timeout_min() }
+    }
+}
+
+/// Help block (v2).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatHelp {
+    #[serde(default)]
+    pub docs: Vec<String>,
+    #[serde(default)]
+    pub slack: Vec<String>,
+    #[serde(default)]
+    pub contacts: Vec<String>,
+    #[serde(default)]
+    pub related_adrs: Vec<String>,
+    #[serde(default)]
+    pub related_specs: Vec<String>,
+}
+
+/// Failure protocol (v2).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatFailureProtocol {
+    #[serde(default)]
+    pub on_fail: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_defect_template: Option<String>,
+}
+
+/// Risk classification for a scenario (v2).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatRisk {
+    pub classification: UatRiskClassification,
+    pub blast_radius: UatBlastRadius,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mitigation: Option<String>,
+}
+
+/// Automation hook metadata (v2).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatAutomation {
+    pub status: UatAutomationStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r#ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ci_job: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<String>,
+}
+
+/// Provenance for a scenario (v2).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatProvenance {
+    pub author: String,
+    pub created_at: String,
+    pub last_modified_at: String,
+    pub origin: UatOrigin,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_ref: Option<String>,
+}
+
+/// Full context block for a scenario (v2).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatScenarioContext {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_story: Option<String>,
+    #[serde(default)]
+    pub preconditions: Vec<String>,
+    #[serde(default)]
+    pub test_data: Vec<UatTestDataItem>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<UatWorkspace>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timing: Option<UatTiming>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub help: Option<UatHelp>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_protocol: Option<UatFailureProtocol>,
+    #[serde(default)]
+    pub postconditions: Vec<String>,
+}
 
 /// Closed vocabulary for scenario priority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -79,6 +338,12 @@ pub struct UatStep {
     pub copy_hint: bool,
     /// Expected observable outcome of this step.
     pub expected: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<UatStepKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vs_expected_check: Option<UatExpectedCheck>,
 }
 
 /// One acceptance scenario of a feature.
@@ -116,6 +381,16 @@ pub struct UatScenario {
     /// Estimated execution time in minutes.
     #[serde(default)]
     pub est_minutes: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<UatScenarioContext>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<UatEvidenceSpec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub risk: Option<UatRisk>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub automation: Option<UatAutomation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<UatProvenance>,
 }
 
 /// One feature under test, grouping its scenarios.
@@ -129,6 +404,9 @@ pub struct UatFeature {
     /// PRD requirement reference for the traceability view (e.g. `RF-016`).
     #[serde(default)]
     pub requirement_ref: Option<String>,
+    /// Related design reference (e.g. `ADR-012-§7`) — v2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub design_ref: Option<String>,
     #[serde(default)]
     /// Feature priority (P0..P2).
     pub priority: UatPriority,
@@ -173,62 +451,138 @@ pub struct UatPlanRelease {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct UatSession {
-    /// Schema version of this session.
     pub schema_version: u32,
-    /// Session id, e.g. `uat-<uuid>`.
     pub session_id: String,
-    /// Reference to the plan this session executes.
     pub plan_ref: String,
-    /// Candidate tag under test.
     pub release: String,
     #[serde(default)]
-    /// Who executed this session.
     pub executor: UatExecutor,
-    /// Human or agent name (e.g. "María", "fara-1.5").
     #[serde(default)]
     pub executed_by: Option<String>,
-    /// RFC 3339 session start.
     pub started_at: String,
     #[serde(default)]
-    /// RFC 3339 session end (None while running).
     pub finished_at: Option<String>,
     #[serde(default)]
-    /// Per-scenario results.
     pub results: Vec<UatScenarioResult>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<UatSessionMetadata>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_version: Option<u32>,
 }
+
+/// Anonymous tester reference (v2).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatTesterRef {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display: Option<String>,
+}
+
+/// Environment fingerprint (v2).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatEnvFingerprint {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub os: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shell: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locale: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workdir: Option<String>,
+}
+
+/// Build metadata (v2).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatBuild {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
+    #[serde(default)]
+    pub dirty: Option<bool>,
+}
+
+/// Session metadata (v2).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatSessionMetadata {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tester: Option<UatTesterRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env_fingerprint: Option<UatEnvFingerprint>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build: Option<UatBuild>,
+}
+
+/// Latest supported session schema version.
+pub const LATEST_SESSION_SCHEMA_VERSION: u32 = 2;
 
 /// Per-scenario result inside a session.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct UatScenarioResult {
-    /// Scenario id from the referenced plan.
     pub scenario_id: String,
     #[serde(default)]
-    /// Execution status (PASS..PARTIAL).
     pub status: UatStatus,
     #[serde(default)]
-    /// Free-text tester comment.
     pub comment: Option<String>,
-    /// Evidence references by SHA-256 hash (chains with the ledger).
     #[serde(default)]
     pub evidence: Vec<UatEvidence>,
     #[serde(default)]
-    /// Minutes spent on this scenario.
     pub duration_minutes: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict_at: Option<String>,
+    #[serde(default)]
+    pub verdict_duration_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tester_notes: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub linked_defect: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repro_command: Option<String>,
 }
 
 /// Evidence captured for a scenario result.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct UatEvidence {
-    /// screenshot | log | note.
-    pub kind: String,
-    /// sha256:<hash> of the evidence payload.
-    /// sha256:<hash> of the evidence payload.
-    pub r#ref: String,
     #[serde(default)]
-    /// Optional evidence description.
+    pub kind: UatEvidenceKind,
+    /// `sha256:<hash>` of the evidence payload.
+    pub r#ref: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub captured_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mime: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub match_mode: Option<UatExpectedCheck>,
 }
 
 /// Aggregated report (`uat-report.yaml`) with the global verdict.
@@ -462,6 +816,931 @@ pub fn release_type_from_diff(current: &str, previous: &str) -> Option<ReleaseTy
     else if cmin > pmin { Some(ReleaseType::Minor) }
     else if cpat > ppat { Some(ReleaseType::Patch) }
     else { None }
+}
+
+// ---------------------------------------------------------------------------
+// Plan migration (v1 → v2)
+// ---------------------------------------------------------------------------
+
+/// Migration status of a plan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatMigrationAction {
+    AlreadyV2,
+    Migrated,
+}
+
+/// Result of migrating a plan from v1 to v2.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatMigrationReport {
+    pub action: UatMigrationAction,
+    pub from_version: u32,
+    pub to_version: u32,
+    pub features_touched: u32,
+    pub scenarios_touched: u32,
+    pub evidence_promoted: u32,
+    pub risk_promoted: u32,
+    pub timing_promoted: u32,
+}
+
+pub const LATEST_PLAN_SCHEMA_VERSION: u32 = 2;
+
+/// Migrate a `UatPlan` from v1 to v2 in an additive, idempotent way.
+pub fn migrate_plan_v1_to_v2(plan: &mut UatPlan) -> UatMigrationReport {
+    let from_version = plan.schema_version;
+    let mut features_touched = 0u32;
+    let mut scenarios_touched = 0u32;
+    let mut evidence_promoted = 0u32;
+    let mut risk_promoted = 0u32;
+    let mut timing_promoted = 0u32;
+
+    if plan.schema_version >= 2 {
+        return UatMigrationReport {
+            action: UatMigrationAction::AlreadyV2,
+            from_version, to_version: plan.schema_version,
+            features_touched, scenarios_touched,
+            evidence_promoted, risk_promoted, timing_promoted,
+        };
+    }
+
+    plan.schema_version = 2;
+
+    for feature in &mut plan.features {
+        features_touched += 1;
+        if feature.design_ref.is_none() {
+            feature.design_ref = None;
+        }
+        for scenario in &mut feature.scenarios {
+            scenarios_touched += 1;
+            let timing_window = scenario.context.as_ref().and_then(|c| c.timing.as_ref()).map(|t| t.window.clone()).unwrap_or_else(|| "smoke".into());
+            let timing_timeout = scenario.context.as_ref().and_then(|c| c.timing.as_ref()).map(|t| t.timeout_min).unwrap_or_else(|| scenario.est_minutes.max(10));
+            let timing_parallel = scenario.context.as_ref().and_then(|c| c.timing.as_ref()).map(|t| t.parallel_safe).unwrap_or(false);
+            let timing_order = scenario.context.as_ref().and_then(|c| c.timing.as_ref()).and_then(|t| t.order_hint.clone());
+            let context = scenario.context.get_or_insert_with(UatScenarioContext::default);
+            context.timing = Some(UatTiming {
+                window: timing_window,
+                parallel_safe: timing_parallel,
+                order_hint: timing_order,
+                timeout_min: timing_timeout,
+            });
+            timing_promoted += 1;
+
+            if scenario.evidence.is_none()
+                && let Some(prompt) = &scenario.evidence_prompt
+                && !prompt.trim().is_empty()
+            {
+                scenario.evidence = Some(UatEvidenceSpec {
+                    required: true,
+                    kinds: vec![UatEvidenceKindItem {
+                        kind: UatEvidenceKind::Note,
+                        r#ref: None, match_mode: None, expected_value: None, min_bytes: None,
+                    }],
+                    retention_days: 90,
+                });
+                evidence_promoted += 1;
+            }
+
+            if scenario.risk.is_none() {
+                let (classification, blast) = match scenario.priority {
+                    UatPriority::P0 => (UatRiskClassification::Critical, UatBlastRadius::ReleaseBlocker),
+                    UatPriority::P1 => (UatRiskClassification::High, UatBlastRadius::ReleaseBlocker),
+                    UatPriority::P2 => (UatRiskClassification::Medium, UatBlastRadius::FeatureBlocker),
+                };
+                scenario.risk = Some(UatRisk { classification, blast_radius: blast, mitigation: None });
+                risk_promoted += 1;
+            }
+
+            if scenario.automation.is_none() {
+                scenario.automation = Some(UatAutomation {
+                    status: UatAutomationStatus::Manual,
+                    r#ref: None, ci_job: None, when: None,
+                });
+            }
+
+            if scenario.provenance.is_none() {
+                scenario.provenance = Some(UatProvenance {
+                    author: plan.generated_by.clone(),
+                    created_at: plan.generated_at.clone(),
+                    last_modified_at: plan.generated_at.clone(),
+                    origin: UatOrigin::Spec,
+                    origin_ref: feature.requirement_ref.clone(),
+                });
+            }
+        }
+    }
+
+    UatMigrationReport {
+        action: UatMigrationAction::Migrated,
+        from_version, to_version: 2,
+        features_touched, scenarios_touched,
+        evidence_promoted, risk_promoted, timing_promoted,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Manifest + integrity verification (v2)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatManifest {
+    pub schema_version: u32,
+    pub project_id: String,
+    pub generated_at: String,
+    #[serde(default)]
+    pub entries: Vec<UatManifestEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatManifestEntry {
+    pub sha256: String,
+    pub path: String,
+    pub size_bytes: u64,
+    pub captured_at: String,
+    pub scenario_id: String,
+    pub session_id: String,
+    pub kind: UatEvidenceKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mime: Option<String>,
+}
+
+impl UatManifest {
+    pub const SCHEMA_VERSION: u32 = 1;
+    pub fn new(project_id: impl Into<String>, generated_at: impl Into<String>) -> Self {
+        Self { schema_version: Self::SCHEMA_VERSION, project_id: project_id.into(), generated_at: generated_at.into(), entries: Vec::new() }
+    }
+    pub fn upsert(&mut self, entry: UatManifestEntry) {
+        if let Some(slot) = self.entries.iter_mut().find(|e| e.sha256 == entry.sha256) {
+            *slot = entry;
+        } else {
+            self.entries.push(entry);
+        }
+    }
+    pub fn lookup(&self, sha256_ref: &str) -> Option<&UatManifestEntry> {
+        let key = sha256_ref.strip_prefix("sha256:").unwrap_or(sha256_ref);
+        self.entries.iter().find(|e| e.sha256 == key || e.sha256.strip_prefix("sha256:") == Some(key))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatIntegrityFinding {
+    pub scenario_id: String,
+    pub sha256: String,
+    pub kind: UatEvidenceKind,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_size_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_size_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatIntegrityReport {
+    pub session_id: String,
+    pub project_id: String,
+    pub verified_at: String,
+    pub total_evidence: u32,
+    pub findings: Vec<UatIntegrityFinding>,
+    pub verdict: String,
+}
+
+impl UatIntegrityReport {
+    pub fn compute_verdict(findings: &[UatIntegrityFinding]) -> &'static str {
+        if findings.is_empty() { return "ok"; }
+        let has_fail = findings.iter().any(|f| matches!(f.status.as_str(), "missing" | "hash_mismatch" | "size_mismatch"));
+        let has_partial = findings.iter().any(|f| f.status == "no_payload");
+        match (has_fail, has_partial) {
+            (true, _) => "fail",
+            (false, true) => "partial",
+            (false, false) => "ok",
+        }
+    }
+}
+
+/// Compute sha256 of a byte slice and return as `sha256:<lowercase-hex>`.
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    let digest = sha2_digest(bytes);
+    let mut out = String::with_capacity(7 + 64);
+    out.push_str("sha256:");
+    for byte in digest {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
+fn sha2_digest(bytes: &[u8]) -> [u8; 32] {
+    const K: [u32; 64] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+    ];
+    let mut h = [
+        0x6a09e667u32, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+    ];
+    let bit_len = (bytes.len() as u64) * 8;
+    let mut msg = bytes.to_vec();
+    msg.push(0x80);
+    while msg.len() % 64 != 56 {
+        msg.push(0);
+    }
+    msg.extend_from_slice(&bit_len.to_be_bytes());
+
+    for chunk in msg.chunks(64) {
+        let mut w = [0u32; 64];
+        for i in 0..16 {
+            w[i] = u32::from_be_bytes([chunk[4 * i], chunk[4 * i + 1], chunk[4 * i + 2], chunk[4 * i + 3]]);
+        }
+        for i in 16..64 {
+            let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
+            let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
+            w[i] = w[i - 16].wrapping_add(s0).wrapping_add(w[i - 7]).wrapping_add(s1);
+        }
+        let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut hh] = h;
+        for i in 0..64 {
+            let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+            let ch = (e & f) ^ ((!e) & g);
+            let t1 = hh.wrapping_add(s1).wrapping_add(ch).wrapping_add(K[i]).wrapping_add(w[i]);
+            let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+            let mj = (a & b) ^ (a & c) ^ (b & c);
+            let t2 = s0.wrapping_add(mj);
+            hh = g; g = f; f = e; e = d.wrapping_add(t1); d = c; c = b; b = a; a = t1.wrapping_add(t2);
+        }
+        h[0] = h[0].wrapping_add(a); h[1] = h[1].wrapping_add(b); h[2] = h[2].wrapping_add(c);
+        h[3] = h[3].wrapping_add(d); h[4] = h[4].wrapping_add(e); h[5] = h[5].wrapping_add(f);
+        h[6] = h[6].wrapping_add(g); h[7] = h[7].wrapping_add(hh);
+    }
+    let mut out = [0u8; 32];
+    for (i, word) in h.iter().enumerate() {
+        out[4 * i..4 * i + 4].copy_from_slice(&word.to_be_bytes());
+    }
+    out
+}
+
+fn regex_lite_match(pattern: &str, haystack: &str) -> Result<bool, regex::Error> {
+    regex::Regex::new(pattern).map(|re| re.is_match(haystack))
+}
+
+/// Verify one evidence entry against the manifest + on-disk file.
+pub fn verify_evidence(
+    entry: &UatEvidence,
+    manifest_entry: Option<&UatManifestEntry>,
+    evidence_bytes: Option<&[u8]>,
+) -> UatIntegrityFinding {
+    let sha256 = entry.r#ref.clone();
+    let mut finding = UatIntegrityFinding {
+        scenario_id: String::new(),
+        sha256: sha256.clone(),
+        kind: entry.kind,
+        status: "ok".into(),
+        expected_size_bytes: entry.size_bytes,
+        observed_size_bytes: None,
+        message: None,
+    };
+
+    match entry.kind {
+        UatEvidenceKind::Assertion | UatEvidenceKind::Metric => {
+            if entry.observed_value.is_none() {
+                finding.status = "no_payload".into();
+                finding.message = Some(format!("{:?} evidence has no observed_value; cannot verify the run", entry.kind));
+            } else if let (Some(observed), Some(expected)) = (&entry.observed_value, &entry.expected_value) {
+                let matches = match entry.match_mode.unwrap_or(UatExpectedCheck::ExactMatch) {
+                    UatExpectedCheck::ExactMatch => observed == expected,
+                    UatExpectedCheck::Contains => observed.contains(expected),
+                    UatExpectedCheck::Regex => matches!(regex_lite_match(expected, observed), Ok(true)),
+                    _ => true,
+                };
+                if !matches {
+                    finding.status = "value_mismatch".into();
+                    finding.message = Some(format!("observed {:?} did not match expected {:?} (mode {:?})", observed, expected, entry.match_mode));
+                }
+            }
+            return finding;
+        }
+        UatEvidenceKind::Note => return finding,
+        _ => {}
+    }
+
+    if let Some(bytes) = evidence_bytes {
+        let computed = sha256_hex(bytes);
+        if computed != entry.r#ref {
+            finding.status = "hash_mismatch".into();
+            finding.message = Some(format!("computed {} does not match recorded {}", computed, entry.r#ref));
+        } else if let Some(expected) = entry.size_bytes {
+            if bytes.len() as u64 != expected {
+                finding.status = "size_mismatch".into();
+                finding.observed_size_bytes = Some(bytes.len() as u64);
+                finding.message = Some(format!("size {} != recorded {}", bytes.len(), expected));
+            }
+        } else {
+            finding.observed_size_bytes = Some(bytes.len() as u64);
+        }
+        return finding;
+    }
+
+    match manifest_entry {
+        Some(m) => {
+            if let Some(expected) = entry.size_bytes
+                && m.size_bytes != expected
+            {
+                finding.status = "size_mismatch".into();
+                finding.observed_size_bytes = Some(m.size_bytes);
+                finding.message = Some(format!("manifest size {} != evidence size {}", m.size_bytes, expected));
+                return finding;
+            }
+            finding.expected_size_bytes = Some(m.size_bytes);
+            let key = entry.r#ref.strip_prefix("sha256:").unwrap_or(&entry.r#ref);
+            if m.sha256 != key && m.sha256 != entry.r#ref {
+                finding.status = "hash_mismatch".into();
+                finding.message = Some(format!("manifest {} != evidence {}", m.sha256, entry.r#ref));
+            }
+            finding
+        }
+        None => {
+            finding.status = "no_payload".into();
+            finding.message = Some("no manifest entry and no embedded payload; cannot verify hash".into());
+            finding
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// P2: scenario-context suggester
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatContextSuggestion {
+    pub scenario_id: String,
+    pub field: String,
+    pub kind: String,
+    pub reason: String,
+    pub proposed: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatScenarioSuggestions {
+    pub scenario_id: String,
+    pub feature_id: String,
+    pub scenario_title: String,
+    pub populated_fields: u32,
+    pub missing_fields: u32,
+    pub suggestions: Vec<UatContextSuggestion>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatSuggestionsReport {
+    pub plan_ref: String,
+    pub plan_version: u32,
+    pub total_scenarios: u32,
+    pub fully_populated: u32,
+    pub partial: u32,
+    pub suggestions_count: u32,
+    pub scenarios: Vec<UatScenarioSuggestions>,
+}
+
+fn count_populated_fields(scenario: &UatScenario) -> u32 {
+    let mut n = 0u32;
+    if let Some(ctx) = &scenario.context {
+        if ctx.user_story.is_some() { n += 1; }
+        if !ctx.preconditions.is_empty() { n += 1; }
+        if !ctx.test_data.is_empty() { n += 1; }
+        if ctx.workspace.is_some() { n += 1; }
+        if ctx.timing.is_some() { n += 1; }
+        if ctx.help.is_some() { n += 1; }
+        if ctx.failure_protocol.is_some() { n += 1; }
+        if !ctx.postconditions.is_empty() { n += 1; }
+    }
+    if scenario.evidence.is_some() { n += 1; }
+    if scenario.risk.is_some() { n += 1; }
+    if scenario.automation.is_some() { n += 1; }
+    if scenario.provenance.is_some() { n += 1; }
+    if !scenario.rationale.as_deref().unwrap_or("").trim().is_empty() { n += 1; }
+    n
+}
+
+pub fn suggest_scenario_context(plan: &UatPlan) -> UatSuggestionsReport {
+    let mut scenarios = Vec::new();
+    let mut total_suggestions = 0u32;
+    let mut fully = 0u32;
+    let mut partial = 0u32;
+    for feature in &plan.features {
+        for scenario in &feature.scenarios {
+            let mut out = Vec::new();
+            let sid = scenario.id.clone();
+            let populated = count_populated_fields(scenario);
+
+            let has_user_story = scenario.context.as_ref().and_then(|c| c.user_story.as_ref()).map(|s| !s.trim().is_empty()).unwrap_or(false);
+            if !has_user_story {
+                out.push(UatContextSuggestion {
+                    scenario_id: sid.clone(),
+                    field: "context.user_story".into(),
+                    kind: "missing".into(),
+                    reason: format!("no user story; derive from title: {}", scenario.title),
+                    proposed: serde_json::Value::String(String::new()),
+                });
+            }
+
+            let needs_bash = scenario.plain_steps.iter().any(|s| matches!(s.kind, Some(UatStepKind::Shell)));
+            let has_preconditions = scenario.context.as_ref().map(|c| !c.preconditions.is_empty()).unwrap_or(false);
+            if !has_preconditions && !scenario.plain_steps.is_empty() {
+                let mut preconditions: Vec<String> = Vec::new();
+                if needs_bash { preconditions.push("bash (or zsh) in PATH".into()); }
+                if !scenario.plain_steps.is_empty() {
+                    preconditions.push(format!("plan file {} present in cwd", plan.release.candidate));
+                }
+                if !preconditions.is_empty() {
+                    out.push(UatContextSuggestion {
+                        scenario_id: sid.clone(),
+                        field: "context.preconditions".into(),
+                        kind: "missing".into(),
+                        reason: "implied by step count".into(),
+                        proposed: serde_json::to_value(preconditions).unwrap_or(serde_json::Value::Null),
+                    });
+                }
+            }
+
+            let has_timing = scenario.context.as_ref().and_then(|c| c.timing.as_ref()).is_some();
+            if !has_timing {
+                let window = if scenario.flags.iter().any(|f| f == "smoke") { "smoke" } else { "regression" };
+                let timeout_min = std::cmp::max(scenario.est_minutes.saturating_mul(2), 5);
+                out.push(UatContextSuggestion {
+                    scenario_id: sid.clone(),
+                    field: "context.timing".into(),
+                    kind: "missing".into(),
+                    reason: "derive from est_minutes".into(),
+                    proposed: serde_json::json!({"window": window, "parallel_safe": scenario.priority == UatPriority::P0, "timeout_min": timeout_min}),
+                });
+            }
+
+            let has_workspace = scenario.context.as_ref().and_then(|c| c.workspace.as_ref()).is_some();
+            if !has_workspace {
+                out.push(UatContextSuggestion {
+                    scenario_id: sid.clone(),
+                    field: "context.workspace".into(),
+                    kind: "missing".into(),
+                    reason: "defaults".into(),
+                    proposed: serde_json::json!({"shell": "bash", "cwd": "<REPO_ROOT>"}),
+                });
+            }
+
+            let has_help = scenario.context.as_ref().and_then(|c| c.help.as_ref()).is_some();
+            if !has_help {
+                out.push(UatContextSuggestion {
+                    scenario_id: sid.clone(),
+                    field: "context.help".into(),
+                    kind: "missing".into(),
+                    reason: "linked to req + ADRs".into(),
+                    proposed: serde_json::json!({"related_adrs": ["ADR-012"], "related_specs": [feature.requirement_ref]}),
+                });
+            }
+
+            let has_failure = scenario.context.as_ref().and_then(|c| c.failure_protocol.as_ref()).is_some();
+            if !has_failure {
+                out.push(UatContextSuggestion {
+                    scenario_id: sid.clone(),
+                    field: "context.failure_protocol".into(),
+                    kind: "missing".into(),
+                    reason: "default".into(),
+                    proposed: serde_json::json!({"on_fail": ["ping @qa-lead"]}),
+                });
+            }
+
+            let has_evidence = scenario.evidence.as_ref().map(|e| !e.kinds.is_empty()).unwrap_or(false);
+            let has_prompt = scenario.evidence_prompt.as_deref().map(|p| !p.trim().is_empty()).unwrap_or(false);
+            if !has_evidence && !has_prompt {
+                out.push(UatContextSuggestion {
+                    scenario_id: sid.clone(),
+                    field: "evidence".into(),
+                    kind: "missing".into(),
+                    reason: "default to Note".into(),
+                    proposed: serde_json::json!({"kinds": [{"kind": "note"}], "retention_days": 90}),
+                });
+            }
+
+            if scenario.risk.is_none() {
+                let (cls, blast) = match scenario.priority {
+                    UatPriority::P0 => ("critical", "release_blocker"),
+                    UatPriority::P1 => ("high", "release_blocker"),
+                    UatPriority::P2 => ("medium", "feature_blocker"),
+                };
+                out.push(UatContextSuggestion {
+                    scenario_id: sid.clone(),
+                    field: "risk".into(),
+                    kind: "missing".into(),
+                    reason: "derive from priority".into(),
+                    proposed: serde_json::json!({"classification": cls, "blast_radius": blast}),
+                });
+            }
+
+            if scenario.automation.is_none() {
+                out.push(UatContextSuggestion {
+                    scenario_id: sid.clone(),
+                    field: "automation".into(),
+                    kind: "missing".into(),
+                    reason: "default Manual".into(),
+                    proposed: serde_json::json!({"status": "manual"}),
+                });
+            }
+
+            if scenario.provenance.is_none() {
+                out.push(UatContextSuggestion {
+                    scenario_id: sid.clone(),
+                    field: "provenance".into(),
+                    kind: "missing".into(),
+                    reason: "stamp from plan".into(),
+                    proposed: serde_json::json!({"author": plan.generated_by, "origin_ref": feature.requirement_ref}),
+                });
+            }
+
+            let missing = out.len() as u32;
+            if missing == 0 { fully += 1; } else { partial += 1; }
+            total_suggestions += missing;
+            scenarios.push(UatScenarioSuggestions {
+                scenario_id: scenario.id.clone(),
+                feature_id: feature.id.clone(),
+                scenario_title: scenario.title.clone(),
+                populated_fields: populated,
+                missing_fields: missing,
+                suggestions: out,
+            });
+        }
+    }
+    UatSuggestionsReport {
+        plan_ref: plan.release.candidate.clone(),
+        plan_version: plan.schema_version,
+        total_scenarios: scenarios.len() as u32,
+        fully_populated: fully,
+        partial,
+        suggestions_count: total_suggestions,
+        scenarios,
+    }
+}
+
+pub fn apply_suggestion(scenario: &mut UatScenario, suggestion: &UatContextSuggestion) -> bool {
+    match suggestion.field.as_str() {
+        "context.user_story" => {
+            if let Some(s) = suggestion.proposed.as_str() {
+                if !s.trim().is_empty() {
+                    let ctx = scenario.context.get_or_insert_with(UatScenarioContext::default);
+                    ctx.user_story = Some(s.to_string());
+                    return true;
+                }
+            }
+            false
+        }
+        "context.preconditions" => {
+            if let Some(arr) = suggestion.proposed.as_array() {
+                let preconditions: Vec<String> = arr.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+                if !preconditions.is_empty() {
+                    let ctx = scenario.context.get_or_insert_with(UatScenarioContext::default);
+                    ctx.preconditions = preconditions;
+                    return true;
+                }
+            }
+            false
+        }
+        "context.timing" => {
+            if let Some(obj) = suggestion.proposed.as_object() {
+                let timing = UatTiming {
+                    window: obj.get("window").and_then(|v| v.as_str()).unwrap_or("smoke").into(),
+                    parallel_safe: obj.get("parallel_safe").and_then(|v| v.as_bool()).unwrap_or(false),
+                    order_hint: None,
+                    timeout_min: obj.get("timeout_min").and_then(|v| v.as_u64()).unwrap_or(10) as u32,
+                };
+                let ctx = scenario.context.get_or_insert_with(UatScenarioContext::default);
+                ctx.timing = Some(timing);
+                return true;
+            }
+            false
+        }
+        "context.workspace" => {
+            if let Some(obj) = suggestion.proposed.as_object() {
+                let workspace = UatWorkspace {
+                    shell: obj.get("shell").and_then(|v| v.as_str()).map(String::from),
+                    cwd: obj.get("cwd").and_then(|v| v.as_str()).map(String::from),
+                    ..Default::default()
+                };
+                let ctx = scenario.context.get_or_insert_with(UatScenarioContext::default);
+                ctx.workspace = Some(workspace);
+                return true;
+            }
+            false
+        }
+        "context.help" => {
+            if let Some(obj) = suggestion.proposed.as_object() {
+                let help = UatHelp {
+                    related_adrs: obj.get("related_adrs").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|s| s.as_str().map(String::from)).collect()).unwrap_or_default(),
+                    related_specs: obj.get("related_specs").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|s| s.as_str().map(String::from)).collect()).unwrap_or_default(),
+                    ..Default::default()
+                };
+                let ctx = scenario.context.get_or_insert_with(UatScenarioContext::default);
+                ctx.help = Some(help);
+                return true;
+            }
+            false
+        }
+        "context.failure_protocol" => {
+            if let Some(obj) = suggestion.proposed.as_object() {
+                let on_fail: Vec<String> = obj.get("on_fail").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|s| s.as_str().map(String::from)).collect()).unwrap_or_default();
+                let ctx = scenario.context.get_or_insert_with(UatScenarioContext::default);
+                ctx.failure_protocol = Some(UatFailureProtocol { on_fail, expected_defect_template: None });
+                return true;
+            }
+            false
+        }
+        "evidence" => {
+            if let Some(obj) = suggestion.proposed.as_object() {
+                let kinds: Vec<UatEvidenceKindItem> = obj.get("kinds").and_then(|v| v.as_array()).map(|a| {
+                    a.iter().filter_map(|item| {
+                        let obj = item.as_object()?;
+                        let kind_str = obj.get("kind")?.as_str()?;
+                        let kind = match kind_str {
+                            "file" => UatEvidenceKind::File,
+                            "screenshot" => UatEvidenceKind::Screenshot,
+                            "command_output" => UatEvidenceKind::CommandOutput,
+                            "assertion" => UatEvidenceKind::Assertion,
+                            "metric" => UatEvidenceKind::Metric,
+                            _ => UatEvidenceKind::Note,
+                        };
+                        Some(UatEvidenceKindItem { kind, r#ref: None, match_mode: None, expected_value: None, min_bytes: None })
+                    }).collect()
+                }).unwrap_or_default();
+                scenario.evidence = Some(UatEvidenceSpec { required: true, kinds, retention_days: 90 });
+                return true;
+            }
+            false
+        }
+        "risk" => {
+            if let Some(obj) = suggestion.proposed.as_object() {
+                let classification = match obj.get("classification").and_then(|v| v.as_str()).unwrap_or("medium") {
+                    "critical" => UatRiskClassification::Critical,
+                    "high" => UatRiskClassification::High,
+                    _ => UatRiskClassification::Medium,
+                };
+                let blast_radius = match obj.get("blast_radius").and_then(|v| v.as_str()).unwrap_or("feature_blocker") {
+                    "release_blocker" => UatBlastRadius::ReleaseBlocker,
+                    "advisory" => UatBlastRadius::Advisory,
+                    _ => UatBlastRadius::FeatureBlocker,
+                };
+                scenario.risk = Some(UatRisk { classification, blast_radius, mitigation: None });
+                return true;
+            }
+            false
+        }
+        "automation" => {
+            if let Some(obj) = suggestion.proposed.as_object() {
+                scenario.automation = Some(UatAutomation { status: UatAutomationStatus::Manual, r#ref: None, ci_job: None, when: None });
+                return true;
+            }
+            false
+        }
+        "provenance" => {
+            if let Some(obj) = suggestion.proposed.as_object() {
+                scenario.provenance = Some(UatProvenance {
+                    author: obj.get("author").and_then(|v| v.as_str()).unwrap_or("uat-planner").into(),
+                    created_at: plan_gen_at_static(),
+                    last_modified_at: plan_gen_at_static(),
+                    origin: UatOrigin::Spec,
+                    origin_ref: obj.get("origin_ref").and_then(|v| v.as_str()).map(String::from),
+                });
+                return true;
+            }
+            false
+        }
+        _ => false,
+    }
+}
+
+fn plan_gen_at_static() -> String { "2026-08-07T00:00:00Z".into() }
+
+pub fn apply_all_suggestions(plan: &mut UatPlan, report: &UatSuggestionsReport) -> u32 {
+    let mut applied = 0u32;
+    for scenario_report in &report.scenarios {
+        let target_id = &scenario_report.scenario_id;
+        for feature in &mut plan.features {
+            for scenario in &mut feature.scenarios {
+                if &scenario.id != target_id { continue; }
+                for suggestion in &scenario_report.suggestions {
+                    if apply_suggestion(scenario, suggestion) { applied += 1; }
+                }
+            }
+        }
+    }
+    applied
+}
+
+// ---------------------------------------------------------------------------
+// P4: scenario history aggregation
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatScenarioHistory {
+    pub scenario_id: String,
+    pub feature_id: String,
+    pub scenario_title: String,
+    pub runs_total: u32,
+    pub runs_passing: u32,
+    pub runs_failing: u32,
+    pub runs_blocked: u32,
+    pub success_rate: f64,
+    pub flakiness_score: f64,
+    pub first_run: Option<UatRunRef>,
+    pub last_run: Option<UatRunRef>,
+    pub defect_ids: Vec<String>,
+    pub avg_duration_ms: Option<u64>,
+    pub p95_duration_ms: Option<u64>,
+    pub trend: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
+pub struct UatRunRef {
+    pub session_id: String,
+    pub at: String,
+    pub status: String,
+    pub commit: Option<String>,
+    pub tester_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatFeatureHistory {
+    pub feature_id: String,
+    pub feature_name: String,
+    pub coverage_pct: f64,
+    pub scenarios_total: u32,
+    pub scenarios_passing: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatHistoryReport {
+    pub schema_version: u32,
+    pub release: String,
+    pub plan_ref: String,
+    pub generated_at: String,
+    pub sessions_total: u32,
+    pub defects_total: u32,
+    pub features: Vec<UatFeatureHistory>,
+    pub scenarios: Vec<UatScenarioHistory>,
+}
+
+impl UatHistoryReport {
+    pub const SCHEMA_VERSION: u32 = 1;
+}
+
+fn compute_trend(runs: &[&str]) -> &'static str {
+    let weight = |s: &&str| -> f64 {
+        match s.to_ascii_uppercase().as_str() {
+            "PASS" => 1.0, "PARTIAL" => 0.5, _ => 0.0,
+        }
+    };
+    if runs.len() < 4 { return "stable"; }
+    let recent = &runs[runs.len() - 3..];
+    let prior = &runs[runs.len() - 6..runs.len() - 3];
+    let recent_avg: f64 = recent.iter().map(weight).sum::<f64>() / recent.len() as f64;
+    let prior_avg: f64 = prior.iter().map(weight).sum::<f64>() / prior.len() as f64;
+    let delta = recent_avg - prior_avg;
+    if delta > 0.2 { "improving" }
+    else if delta < -0.2 { "degrading" }
+    else { "stable" }
+}
+
+fn p95(durations: &[u64]) -> Option<u64> {
+    if durations.is_empty() { return None; }
+    let mut sorted = durations.to_vec();
+    sorted.sort_unstable();
+    let idx = ((sorted.len() as f64 * 0.95).ceil() as usize).saturating_sub(1);
+    Some(sorted[idx.min(sorted.len() - 1)])
+}
+
+pub fn aggregate_history(
+    plan: &UatPlan,
+    sessions: &[UatSession],
+    release: &str,
+    generated_at: &str,
+) -> UatHistoryReport {
+    let mut runs_by_scenario: std::collections::BTreeMap<String, Vec<(&UatScenarioResult, &UatSession)>> =
+        std::collections::BTreeMap::new();
+    for session in sessions {
+        for result in &session.results {
+            runs_by_scenario.entry(result.scenario_id.clone()).or_default().push((result, session));
+        }
+    }
+
+    let mut scenarios = Vec::new();
+    let mut defects_total = 0u32;
+
+    for feature in &plan.features {
+        for scenario in &feature.scenarios {
+            let runs = runs_by_scenario.get(&scenario.id).cloned().unwrap_or_default();
+            let runs_total = runs.len() as u32;
+            let mut runs_passing = 0u32;
+            let mut runs_failing = 0u32;
+            let mut runs_blocked = 0u32;
+            let mut statuses_for_trend: Vec<&str> = Vec::new();
+            let mut defect_ids: Vec<String> = Vec::new();
+            let mut durations: Vec<u64> = Vec::new();
+            let mut first_run: Option<UatRunRef> = None;
+            let mut last_run: Option<UatRunRef> = None;
+
+            for (i, (result, session)) in runs.iter().enumerate() {
+                let status = match result.status {
+                    UatStatus::Pass => "PASS",
+                    UatStatus::Fail => "FAIL",
+                    UatStatus::Blocked => "BLOCKED",
+                    UatStatus::Partial => "PARTIAL",
+                };
+                statuses_for_trend.push(status);
+                match result.status {
+                    UatStatus::Pass => runs_passing += 1,
+                    UatStatus::Fail => { runs_failing += 1; defects_total += 1; }
+                    UatStatus::Blocked => runs_blocked += 1,
+                    UatStatus::Partial => {}
+                }
+                if let Some(d) = result.linked_defect.as_deref()
+                    && !defect_ids.contains(&d.to_string())
+                {
+                    defect_ids.push(d.to_string());
+                }
+                if let Some(ms) = result.verdict_duration_ms {
+                    durations.push(ms);
+                } else if result.duration_minutes > 0 {
+                    durations.push(result.duration_minutes as u64 * 60_000);
+                }
+                let commit = session.metadata.as_ref().and_then(|m| m.build.as_ref()).and_then(|b| b.commit.clone());
+                let tester_id = session.metadata.as_ref().and_then(|m| m.tester.as_ref()).map(|t| t.id.clone());
+                let at = result.verdict_at.clone().or_else(|| session.finished_at.clone()).unwrap_or_else(|| session.started_at.clone());
+                let run_ref = UatRunRef {
+                    session_id: session.session_id.clone(),
+                    at,
+                    status: status.to_string(),
+                    commit,
+                    tester_id,
+                };
+                if i == 0 { first_run = Some(run_ref.clone()); }
+                last_run = Some(run_ref);
+            }
+
+            let success_rate = if runs_total > 0 { runs_passing as f64 / runs_total as f64 } else { 0.0 };
+            let flakiness_score = if runs_total > 0 { 1.0 - success_rate } else { 0.0 };
+            let avg_duration_ms = if !durations.is_empty() {
+                Some(durations.iter().sum::<u64>() / durations.len() as u64)
+            } else { None };
+            let p95_duration_ms = p95(&durations);
+            let trend = compute_trend(&statuses_for_trend);
+
+            scenarios.push(UatScenarioHistory {
+                scenario_id: scenario.id.clone(),
+                feature_id: feature.id.clone(),
+                scenario_title: scenario.title.clone(),
+                runs_total, runs_passing, runs_failing, runs_blocked,
+                success_rate, flakiness_score,
+                first_run, last_run, defect_ids,
+                avg_duration_ms, p95_duration_ms,
+                trend: trend.to_string(),
+            });
+        }
+    }
+
+    let mut features = Vec::new();
+    for feature in &plan.features {
+        let total = feature.scenarios.len() as u32;
+        let passing = scenarios.iter().filter(|s| s.feature_id == feature.id && s.runs_passing > 0).count() as u32;
+        let coverage_pct = if total > 0 { 100.0 * passing as f64 / total as f64 } else { 0.0 };
+        features.push(UatFeatureHistory {
+            feature_id: feature.id.clone(),
+            feature_name: feature.name.clone(),
+            coverage_pct, scenarios_total: total, scenarios_passing: passing,
+        });
+    }
+
+    UatHistoryReport {
+        schema_version: UatHistoryReport::SCHEMA_VERSION,
+        release: release.to_string(),
+        plan_ref: plan.release.candidate.clone(),
+        generated_at: generated_at.to_string(),
+        sessions_total: sessions.len() as u32,
+        defects_total,
+        features,
+        scenarios,
+    }
 }
 
 #[cfg(test)]

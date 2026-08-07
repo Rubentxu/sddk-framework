@@ -295,3 +295,41 @@ pub fn uat_config_path(
     let paths = resolve_xdg_paths(environment, project_id, "default")?;
     Ok(paths.vault.parent().unwrap_or(std::path::Path::new(".")).join(project_id).join("uat.toml"))
 }
+
+/// Resolve the XDG base directory for a project's UAT state.
+pub fn uat_storage_root(
+    environment: &XdgEnvironment,
+    project_id: &str,
+) -> Result<PathBuf, PathResolutionError> {
+    ProjectId::new(project_id).map_err(|_| unsafe_identity(project_id))?;
+    let paths = resolve_xdg_paths(environment, project_id, "default")?;
+    Ok(paths.vault.parent().unwrap_or(std::path::Path::new(".")).join(project_id).join("uat"))
+}
+
+/// Resolve the manifest path for a project's UAT state.
+pub fn uat_manifest_path(
+    environment: &XdgEnvironment,
+    project_id: &str,
+) -> Result<PathBuf, PathResolutionError> {
+    Ok(uat_storage_root(environment, project_id)?.join("manifest.yaml"))
+}
+
+/// Resolve the path of one evidence payload by content hash.
+pub fn uat_evidence_path(
+    environment: &XdgEnvironment,
+    project_id: &str,
+    sha256_ref: &str,
+    ext: &str,
+) -> Result<PathBuf, PathResolutionError> {
+    ProjectId::new(project_id).map_err(|_| unsafe_identity(project_id))?;
+    let bare = sha256_ref.strip_prefix("sha256:").unwrap_or(sha256_ref);
+    if bare.len() < 2 {
+        return Err(PathResolutionError::UnsafeIdentity(sha256_ref.to_string()));
+    }
+    let (prefix, rest) = bare.split_at(2);
+    if ext.contains('/') || ext.contains('\\') || ext.contains("..") {
+        return Err(PathResolutionError::UnsafeIdentity(ext.to_string()));
+    }
+    let root = uat_storage_root(environment, project_id)?;
+    Ok(root.join("evidence").join(prefix).join(format!("{rest}.{ext}")))
+}

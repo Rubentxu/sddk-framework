@@ -1,14 +1,15 @@
 /* Storage helpers: localStorage persistence + export/import JSON (zero backend).
  *
- * The exported JSON is the canonical `UatSession` shape consumed by
- * `sddk uat ingest` (crates/sddk-cli/src/uat.rs):
- *   schema_version, session_id, plan_ref, release, executor, executed_by,
- *   started_at, finished_at, results: [{ scenario_id, status, comment,
- *   evidence: [{ kind, ref, note }], duration_minutes }].
- *
- * Keeping the localStorage shape and the export shape in sync is the whole
- * point of this module: a tester hits "Finalizar y exportar" and gets a file
- * that drops straight into the CLI.
+ * v2 export shape (consumed by `sddk uat ingest`):
+ *   schema_version: 2, session_id, plan_ref, plan_version: 2, release,
+ *   executor: human, executed_by, started_at, finished_at, metadata: {
+ *     tester, started_at, completed_at, duration_ms, env_fingerprint: {
+ *       os, shell, binary, locale, workdir }, build: { commit, branch, tag,
+ *       dirty } }, results: [{ scenario_id, status, verdict_at,
+ *     verdict_duration_ms, duration_minutes, comment, tester_notes, observed,
+ *     failure_reason, linked_defect, repro_command, evidence: [{ kind (typed),
+ *     ref, note, captured_at, size_bytes, mime, path, observed_value,
+ *     expected_value, match_mode }] }].
  */
 
 const UAT = (() => {
@@ -19,9 +20,18 @@ const UAT = (() => {
   }
 
   function uuid() {
-    // Cheap UUID v4-ish (crypto.randomUUID when available, fallback otherwise).
     if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
     return "uat-" + Math.random().toString(36).slice(2) + "-" + Date.now().toString(36);
+  }
+
+  function ensureTesterId() {
+    const KEY_ID = "sddk-tester-id";
+    let id = localStorage.getItem(KEY_ID);
+    if (!id) {
+      id = "T-" + Math.random().toString(36).slice(2, 6).toUpperCase();
+      try { localStorage.setItem(KEY_ID, id); } catch (e) {}
+    }
+    return id;
   }
 
   function loadSession(release) {
@@ -38,10 +48,21 @@ const UAT = (() => {
     } catch (e) { return false; }
   }
 
-  // Legacy formats the wizard may have written before canonicalization.
+  function buildEnvFingerprint() {
+    const ua = navigator.userAgent || "";
+    const os = (ua.match(/\(([^)]+)\)/) || [, ""])[1].trim() || "unknown";
+    return {
+      os,
+      shell: "browser",
+      binary: `sddk-dashboard (browser; ${navigator.platform || "unknown"})`,
+      locale: navigator.language || "unknown",
+      workdir: location.pathname,
+    };
+  }
+
   function fromLegacy(legacy, plan) {
     if (!legacy) return null;
-    if (Array.isArray(legacy.results)) return legacy; // already canonical
+    if (Array.isArray(legacy.results)) return legacy;
     if (legacy.scenario_results && plan) {
       const order = [];
       for (const f of plan.features || []) {
@@ -74,29 +95,56 @@ const UAT = (() => {
     return null;
   }
 
-  // Build the canonical `UatSession` from the wizard's internal verdicts.
-  function buildUatSession({ release, planRef, executedBy, startedAt, verdicts, scenarioOrder, finishedAt }) {
+  function buildUatSession({
+    release, planRef, executedBy, startedAt, verdicts, scenarioOrder, finishedAt,
+    planVersion = 2, buildMeta = null,
+  }) {
     const results = [];
     for (const id of scenarioOrder) {
       const v = verdicts[id];
       if (!v || !v.status) continue;
-      results.push({
+      const result = {
         scenario_id: id,
         status: v.status,
         comment: v.comment || "",
         evidence: v.evidence || [],
         duration_minutes: v.duration_minutes || 0,
-      });
+      };
+      if (v.verdict_at) result.verdict_at = v.verdict_at;
+      if (v.verdict_duration_ms) result.verdict_duration_ms = v.verdict_duration_ms;
+      if (v.tester_notes) result.tester_notes = v.tester_notes;
+      if (v.observed) result.observed = v.observed;
+      if (v.failure_reason) result.failure_reason = v.failure_reason;
+      if (v.linked_defect) result.linked_defect = v.linked_defect;
+      if (v.repro_command) result.repro_command = v.repro_command;
+      results.push(result);
     }
+    const finished = finishedAt || nowRfc3339();
+    const startedMs = startedAt ? Date.parse(startedAt) : Date.now();
+    const finishedMs = Date.parse(finished);
+    const duration_ms = Number.isFinite(startedMs) && Number.isFinite(finishedMs)
+      ? Math.max(0, finishedMs - startedMs)
+      : null;
+    const testerId = ensureTesterId();
+    const metadata = {
+      tester: { id: testerId, display: executedBy || null },
+      started_at: startedAt || nowRfc3339(),
+      completed_at: finished,
+      duration_ms,
+      env_fingerprint: buildEnvFingerprint(),
+      build: buildMeta || null,
+    };
     return {
-      schema_version: 1,
+      schema_version: 2,
+      plan_version: planVersion,
       session_id: uuid(),
       plan_ref: planRef || release,
       release,
       executor: "human",
-      executed_by: executedBy || "tester",
+      executed_by: executedBy || testerId,
       started_at: startedAt || nowRfc3339(),
-      finished_at: finishedAt || nowRfc3339(),
+      finished_at: finished,
+      metadata,
       results,
     };
   }
@@ -111,11 +159,10 @@ const UAT = (() => {
     URL.revokeObjectURL(url);
   }
 
-  // Finalize the wizard: compose canonical UatSession, persist, download.
-  function finalizeAndExport({ release, planRef, executedBy, startedAt, verdicts, scenarioOrder }) {
+  function finalizeAndExport({ release, planRef, executedBy, startedAt, verdicts, scenarioOrder, planVersion, buildMeta }) {
     const session = buildUatSession({
       release, planRef, executedBy, startedAt, verdicts, scenarioOrder,
-      finishedAt: nowRfc3339(),
+      finishedAt: nowRfc3339(), planVersion, buildMeta,
     });
     saveSession(release, session);
     downloadBlob(`uat-session-${release}.json`, session);
@@ -149,6 +196,62 @@ const UAT = (() => {
     });
   }
 
+  async function sha256OfBlob(blob) {
+    const buf = await blob.arrayBuffer();
+    const digest = await crypto.subtle.digest("SHA-256", buf);
+    const bytes = new Uint8Array(digest);
+    let hex = "sha256:";
+    for (let i = 0; i < bytes.length; i++) hex += bytes[i].toString(16).padStart(2, "0");
+    return { hex, bytes: buf.byteLength };
+  }
+
+  async function sha256OfString(s) {
+    const buf = new TextEncoder().encode(s);
+    const digest = await crypto.subtle.digest("SHA-256", buf);
+    const bytes = new Uint8Array(digest);
+    let hex = "sha256:";
+    for (let i = 0; i < bytes.length; i++) hex += bytes[i].toString(16).padStart(2, "0");
+    return { hex, bytes: buf.byteLength };
+  }
+
+  async function addTypedEvidence(release, scenarioId, evidence) {
+    const stamp = { captured_at: nowRfc3339() };
+    let ref = evidence.ref;
+    let size_bytes = evidence.size_bytes;
+    let mime = evidence.mime;
+    if ((evidence.kind === "screenshot" || evidence.kind === "file" || evidence.kind === "command_output")
+        && evidence.blob && !ref) {
+      const h = await sha256OfBlob(evidence.blob);
+      ref = h.hex;
+      size_bytes = size_bytes || h.bytes;
+    } else if (evidence.kind === "note" && evidence.text && !ref) {
+      const h = await sha256OfString(evidence.text);
+      ref = h.hex;
+      size_bytes = size_bytes || h.bytes;
+    } else if (evidence.kind === "command_output" && evidence.text && !ref) {
+      const h = await sha256OfString(evidence.text);
+      ref = h.hex;
+      size_bytes = size_bytes || h.bytes;
+    }
+    const entry = { kind: evidence.kind, ref: ref || "", note: evidence.note, ...stamp };
+    if (size_bytes != null) entry.size_bytes = size_bytes;
+    if (mime != null) entry.mime = mime;
+    if (evidence.path != null) entry.path = evidence.path;
+    if (evidence.observed_value != null) entry.observed_value = evidence.observed_value;
+    if (evidence.expected_value != null) entry.expected_value = evidence.expected_value;
+    if (evidence.match_mode != null) entry.match_mode = evidence.match_mode;
+    const session = loadSession(release) || { schema_version: 2, release, results: [] };
+    let r = (session.results || []).find(r => r.scenario_id === scenarioId);
+    if (!r) {
+      r = { scenario_id: scenarioId, status: "PASS", evidence: [] };
+      (session.results || (session.results = [])).push(r);
+    }
+    if (!r.evidence) r.evidence = [];
+    r.evidence.push(entry);
+    saveSession(release, session);
+    return entry;
+  }
+
   function addEvidence(release, scenarioId, evidence) {
     const session = loadSession(release) || { release, results: [] };
     let entry = (session.results || []).find(r => r.scenario_id === scenarioId);
@@ -161,33 +264,60 @@ const UAT = (() => {
     saveSession(release, session);
   }
 
-  function pasteScreenshot(release, scenarioId, callback) {
-    document.addEventListener("paste", function handler(ev) {
-      document.removeEventListener("paste", handler);
-      const items = ev.clipboardData && ev.clipboardData.items;
-      if (!items) return;
-      for (const item of items) {
-        if (item.type && item.type.startsWith("image/")) {
-          const blob = item.getAsFile();
-          const reader = new FileReader();
-          reader.onload = () => {
-            addEvidence(release, scenarioId, {
-              kind: "screenshot",
-              ref: "sha256:clipboard-" + Date.now(),
-              note: "pegado desde portapapeles",
-            });
-            callback(reader.result);
-          };
-          reader.readAsDataURL(blob);
-          return;
+  async function pasteScreenshot(release, scenarioId, callback) {
+    return new Promise((resolve) => {
+      const handler = async (ev) => {
+        document.removeEventListener("paste", handler);
+        const items = ev.clipboardData && ev.clipboardData.items;
+        if (!items) { resolve(null); return; }
+        for (const item of items) {
+          if (item.type && item.type.startsWith("image/")) {
+            const blob = item.getAsFile();
+            const reader = new FileReader();
+            reader.onload = async () => {
+              const entry = await addTypedEvidence(release, scenarioId, {
+                kind: "screenshot", blob, mime: blob.type,
+                note: "pegado desde portapapeles",
+              });
+              if (callback) callback(reader.result, entry);
+              resolve(entry);
+            };
+            reader.readAsDataURL(blob);
+            return;
+          }
         }
-      }
+        resolve(null);
+      };
+      document.addEventListener("paste", handler);
     });
   }
 
+  function buildDefectReport({ scenario, plan, session, observed }) {
+    const feature = (plan.features || []).find(f =>
+      (f.scenarios || []).some(s => s.id === scenario.id));
+    const protocol = scenario.context && scenario.context.failure_protocol;
+    const tpl = protocol && protocol.expected_defect_template;
+    if (!tpl) return null;
+    const testerId = session.metadata && session.metadata.tester
+      ? session.metadata.tester.id : (session.executed_by || "unknown");
+    const commit = session.metadata && session.metadata.build && session.metadata.build.commit
+      ? session.metadata.build.commit : "unknown";
+    const repro = (scenario.plain_steps || []).filter(s => s.copy_hint).map(s => s.action).join("\n") || "n/a";
+    return tpl
+      .replace(/<scenario_id>/g, scenario.id)
+      .replace(/<commit>/g, commit)
+      .replace(/<repro_command>/g, repro)
+      .replace(/<expected>/g, (scenario.plain_steps || []).map(s => s.expected).join("\n") || "n/a")
+      .replace(/<observed>/g, observed || "(pegar aquí)")
+      .replace(/<os>/g, (session.metadata && session.metadata.env_fingerprint && session.metadata.env_fingerprint.os) || "unknown")
+      .replace(/<binary>/g, (session.metadata && session.metadata.env_fingerprint && session.metadata.env_fingerprint.binary) || "unknown")
+      + `\n\n— Testado por: ${testerId}\n— Feature: ${feature ? feature.id + " / " + feature.name : "(unknown)"}`;
+  }
+
   return {
-    loadSession, saveSession, exportSession, importSession, addEvidence,
-    pasteScreenshot, buildUatSession, fromLegacy, finalizeAndExport,
-    nowRfc3339, uuid,
+    loadSession, saveSession, exportSession, importSession,
+    addEvidence, addTypedEvidence, pasteScreenshot,
+    buildUatSession, buildDefectReport, fromLegacy, finalizeAndExport,
+    nowRfc3339, uuid, ensureTesterId, sha256OfBlob, sha256OfString,
   };
 })();

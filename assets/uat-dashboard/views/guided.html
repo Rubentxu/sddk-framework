@@ -2,48 +2,61 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<title>UAT — Modo guiado</title>
+<title>UAT — Modo guiado v2</title>
 <style>@TOKENS@</style>
 <style>@COMPONENTS@</style>
 </head>
 <body>
-<h1>UAT guiado — @RELEASE@</h1>
-<div class="sub">Un escenario por pantalla &middot; plan: @PLAN_REF@ &middot; recuerda: el humano valida, el agente ejecuta</div>
+<div class="page">
+  <header class="page-head">
+    <span class="crumb">UAT guiado (v2)</span>
+    <span class="crumb" style="color:var(--accent-strong);font-family:var(--font-mono)">@RELEASE@</span>
+  </header>
+  <p class="page-sub">Un escenario por pantalla &middot; pre-flight + context bar + evidence tipada + failure protocol</p>
 
-<div id="tester-bar" style="display:flex;gap:.6rem;align-items:center;margin:.75rem 0">
-  <label for="tester-name" style="color:var(--muted);font-size:.85rem">Tester (executed_by):</label>
-  <input id="tester-name" type="text" placeholder="Tu nombre o alias" style="flex:1;background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:.45rem .6rem;font-family:inherit">
-</div>
-
-<div class="progress-bar"><div id="bar" style="width:0%"></div></div>
-<div class="progress-label" id="progress-label">Escenario 1 / N</div>
-
-<div id="wizard" class="scenario-card"></div>
-
-<div style="display:flex;justify-content:space-between;align-items:center;margin-top:1.5rem;gap:.6rem;flex-wrap:wrap">
-  <div class="sub" id="progress-summary">Progreso: 0/N escenarios valorados</div>
-  <div style="display:flex;gap:.6rem;flex-wrap:wrap">
-    <button class="btn" onclick="UAT.exportSession('@RELEASE@')">Exportar sesión (en curso)</button>
-    <button class="btn" onclick="finalizeReport()" id="finalize-btn" style="background:rgba(76,175,80,.18);border-color:var(--ok);color:var(--ok);font-weight:600">
-      ✅ Finalizar y exportar reporte
-    </button>
+  <div class="tester-bar">
+    <label for="tester-name">Tester (opcional, display)</label>
+    <input id="tester-name" type="text" placeholder="Tu nombre o alias" autocomplete="off">
+    <span id="tester-id-badge" class="ctx-help-item"></span>
   </div>
-</div>
 
-<footer>sddk uat dashboard &middot; guided view &middot; pega el screenshot con Ctrl+V cuando lo pida &middot;
-al finalizar pulsa <strong>✅ Finalizar y exportar reporte</strong>; el JSON se ingiere con <code>sddk uat ingest --session &lt;file&gt;</code></footer>
+  <div class="progress">
+    <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+    <span class="progress-label" id="progress-label">0 / 0</span>
+  </div>
+
+  <article id="wizard" class="scenario-card" aria-live="polite"></article>
+
+  <div class="footer-actions">
+    <span class="progress-summary" id="progress-summary">Progreso: 0 / 0</span>
+    <div style="display:flex;gap:var(--space-2);flex-wrap:wrap">
+      <button class="btn" onclick="UAT.exportSession('@RELEASE@')">Exportar (en curso)</button>
+      <button class="btn btn-finalize" onclick="finalizeReport()">✅ Finalizar y exportar reporte</button>
+    </div>
+  </div>
+
+  <footer>
+    sddk uat dashboard &middot; guided v2 &middot; <code>@RELEASE@</code> &middot; ingiere con <code>sddk uat ingest --session &lt;file&gt;</code>
+  </footer>
+</div>
 
 <script>@STORAGE_JS@</script>
+<script>@COMPONENTS_JS@</script>
 <script>
 const PLAN = @PLAN_JSON@;
 const RELEASE = '@RELEASE@';
 const all = [];
 for (const f of PLAN.features || []) for (const s of f.scenarios || []) all.push({feature: f, scenario: s});
 const SCENARIO_ORDER = all.map(({scenario}) => scenario.id);
+
 let idx = 0;
 let verdicts = {};
 let startedAt = null;
+let finishedAt = null;
 
+document.getElementById('tester-id-badge').textContent = `id: ${UAT.ensureTesterId()}`;
+
+function escapeHtml(s) { return UatRender.escapeHtml(s); }
 function loadVerdicts() {
   const raw = UAT.loadSession(RELEASE);
   const plan = { release: { candidate: PLAN.release?.candidate || RELEASE } };
@@ -56,39 +69,64 @@ function loadVerdicts() {
       comment: r.comment || "",
       evidence: r.evidence || [],
       duration_minutes: r.duration_minutes || 0,
+      verdict_at: r.verdict_at || null,
+      verdict_duration_ms: r.verdict_duration_ms || null,
+      tester_notes: r.tester_notes || "",
+      observed: r.observed || "",
+      failure_reason: r.failure_reason || "",
+      linked_defect: r.linked_defect || "",
+      repro_command: r.repro_command || "",
     };
   }
   startedAt = session.started_at || null;
+  finishedAt = session.finished_at || null;
   const testerEl = document.getElementById('tester-name');
   if (testerEl && session.executed_by && session.executed_by !== 'tester') testerEl.value = session.executed_by;
 }
 function saveVerdicts() {
-  const tester = document.getElementById('tester-name').value.trim() || 'tester';
+  const tester = document.getElementById('tester-name').value.trim() || '';
+  const testerId = UAT.ensureTesterId();
   const session = {
-    schema_version: 1,
+    schema_version: 2,
+    plan_version: PLAN.schema_version || 2,
     session_id: UAT.uuid(),
     plan_ref: PLAN.release?.candidate || RELEASE,
     release: RELEASE,
     executor: 'human',
-    executed_by: tester,
+    executed_by: tester || testerId,
     started_at: startedAt || UAT.nowRfc3339(),
-    finished_at: null,
+    finished_at: finishedAt,
+    metadata: {
+      tester: { id: testerId, display: tester || null },
+      started_at: startedAt || UAT.nowRfc3339(),
+      completed_at: finishedAt,
+      duration_ms: null,
+      env_fingerprint: null,
+      build: null,
+    },
     results: [],
   };
   for (const id of SCENARIO_ORDER) {
     const v = verdicts[id];
     if (!v || !v.status) continue;
-    session.results.push({
+    const r = {
       scenario_id: id,
       status: v.status,
       comment: v.comment || '',
       evidence: v.evidence || [],
       duration_minutes: v.duration_minutes || 0,
-    });
+    };
+    if (v.verdict_at) r.verdict_at = v.verdict_at;
+    if (v.verdict_duration_ms) r.verdict_duration_ms = v.verdict_duration_ms;
+    if (v.tester_notes) r.tester_notes = v.tester_notes;
+    if (v.observed) r.observed = v.observed;
+    if (v.failure_reason) r.failure_reason = v.failure_reason;
+    if (v.linked_defect) r.linked_defect = v.linked_defect;
+    if (v.repro_command) r.repro_command = v.repro_command;
+    session.results.push(r);
   }
   UAT.saveSession(RELEASE, session);
 }
-
 function startIfNeeded() {
   if (!startedAt) {
     startedAt = UAT.nowRfc3339();
@@ -96,63 +134,247 @@ function startIfNeeded() {
   }
 }
 
+function priorityBadge(p) {
+  const txt = (p || "P2").toUpperCase();
+  return `<span class="badge badge-${txt.toLowerCase()}">${txt}</span>`;
+}
+function assigneeBadge(a) {
+  const txt = (a || "developer").toLowerCase();
+  return `<span class="badge badge-assignee">${txt}</span>`;
+}
+
 function render() {
   const total = all.length;
-  const { feature, scenario } = all[idx];
-  const steps = (scenario.plain_steps || []).map((step, i) => `
-    <div class="step-title">Paso ${i + 1} de ${scenario.plain_steps.length}</div>
-    <div class="step-action">${step.copy_hint ? `<button class="copy-btn" onclick="navigator.clipboard.writeText(${JSON.stringify(step.action)});this.textContent='copiado'">copiar</button>` : ""} ${step.action}</div>
-    <div class="step-expected"><strong>Esperado:</strong> ${step.expected}</div>
-  `).join("");
+  const { feature, scenario } = all[idx] || {};
+  if (!feature) {
+    document.getElementById('wizard').innerHTML = '<p class="page-sub">Plan vacío: no hay escenarios para ejecutar.</p>';
+    updateProgress();
+    return;
+  }
   const current = verdicts[scenario.id] || {};
-  const btn = (key, label, cls) =>
-    `<button class="btn ${cls} ${current.status === key ? 'active-' + key.toLowerCase() : ''} onclick="setVerdict('${scenario.id}', '${key}')">${label}</button>`;
-  const ev = current.evidence && current.evidence.length
-    ? `<div class="sub">Evidencia: ${current.evidence.map(e => e.kind).join(", ")}</div>` : "";
+  const rationale = scenario.rationale
+    ? `<p class="scenario-rationale" style="--i:2"><strong>Por qué importa.</strong>${escapeHtml(scenario.rationale)}</p>`
+    : "";
+  const steps = (scenario.plain_steps || []).map((step, i) => UatRender.stepBlock(step, i)).join("");
+  const flags = (scenario.flags || []).map(f => `<span class="badge badge-flag">${escapeHtml(f)}</span>`).join("");
+
   document.getElementById('wizard').innerHTML = `
-    <div class="step-title">Escenario ${idx + 1} de ${total} &middot; ${feature.name} (${scenario.priority})</div>
-    <h2 style="text-transform:none;margin:.25rem 0 .75rem">${scenario.title}</h2>
-    ${scenario.rationale ? `<div class="rationale"><strong>Por qué importa:</strong> ${scenario.rationale}</div>` : ""}
-    ${steps}
-    <div class="verdict-row">
-      ${btn('PASS', '✅ Pasó', 'pass-btn')}
-      ${btn('FAIL', '❌ Falló', 'fail-btn')}
-      ${btn('BLOCKED', '⏸ Bloqueado', 'blocked-btn')}
+    ${UatRender.contextBar(scenario, feature)}
+    <header class="scenario-header" style="--i:2">
+      <div class="scenario-meta">
+        <span class="scenario-id">${escapeHtml(scenario.id)}</span>
+        <span class="scenario-feature">${escapeHtml(feature.id)} · ${escapeHtml(feature.name)}</span>
+        ${priorityBadge(scenario.priority)}
+        ${assigneeBadge(scenario.assignee)}
+        ${flags}
+      </div>
+      <h2 class="scenario-title">${escapeHtml(scenario.title)}</h2>
+    </header>
+
+    ${UatRender.userStoryBanner(scenario)}
+    ${rationale}
+    ${UatRender.preflightChecklist(scenario)}
+
+    <ol class="scenario-steps" style="--i:4">${steps}</ol>
+
+    ${UatRender.evidenceCaptureUI(scenario, current)}
+
+    <div class="comment-section" style="--i:7">
+      <label for="comment" class="comment-label">Comentario / notas del tester (opcional)</label>
+      <textarea id="comment" rows="2" placeholder="Lo que sea relevante para el audit trail">${escapeHtml(current.comment || "")}</textarea>
     </div>
-    ${scenario.evidence_prompt ? `<div class="step-expected"><strong>Evidencia requerida:</strong> ${scenario.evidence_prompt} <em>(pega screenshot con Ctrl+V)</em></div>` : ""}
-    <div class="evidence-drop" id="drop">🖼 Pega aquí el screenshot (Ctrl+V) o espera la evidencia</div>
-    ${ev}
-    <textarea id="comment" rows="2" placeholder="Comentario / observación (opcional)">${current.comment || ""}</textarea>
-    <div class="wizard-nav">
-      <button class="btn" ${idx === 0 ? 'disabled' : ''} onclick="nav(-1)">← Anterior</button>
-      <button class="btn" ${idx === total - 1 ? 'disabled' : ''} onclick="nav(1)">Siguiente →</button>
-    </div>`;
+
+    <div class="verdict-section" style="--i:8">
+      <span class="verdict-label">Verdict</span>
+      <div class="verdict-row">
+        ${btn('PASS', 'Pasó', '✓', 'verdict-pass')}
+        ${btn('FAIL', 'Falló', '✕', 'verdict-fail')}
+        ${btn('BLOCKED', 'Bloqueado', '⏸', 'verdict-blocked')}
+      </div>
+    </div>
+
+    <div id="failure-host" style="--i:9"></div>
+
+    <nav class="wizard-nav">
+      <span class="nav-position">Escenario ${idx + 1} de ${total}</span>
+      <div style="display:flex;gap:var(--space-2)">
+        <button class="btn" id="prev-btn" ${idx === 0 ? 'disabled' : ''}>← Anterior</button>
+        <button class="btn" id="next-btn" ${idx === total - 1 ? 'disabled' : ''}>Siguiente →</button>
+      </div>
+    </nav>
+  `;
+
+  if (current.status === 'FAIL') {
+    showFailurePanel(scenario, current.observed || "");
+  }
   updateProgress();
-  UAT.pasteScreenshot(RELEASE, scenario.id, () => { document.getElementById('drop').textContent = "✅ Screenshot capturado"; });
+  bindEvents(scenario, feature);
+}
+
+function btn(key, label, emoji, cls) {
+  return `<button class="verdict ${cls}" data-verdict="${key}"><span class="v-emoji">${emoji}</span><span class="v-label">${label}</span></button>`;
+}
+
+function bindEvents(scenario, feature) {
+  document.getElementById('wizard').querySelectorAll('.verdict').forEach(b => {
+    b.addEventListener('click', () => setVerdict(scenario.id, b.dataset.verdict, b));
+  });
+  document.querySelectorAll('.copy-btn[data-copy]').forEach(b => {
+    b.addEventListener('click', () => {
+      navigator.clipboard.writeText(b.dataset.copy).then(() => {
+        const original = b.textContent;
+        b.textContent = 'copiado';
+        b.classList.add('copied');
+        setTimeout(() => { b.textContent = original; b.classList.remove('copied'); }, 1400);
+      });
+    });
+  });
+  document.getElementById('prev-btn').addEventListener('click', () => nav(-1));
+  document.getElementById('next-btn').addEventListener('click', () => nav(1));
+  UAT.pasteScreenshot(RELEASE, scenario.id, () => {
+    const drop = document.getElementById('drop');
+    if (drop) {
+      drop.textContent = '✅ Screenshot capturado';
+      drop.classList.add('captured');
+      setTimeout(() => drop.classList.remove('captured'), 600);
+    }
+    render();
+  });
+  document.querySelectorAll('[data-attach-file]').forEach(b => {
+    b.addEventListener('click', () => attachFile(scenario.id, b.dataset.attachFile));
+  });
+  document.querySelectorAll('[data-attach-text]').forEach(b => {
+    b.addEventListener('click', () => attachText(scenario.id, b.dataset.attachText));
+  });
+  document.querySelectorAll('.evidence-remove[data-remove]').forEach(b => {
+    b.addEventListener('click', () => removeEvidence(scenario.id, parseInt(b.dataset.remove, 10)));
+  });
+}
+
+function attachFile(scenarioId, kindLabel) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.onchange = async () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    await UAT.addTypedEvidence(RELEASE, scenarioId, {
+      kind: kindLabel, blob: file, mime: file.type || 'application/octet-stream', note: file.name,
+    });
+    render();
+  };
+  input.click();
+}
+
+function attachText(scenarioId, kind) {
+  const input = document.querySelector(`[data-evidence-kind="${kind}"]`);
+  if (!input) return;
+  const value = input.value.trim();
+  if (!value) {
+    input.focus();
+    input.classList.add('evidence-text-empty');
+    setTimeout(() => input.classList.remove('evidence-text-empty'), 600);
+    return;
+  }
+  const scenario = all.find(({scenario}) => scenario.id === scenarioId).scenario;
+  const spec = (scenario.evidence && scenario.evidence.kinds || []).find(k => k.kind === kind);
+  const evidence = { kind, text: value, note: null };
+  if (spec) {
+    if (spec.expected_value != null) evidence.expected_value = spec.expected_value;
+    if (spec.match_mode) evidence.match_mode = spec.match_mode;
+  }
+  UAT.addTypedEvidence(RELEASE, scenarioId, evidence).then(() => {
+    input.value = '';
+    render();
+  });
+}
+
+function removeEvidence(scenarioId, idx) {
+  const session = UAT.loadSession(RELEASE);
+  if (!session) return;
+  const r = (session.results || []).find(r => r.scenario_id === scenarioId);
+  if (!r || !r.evidence) return;
+  r.evidence.splice(idx, 1);
+  UAT.saveSession(RELEASE, session);
+  if (verdicts[scenarioId]) verdicts[scenarioId].evidence = r.evidence;
+  render();
+}
+
+function showFailurePanel(scenario, observed) {
+  const host = document.getElementById('failure-host');
+  if (!host) return;
+  host.innerHTML = UatRender.failureProtocolPanel(scenario, observed);
+  const copyBtn = document.getElementById('copy-defect-report');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', () => {
+      const observedTxt = document.querySelector('.failure-observed').value;
+      const cur = verdicts[scenario.id] || {};
+      cur.observed = observedTxt;
+      verdicts[scenario.id] = cur;
+      const session = {
+        release: RELEASE,
+        executor: 'human',
+        executed_by: document.getElementById('tester-name').value.trim(),
+        started_at: startedAt || UAT.nowRfc3339(),
+        metadata: { tester: { id: UAT.ensureTesterId() }, build: { commit: 'unknown' } },
+      };
+      const report = UAT.buildDefectReport({ scenario, plan: PLAN, session, observed: observedTxt });
+      if (report) {
+        navigator.clipboard.writeText(report).then(() => {
+          copyBtn.textContent = '✅ Copiado al portapapeles';
+          setTimeout(() => { copyBtn.textContent = '📋 Copiar defect report'; }, 1400);
+        });
+      } else {
+        copyBtn.textContent = '(no defect template in plan)';
+      }
+    });
+  }
+  const defectInput = document.getElementById('defect-id');
+  if (defectInput) {
+    const cur = verdicts[scenario.id] || {};
+    defectInput.value = cur.linked_defect || '';
+    defectInput.addEventListener('change', () => {
+      cur.linked_defect = defectInput.value.trim();
+      verdicts[scenario.id] = cur;
+      saveVerdicts();
+    });
+  }
 }
 
 function updateProgress() {
   const total = all.length;
   const done = Object.keys(verdicts).filter(id => verdicts[id] && verdicts[id].status).length;
-  document.getElementById('bar').style.width = (100 * done / total) + "%";
-  document.getElementById('progress-label').textContent = `Escenario ${idx + 1} / ${total}`;
-  document.getElementById('progress-summary').textContent = `Progreso: ${done}/${total} escenarios valorados`;
+  const pct = total ? Math.round((100 * done) / total) : 0;
+  document.getElementById('progress-fill').style.width = pct + "%";
+  document.getElementById('progress-label').textContent = `${done} / ${total}`;
+  document.getElementById('progress-summary').textContent = `Progreso: ${done} / ${total} escenarios`;
 }
 
-function setVerdict(id, status) {
+function setVerdict(id, status, btnEl) {
   startIfNeeded();
   const entry = verdicts[id] || {};
   entry.status = status;
-  entry.comment = document.getElementById('comment') ? document.getElementById('comment').value : (entry.comment || "");
+  entry.verdict_at = UAT.nowRfc3339();
+  const ta = document.getElementById('comment');
+  if (ta) entry.comment = ta.value;
+  const scenario = all.find(({scenario}) => scenario.id === id).scenario;
+  const repro = (scenario.plain_steps || []).find(s => s.copy_hint && (s.kind === 'shell' || !s.kind));
+  if (repro) entry.repro_command = repro.action;
   verdicts[id] = entry;
   saveVerdicts();
-  render();
+  if (btnEl) {
+    btnEl.classList.remove('is-active');
+    void btnEl.offsetWidth;
+    btnEl.classList.add('is-active');
+  }
+  if (status === 'FAIL') render();
+  updateProgress();
 }
 
 function nav(delta) {
   const cur = all[idx].scenario;
   const entry = verdicts[cur.id] || {};
-  entry.comment = document.getElementById('comment').value;
+  const ta = document.getElementById('comment');
+  if (ta) entry.comment = ta.value;
   verdicts[cur.id] = entry;
   saveVerdicts();
   idx = Math.max(0, Math.min(all.length - 1, idx + delta));
@@ -161,27 +383,23 @@ function nav(delta) {
 
 function finalizeReport() {
   startIfNeeded();
+  finishedAt = UAT.nowRfc3339();
   const cur = all[idx].scenario;
   const entry = verdicts[cur.id] || {};
-  entry.comment = document.getElementById('comment').value;
+  const ta = document.getElementById('comment');
+  if (ta) entry.comment = ta.value;
   verdicts[cur.id] = entry;
   saveVerdicts();
 
   const tester = document.getElementById('tester-name').value.trim();
-  if (!tester) {
-    alert("Por favor, indica tu nombre o alias arriba (campo 'Tester'). Se incluye en la sesión como executed_by.");
-    return;
-  }
-
   const missing = SCENARIO_ORDER.filter(id => !verdicts[id] || !verdicts[id].status);
   if (missing.length > 0) {
     const proceed = confirm(
       `Faltan ${missing.length} escenario(s) sin valorar:\n  ${missing.join(", ")}\n\n` +
-      `¿Finalizar igualmente? Quedarán como "no valorados" y no se incluyen en el reporte.`
+      `¿Finalizar igualmente? Quedarán como "no valorados".`
     );
     if (!proceed) return;
   }
-
   const session = UAT.finalizeAndExport({
     release: RELEASE,
     planRef: PLAN.release?.candidate || RELEASE,
@@ -189,18 +407,30 @@ function finalizeReport() {
     startedAt,
     verdicts,
     scenarioOrder: SCENARIO_ORDER,
+    planVersion: PLAN.schema_version || 2,
   });
-
+  const teardownHTML = UatRender.teardownChecklist(cur);
+  const wizardEl = document.getElementById('wizard');
+  if (teardownHTML) {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = teardownHTML;
+    wrap.style.marginTop = 'var(--space-4)';
+    wizardEl.appendChild(wrap.firstElementChild);
+  }
   const ok = Object.values(verdicts).filter(v => v.status === 'PASS').length;
   const fail = Object.values(verdicts).filter(v => v.status === 'FAIL').length;
   const block = Object.values(verdicts).filter(v => v.status === 'BLOCKED').length;
+  const testerId = UAT.ensureTesterId();
   alert(
     `Reporte finalizado y descargado:\n\n` +
     `  pass: ${ok} | fail: ${fail} | blocked: ${block}\n` +
-    `  session_id: ${session.session_id}\n\n` +
+    `  session_id: ${session.session_id}\n` +
+    `  tester_id: ${testerId}\n` +
+    `  plan_version: ${session.plan_version}\n\n` +
     `Siguiente paso:\n` +
     `  sddk uat ingest --session uat-session-${RELEASE}.json\n` +
-    `  sddk uat failures --release ${RELEASE}   # para que el agente estudie los fallos`
+    `  sddk uat verify-integrity --session <file> --project ${tester}\n` +
+    `  sddk uat failures --release ${RELEASE}`
   );
 }
 

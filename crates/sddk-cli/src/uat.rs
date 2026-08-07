@@ -12,8 +12,11 @@ use clap::{Args, Subcommand};
 use crate::{dev_cmd, render_result, CommandOutput, OutputFormat};
 
 use sddk_domain::{
-    UatFeatureRollup, UatPlan, UatReport, UatReportSummary, UatScenarioRollup, UatSession,
-    UatVerdict,
+    UatFeatureRollup, UatHistoryReport, UatIntegrityReport, UatManifest, UatManifestEntry,
+    UatMigrationReport, UatPlan, UatReport, UatReportSummary, UatScenarioRollup, UatSession,
+    UatSuggestionsReport, UatVerdict, LATEST_PLAN_SCHEMA_VERSION, LATEST_SESSION_SCHEMA_VERSION,
+    aggregate_history, apply_all_suggestions, migrate_plan_v1_to_v2, sha256_hex,
+    suggest_scenario_context, verify_evidence,
 };
 
 /// Default view when rendering a dashboard.
@@ -48,6 +51,12 @@ pub(crate) enum UatCommand {
     /// Evaluate the `release-uat-approved` gate for a release type under the
     /// project's config. Used by the orchestrator/release agent.
     Gate(UatGateArgs),
+    MigratePlan(UatMigratePlanArgs),
+    VerifyIntegrity(UatVerifyIntegrityArgs),
+    StoragePath(UatStoragePathArgs),
+    BuildManifest(UatBuildManifestArgs),
+    ScenarioContext(UatScenarioContextArgs),
+    History(UatHistoryArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -299,6 +308,55 @@ pub(crate) struct UatGateReleaseArgs {
     pub(crate) format: OutputFormat,
 }
 
+#[derive(Debug, Clone, Args)]
+pub(crate) struct UatMigratePlanArgs {
+    #[arg(long)] pub(crate) input: PathBuf,
+    #[arg(long)] pub(crate) output: Option<PathBuf>,
+    #[arg(long)] pub(crate) in_place: bool,
+    #[arg(long)] pub(crate) report: Option<PathBuf>,
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)] pub(crate) format: OutputFormat,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct UatVerifyIntegrityArgs {
+    #[arg(long)] pub(crate) session: PathBuf,
+    #[arg(long)] pub(crate) project: Option<String>,
+    #[arg(long)] pub(crate) manifest: Option<PathBuf>,
+    #[arg(long)] pub(crate) output: Option<PathBuf>,
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)] pub(crate) format: OutputFormat,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct UatStoragePathArgs {
+    #[arg(long)] pub(crate) project: Option<String>,
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)] pub(crate) format: OutputFormat,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct UatBuildManifestArgs {
+    #[arg(long)] pub(crate) sessions: Vec<PathBuf>,
+    #[arg(long)] pub(crate) project: Option<String>,
+    #[arg(long)] pub(crate) output: Option<PathBuf>,
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)] pub(crate) format: OutputFormat,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct UatScenarioContextArgs {
+    #[arg(long)] pub(crate) plan: PathBuf,
+    #[arg(long)] pub(crate) apply: bool,
+    #[arg(long)] pub(crate) output: Option<PathBuf>,
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)] pub(crate) format: OutputFormat,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct UatHistoryArgs {
+    #[arg(long)] pub(crate) release: String,
+    #[arg(long)] pub(crate) plan: PathBuf,
+    #[arg(long)] pub(crate) sessions: Vec<PathBuf>,
+    #[arg(long)] pub(crate) output: Option<PathBuf>,
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)] pub(crate) format: OutputFormat,
+}
+
 pub(crate) fn run_uat(command: UatCommand, environment: &crate::CliEnvironment) -> CommandOutput {
     match command {
         UatCommand::Plan(args) => run_uat_plan(args, environment),
@@ -311,6 +369,12 @@ pub(crate) fn run_uat(command: UatCommand, environment: &crate::CliEnvironment) 
         UatCommand::Failures(args) => run_uat_failures(args),
         UatCommand::Config(args) => run_uat_config(args, environment),
         UatCommand::Gate(args) => run_uat_gate(args, environment),
+        UatCommand::MigratePlan(args) => run_uat_migrate_plan(args),
+        UatCommand::VerifyIntegrity(args) => run_uat_verify_integrity(args, environment),
+        UatCommand::StoragePath(args) => run_uat_storage_path(args, environment),
+        UatCommand::BuildManifest(args) => run_uat_build_manifest(args, environment),
+        UatCommand::ScenarioContext(args) => run_uat_scenario_context(args),
+        UatCommand::History(args) => run_uat_history(args),
     }
 }
 
@@ -355,6 +419,9 @@ fn run_uat_validate(args: UatValidateArgs) -> CommandOutput {
             .unwrap_or(0);
         if kind == 0 {
             anyhow::bail!("missing or invalid `schema_version`");
+        }
+        if !(1..=LATEST_PLAN_SCHEMA_VERSION as u64).contains(&kind) {
+            anyhow::bail!("schema_version {} is not supported (this build accepts 1..={})", kind, LATEST_PLAN_SCHEMA_VERSION);
         }
         let has_scenarios = value
             .get("features")
@@ -629,7 +696,7 @@ fn run_uat_failures(args: UatFailuresArgs) -> CommandOutput {
                     status: format!("{:?}", result.status).to_uppercase(),
                     comment: result.comment.clone().unwrap_or_default(),
                     evidence: result.evidence.iter().map(|e| {
-                        format!("{}:{}", e.kind, e.r#ref)
+                        format!("{:?}:{}", e.kind, e.r#ref)
                     }).collect(),
                     feature: feature_name,
                     priority: priority.map(|p| format!("{:?}", p).to_uppercase()),
@@ -1358,5 +1425,327 @@ fn browser_command(path: &Path, browser: Option<&str>) -> Vec<String> {
         vec!["open".into(), target]
     } else {
         vec!["xdg-open".into(), target]
+    }
+}
+
+fn run_uat_migrate_plan(args: UatMigratePlanArgs) -> CommandOutput {
+    let format = args.format;
+    let result = (|| -> anyhow::Result<(PathBuf, UatMigrationReport)> {
+        let raw = std::fs::read_to_string(&args.input)
+            .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", args.input.display()))?;
+        let mut plan: UatPlan = serde_saphyr::from_str(&raw)
+            .map_err(|e| anyhow::anyhow!("invalid plan {}: {e}", args.input.display()))?;
+        let report = migrate_plan_v1_to_v2(&mut plan);
+        let yaml = serde_saphyr::to_string(&plan).map_err(|e| anyhow::anyhow!("serialization failed: {e}"))?;
+        let output_path = if args.in_place {
+            args.input.clone()
+        } else if let Some(p) = args.output {
+            p
+        } else {
+            let stem = args.input.file_stem().map(|s| s.to_os_string()).unwrap_or_default();
+            let parent = args.input.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
+            parent.join(format!("{}.v2.yaml", stem.to_string_lossy()))
+        };
+        if let Some(parent) = output_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&output_path, yaml)?;
+        if let Some(report_path) = &args.report {
+            if let Some(parent) = report_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let report_yaml = serde_saphyr::to_string(&report).map_err(|e| anyhow::anyhow!("report serialization failed: {e}"))?;
+            std::fs::write(report_path, report_yaml)?;
+        }
+        Ok((output_path, report))
+    })();
+    render_result(result, format, |(path, report)| {
+        format!(
+            "uat migrate-plan: {} ({} → {}); features={}, scenarios={}, evidence_promoted={}, risk_promoted={}, timing_promoted={}\n",
+            path.display(), report.from_version, report.to_version,
+            report.features_touched, report.scenarios_touched,
+            report.evidence_promoted, report.risk_promoted, report.timing_promoted,
+        )
+    })
+}
+
+fn resolve_project_id_or_default(args_project: Option<&str>, environment: &crate::CliEnvironment) -> anyhow::Result<String> {
+    if let Some(id) = args_project { return Ok(id.to_string()); }
+    resolve_project_id(args_project, environment)
+}
+
+fn run_uat_storage_path(args: UatStoragePathArgs, environment: &crate::CliEnvironment) -> CommandOutput {
+    let format = args.format;
+    let result = (|| -> anyhow::Result<serde_json::Value> {
+        let project_id = resolve_project_id_or_default(args.project.as_deref(), environment)?;
+        let xdg = xdg_from_env(environment);
+        let root = sddk_engine::uat_storage_root(&xdg, &project_id)
+            .map_err(|e| anyhow::anyhow!("cannot resolve storage root: {e}"))?;
+        let manifest = sddk_engine::uat_manifest_path(&xdg, &project_id)
+            .map_err(|e| anyhow::anyhow!("cannot resolve manifest path: {e}"))?;
+        Ok(serde_json::json!({
+            "project_id": project_id,
+            "storage_root": root.display().to_string(),
+            "manifest_path": manifest.display().to_string(),
+        }))
+    })();
+    render_result(result, format, |v| serde_json::to_string_pretty(&v).unwrap_or_else(|_| v.to_string()))
+}
+
+fn load_manifest(manifest_path: &Path) -> anyhow::Result<UatManifest> {
+    if !manifest_path.exists() {
+        return Ok(UatManifest::new("", ""));
+    }
+    let raw = std::fs::read_to_string(manifest_path)
+        .map_err(|e| anyhow::anyhow!("cannot read manifest {}: {e}", manifest_path.display()))?;
+    serde_saphyr::from_str(&raw)
+        .map_err(|e| anyhow::anyhow!("invalid manifest {}: {e}", manifest_path.display()))
+}
+
+fn run_uat_build_manifest(args: UatBuildManifestArgs, environment: &crate::CliEnvironment) -> CommandOutput {
+    let format = args.format;
+    let result = (|| -> anyhow::Result<(PathBuf, u32)> {
+        if args.sessions.is_empty() {
+            anyhow::bail!("no sessions provided");
+        }
+        let project_id = resolve_project_id_or_default(args.project.as_deref(), environment)?;
+        let xdg = xdg_from_env(environment);
+        let manifest_path = args.output.clone().unwrap_or_else(|| {
+            sddk_engine::uat_manifest_path(&xdg, &project_id).unwrap_or_default()
+        });
+        let mut manifest = load_manifest(&manifest_path).unwrap_or_else(|_| UatManifest::new(project_id.clone(), now_rfc3339()));
+        let mut added = 0u32;
+        for session_path in &args.sessions {
+            let session: UatSession = read_session(session_path)?;
+            for result in &session.results {
+                for ev in &result.evidence {
+                    let sha256 = ev.r#ref.clone();
+                    let Some(path) = ev.path.clone() else { continue; };
+                    let entry = UatManifestEntry {
+                        sha256: sha256.strip_prefix("sha256:").unwrap_or(&sha256).to_string(),
+                        path,
+                        size_bytes: ev.size_bytes.unwrap_or(0),
+                        captured_at: ev.captured_at.clone().unwrap_or_else(now_rfc3339),
+                        scenario_id: result.scenario_id.clone(),
+                        session_id: session.session_id.clone(),
+                        kind: ev.kind,
+                        mime: ev.mime.clone(),
+                    };
+                    let was_new = manifest.lookup(&sha256).is_none();
+                    manifest.upsert(entry);
+                    if was_new { added += 1; }
+                }
+            }
+        }
+        if let Some(parent) = manifest_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let yaml = serde_saphyr::to_string(&manifest).map_err(|e| anyhow::anyhow!("manifest serialization failed: {e}"))?;
+        std::fs::write(&manifest_path, yaml)?;
+        Ok((manifest_path, added))
+    })();
+    render_result(result, format, |(path, added)| {
+        format!("uat build-manifest: {} ({} new entries)\n", path.display(), added)
+    })
+}
+
+fn run_uat_verify_integrity(args: UatVerifyIntegrityArgs, environment: &crate::CliEnvironment) -> CommandOutput {
+    let format = args.format;
+    let result = (|| -> anyhow::Result<(UatIntegrityReport, PathBuf)> {
+        let session: UatSession = read_session(&args.session)?;
+        let project_id = resolve_project_id_or_default(args.project.as_deref(), environment)?;
+        let xdg = xdg_from_env(environment);
+        let manifest_path = args.manifest.clone().unwrap_or_else(|| {
+            sddk_engine::uat_manifest_path(&xdg, &project_id).unwrap_or_default()
+        });
+        let manifest = load_manifest(&manifest_path).unwrap_or_else(|_| UatManifest::new(project_id.clone(), now_rfc3339()));
+        let mut findings = Vec::new();
+        let mut total_evidence = 0u32;
+        for result in &session.results {
+            for ev in &result.evidence {
+                total_evidence += 1;
+                let manifest_entry = manifest.lookup(&ev.r#ref);
+                let mut finding = verify_evidence(ev, manifest_entry, None);
+                finding.scenario_id = result.scenario_id.clone();
+                if let Some(path) = &ev.path {
+                    let full = sddk_engine::uat_storage_root(&xdg, &project_id).map(|root| root.join(path));
+                    match full {
+                        Ok(p) if p.exists() => {
+                            if finding.status == "no_payload" {
+                                finding.status = "ok".into();
+                                finding.message = Some(format!("file present at {}", p.display()));
+                            }
+                        }
+                        Ok(p) => { finding.status = "missing".into(); finding.message = Some(format!("file missing at {}", p.display())); }
+                        Err(e) => { finding.status = "missing".into(); finding.message = Some(format!("path resolution failed: {e}")); }
+                    }
+                }
+                findings.push(finding);
+            }
+        }
+        let verdict = UatIntegrityReport::compute_verdict(&findings).to_string();
+        let report = UatIntegrityReport {
+            session_id: session.session_id.clone(),
+            project_id: project_id.clone(),
+            verified_at: now_rfc3339(),
+            total_evidence,
+            findings: findings.clone(),
+            verdict: verdict.clone(),
+        };
+        let output_path = args.output.unwrap_or_else(|| args.session.with_extension("integrity.yaml"));
+        let yaml = serde_saphyr::to_string(&report).map_err(|e| anyhow::anyhow!("report serialization failed: {e}"))?;
+        std::fs::write(&output_path, yaml)?;
+        Ok((report, output_path))
+    })();
+    match result {
+        Ok((report, path)) => {
+            if matches!(format, OutputFormat::Json) {
+                let json = serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".into());
+                return CommandOutput { stdout: format!("{json}\n"), stderr: String::new(), status: 0 };
+            }
+            let ok = report.findings.iter().filter(|f| f.status == "ok").count();
+            let partial = report.findings.iter().filter(|f| f.status == "no_payload").count();
+            let fail = report.findings.iter().filter(|f| matches!(f.status.as_str(), "missing" | "hash_mismatch" | "size_mismatch")).count();
+            let mut out = format!(
+                "uat verify-integrity: session={}, evidence={}, verdict={}, ok={}, partial={}, fail={}\nreport: {}\n",
+                report.session_id, report.total_evidence, report.verdict, ok, partial, fail, path.display()
+            );
+            for f in &report.findings {
+                out.push_str(&format!("  [{}] {} sha256={} ({})\n",
+                    f.status.to_uppercase(), f.scenario_id, f.sha256,
+                    f.message.as_deref().unwrap_or("")));
+            }
+            let exit = if report.verdict == "fail" { 1 } else { 0 };
+            CommandOutput { stdout: out, stderr: String::new(), status: exit }
+        }
+        Err(e) => render_result(Err::<(), _>(e), format, |_| String::new()),
+    }
+}
+
+#[allow(dead_code)]
+fn _cli_sha256_hex(bytes: &[u8]) -> String {
+    sha256_hex(bytes)
+}
+
+fn run_uat_scenario_context(args: UatScenarioContextArgs) -> CommandOutput {
+    let format = args.format;
+    let result = (|| -> anyhow::Result<(UatSuggestionsReport, Option<PathBuf>)> {
+        let raw = std::fs::read_to_string(&args.plan)
+            .map_err(|e| anyhow::anyhow!("cannot read plan {}: {e}", args.plan.display()))?;
+        let mut plan: UatPlan = serde_saphyr::from_str(&raw)
+            .map_err(|e| anyhow::anyhow!("invalid plan {}: {e}", args.plan.display()))?;
+        migrate_plan_v1_to_v2(&mut plan);
+        let report = suggest_scenario_context(&plan);
+        let output_path = if args.apply {
+            let path = args.output.clone().unwrap_or_else(|| {
+                let stem = args.plan.file_stem().map(|s| s.to_os_string()).unwrap_or_default();
+                let parent = args.plan.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
+                parent.join(format!("{}.context.yaml", stem.to_string_lossy()))
+            });
+            let applied = apply_all_suggestions(&mut plan, &report);
+            if let Some(parent) = path.parent() { std::fs::create_dir_all(parent)?; }
+            let yaml = serde_saphyr::to_string(&plan).map_err(|e| anyhow::anyhow!("plan serialization failed: {e}"))?;
+            std::fs::write(&path, yaml)?;
+            Some(path)
+        } else { None };
+        Ok((report, output_path))
+    })();
+    match result {
+        Ok((report, output_path)) => {
+            let stdout = scenario_context_to_string(&report, output_path.as_ref(), format);
+            CommandOutput { stdout, stderr: String::new(), status: 0 }
+        }
+        Err(e) => render_result(Err::<(), _>(e), format, |_| String::new()),
+    }
+}
+
+fn scenario_context_to_string(report: &UatSuggestionsReport, output_path: Option<&PathBuf>, format: OutputFormat) -> String {
+    if matches!(format, OutputFormat::Json) {
+        return serde_json::to_string_pretty(&serde_json::json!({"report": report, "output_path": output_path.map(|p| p.display().to_string())}))
+            .unwrap_or_else(|_| "{}".into());
+    }
+    let mut out = String::new();
+    out.push_str(&format!(
+        "uat scenario-context: plan={}, version=v{}, scenarios={}, fully_populated={}, partial={}, suggestions={}\n",
+        report.plan_ref, report.plan_version, report.total_scenarios, report.fully_populated, report.partial, report.suggestions_count,
+    ));
+    for s in &report.scenarios {
+        if s.suggestions.is_empty() {
+            out.push_str(&format!("  ✓ {} / {} — fully populated ({} fields)\n", s.feature_id, s.scenario_id, s.populated_fields));
+            continue;
+        }
+        out.push_str(&format!("  → {} / {} — {} (populated: {}, missing: {})\n",
+            s.feature_id, s.scenario_id, s.scenario_title, s.populated_fields, s.missing_fields));
+        for sug in &s.suggestions {
+            let proposed_summary = match &sug.proposed {
+                serde_json::Value::String(s) if s.is_empty() => "(fill manually)".into(),
+                serde_json::Value::String(s) => format!("\"{s}\""),
+                serde_json::Value::Array(a) => format!("[{} items]", a.len()),
+                serde_json::Value::Object(o) => format!("{{{} keys}}", o.len()),
+                other => other.to_string(),
+            };
+            out.push_str(&format!("      · {} [{}]: {}\n        → {}\n", sug.field, sug.kind, sug.reason, proposed_summary));
+        }
+    }
+    if let Some(path) = output_path {
+        out.push_str(&format!("\nApplied plan written to {}\n", path.display()));
+    } else if report.suggestions_count > 0 {
+        out.push_str("\nRun with --apply to write suggestions to <plan>.context.yaml\n");
+    }
+    out
+}
+
+fn run_uat_history(args: UatHistoryArgs) -> CommandOutput {
+    let format = args.format;
+    let result = (|| -> anyhow::Result<(UatHistoryReport, Option<PathBuf>)> {
+        if args.sessions.is_empty() {
+            anyhow::bail!("no sessions provided");
+        }
+        let plan_raw = std::fs::read_to_string(&args.plan)
+            .map_err(|e| anyhow::anyhow!("cannot read plan {}: {e}", args.plan.display()))?;
+        let plan: UatPlan = serde_saphyr::from_str(&plan_raw)
+            .map_err(|e| anyhow::anyhow!("invalid plan {}: {e}", args.plan.display()))?;
+        let mut sessions = Vec::new();
+        for sp in &args.sessions { sessions.push(read_session(sp)?); }
+        let report = aggregate_history(&plan, &sessions, &args.release, &now_rfc3339());
+        let output_path = args.output.clone().unwrap_or_else(|| PathBuf::from(format!("uat-history-{}.yaml", args.release)));
+        if let Some(parent) = output_path.parent() { std::fs::create_dir_all(parent)?; }
+        let yaml = serde_saphyr::to_string(&report).map_err(|e| anyhow::anyhow!("history serialization failed: {e}"))?;
+        std::fs::write(&output_path, yaml)?;
+        Ok((report, Some(output_path)))
+    })();
+    match result {
+        Ok((report, output_path)) => {
+            if matches!(format, OutputFormat::Json) {
+                let json = serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".into());
+                return CommandOutput { stdout: format!("{json}\n"), stderr: String::new(), status: 0 };
+            }
+            let mut out = format!(
+                "uat history: release={}, sessions={}, scenarios={}, defects={}\n",
+                report.release, report.sessions_total, report.scenarios.len(), report.defects_total,
+            );
+            for f in &report.features {
+                out.push_str(&format!("    {} — {} — coverage {:.0}% ({} / {})\n",
+                    f.feature_id, f.feature_name, f.coverage_pct, f.scenarios_passing, f.scenarios_total));
+            }
+            out.push_str("\nscenarios (last / first run · success rate · flakiness · trend · defects):\n");
+            for s in &report.scenarios {
+                let last = s.last_run.as_ref().map(|r| format!("{} {} {}", r.at.get(..16).unwrap_or(&r.at), r.status, r.commit.as_deref().unwrap_or("?"))).unwrap_or_else(|| "(never run)".into());
+                let first = s.first_run.as_ref().map(|r| format!("{} {} {}", r.at.get(..16).unwrap_or(&r.at), r.status, r.commit.as_deref().unwrap_or("?"))).unwrap_or_else(|| "(never)".into());
+                let defects = if s.defect_ids.is_empty() { "—".into() } else { s.defect_ids.join(", ") };
+                out.push_str(&format!("  {} / {} — {} (success {:.0}%, flaky {:.0}, trend={}, defects={})\n",
+                    s.feature_id, s.scenario_id, s.scenario_title,
+                    s.success_rate * 100.0, s.flakiness_score * 100.0, s.trend, defects));
+                out.push_str(&format!("      last:  {}\n      first: {}\n      runs:  {} (pass {} | fail {} | block {})\n",
+                    last, first, s.runs_total, s.runs_passing, s.runs_failing, s.runs_blocked));
+            }
+            if let Some(path) = output_path {
+                out.push_str(&format!("\nhistory written: {}\n", path.display()));
+            }
+            CommandOutput { stdout: out, stderr: String::new(), status: 0 }
+        }
+        Err(e) => {
+            CommandOutput { stdout: format!("uat history: error: {e}\n"), stderr: String::new(), status: 1 }
+        }
     }
 }
