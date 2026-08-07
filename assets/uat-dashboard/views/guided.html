@@ -33,6 +33,7 @@
 <footer>sddk uat dashboard &middot; guided view &middot; pega el screenshot con Ctrl+V cuando lo pida &middot;
 al finalizar pulsa <strong>✅ Finalizar y exportar reporte</strong>; el JSON se ingiere con <code>sddk uat ingest --session &lt;file&gt;</code></footer>
 
+<script>@STORAGE_JS@</script>
 <script>
 const PLAN = @PLAN_JSON@;
 const RELEASE = '@RELEASE@';
@@ -206,6 +207,5 @@ function finalizeReport() {
 loadVerdicts();
 render();
 </script>
-<script>@STORAGE_JS@</script>
 </body>
 </html>
