@@ -4214,3 +4214,113 @@ fn version_resolves_sddk_versions_walking_parents() {
     );
     assert_eq!(path_json["present"], true);
 }
+
+#[test]
+fn analytics_research_all_projects_uses_control_plane() {
+    let fixture = CliFixture::new("research-all-projects");
+    let binary = env!("CARGO_BIN_EXE_sddk");
+
+    // No control plane store yet → error with hint.
+    let missing = fixture.run(&[
+        "analytics",
+        "research",
+        "--all-projects",
+        "--root",
+        ".",
+        "--scope",
+        ".",
+    ]);
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("telemetry ingest"));
+
+    // Seed two projects' metrics via adopt + metrics record (XDG env from the
+    // fixture makes both projects land in the fixture data root).
+    let proj1 = fixture.root.join("proj-one");
+    let proj2 = fixture.root.join("proj-two");
+    for (dir, remote, cycle_slug) in [
+        (&proj1, "https://example.com/acme/one.git", "cycle-one"),
+        (&proj2, "https://example.com/acme/two.git", "cycle-two"),
+    ] {
+        fs::create_dir_all(dir).unwrap();
+        let adopted = fixture.run(&[
+            "adopt",
+            "apply",
+            "--root",
+            dir.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            remote,
+            "--timestamp",
+            "2026-08-07T12:00:00Z",
+            "--format",
+            "json",
+        ]);
+        assert!(
+            adopted.status.success(),
+            "{}",
+            String::from_utf8_lossy(&adopted.stderr)
+        );
+        let project_id: serde_json::Value = serde_json::from_slice(&adopted.stdout).unwrap();
+        let cycle = format!(
+            "{}/{}",
+            project_id["project_id"].as_str().unwrap(),
+            cycle_slug
+        );
+        let recorded = fixture.run(&[
+            "metrics",
+            "record",
+            "--root",
+            dir.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            remote,
+            "--cycle",
+            &cycle,
+            "--verdict",
+            "PASS",
+            "--first-pass",
+            "--cost",
+            "1.5",
+        ]);
+        assert!(
+            recorded.status.success(),
+            "{}",
+            String::from_utf8_lossy(&recorded.stderr)
+        );
+    }
+
+    let ingested = fixture.run(&["telemetry", "ingest"]);
+    assert!(
+        ingested.status.success(),
+        "{}",
+        String::from_utf8_lossy(&ingested.stderr)
+    );
+
+    // Research packet now covers BOTH projects.
+    let packet = fixture.run(&[
+        "analytics",
+        "research",
+        "--all-projects",
+        "--root",
+        ".",
+        "--scope",
+        ".",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        packet.status.success(),
+        "{}",
+        String::from_utf8_lossy(&packet.stderr)
+    );
+    let packet_json: serde_json::Value = serde_json::from_slice(&packet.stdout).unwrap();
+    let projects = packet_json["projects"].as_array().unwrap();
+    assert_eq!(
+        projects.len(),
+        2,
+        "cross-project packet must list both projects"
+    );
+    assert!(packet_json["cycles"].as_array().unwrap().len() >= 2);
+}

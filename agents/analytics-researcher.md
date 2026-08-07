@@ -12,20 +12,27 @@ You are **`analytics-researcher`** — the first agent in the SDDK telemetry sel
 
 ## Inputs
 
-| Source | Path | Purpose |
-|--------|------|---------|
+| Source | Path / Command | Purpose |
+|--------|----------------|---------|
+| Research packet (cross-project) | `sddk analytics research --all-projects --root <repo> --scope <scope> --format json` | Rolling aggregates + per-project summaries from the control plane store (ADR-0009) |
+| Research packet (single project) | `sddk analytics research --root <repo> --scope <scope> --format json` | Same packet scoped to the current project |
+| Control plane store | `<data>/sddk/control-plane/control-plane.sqlite` | Central cycles/aggregates (all adopted projects) |
 | Aggregate | `<data>/sddk/projects/<project_id>/metrics/aggregate.json` | Rolling 7d/30d stats |
 | Raw records | `<data>/sddk/projects/<project_id>/metrics/metrics.jsonl` | Per-cycle detail (Levels A-E) |
 | Ledger | `sddk ledger events --format json` | Integrity-checked event stream |
 
+> If the control plane store exists, prefer `sddk analytics research --all-projects`
+> so findings cover the whole fleet. Otherwise fall back to the per-project packet.
+
 ## What you look for
 
-1. **Bottlenecks**: which phase has the highest median duration; is it growing across windows?
+1. **Bottlenecks**: which phase has the highest median duration; is it growing across windows? Compare per-project `top_bottleneck_phase` for fleet-wide patterns.
 2. **First-pass drift**: is `first_pass_success_rate` rising or falling over 7d vs 30d?
-3. **Cost hotspots**: which loop (L1-L6) dominates `cost_estimate_usd`; any per-task cost outliers?
+3. **Cost hotspots**: which loop (L1-L6) dominates `cost_estimate_usd`; any per-task cost outliers? Missing cost data (0.0) is itself a finding.
 4. **Path misclassification**: is the path distribution skewed (e.g., >70% A-full) suggesting triage bias?
 5. **Recovery quality**: correction cycles count; any cycle with `corrections > 2` and why.
 6. **Teleological signals**: `teleological_coherence_pct < 70` — spec drift warning.
+7. **Cross-project coverage**: projects with zero cost/coherence data; sample sizes too small for F3 tuning.
 
 ## Method
 

@@ -115,19 +115,36 @@ pub(crate) struct TelemetryDashboardArgs {
 
 /// Resolve the control plane directory under the XDG data root.
 fn control_plane_dir(environment: &CliEnvironment) -> anyhow::Result<PathBuf> {
-    let data_home = match (&environment.data_home, &environment.home) {
-        (Some(data), _) => data.clone(),
-        (None, Some(home)) => home.join(".local/share"),
-        (None, None) => anyhow::bail!("no data root: set HOME or XDG_DATA_HOME"),
+    let data_home = if let Some(dir) = &environment.sddk_data_dir {
+        dir.clone()
+    } else {
+        match (&environment.data_home, &environment.home) {
+            (Some(data), _) => data.clone(),
+            (None, Some(home)) => home.join(".local/share"),
+            (None, None) => dirs::data_dir().ok_or_else(|| {
+                anyhow::anyhow!("no data root: set HOME, XDG_DATA_HOME or SDDK_DATA_DIR")
+            })?,
+        }
     };
     if !data_home.is_absolute() {
-        anyhow::bail!("XDG_DATA_HOME must be absolute: {data_home:?}");
+        anyhow::bail!("data root must be absolute: {data_home:?}");
     }
     Ok(data_home.join("sddk/control-plane"))
 }
 
+/// Whether the control plane store file exists (without creating it).
+pub(crate) fn store_exists(environment: &CliEnvironment) -> bool {
+    match control_plane_dir(environment) {
+        Ok(dir) => dir.join(CONTROL_PLANE_DB).is_file(),
+        Err(_) => false,
+    }
+}
+
 /// Open (and initialize) the central SQLite store.
-fn open_store(environment: &CliEnvironment, dry_run: bool) -> anyhow::Result<Connection> {
+pub(crate) fn open_store(
+    environment: &CliEnvironment,
+    dry_run: bool,
+) -> anyhow::Result<Connection> {
     let dir = control_plane_dir(environment)?;
     if dry_run {
         // Validate the dir is reachable without creating it.
@@ -156,10 +173,14 @@ struct DiscoveredProject {
 
 /// Scan the projects root for adopted workspaces.
 fn discover_projects(environment: &CliEnvironment) -> anyhow::Result<Vec<DiscoveredProject>> {
-    let data_home = match (&environment.data_home, &environment.home) {
-        (Some(data), _) => data.clone(),
-        (None, Some(home)) => home.join(".local/share"),
-        (None, None) => return Ok(Vec::new()),
+    let data_home = if let Some(dir) = &environment.sddk_data_dir {
+        dir.clone()
+    } else {
+        match (&environment.data_home, &environment.home) {
+            (Some(data), _) => data.clone(),
+            (None, Some(home)) => home.join(".local/share"),
+            (None, None) => return Ok(Vec::new()),
+        }
     };
     let projects_root = data_home.join("sddk/projects");
     if !projects_root.exists() {
@@ -593,7 +614,7 @@ fn aggregate_output_text(output: &AggregateOutput) -> String {
 }
 
 /// Load all cycle records from the central store.
-fn load_cycles(conn: &Connection) -> anyhow::Result<Vec<sddk_domain::MetricsRecord>> {
+pub(crate) fn load_cycles(conn: &Connection) -> anyhow::Result<Vec<sddk_domain::MetricsRecord>> {
     let mut stmt = conn.prepare(
         "SELECT cycle_id, path, context_quality, phase_durations_sec, \
          coherence_scores, correction_cycles, tokens_used, cost_estimate_usd, costs, \
