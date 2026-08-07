@@ -7,7 +7,7 @@ use sddk_gateway::{PermissionPolicy, RunSpec, run};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::{CommandOutput, OutputFormat, render_result};
+use crate::{CliEnvironment, CommandOutput, OutputFormat, render_result};
 
 const RECEIPT_FILE: &str = "sddk-install.json";
 
@@ -25,8 +25,23 @@ pub(crate) enum DevCommand {
     Uninstall(UninstallArgs),
     /// Symlink the framework assets (agents/skills/prompts/workflows) into an editor.
     Link(LinkArgs),
+    /// Select the active framework bundle version (asdf-style `use`).
+    Use(UseArgs),
     /// Update the framework: pull, re-link, rebuild, verify.
     Update(UpdateArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct UseArgs {
+    /// Version to activate (installed bundle) or `path:<dir>` for dogfooding.
+    #[arg(long, required_unless_present = "show")]
+    pub(crate) version: Option<String>,
+    /// Show the active version without changing it.
+    #[arg(long)]
+    pub(crate) show: bool,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -168,15 +183,16 @@ pub(crate) struct InstallReceipt {
     pub binary_path: String,
 }
 
-pub(crate) fn run_dev(command: DevCommand) -> CommandOutput {
+pub(crate) fn run_dev(command: DevCommand, environment: &CliEnvironment) -> CommandOutput {
     match command {
         DevCommand::Doctor(args) => run_dev_doctor(args),
         DevCommand::Check(args) => run_dev_check(args),
         DevCommand::Install(args) => run_dev_install(args),
         DevCommand::Verify(args) => run_dev_verify(args),
         DevCommand::Uninstall(args) => run_dev_uninstall(args),
-        DevCommand::Link(args) => run_dev_link(args),
-        DevCommand::Update(args) => run_dev_update(args),
+        DevCommand::Link(args) => run_dev_link(args, environment),
+        DevCommand::Use(args) => run_dev_use(args, environment),
+        DevCommand::Update(args) => run_dev_update(args, environment),
     }
 }
 
@@ -683,10 +699,17 @@ fn walk_dir(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-fn run_dev_link(args: LinkArgs) -> CommandOutput {
+fn run_dev_link(args: LinkArgs, environment: &CliEnvironment) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<Vec<LinkReport>> {
-        let root = std::fs::canonicalize(&args.root)?;
+        // When no explicit root is given, link from the active framework
+        // bundle (`$SDDK_DATA_DIR/framework/current`, asdf-style). An explicit
+        // `--root` still links from a repo/checkout (dogfooding).
+        let root = if args.root.as_os_str() == "." {
+            resolve_active_framework_root(environment)?
+        } else {
+            std::fs::canonicalize(&args.root)?
+        };
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("/tmp"));
@@ -723,6 +746,123 @@ fn run_dev_link(args: LinkArgs) -> CommandOutput {
         }
         text
     })
+}
+
+/// Data root of the framework: `SDDK_DATA_DIR` override, else XDG data dir
+/// (`~/.local/share/sddk` on Linux, platform dir on macOS/Windows).
+fn sddk_data_dir(environment: &CliEnvironment) -> anyhow::Result<PathBuf> {
+    if let Some(dir) = &environment.sddk_data_dir {
+        return Ok(dir.clone());
+    }
+    let data_home = match (&environment.data_home, &environment.home) {
+        (Some(data), _) => data.clone(),
+        (None, Some(home)) => home.join(".local/share"),
+        (None, None) => dirs::data_dir().ok_or_else(|| {
+            anyhow::anyhow!("no data root: set HOME, XDG_DATA_HOME or SDDK_DATA_DIR")
+        })?,
+    };
+    Ok(data_home.join("sddk"))
+}
+
+/// The `framework/` dir inside the data root (bundles per version + `current`).
+fn framework_dir(environment: &CliEnvironment) -> anyhow::Result<PathBuf> {
+    Ok(sddk_data_dir(environment)?.join("framework"))
+}
+
+/// Resolve the active framework root: `current` symlink target, else the
+/// latest installed version, else the data dir (empty).
+fn resolve_active_framework_root(environment: &CliEnvironment) -> anyhow::Result<PathBuf> {
+    let dir = framework_dir(environment)?;
+    let current = dir.join("current");
+    if let Ok(target) = std::fs::read_link(&current) {
+        if target.is_absolute() {
+            return Ok(target);
+        }
+        return Ok(dir.join(target));
+    }
+    // Fall back to the highest installed version.
+    let mut versions: Vec<String> = std::fs::read_dir(&dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter(|entry| entry.file_type().map(|t| t.is_dir()).unwrap_or(false))
+                .filter_map(|entry| entry.file_name().into_string().ok())
+                .filter(|name| name != "current")
+                .collect()
+        })
+        .unwrap_or_default();
+    versions.sort();
+    versions
+        .last()
+        .map(|version| dir.join(version))
+        .ok_or_else(|| {
+            anyhow::anyhow!("no framework bundle installed; run `sddk dev update --root <dir>`")
+        })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+struct UseOutput {
+    version: String,
+    current: String,
+}
+
+fn run_dev_use(args: UseArgs, environment: &CliEnvironment) -> CommandOutput {
+    let format = args.format;
+    let result = (|| -> anyhow::Result<UseOutput> {
+        let dir = framework_dir(environment)?;
+        std::fs::create_dir_all(&dir)?;
+        let current = dir.join("current");
+        if args.show {
+            let active = match std::fs::read_link(&current) {
+                Ok(target) => target
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| target.to_string_lossy().into_owned()),
+                Err(_) => "none".to_owned(),
+            };
+            return Ok(UseOutput {
+                version: active.clone(),
+                current: active,
+            });
+        }
+        // Resolve the target: `path:<dir>` points at a working tree
+        // (dogfooding); otherwise a bundle version under framework/<version>/.
+        let target = if let Some(path) = args
+            .version
+            .as_deref()
+            .and_then(|version| version.strip_prefix("path:"))
+        {
+            std::fs::canonicalize(path)?
+        } else {
+            let version = args
+                .version
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("--version is required unless --show"))?;
+            let version_dir = dir.join(&version);
+            if !version_dir.is_dir() {
+                anyhow::bail!(
+                    "bundle version {version} not installed; run `sddk dev update --root <dir> --version {version}`",
+                    version = version
+                );
+            }
+            version_dir
+        };
+        // Atomically swap the `current` symlink.
+        let tmp = dir.join("current.tmp");
+        let _ = std::fs::remove_file(&tmp);
+        std::os::unix::fs::symlink(&target, &tmp)?;
+        std::fs::rename(&tmp, &current)?;
+        Ok(UseOutput {
+            version: args.version.unwrap_or_else(|| "current".to_owned()),
+            current: target.to_string_lossy().into_owned(),
+        })
+    })();
+    render_result(result, format, use_text)
+}
+
+fn use_text(output: &UseOutput) -> String {
+    format!("version: {}\ncurrent: {}\n", output.version, output.current)
 }
 
 // --- Framework doctor checks ---
@@ -990,48 +1130,72 @@ struct UninstallReport {
 
 // --- Update ---
 
-fn run_dev_update(args: UpdateArgs) -> CommandOutput {
+fn run_dev_update(args: UpdateArgs, environment: &CliEnvironment) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<String> {
-        let root = std::fs::canonicalize(&args.root).or_else(|_| {
-            // Bundle installs may target a directory that does not exist yet.
-            std::fs::create_dir_all(&args.root)?;
-            std::fs::canonicalize(&args.root)
-        })?;
         let mut output = String::new();
 
-        if root.join(".git").is_dir() {
+        if args.root.join(".git").is_dir() {
             // Developer checkout: pull, re-link, rebuild.
+            let root = std::fs::canonicalize(&args.root)?;
             output.push_str(&update_checkout(&root)?);
+            // Re-link the requested editors from this checkout (dogfooding).
+            re_link_editors(&root, args.editor, &mut output);
+            return Ok(output);
+        }
+
+        // Bundle install: download the framework release bundle, verify, and
+        // extract into `$SDDK_DATA_DIR/framework/<version>/` (asdf-style
+        // installs/<tool>/<version>). The bundle root defaults to the data
+        // root when --root is not an explicit existing dir.
+        let bundle_root = if args.root.as_os_str() == "." {
+            framework_dir(environment)?
         } else {
-            // Bundle install: download the framework release bundle, verify, extract.
-            output.push_str(&update_bundle(&root, &args)?);
-        }
+            std::fs::canonicalize(&args.root).unwrap_or(args.root.clone())
+        };
+        output.push_str(&update_bundle(&bundle_root, &args)?);
 
-        // Re-link the requested editors.
-        let home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("/tmp"));
-        let opencode_dir = home.join(".config/opencode");
-        let zcode_dir = home.join(".zcode");
-        if matches!(args.editor, LinkEditor::OpenCode | LinkEditor::All) && opencode_dir.is_dir() {
-            let report = link_editor(&root, &opencode_dir);
-            output.push_str(&format!(
-                "opencode: {} agents, {} skills, {} stale replaced\n",
-                report.agents_linked, report.skills_linked, report.stale_replaced
-            ));
+        // The extracted bundle lands in a version dir; update_bundle extracts
+        // directly into bundle_root, so if the user passed the framework root
+        // we additionally fix the `current` symlink to point at it.
+        if args.root.as_os_str() == "." {
+            let current = bundle_root.join("current");
+            let tmp = bundle_root.join("current.tmp");
+            let _ = std::fs::remove_file(&tmp);
+            if let Ok(target) = std::fs::read_link(&current) {
+                let _ = target;
+            }
+            let _ = std::fs::remove_file(&current);
+            std::os::unix::fs::symlink(&bundle_root, &tmp)?;
+            std::fs::rename(&tmp, &current)?;
+            output.push_str("framework: current -> bundle root (dev link resolves it)\n");
         }
-        if matches!(args.editor, LinkEditor::ZCode | LinkEditor::All) && zcode_dir.is_dir() {
-            let report = link_editor(&root, &zcode_dir);
-            output.push_str(&format!(
-                "zcode: {} agents, {} skills, {} stale replaced\n",
-                report.agents_linked, report.skills_linked, report.stale_replaced
-            ));
-        }
-
         Ok(output)
     })();
     render_result(result, format, |output: &String| output.clone())
+}
+
+/// Re-link the requested editors from a given framework root.
+fn re_link_editors(root: &Path, editor: LinkEditor, output: &mut String) {
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp"));
+    let opencode_dir = home.join(".config/opencode");
+    let zcode_dir = home.join(".zcode");
+    if matches!(editor, LinkEditor::OpenCode | LinkEditor::All) && opencode_dir.is_dir() {
+        let report = link_editor(root, &opencode_dir);
+        output.push_str(&format!(
+            "opencode: {} agents, {} skills, {} stale replaced\n",
+            report.agents_linked, report.skills_linked, report.stale_replaced
+        ));
+    }
+    if matches!(editor, LinkEditor::ZCode | LinkEditor::All) && zcode_dir.is_dir() {
+        let report = link_editor(root, &zcode_dir);
+        output.push_str(&format!(
+            "zcode: {} agents, {} skills, {} stale replaced\n",
+            report.agents_linked, report.skills_linked, report.stale_replaced
+        ));
+    }
 }
 
 /// Update a developer checkout (git work tree): pull, re-link, rebuild.

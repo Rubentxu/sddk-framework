@@ -1259,6 +1259,7 @@ dependencies = [
  "anyhow",
  "clap",
  "clap_complete",
+ "dirs",
  "regex",
  "rusqlite",
  "sddk-domain",

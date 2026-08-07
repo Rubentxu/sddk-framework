@@ -33,6 +33,7 @@ sddk-storage = { path = "../sddk-storage" }
 sha2 = { workspace = true }
 sddk-vault = { path = "../sddk-vault" }
 rusqlite = { workspace = true }
+dirs = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

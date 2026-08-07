@@ -4083,3 +4083,63 @@ fn lint_passes_without_workflow_file_in_repo() {
     );
     assert!(!fixture.root.join("workflow/workflow.yaml").exists());
 }
+
+#[test]
+fn dev_use_switches_bundle_version_and_path() {
+    let fixture = CliFixture::new("dev-use");
+    let data = fixture.root.join("data");
+    let framework = data.join("framework");
+    fs::create_dir_all(framework.join("1.3.0/agents")).unwrap();
+    fs::create_dir_all(framework.join("1.4.0/agents")).unwrap();
+    fs::write(framework.join("1.3.0/agents/a.md"), "# 1.3.0\n").unwrap();
+    fs::write(framework.join("1.4.0/agents/a.md"), "# 1.4.0\n").unwrap();
+    let binary = env!("CARGO_BIN_EXE_sddk");
+    let run = |args: &[&str]| {
+        Command::new(binary)
+            .env("SDDK_DATA_DIR", &data)
+            .args(args)
+            .output()
+            .unwrap()
+    };
+
+    // use 1.3.0 → current points at the bundle.
+    let used = run(&["dev", "use", "--version", "1.3.0", "--format", "json"]);
+    assert!(
+        used.status.success(),
+        "{}",
+        String::from_utf8_lossy(&used.stderr)
+    );
+    let current = fs::read_link(framework.join("current")).unwrap();
+    assert_eq!(current, framework.join("1.3.0"));
+
+    // use 1.4.0 → current switches.
+    assert!(run(&["dev", "use", "--version", "1.4.0"]).status.success());
+    let current = fs::read_link(framework.join("current")).unwrap();
+    assert_eq!(current, framework.join("1.4.0"));
+
+    // use path:<dir> → current points at the working tree (dogfooding).
+    let used_path = run(&[
+        "dev",
+        "use",
+        "--version",
+        &format!("path:{}", fixture.root.display()),
+    ]);
+    assert!(
+        used_path.status.success(),
+        "{}",
+        String::from_utf8_lossy(&used_path.stderr)
+    );
+    let current = fs::read_link(framework.join("current")).unwrap();
+    assert_eq!(current, fs::canonicalize(&fixture.root).unwrap());
+
+    // show reports the active version (basename of the resolved target).
+    let shown = run(&["dev", "use", "--show", "--format", "json"]);
+    assert!(shown.status.success());
+    let shown_json: serde_json::Value = serde_json::from_slice(&shown.stdout).unwrap();
+    assert!(shown_json["current"].as_str().unwrap().contains("dev-use"));
+
+    // unknown version → error.
+    let missing = run(&["dev", "use", "--version", "9.9.9"]);
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("not installed"));
+}

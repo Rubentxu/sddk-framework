@@ -451,7 +451,7 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         Command::AgentResult { command } => result_cmd::run_agent_result(command, environment),
         Command::Release { command } => release_cmd::run_release(command, environment),
         Command::Vault { command } => vault_cmd::run_vault(command, environment),
-        Command::Dev { command } => dev_cmd::run_dev(command),
+        Command::Dev { command } => dev_cmd::run_dev(command, environment),
         Command::Pack { command } => pack_cmd::run_pack(command),
         Command::Metrics { command } => metrics::run_metrics(command, environment),
         Command::Analytics { command } => analytics::run_analytics(command, environment),
