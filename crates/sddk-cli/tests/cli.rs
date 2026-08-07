@@ -4143,3 +4143,74 @@ fn dev_use_switches_bundle_version_and_path() {
     assert!(!missing.status.success());
     assert!(String::from_utf8_lossy(&missing.stderr).contains("not installed"));
 }
+
+#[test]
+fn version_resolves_sddk_versions_walking_parents() {
+    let fixture = CliFixture::new("version-lookup");
+    let data = fixture.root.join("data");
+    let framework = data.join("framework");
+    fs::create_dir_all(framework.join("1.3.0")).unwrap();
+    fs::create_dir_all(framework.join("1.4.0")).unwrap();
+    let binary = env!("CARGO_BIN_EXE_sddk");
+    let run = |root: &Path| {
+        Command::new(binary)
+            .env("SDDK_DATA_DIR", &data)
+            .args(["version", "--root"])
+            .arg(root)
+            .args(["--format", "json"])
+            .output()
+            .unwrap()
+    };
+
+    // No .sddk-versions → no version configured.
+    let none = run(fixture.root.as_path());
+    assert!(none.status.success());
+    let none_json: serde_json::Value = serde_json::from_slice(&none.stdout).unwrap();
+    assert_eq!(none_json["source"], "none");
+
+    // current symlink → resolved to its target.
+    fs::create_dir_all(fixture.root.join("sub/deep")).unwrap();
+    std::os::unix::fs::symlink(framework.join("1.4.0"), framework.join("current")).unwrap();
+    let cur = run(fixture.root.as_path());
+    let cur_json: serde_json::Value = serde_json::from_slice(&cur.stdout).unwrap();
+    assert_eq!(cur_json["source"], "current");
+    assert_eq!(
+        cur_json["resolved"],
+        framework.join("1.4.0").to_string_lossy().as_ref()
+    );
+
+    // .sddk-versions in a parent dir → version pin wins.
+    fs::write(fixture.root.join(".sddk-versions"), "sddk 1.3.0\n").unwrap();
+    let pinned = run(fixture.root.join("sub/deep").as_path());
+    let pinned_json: serde_json::Value = serde_json::from_slice(&pinned.stdout).unwrap();
+    assert!(
+        pinned_json["source"]
+            .as_str()
+            .unwrap()
+            .contains(".sddk-versions")
+    );
+    assert_eq!(
+        pinned_json["resolved"],
+        framework.join("1.3.0").to_string_lossy().as_ref()
+    );
+
+    // path: → resolved to the declared directory.
+    fs::write(
+        fixture.root.join(".sddk-versions"),
+        format!("sddk path:{}\n", fixture.root.display()),
+    )
+    .unwrap();
+    let path_pin = run(fixture.root.join("sub").as_path());
+    let path_json: serde_json::Value = serde_json::from_slice(&path_pin.stdout).unwrap();
+    assert!(
+        path_json["source"]
+            .as_str()
+            .unwrap()
+            .contains(".sddk-versions")
+    );
+    assert_eq!(
+        path_json["resolved"],
+        fixture.root.to_string_lossy().as_ref()
+    );
+    assert_eq!(path_json["present"], true);
+}

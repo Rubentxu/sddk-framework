@@ -72,6 +72,8 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Show the resolved framework version for the current directory.
+    Version(VersionArgs),
     /// Resolve deterministic project and workspace identity.
     Project {
         #[command(subcommand)]
@@ -297,6 +299,16 @@ enum GenerateCommand {
     },
 }
 
+#[derive(Debug, Clone, Args)]
+struct VersionArgs {
+    /// Directory to resolve the version for (default: current dir).
+    #[arg(long)]
+    root: Option<PathBuf>,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    format: OutputFormat,
+}
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum OutputFormat {
     Text,
@@ -391,6 +403,7 @@ pub fn run(cli: Cli) -> CommandOutput {
 /// Executes an already parsed command with explicit process environment values.
 pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOutput {
     match cli.command {
+        Command::Version(args) => run_version(args, environment),
         Command::Project {
             command: ProjectCommand::Resolve(args),
         } => run_project_resolve(args),
@@ -742,6 +755,138 @@ enum AdoptionOperation {
     Apply,
     Status,
     Repair,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+struct VersionResolution {
+    /// CLI binary version.
+    binary: String,
+    /// Where the version was resolved from: `.sddk-versions` | `current` | `path:` | `none`.
+    source: String,
+    /// The resolved framework version or path target.
+    resolved: String,
+    /// Whether the target exists on disk.
+    present: bool,
+}
+
+/// Resolves the framework version for a directory, asdf-style:
+/// `$PWD/.sddk-versions` → parents → `$SDDK_DATA_DIR/framework/current`.
+fn run_version(args: VersionArgs, environment: &CliEnvironment) -> CommandOutput {
+    let format = args.format;
+    let result = (|| -> anyhow::Result<VersionResolution> {
+        let start = args
+            .root
+            .clone()
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+        let start = if start.is_absolute() {
+            start
+        } else {
+            std::env::current_dir()?.join(start)
+        };
+
+        // 1. Walk up from start looking for .sddk-versions.
+        let mut dir: Option<&Path> = Some(start.as_path());
+        let mut declared: Option<(String, String)> = None; // (value, file path)
+        while let Some(current) = dir {
+            let candidate = current.join(".sddk-versions");
+            if candidate.is_file()
+                && let Ok(content) = std::fs::read_to_string(&candidate)
+                && let Some(value) = content.lines().find_map(|line| {
+                    let line = line.trim();
+                    line.strip_prefix("sddk ")
+                        .or_else(|| line.strip_prefix("sddk\t"))
+                })
+            {
+                declared = Some((
+                    value.trim().to_owned(),
+                    candidate.to_string_lossy().into_owned(),
+                ));
+                break;
+            }
+            dir = current.parent();
+        }
+
+        let binary = env!("CARGO_PKG_VERSION").to_owned();
+
+        // 2. Resolve the declared value or fall back to `current`.
+        let (source, resolved, present) = match declared {
+            Some((value, file)) => {
+                if let Some(path) = value.strip_prefix("path:") {
+                    let path = path.to_owned();
+                    let present = std::path::Path::new(&path).exists();
+                    (format!(".sddk-versions ({file})"), path, present)
+                } else if value == "current" || value == "system" {
+                    match resolve_current(environment) {
+                        Some((target, _)) => (format!(".sddk-versions ({file})"), target, true),
+                        None => (format!(".sddk-versions ({file})"), value, false),
+                    }
+                } else {
+                    // Version dir under the framework root.
+                    let dir = sddk_framework_dir(environment)?;
+                    let target = dir.join(&value);
+                    let present = target.is_dir();
+                    (
+                        format!(".sddk-versions ({file})"),
+                        target.to_string_lossy().into_owned(),
+                        present,
+                    )
+                }
+            }
+            None => match resolve_current(environment) {
+                Some((target, label)) => (label, target, true),
+                None => ("none".to_owned(), "no version configured".to_owned(), false),
+            },
+        };
+
+        Ok(VersionResolution {
+            binary,
+            source,
+            resolved,
+            present,
+        })
+    })();
+    render_result(result, format, version_text)
+}
+
+/// Resolve `$SDDK_DATA_DIR/framework/current` to its target path.
+fn resolve_current(environment: &CliEnvironment) -> Option<(String, String)> {
+    let dir = sddk_framework_dir(environment).ok()?;
+    let current = dir.join("current");
+    let target = std::fs::read_link(&current).ok()?;
+    let resolved = if target.is_absolute() {
+        target
+    } else {
+        dir.join(target)
+    };
+    Some((
+        resolved.to_string_lossy().into_owned(),
+        "current".to_owned(),
+    ))
+}
+
+/// `$SDDK_DATA_DIR/framework` — same resolution as `dev use`.
+fn sddk_framework_dir(environment: &CliEnvironment) -> anyhow::Result<PathBuf> {
+    let data_root = if let Some(dir) = &environment.sddk_data_dir {
+        dir.clone()
+    } else {
+        let data_home = match (&environment.data_home, &environment.home) {
+            (Some(data), _) => data.clone(),
+            (None, Some(home)) => home.join(".local/share"),
+            (None, None) => dirs::data_dir().ok_or_else(|| {
+                anyhow::anyhow!("no data root: set HOME, XDG_DATA_HOME or SDDK_DATA_DIR")
+            })?,
+        };
+        data_home.join("sddk")
+    };
+    Ok(data_root.join("framework"))
+}
+
+fn version_text(output: &VersionResolution) -> String {
+    format!(
+        "binary: {}\nsource: {}\nresolved: {}\npresent: {}\n",
+        output.binary, output.source, output.resolved, output.present
+    )
 }
 
 fn run_project_resolve(args: ProjectResolveArgs) -> CommandOutput {
