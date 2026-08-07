@@ -160,7 +160,7 @@ Chain strategy: <stacked-to-main|feature-branch-chain|size-exception|pending>
 status: success | partial | blocked
 executive_summary: 1-3 sentences
 artifacts:
-  - "sddk/{change}/tasks"
+  - "{cycle-artifacts-dir}/tasks"
 breakdown:
   total: {N}
   by_phase:

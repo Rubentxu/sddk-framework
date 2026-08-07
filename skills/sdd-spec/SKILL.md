@@ -63,7 +63,7 @@ FOR EACH entry under "New Capabilities":
 └── Write a complete spec (not a delta) — no existing behavior to reference
 
 FOR EACH entry under "Modified Capabilities":
-├── This becomes a DELTA spec: openspec/changes/{change-name}/specs/<capability-name>/spec.md
+├── This becomes a DELTA spec: {cycle-artifacts-dir}/specs/<capability-name>/spec.md
 └── Read existing openspec/specs/<capability-name>/spec.md first — your delta modifies it
 ```
 
@@ -82,7 +82,7 @@ If the proposal has no Capabilities section (older format), fall back to inferri
 **IF mode is `openspec` or `hybrid`:** Create specs inside the change folder:
 
 ```
-openspec/changes/{change-name}/
+{cycle-artifacts-dir}/
 ├── proposal.md              ← (already exists)
 └── specs/
     └── {domain}/

@@ -158,7 +158,7 @@ Debt verification (technical debt audit) is **NOT** run inside this phase. It is
 status: success (PASS/PW) | partial (FAIL recoverable) | blocked (FAIL unrecoverable)
 executive_summary: 1-3 sentences
 artifacts:
-  - "sddk/{change}/verify-report"
+  - "{cycle-artifacts-dir}/verify-report"
 verdict: PASS | PASS_WITH_WARNINGS | FAIL
 compliance_matrix: {scenario_status_map}
 issues_by_severity:

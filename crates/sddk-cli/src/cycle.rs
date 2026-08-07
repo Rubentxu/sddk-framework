@@ -48,6 +48,7 @@ pub(crate) struct RuntimeContext {
     pub(crate) engine: Engine,
     pub(crate) storage: Storage,
     pub(crate) artifacts_path: PathBuf,
+    pub(crate) cycle_artifacts_path: PathBuf,
 }
 
 impl RuntimeContext {
@@ -92,13 +93,14 @@ impl RuntimeContext {
             engine,
             storage,
             artifacts_path: paths.artifacts,
+            cycle_artifacts_path: paths.cycle_artifacts,
         })
     }
 }
 
 /// Loads the repository workflow manifest, falling back to the canonical
-/// embedded manifest when the repository has none (adopt seeds it, but legacy
-/// adoptions may predate seeding).
+/// embedded manifest when the repository has none (non-intrusive policy,
+/// ADR-0011: projects are never required to carry workflow files).
 fn load_workflow(root: &std::path::Path) -> anyhow::Result<WorkflowManifest> {
     match sddk_engine::load_workflow_path(root.join(crate::WORKFLOW_MANIFEST)) {
         Ok(manifest) => Ok(manifest),
@@ -123,9 +125,23 @@ pub(crate) enum CycleCommand {
     EvaluateGate(CycleEvaluateGateArgs),
     /// Restore a missing cycle snapshot from its ledger events.
     Rebuild(CycleRebuildArgs),
+    /// Print the XDG artifact directory for a cycle (created on demand).
+    ArtifactsDir(CycleArtifactsDirArgs),
     /// Acquire, release, or inspect the exclusive cycle lease.
     #[command(subcommand)]
     Lock(CycleLockCommand),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct CycleArtifactsDirArgs {
+    #[command(flatten)]
+    pub(crate) runtime: RuntimeArgs,
+    /// Cycle identifier.
+    #[arg(long)]
+    pub(crate) cycle: String,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -348,6 +364,7 @@ pub(crate) fn run_cycle(command: CycleCommand, environment: &CliEnvironment) -> 
         CycleCommand::Status(args) => run_cycle_status(args, environment),
         CycleCommand::Transition(args) => run_cycle_transition(args, environment),
         CycleCommand::Rebuild(args) => run_cycle_rebuild(args, environment),
+        CycleCommand::ArtifactsDir(args) => run_cycle_artifacts_dir(args, environment),
         CycleCommand::EvaluateGate(args) => run_cycle_evaluate_gate(args, environment),
         CycleCommand::Lock(command) => run_cycle_lock(command, environment),
     }
@@ -567,6 +584,34 @@ fn run_cycle_rebuild(args: CycleRebuildArgs, environment: &CliEnvironment) -> Co
         })
     })();
     render_result(result, format, cycle_rebuild_text)
+}
+
+fn run_cycle_artifacts_dir(
+    args: CycleArtifactsDirArgs,
+    environment: &CliEnvironment,
+) -> CommandOutput {
+    let format = args.format;
+    let result = (|| -> anyhow::Result<ArtifactsDirOutput> {
+        let context = RuntimeContext::open(&args.runtime, environment, false)?;
+        let dir = context.cycle_artifacts_path.join(&args.cycle);
+        std::fs::create_dir_all(&dir)?;
+        Ok(ArtifactsDirOutput {
+            cycle_id: args.cycle,
+            path: dir,
+        })
+    })();
+    render_result(result, format, artifacts_dir_text)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+struct ArtifactsDirOutput {
+    cycle_id: String,
+    path: PathBuf,
+}
+
+fn artifacts_dir_text(output: &ArtifactsDirOutput) -> String {
+    format!("{}\n", output.path.display())
 }
 
 fn run_cycle_lock(command: CycleLockCommand, environment: &CliEnvironment) -> CommandOutput {

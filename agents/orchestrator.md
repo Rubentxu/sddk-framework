@@ -252,6 +252,17 @@ PROJECT="$(basename "$PROJECT_ROOT")"
 VAULT="$HOME/.sddk-knowledge/$PROJECT"
 ```
 
+Then resolve the cycle artifact directory (non-intrusive policy, ADR-0011:
+framework files NEVER live inside the project repo; all cycle artifacts go to
+an XDG user directory):
+
+```bash
+# Resolve {cycle-artifacts-dir} for the active cycle (absolute path outside the repo):
+#   sddk cycle artifacts-dir --cycle {cycle_id} --root . --scope .
+# Fallback when the CLI ledger channel is inoperative: mktemp -d.
+CYCLE_ARTIFACTS_DIR="$(sddk cycle artifacts-dir --cycle "${CYCLE_ID:-}" --root . --scope . 2>/dev/null || mktemp -d)"
+```
+
 Then check for adoption:
 
 ```bash
@@ -472,7 +483,7 @@ For each `phase` in `workflow.phases[]`, in declared order:
 3. **Parallel grouping**: collect all phases sharing the same `parallel_group` id into one batch. Launch ALL of them in a SINGLE message via multiple `task()` calls (one per agent). Wait for the entire batch before proceeding.
 4. **Dispatch**: for sequential phases (no parallel_group), call `task(subagent_type=phase.agent, prompt=<phase-specific prompt>)`. Inject `phase.gate` requirements and `phase.failure_mode` into the prompt so the subagent knows the success/failure contract.
 5. **Gate verification**: after the subagent returns, evaluate `phase.gate`. If pass → continue. If fail → execute `phase.failure_mode` (BLOCK, retry, escalate, or re-iterate per `phase.failure_modes[]` table).
-6. **Checkpointing**: for `apply` phase with `phase.checkpoint`, write progress to `sddk/{change}/apply-checkpoint.json` per `Checkpointing & Resume` section below.
+6. **Checkpointing**: for `apply` phase with `phase.checkpoint`, write progress to `{cycle-artifacts-dir}/apply-checkpoint.json` per `Checkpointing & Resume` section below.
 7. **Continue**: proceed to next phase in declaration order.
 
 ### Prompt injection per phase
@@ -820,7 +831,7 @@ explore → proposal → [spec || design] --> tasks -> apply -> verify -> debt-v
 
 ## Checkpointing & Resume (apply)
 
-Apply can be interrupted. Checkpoint: `sddk/{change}/apply-checkpoint.json`:
+Apply can be interrupted. Checkpoint: `{cycle-artifacts-dir}/apply-checkpoint.json`:
 
 ```json
 {
@@ -990,7 +1001,7 @@ Every repo-local working path the SDDK writes during a cycle (`sddk/`, `openspec
 - **Gitignored** at the project root so it never reaches remote.
 - **Locally readable** by opencode tools (`grep`, `glob`, `Read`) thanks to a companion `.ignore` file with `!`-prefixed overrides.
 
-This is **not** an opt-out from reading them. Every phase agent MUST be able to read `sddk/{change}/verify-report.md` and the archive working folder. Durable milestones, ADRs, requirements, and cycle manifests live outside the repo in `$VAULT`.
+This is **not** an opt-out from reading them. Every phase agent MUST be able to read `{cycle-artifacts-dir}/verify-report.md` and the archive working folder. Durable milestones, ADRs, requirements, and cycle manifests live outside the repo in `$VAULT`.
 
 - Never commit a repo-local SDDK working path or copy vault knowledge into `docs/`.
 - Never `git commit` the SDDK-generated artifacts. Commits in a cycle are exclusively for the change's `<type>/<description>` branch and are about product code, not working surface.
@@ -1168,7 +1179,7 @@ Compact operating rules:
 | `cycle` (CYC-date-slug) | sdd-kernel-archive | Step 2.5 |
 | `incidence` (INC-NNN) | sdd-kernel-release (if issues found) | Step 3 |
 | `term` (TERM-Slug) | sddk-explore / sddk-spec | Phase 1 |
-| proposal, spec delta, design, tasks | phase agents (working state in `sddk/{change}/`) | Phase 1 |
+| proposal, spec delta, design, tasks | phase agents (working state in `{cycle-artifacts-dir}/`) | Phase 1 |
 | verify-report, debt-report | verify/debt agents (working state) | Phase 2 |
 | release-report | sddk-release | Phase 3 |
 

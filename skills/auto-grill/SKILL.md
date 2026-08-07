@@ -194,7 +194,7 @@ Write a self-contained HTML file. See [HTML-REPORT.md](HTML-REPORT.md) for the f
 | Mode | HTML Destination |
 |------|-----------------|
 | `engram` | `/tmp/sdd-{change-name}-auto-grill.html` |
-| `openspec` | `openspec/changes/{change-name}/reports/auto-grill.html` + `/tmp/` copy |
+| `openspec` | `{cycle-artifacts-dir}/reports/auto-grill.html` + `/tmp/` copy |
 | `hybrid` | Both: `openspec/.../reports/` AND `/tmp/` |
 | `none` | `/tmp/auto-grill.html` only |
 

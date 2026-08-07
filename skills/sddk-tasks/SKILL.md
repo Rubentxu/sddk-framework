@@ -179,7 +179,7 @@ Phase 2: Core Implementation
 4. Estimate review workload (400-line budget).
 5. Write tasks.md with template above (including EXACT plain-text forecast lines).
 6. If chained PRs recommended: write Work Units table.
-7. Persist to `sddk/{change}/tasks`.
+7. Persist to `{cycle-artifacts-dir}/tasks`.
 8. Return envelope.
 
 ## Return Format
@@ -188,7 +188,7 @@ Phase 2: Core Implementation
 ## Tasks Created
 
 **Change**: {change-name}
-**Location**: `openspec/changes/{change-name}/tasks.md` (openspec/hybrid) | Engram `sddk/{change-name}/tasks` (engram) | inline (none)
+**Location**: `{cycle-artifacts-dir}/tasks.md` (openspec/hybrid) | Engram `{cycle-artifacts-dir}/tasks` (engram) | inline (none)
 
 ### Breakdown
 

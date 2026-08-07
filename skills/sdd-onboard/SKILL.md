@@ -184,7 +184,7 @@ Run `sdd-verify` behavior. Explain the compliance matrix:
 Run `sdd-archive` behavior. Show the result:
 
 ```
-"Done! The change is archived at openspec/changes/archive/YYYY-MM-DD-{name}/
+"Done! The change is archived at {cycle-artifacts-dir}/changes/archive/YYYY-MM-DD-{name}/
  And openspec/specs/ now reflects the new behavior."
 ```
 

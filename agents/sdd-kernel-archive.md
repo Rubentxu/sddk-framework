@@ -176,7 +176,7 @@ The change has been planned, implemented, verified, and archived. The cycle rema
 status: success | partial | blocked
 executive_summary: 1-3 sentences
 artifacts:
-  - "sddk/{change}/archive-report"
+  - "{cycle-artifacts-dir}/archive-report"
 specs_synced:
   - domain: {domain}
     action: created | updated

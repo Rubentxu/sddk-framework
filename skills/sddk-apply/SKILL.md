@@ -25,13 +25,13 @@ From the orchestrator:
 
 ## Execution Steps
 
-1. Read the tasks artifact (from `sddk/{change}/tasks`)
-2. Read specs (`sddk/{change}/spec`)
-3. Read design (`sddk/{change}/design`)
+1. Read the tasks artifact (from `{cycle-artifacts-dir}/tasks`)
+2. Read specs (`{cycle-artifacts-dir}/spec`)
+3. Read design (`{cycle-artifacts-dir}/design`)
 4. Read existing code patterns
 5. Implement tasks
 6. Update task status
-7. Persist progress to `sddk/{change}/apply-progress`
+7. Persist progress to `{cycle-artifacts-dir}/apply-progress`
 8. Return envelope
 
 Read `prompts/sdd-kernel/phases/apply.md` for the full phase spec.

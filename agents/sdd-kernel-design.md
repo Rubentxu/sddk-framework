@@ -133,7 +133,7 @@ If not applicable, state "No migration required."}
 status: success | partial | blocked
 executive_summary: 1-3 sentences
 artifacts:
-  - "sddk/{change}/design"
+  - "{cycle-artifacts-dir}/design"
 summary:
   approach: {one-line}
   key_decisions: {N}

@@ -1,9 +1,23 @@
 # OpenSpec File Convention (shared across all SDD skills)
 
+## Non-intrusive Base (ADR-0011)
+
+The framework never writes into the project's git repository. The base
+directory for all openspec artifacts is the cycle artifact directory resolved
+by the CLI (absolute path, outside the repo):
+
+```
+sddk cycle artifacts-dir --cycle {cycle_id} --root . --scope .
+```
+
+It prints e.g. `~/.local/share/sddk/projects/<project_id>/cycle-artifacts/<cycle_id>/`.
+All paths below are relative to that base. If the CLI ledger channel is
+inoperative (not adopted), fall back to a local temp dir and note it.
+
 ## Directory Structure
 
 ```
-openspec/
+{cycle-artifacts-dir}/
 ├── config.yaml              <- Project-specific SDD config
 ├── specs/                   <- Source of truth (main specs)
 │   └── {domain}/
@@ -24,30 +38,32 @@ openspec/
 
 ## Artifact File Paths
 
+Relative to `{cycle-artifacts-dir}` (resolved via `sddk cycle artifacts-dir`):
+
 | Skill | Creates / Reads | Path |
 |-------|----------------|------|
-| orchestrator | Creates/Updates | `openspec/changes/{change-name}/state.yaml` |
-| sdd-init | Creates | `openspec/config.yaml`, `openspec/specs/`, `openspec/changes/`, `openspec/changes/archive/` |
-| sdd-explore | Creates (optional) | `openspec/changes/{change-name}/exploration.md` |
-| sdd-propose | Creates | `openspec/changes/{change-name}/proposal.md` |
-| sdd-spec | Creates | `openspec/changes/{change-name}/specs/{domain}/spec.md` |
-| sdd-design | Creates | `openspec/changes/{change-name}/design.md` |
-| sdd-tasks | Creates | `openspec/changes/{change-name}/tasks.md` |
-| sdd-apply | Updates | `openspec/changes/{change-name}/tasks.md` (marks `[x]`) |
-| sdd-verify | Creates | `openspec/changes/{change-name}/verify-report.md` |
-| sdd-archive | Moves | `openspec/changes/{change-name}/` → `openspec/changes/archive/YYYY-MM-DD-{change-name}/` |
-| sdd-archive | Updates | `openspec/specs/{domain}/spec.md` (merges deltas into main specs) |
+| orchestrator | Creates/Updates | `changes/{change-name}/state.yaml` |
+| sdd-init | Creates | `config.yaml`, `specs/`, `changes/`, `changes/archive/` |
+| sdd-explore | Creates (optional) | `changes/{change-name}/exploration.md` |
+| sdd-propose | Creates | `changes/{change-name}/proposal.md` |
+| sdd-spec | Creates | `changes/{change-name}/specs/{domain}/spec.md` |
+| sdd-design | Creates | `changes/{change-name}/design.md` |
+| sdd-tasks | Creates | `changes/{change-name}/tasks.md` |
+| sdd-apply | Updates | `changes/{change-name}/tasks.md` (marks `[x]`) |
+| sdd-verify | Creates | `changes/{change-name}/verify-report.md` |
+| sdd-archive | Moves | `changes/{change-name}/` → `changes/archive/YYYY-MM-DD-{change-name}/` |
+| sdd-archive | Updates | `specs/{domain}/spec.md` (merges deltas into main specs) |
 
 ## Reading Artifacts
 
 ```
-Proposal:   openspec/changes/{change-name}/proposal.md
-Specs:      openspec/changes/{change-name}/specs/  (all domain subdirectories)
-Design:     openspec/changes/{change-name}/design.md
-Tasks:      openspec/changes/{change-name}/tasks.md
-Verify:     openspec/changes/{change-name}/verify-report.md
-Config:     openspec/config.yaml
-Main specs: openspec/specs/{domain}/spec.md
+Proposal:   {cycle-artifacts-dir}/changes/{change-name}/proposal.md
+Specs:      {cycle-artifacts-dir}/changes/{change-name}/specs/  (all domain subdirectories)
+Design:     {cycle-artifacts-dir}/changes/{change-name}/design.md
+Tasks:      {cycle-artifacts-dir}/changes/{change-name}/tasks.md
+Verify:     {cycle-artifacts-dir}/changes/{change-name}/verify-report.md
+Config:     {cycle-artifacts-dir}/config.yaml
+Main specs: {cycle-artifacts-dir}/specs/{domain}/spec.md
 ```
 
 ## Writing Rules
@@ -55,7 +71,8 @@ Main specs: openspec/specs/{domain}/spec.md
 - Always create the change directory before writing artifacts
 - If a file already exists, READ it first and UPDATE it (don't overwrite blindly)
 - If the change directory already exists with artifacts, the change is being CONTINUED
-- Use `openspec/config.yaml` `rules` section for project-specific constraints per phase
+- Use `config.yaml` `rules` section for project-specific constraints per phase
+- NEVER write outside `{cycle-artifacts-dir}` into the project repo (ADR-0011)
 
 ## Delta Spec Sections
 
@@ -76,7 +93,7 @@ Delta specs MAY include these sections:
 ## Config File Reference
 
 ```yaml
-# openspec/config.yaml
+# {cycle-artifacts-dir}/config.yaml
 schema: spec-driven
 
 context: |
@@ -114,7 +131,7 @@ rules:
 
 When archiving, the change folder moves to:
 ```
-openspec/changes/archive/YYYY-MM-DD-{change-name}/
+{cycle-artifacts-dir}/changes/archive/YYYY-MM-DD-{change-name}/
 ```
 
 Use today's date in ISO format. The archive is an AUDIT TRAIL — never delete or modify archived changes.

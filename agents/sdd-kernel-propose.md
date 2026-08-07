@@ -122,7 +122,7 @@ If a field is missing, mark it `unknown` and do only the minimum evidence lookup
 status: success | partial | blocked
 executive_summary: 1-3 sentences
 artifacts:
-  - "sddk/{change}/proposal"
+  - "{cycle-artifacts-dir}/proposal"
 capabilities:
   new: {N}
   modified: {M}

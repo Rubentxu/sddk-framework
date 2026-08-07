@@ -82,7 +82,7 @@ You MUST complete every step. Missing a step is a release failure.
    git merge-base --is-ancestor "$MERGE_SHA" origin/main
    ```
 7. **`semver-tag`** — Compute bump from commits/footers. `git tag -a v<major>.<minor>.<patch> -m "<type>: <description>"` then `git push origin v<...>`. Bump rules: see `git-contract.md` § Lifecycle Overview rule 8.
-8. **`html-closing-report`** — Render the cycle's HTML closing report per `prompts/sdd-kernel/HTML-REPORT.md`. Path: `{engram|none: /tmp/sddk-{change}-{YYYYMMDD}.html}` or `{openspec|hybrid: openspec/changes/archive/{date}-{change}/reports/cierre.html}`. Skip on A-min unless tag is minor/major; skip on B-direct unless tag is major.
+8. **`html-closing-report`** — Render the cycle's HTML closing report per `prompts/sdd-kernel/HTML-REPORT.md`. Path: `{engram|none: /tmp/sddk-{change}-{YYYYMMDD}.html}` or `{openspec|hybrid: {cycle-artifacts-dir}/changes/archive/{date}-{change}/reports/cierre.html}`. Skip on A-min unless tag is minor/major; skip on B-direct unless tag is major.
 9. **`close-tracking-issue`** — Find open issues referencing `<change-name>` or the PR. `gh issue close <num> --comment "Completed in PR #<n>. Released as v<version>."`. If no tracking issue → no-op.
 10. **`update-knowledge-graph`** — Update milestone, touched ADRs, touched requirements, and cycle manifest in the external vault. This is blocking: retain the lock if any update fails.
 11. **`release-lock`** — Mark `milestones/_active.md` AVAILABLE only after the graph update succeeds.
@@ -109,8 +109,8 @@ lock_released: bool
 tracking_issue_closed: {n} | null
 next_recommended: "ready for next cycle"
 artifacts_persisted:
-  - artifact: "sddk/{change}/release-report"
-    topic_key: "sddk/{change}/release-report"
+  - artifact: "{cycle-artifacts-dir}/release-report"
+    topic_key: "{cycle-artifacts-dir}/release-report"
     type: "architecture"
 risks: list or "None"
 phase_duration_sec: int

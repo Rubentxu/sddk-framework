@@ -52,7 +52,7 @@ Take the exploration analysis (or direct user input) and produce a structured pr
 3. Define scope, approach, invariants, explicit unknowns.
 4. **Write Capabilities section** (this is the contract with sddk-spec).
 5. Identify knowledge gaps requiring escalation.
-6. Persist to `sddk/{change}/proposal`.
+6. Persist to `{cycle-artifacts-dir}/proposal`.
 7. Return envelope.
 
 ## Proposal Template (use this exact structure)
@@ -117,7 +117,7 @@ Take the exploration analysis (or direct user input) and produce a structured pr
 ```markdown
 **Status**: success
 **Summary**: Proposal created for `{change-name}`. Defined scope, approach, and rollback plan.
-**Artifacts**: Engram `sddk/{change-name}/proposal` | `openspec/changes/{change-name}/proposal.md`
+**Artifacts**: Engram `{cycle-artifacts-dir}/proposal` | `{cycle-artifacts-dir}/proposal.md`
 **Change**: {change-name}
 **Capabilities**:
 - New: {N} (each will become openspec/specs/<name>/spec.md)

@@ -67,7 +67,7 @@ From the design document, identify:
 **IF mode is `openspec` or `hybrid`:** Create the task file:
 
 ```
-openspec/changes/{change-name}/
+{cycle-artifacts-dir}/
 ├── proposal.md
 ├── specs/
 ├── design.md
@@ -218,7 +218,7 @@ Return to the orchestrator:
 ## Tasks Created
 
 **Change**: {change-name}
-**Location**: `openspec/changes/{change-name}/tasks.md` (openspec/hybrid) | Engram `sdd/{change-name}/tasks` (engram) | inline (none)
+**Location**: `{cycle-artifacts-dir}/tasks.md` (openspec/hybrid) | Engram `sdd/{change-name}/tasks` (engram) | inline (none)
 
 ### Breakdown
 | Phase | Tasks | Focus |

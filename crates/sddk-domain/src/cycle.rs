@@ -195,6 +195,8 @@ pub struct AdoptionStoragePaths {
     pub vault: String,
     /// Project-shared content-addressed artifact directory.
     pub artifacts: String,
+    /// Project-shared cycle artifact directory (`cycle-artifacts/{cycle_id}/`).
+    pub cycle_artifacts: String,
     /// Project-shared SQLite database.
     pub ledger: String,
     /// SDDK cache directory.

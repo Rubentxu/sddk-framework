@@ -161,8 +161,8 @@ lock_released: bool                        # v3.5: serialization lock freed
 tracking_issue_closed: {n} | null
 next_recommended: "ready for next cycle"
 artifacts_persisted:
-  - artifact: "sddk/{change}/release-report"
-    topic_key: "sddk/{change}/release-report"
+  - artifact: "{cycle-artifacts-dir}/release-report"
+    topic_key: "{cycle-artifacts-dir}/release-report"
     type: "architecture"
 risks: list or "None"
 phase_duration_sec: int

@@ -70,7 +70,7 @@ If the design changes routing, shell commands, subprocesses, VCS/PR automation, 
 **IF mode is `openspec` or `hybrid`:** Create the design document:
 
 ```
-openspec/changes/{change-name}/
+{cycle-artifacts-dir}/
 ├── proposal.md
 ├── specs/
 └── design.md              ← You create this
@@ -164,7 +164,7 @@ Return to the orchestrator:
 ## Design Created
 
 **Change**: {change-name}
-**Location**: `openspec/changes/{change-name}/design.md` (openspec/hybrid) | Engram `sdd/{change-name}/design` (engram) | inline (none)
+**Location**: `{cycle-artifacts-dir}/design.md` (openspec/hybrid) | Engram `sdd/{change-name}/design` (engram) | inline (none)
 
 ### Summary
 - **Approach**: {one-line technical approach}

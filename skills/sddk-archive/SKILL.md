@@ -28,12 +28,12 @@ Merge delta specs into the main specs (source of truth), then move the change fo
 - Use ISO date format (`YYYY-MM-DD`) for archive folder prefix.
 - If the merge would be destructive (removing large sections), **WARN the orchestrator and ask for confirmation**.
 - The archive is an **AUDIT TRAIL** — never delete or modify archived changes.
-- If `openspec/changes/archive/` doesn't exist, create it.
+- If `{cycle-artifacts-dir}/changes/archive/` doesn't exist, create it.
 - Apply any `rules.archive` from `openspec/config.yaml`.
 
 ## Delta Spec Sync (the core operation)
 
-For each delta spec in `openspec/changes/{change-name}/specs/`:
+For each delta spec in `{cycle-artifacts-dir}/specs/`:
 
 ### If Main Spec Exists (`openspec/specs/{domain}/spec.md`)
 
@@ -57,7 +57,7 @@ FOR EACH SECTION in delta spec:
 The delta spec IS a full spec (not a delta). Copy it directly:
 
 ```bash
-openspec/changes/{change-name}/specs/{domain}/spec.md
+{cycle-artifacts-dir}/specs/{domain}/spec.md
   → openspec/specs/{domain}/spec.md
 ```
 
@@ -80,8 +80,8 @@ openspec/changes/{change-name}/specs/{domain}/spec.md
 **IF mode is `openspec` or `hybrid`:** Move the entire change folder to archive with date prefix:
 
 ```
-openspec/changes/{change-name}/
-  → openspec/changes/archive/YYYY-MM-DD-{change-name}/
+{cycle-artifacts-dir}/
+  → {cycle-artifacts-dir}/changes/archive/YYYY-MM-DD-{change-name}/
 ```
 
 Use today's date in ISO format.
@@ -102,7 +102,7 @@ Use today's date in ISO format.
 
 Follow `skills/_shared/sddk-phase-common.md` Section C:
 - artifact: `archive-report`
-- topic_key: `sddk/{change-name}/archive-report`
+- topic_key: `{cycle-artifacts-dir}/archive-report`
 - type: `architecture`
 
 Include in the archive report:
@@ -118,7 +118,7 @@ Include in the archive report:
 ## Change Archived
 
 **Change**: {change-name}
-**Archived to**: `openspec/changes/archive/{YYYY-MM-DD}-{change-name}/` (openspec/hybrid) | Engram archive report (engram) | inline (none)
+**Archived to**: `{cycle-artifacts-dir}/changes/archive/{YYYY-MM-DD}-{change-name}/` (openspec/hybrid) | Engram archive report (engram) | inline (none)
 
 ### Specs Synced
 

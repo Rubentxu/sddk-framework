@@ -1,8 +1,24 @@
 # Persistence Contract (shared across all SDD skills)
 
+## Non-intrusive Policy (ADR-0011)
+
+The framework **never writes files inside the project's git repository**. All
+operational state lives in user directories (`$SDDK_DATA_DIR`, default
+`~/.local/share/sddk`). The only project file allowed is `.sddk-versions`
+(written by the developer, never by the framework). Artifacts in `openspec`
+mode are written under the cycle artifact directory resolved by:
+
+```
+sddk cycle artifacts-dir --cycle {cycle_id} --root . --scope .
+```
+
+That prints an absolute path like
+`~/.local/share/sddk/projects/<project_id>/cycle-artifacts/<cycle_id>/`.
+Use it as the base for all phase artifacts instead of repo-relative paths.
+
 ## CLI Ledger Channel (sddk CLI)
 
-The `sddk` CLI is the **canonical cycle ledger** when the project is adopted: `sddk adopt apply` plants `workflow/workflow.yaml`, and `sddk cycle status` then works. When operative, every phase MUST ALSO record its phase in the ledger — this is additive to the artifact mode below, never a substitute for it.
+The `sddk` CLI is the **canonical cycle ledger** when the project is adopted: `sddk adopt apply` writes the adoption receipt (never workflow files into the repo), and `sddk cycle status` then works. When operative, every phase MUST ALSO record its phase in the ledger — this is additive to the artifact mode below, never a substitute for it.
 
 **Operativity check** (single command, at phase start):
 
@@ -88,7 +104,7 @@ The orchestrator persists DAG state after each phase transition to enable SDD re
 | Mode | Persist State | Recover State |
 |------|--------------|---------------|
 | `engram` | `mem_save(topic_key: "sdd/{change-name}/state", capture_prompt: false*)` | `mem_search("sdd/*/state")` → `mem_get_observation(id)` |
-| `openspec` | Write `openspec/changes/{change-name}/state.yaml` | Read `openspec/changes/{change-name}/state.yaml` |
+| `openspec` | Write `{cycle-artifacts-dir}/state.yaml` | Read `{cycle-artifacts-dir}/state.yaml` |
 | `hybrid` | Both: `mem_save` AND write `state.yaml` | Engram first; filesystem fallback |
 | `none` | Not possible — warn user | Not possible |
 

@@ -87,7 +87,7 @@ Before any task reconciliation, spec sync, or archive move, require structured s
 Before syncing specs or moving any archive folder, inspect the tasks artifact:
 
 - **engram**: read the full `sdd/{change-name}/tasks` observation.
-- **openspec/hybrid**: read `openspec/changes/{change-name}/tasks.md`.
+- **openspec/hybrid**: read `{cycle-artifacts-dir}/tasks.md`.
 
 If any implementation task remains unchecked (`- [ ]`):
 
@@ -124,7 +124,7 @@ Do not start this step until the **Task Completion Gate** above passes.
 
 **IF mode is `none`:** Skip — no artifacts to sync.
 
-**IF mode is `openspec` or `hybrid`:** For each delta spec in `openspec/changes/{change-name}/specs/`:
+**IF mode is `openspec` or `hybrid`:** For each delta spec in `{cycle-artifacts-dir}/specs/`:
 
 #### If Main Spec Exists (`openspec/specs/{domain}/spec.md`)
 
@@ -151,7 +151,7 @@ The delta spec IS a full spec (not a delta). Copy it directly:
 
 ```bash
 # Copy new spec to main specs
-openspec/changes/{change-name}/specs/{domain}/spec.md
+{cycle-artifacts-dir}/specs/{domain}/spec.md
   → openspec/specs/{domain}/spec.md
 ```
 
@@ -164,8 +164,8 @@ openspec/changes/{change-name}/specs/{domain}/spec.md
 **IF mode is `openspec` or `hybrid`:** Move the entire change folder to archive with date prefix:
 
 ```
-openspec/changes/{change-name}/
-  → openspec/changes/archive/YYYY-MM-DD-{change-name}/
+{cycle-artifacts-dir}/
+  → {cycle-artifacts-dir}/changes/archive/YYYY-MM-DD-{change-name}/
 ```
 
 Use today's date in ISO format (e.g., `2026-02-16`).
@@ -200,7 +200,7 @@ Return to the orchestrator:
 ## Change Archived
 
 **Change**: {change-name}
-**Archived to**: `openspec/changes/archive/{YYYY-MM-DD}-{change-name}/` (openspec/hybrid) | Engram archive report (engram) | inline (none)
+**Archived to**: `{cycle-artifacts-dir}/changes/archive/{YYYY-MM-DD}-{change-name}/` (openspec/hybrid) | Engram archive report (engram) | inline (none)
 
 ### Specs Synced
 | Domain | Action | Details |
@@ -233,6 +233,6 @@ Ready for the next change.
 - Use ISO date format (YYYY-MM-DD) for archive folder prefix
 - If the merge would be destructive (removing large sections), WARN the orchestrator and ask for confirmation
 - The archive is an AUDIT TRAIL — never delete or modify archived changes
-- If `openspec/changes/archive/` doesn't exist, create it
+- If `{cycle-artifacts-dir}/changes/archive/` doesn't exist, create it
 - Apply any `rules.archive` from `openspec/config.yaml`
 - Return envelope per **Section D** from `skills/_shared/sdd-phase-common.md`.

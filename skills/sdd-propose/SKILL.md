@@ -76,7 +76,7 @@ Follow **Section A** from `skills/_shared/sdd-phase-common.md`.
 **IF mode is `openspec` or `hybrid`:** create the change folder structure:
 
 ```
-openspec/changes/{change-name}/
+{cycle-artifacts-dir}/
 └── proposal.md
 ```
 
@@ -177,7 +177,7 @@ Return to the orchestrator:
 ## Proposal Created
 
 **Change**: {change-name}
-**Location**: `openspec/changes/{change-name}/proposal.md` (openspec/hybrid) | Engram `sdd/{change-name}/proposal` (engram) | inline (none)
+**Location**: `{cycle-artifacts-dir}/proposal.md` (openspec/hybrid) | Engram `sdd/{change-name}/proposal` (engram) | inline (none)
 
 ### Summary
 - **Intent**: {one-line summary}

@@ -193,7 +193,7 @@ The phase orchestrator emits these views even when only 2 clusters ran:
 status: success | partial | blocked
 executive_summary: 1-3 sentences
 artifacts:
-  - "sddk/{change}/debt-report"
+  - "{cycle-artifacts-dir}/debt-report"
 verdict: PASS | PASS_WITH_WARNINGS | FAIL
 re_iterate_from: beginning | apply | none
 clusters_run: [list]

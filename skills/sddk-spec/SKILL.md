@@ -46,7 +46,7 @@ Take the proposal and produce **delta specs** — structured requirements and sc
 4. For each New Capability → write a full spec (delta) AND create REQ nodes in the vault.
 5. For each Modified Capability → write a delta spec (ADDED/MODIFIED/REMOVED) AND update/create REQ nodes in the vault.
 6. Use the **MODIFIED Requirements Workflow** for modified capabilities (CRITICAL).
-6. Persist to `sddk/{change}/spec`.
+6. Persist to `{cycle-artifacts-dir}/spec`.
 7. Return envelope.
 
 ## MODIFIED Requirements Workflow (CRITICAL)

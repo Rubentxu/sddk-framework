@@ -157,7 +157,7 @@ The system {MUST/SHALL/SHOULD} {behavior}.
 status: success | partial | blocked
 executive_summary: 1-3 sentences
 artifacts:
-  - "sddk/{change}/spec"
+  - "{cycle-artifacts-dir}/spec"
 specs_written:
   - domain: {domain}
     type: Delta | New

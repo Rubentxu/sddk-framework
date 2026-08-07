@@ -35,12 +35,12 @@ Take the proposal + spec and produce a design document. The design captures **HO
 ## Execution Steps
 
 1. Load skills per `skills/_shared/sddk-phase-common.md` Section A.
-2. Read proposal from `sddk/{change}/proposal`.
-3. Read spec from `sddk/{change}/spec`.
+2. Read proposal from `{cycle-artifacts-dir}/proposal`.
+3. Read spec from `{cycle-artifacts-dir}/spec`.
 4. Read the actual codebase for affected files, patterns, conventions.
 5. Write design.md with the template below.
 6. Identify ADRs to create (architectural decisions).
-7. Persist to `sddk/{change}/design`.
+7. Persist to `{cycle-artifacts-dir}/design`.
 8. Return envelope.
 
 ## Design Template (use this exact structure)
@@ -137,7 +137,7 @@ If none apply, proceed without them. Token economy is a feature.
 ## Design Created
 
 **Change**: {change-name}
-**Location**: `openspec/changes/{change-name}/design.md` (openspec/hybrid) | Engram `sddk/{change-name}/design` (engram) | inline (none)
+**Location**: `{cycle-artifacts-dir}/design.md` (openspec/hybrid) | Engram `{cycle-artifacts-dir}/design` (engram) | inline (none)
 
 ### Summary
 - **Approach**: {one-line technical approach}
