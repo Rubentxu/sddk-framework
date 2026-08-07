@@ -1393,12 +1393,12 @@ pub fn suggest_scenario_context(plan: &UatPlan) -> UatSuggestionsReport {
 pub fn apply_suggestion(scenario: &mut UatScenario, suggestion: &UatContextSuggestion) -> bool {
     match suggestion.field.as_str() {
         "context.user_story" => {
-            if let Some(s) = suggestion.proposed.as_str() {
-                if !s.trim().is_empty() {
-                    let ctx = scenario.context.get_or_insert_with(UatScenarioContext::default);
-                    ctx.user_story = Some(s.to_string());
-                    return true;
-                }
+            if let Some(s) = suggestion.proposed.as_str()
+                && !s.trim().is_empty()
+            {
+                let ctx = scenario.context.get_or_insert_with(UatScenarioContext::default);
+                ctx.user_story = Some(s.to_string());
+                return true;
             }
             false
         }
