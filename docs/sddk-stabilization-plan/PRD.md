@@ -265,6 +265,10 @@ El CLI debe agregar la telemetría de todos los proyectos adoptados del host en 
 
 El CLI debe generar un dashboard HTML estático, sin dependencias CDN ni red, que presente KPIs, tendencias y distribuciones agregados desde el control plane (`sddk telemetry dashboard`).
 
+### RF-018 No intrusión en repos de proyectos
+
+El framework no escribe ficheros dentro de los repositorios git de los proyectos que lo usan. Todo el estado operativo (artefactos de ciclo, docs generados, estado de adopción, vault, ledger) vive en directorios de usuario XDG o `~/.sddk-knowledge/`.
+
 ## 8. Requisitos no funcionales
 
 ### RNF-001 Determinismo
@@ -303,6 +307,14 @@ Todo error debe incluir:
 ### RNF-007 Privacidad y localidad de la telemetría
 
 La telemetría agregada se almacena y analiza localmente. No se transmite telemetría a servicios remotos salvo decisión explícita documentada en un ADR.
+
+### RNF-008 Versionado de bundles (modelo asdf)
+
+El framework debe soportar múltiples versiones de bundle instaladas en `$SDDK_DATA_DIR/framework/<version>/` y resolver la activa mediante `dev use` (symlink `current`) y `.sddk-versions` por proyecto, sin que el editor dependa del repo de desarrollo.
+
+### RNF-009 Portabilidad de paths por SO
+
+La resolución de directorios debe funcionar en Linux (XDG), macOS (`~/Library/Application Support`, `~/Library/Caches`) y Windows (`%APPDATA%`, `%LOCALAPPDATA%`) mediante el crate `dirs`, con overrides explícitos (`SDDK_DATA_DIR`, `XDG_*`) prioritarios y sin depender de `HOME` cuando no exista.
 
 ## 9. Arquitectura lógica
 
@@ -354,6 +366,9 @@ LadybugDB queda como backend analítico opcional futuro.
 - El informe HTML se genera sin dependencias CDN.
 - La telemetría de todos los proyectos adoptados es consultable en un solo store local.
 - El dashboard se regenera determinista desde el store central sin red.
+- `git status` de un proyecto adoptado es idéntico antes y después de un ciclo completo.
+- Dos versiones de bundle pueden convivir y alternarse con `dev use` sin re-link del editor.
+- Los paths de almacenamiento se resuelven por SO (Linux/macOS/Windows) sin depender de convenciones Unix.
 
 ## 12. Riesgos
 

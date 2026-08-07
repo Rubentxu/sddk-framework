@@ -13,8 +13,8 @@
 | Completa | 35 | Todos los criterios de la historia tienen implementación y prueba directa. |
 | Parcial | 0 | No queda ninguna historia parcial. |
 | Desviada | 0 | No queda ninguna desviación contractual conocida. |
-| No iniciada | 6 | Épica E11 (control plane local de telemetría, CP-2026-08). |
-| **Total** | **41** | v3.6 completo; E11 planificada con ADRs 0009/0010 y spec `docs/control-plane/SPEC.md`. |
+| No iniciada | 14 | Épicas E11 (control plane, CP-2026-08) y E12 (separación responsabilidades, RS-2026-08). |
+| **Total** | **49** | v3.6 completo; E11 y E12 planificadas con ADRs 0009-0011. |
 
 ## Matriz de aceptación
 
@@ -61,6 +61,14 @@
 | SDDK-1104 | No iniciada | `sddk telemetry aggregate` cross-proyecto reusando `compute_aggregate` (RF-016) | Sin implementación. |
 | SDDK-1105 | No iniciada | `sddk telemetry dashboard` HTML autocontenido sin CDN (RF-017/ADR-0010) | Sin implementación. |
 | SDDK-1106 | No iniciada | Research packet cross-proyecto para agentes self-research (RF-016, sin MCP) | Sin implementación. |
+| SDDK-1201 | No iniciada | Adopción no intrusiva: eliminar plantado de `workflow/workflow.yaml` en el repo (ADR-0011) | Sin implementación. |
+| SDDK-1202 | No iniciada | Artefactos de ciclo en XDG (`cycle-artifacts/{cycle_id}/`) + prompts/skills actualizados (ADR-0011) | Sin implementación. |
+| SDDK-1203 | No iniciada | `generate docs/inventory` → XDG por defecto con `--in-repo` explícito (ADR-0011) | Sin implementación. |
+| SDDK-1204 | No iniciada | `lint` lee manifest embebido/bundle, no exige `workflow.yaml` en el repo (ADR-0011) | Sin implementación. |
+| SDDK-1205 | No iniciada | Bundle runtime `$SDDK_DATA_DIR/framework/<v>/` multi-versión + `dev use` + link → `current` (ADR-0011/asdf) | Sin implementación. |
+| SDDK-1206 | No iniciada | Migración: limpiar receipts duplicados, mover `sddk/` a XDG, re-linkear editores (ADR-0011) | Sin implementación. |
+| SDDK-1207 | No iniciada | Resolución de versión por proyecto: `.sddk-versions` → `current` → `path:` (ADR-0011/asdf) | Sin implementación. |
+| SDDK-1208 | No iniciada | Resolución multiplataforma con crate `dirs`: macOS `~/Library/...`, Windows `%APPDATA%` (ADR-0011) | Sin implementación. |
 
 ## ÉPICA E1 — Fuente canónica del workflow
 
@@ -393,3 +401,88 @@
 - Agentes self-research actualizados para consumir el packet cross-proyecto (sin MCP).
 
 **Criterio:** el research packet lista ciclos de todos los proyectos con agregados cross-proyecto.
+
+## ÉPICA E12 — Separación de responsabilidades y cero intrusión (RS-2026-08)
+
+### SDDK-1201 Adopción no intrusiva
+
+**Prioridad:** P0
+**Milestone:** RS-2026-08
+
+- Eliminar `plant_workflow_manifest`: `adopt apply` no crea ficheros en el repo.
+- El engine resuelve el workflow del manifest embebido o bundle runtime.
+
+**Criterio:** `git status` de un proyecto adoptado queda limpio tras `adopt apply`.
+
+### SDDK-1202 Artefactos de ciclo en XDG
+
+**Prioridad:** P0
+**Milestone:** RS-2026-08
+
+- Artefactos de ciclo (proposal, spec, tasks, verify-report, release-report) en `~/.local/share/sddk/projects/<id>/cycle-artifacts/{cycle_id}/`.
+- Actualizar `persistence-contract.md`, `openspec-convention.md` y `sdd-kernel-*.md` con los nuevos paths.
+
+**Criterio:** un ciclo completo no deja ficheros bajo el working tree del proyecto.
+
+### SDDK-1203 Generación de docs a XDG
+
+**Prioridad:** P1
+**Milestone:** RS-2026-08
+
+- `sddk generate docs|inventory` escribe a `~/.local/share/sddk/projects/<id>/generated/` por defecto.
+- Flag `--in-repo` explícito para el dogfooding del repo de desarrollo.
+
+**Criterio:** `sddk generate` en un proyecto no modifica el working tree salvo con `--in-repo`.
+
+### SDDK-1204 Lint sin dependencia del repo
+
+**Prioridad:** P1
+**Milestone:** RS-2026-08
+
+- `sddk lint` lee el workflow del manifest embebido/bundle; no exige `workflow/workflow.yaml` en el repo.
+
+**Criterio:** lint pasa en un proyecto sin `workflow/workflow.yaml` en el working tree.
+
+### SDDK-1205 Bundle runtime y dev link
+
+**Prioridad:** P0
+**Milestone:** RS-2026-08
+
+- Bundle runtime instalado en `$SDDK_DATA_DIR/framework/<version>/` (modo bundle de `dev update`, modelo asdf `installs/`).
+- Múltiples versiones conviviendo; `sddk dev use <version>` actualiza el symlink `current`.
+- `dev link`/`dev doctor` operan sobre `current`; los symlinks del editor apuntan ahí, no al repo de desarrollo.
+
+**Criterio:** symlinks de opencode/zcode apuntan bajo `$SDDK_DATA_DIR/framework/current/`; instalar una versión nueva no altera los prompts activos hasta `dev use`.
+
+### SDDK-1206 Migración del estado existente
+
+**Prioridad:** P0
+**Milestone:** RS-2026-08
+
+- Eliminar los 2 receipts de adopción duplicados de `.sddk-shared`.
+- Mover artefactos de `sddk/` del working tree a XDG.
+- Re-linkear opencode/zcode contra el bundle runtime.
+
+**Criterio:** un solo receipt por workspace; `sddk dev doctor` all_present; control plane ingiere identidades únicas.
+
+### SDDK-1207 Resolución de versión por proyecto (modelo asdf)
+
+**Prioridad:** P1
+**Milestone:** RS-2026-08
+
+- Resolución de versión: `.sddk-versions` (PWD → padres) → `current` global → `path:<dir>` para dogfooding.
+- El framework nunca escribe `.sddk-versions`; lo gestiona el desarrollador (config declarativa, no estado).
+- `SDDK_DATA_DIR` env override para todo el árbol de estado.
+
+**Criterio:** un proyecto con `.sddk-versions` usa su versión pin; sin fichero, usa `current`; `path:` apunta al working tree del repo de desarrollo solo cuando se declara explícitamente.
+
+### SDDK-1208 Resolución multiplataforma de paths
+
+**Prioridad:** P1
+**Milestone:** RS-2026-08
+
+- Introducir crate `dirs` en `sddk-engine/src/paths.rs`: overrides `XDG_*`/`SDDK_DATA_DIR` primero, fallback `dirs::data_dir()/state_dir()/cache_dir()` por SO.
+- macOS → `~/Library/Application Support/sddk`; Windows → `%APPDATA%\sddk`; Linux → XDG (actual).
+- Tests de `paths.rs` con caso fallback `dirs`.
+
+**Criterio:** `resolve_xdg_paths` no depende de `HOME` en SO donde no existe (Windows); tests pasan con y sin overrides; `cargo test` verde en linux + darwin.

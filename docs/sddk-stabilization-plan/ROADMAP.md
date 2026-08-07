@@ -234,3 +234,31 @@ La consolidación exige: cambios versionados, CI obligatoria, criterios del back
 - 0 regresiones (`cargo test` + `act -j required`)
 - Requisitos PRD RF-016, RF-017 y RNF-007 cubiertos
 
+---
+
+## Milestone RS-2026-08 — Separación de responsabilidades y cero intrusión (ADR-0011)
+
+**Estado:** PLANIFICADO (2026-08-07) — ADR-0011 aceptado
+**Objetivo:** separar repo de desarrollo / bundle runtime / workspace de uso, y garantizar que el framework no escribe nada dentro de los repos git de los proyectos (todo en XDG).
+
+| Work item | Tipo | Depende de | Estado |
+|-----------|------|-----------|--------|
+| R1 — Eliminar `plant_workflow_manifest` (adopt no crea ficheros en el repo) | feature | — | planificado |
+| R2 — Artefactos de ciclo a XDG (`cycle-artifacts/{cycle_id}/`) + prompts/skills actualizados | feature | R1 | planificado |
+| R3 — `generate docs/inventory` → XDG por defecto con `--in-repo` explícito | feature | R1 | planificado |
+| R4 — `lint` lee manifest embebido/bundle, no exige workflow.yaml en repo | feature | R1 | planificado |
+| R5 — Bundle runtime multi-versión `$SDDK_DATA_DIR/framework/<v>/` + `dev use` (modelo asdf) | feature | R2 | planificado |
+| R6 — `dev link` → `current` del bundle + migración (receipts duplicados, `sddk/`, re-link) | ops | R5 | planificado |
+| R7 — Dogfooding en clon de trabajo separado (nunca en repo de desarrollo) | ops | R5 | planificado |
+| R8 — Resolución de versión por proyecto: `.sddk-versions` → `current` → `path:` (asdf) | feature | R5 | planificado |
+| R9 — Multiplataforma: crate `dirs`, fallback macOS/Windows en `resolve_xdg_paths` | feature | R5 | planificado |
+
+**Criterios de salida:**
+- `git status` de un proyecto adoptado idéntico antes/después de un ciclo completo
+- Ningún comando `sddk` crea ficheros bajo el working tree del proyecto (salvo `.sddk-versions` declarado por el desarrollador)
+- Symlinks de opencode/zcode apuntan bajo `$SDDK_DATA_DIR/framework/current/`
+- Múltiples versiones de bundle conviviendo; `dev use` cambia la activa sin tocar el editor
+- Un solo receipt por workspace; control plane ingiere identidades únicas
+- `resolve_xdg_paths` resuelve sin `HOME` (Windows) vía `dirs`; `cargo test` verde en linux + darwin
+- 0 regresiones (`cargo test` + `act -j required`)
+
