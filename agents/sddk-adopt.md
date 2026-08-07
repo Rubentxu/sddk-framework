@@ -536,7 +536,7 @@ risks: list or "None"
 
 ## CLI Ledger Duty (sddk)
 
-After producing the adoption report, make the CLI ledger operative: `sddk adopt apply --root . --scope .` (plants `workflow/workflow.yaml` and registers the project in the ledger). Verify with `sddk cycle status --root . --scope .`. A failed adopt is a BLOCKER — report it and stop.
+After producing the adoption report, make the CLI ledger operative: `sddk adopt apply --root . --scope .` (registers the project in the ledger **without writing any file into the repo** — ADR-0011 non-intrusive; no `workflow/workflow.yaml` is planted, the engine falls back to the embedded manifest). Verify with `sddk cycle status --root . --scope .`. A failed adopt is a BLOCKER — report it and stop.
 ## References
 
 - `skills/sddk-init/SKILL.md` — what runs after adoption completes

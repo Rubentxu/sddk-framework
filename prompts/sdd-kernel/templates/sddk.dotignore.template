@@ -14,7 +14,7 @@
 #   starting with `!` re-include a path even when it's been ignored. See:
 #   https://github.com/anomalyco/opencode/blob/dev/packages/web/src/content/docs/tools.mdx#internals--ignore-patterns
 #
-# Contract (SDDK v3.3 Local-Only Artifact Policy):
+# Contract (SDDK v3.5 Local-Only Artifact Policy):
 #   - Paths in the project's `.gitignore`      → not pushed to remote git.
 #   - Paths in this `.ignore` file (with `!`)  → kept readable by opencode
 #                                                phase agents on this machine.

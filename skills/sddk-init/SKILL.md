@@ -108,7 +108,7 @@ When the project is NOT yet adopted, adopt it so the cycle ledger becomes operat
 sddk adopt apply --root . --scope .
 ```
 
-`adopt apply` plants `workflow/workflow.yaml` (canonical, embedded in the binary) and registers the project in the ledger. Verify with `sddk cycle status --root . --scope .`. Init has no workflow transition — the ledger duty starts at the first phase (explore). Full protocol: `skills/_shared/persistence-contract.md` → CLI Ledger Channel.
+`adopt apply` registers the project in the ledger **without writing any file into the project repo** (ADR-0011: non-intrusive — no `workflow/workflow.yaml` is planted; the engine resolves the canonical workflow from the embedded manifest/bundle). Verify with `sddk cycle status --root . --scope .`. Init has no workflow transition — the ledger duty starts at the first phase (explore). Full protocol: `skills/_shared/persistence-contract.md` → CLI Ledger Channel.
 
 ## References
 

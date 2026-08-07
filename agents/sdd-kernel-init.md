@@ -98,10 +98,10 @@ What to capture:
 2. Detect test runner, layers, coverage, linter, type checker, formatter (priority order above).
 3. Resolve Strict TDD from agent marker, openspec config, detected runner fallback, or no-runner fallback.
 4. Initialize persistence for the resolved mode.
-5. Unless `mode=none`, **plant `.gitignore` AND `.ignore` per Local-Only Artifact Policy (v3.3)** — see `git-contract.md` § Local-Only Artifact Policy.
+5. Unless `mode=none`, **plant `.gitignore` AND `.ignore` per Local-Only Artifact Policy (v3.5)** — see `git-contract.md` § Local-Only Artifact Policy. Knowledge documents (ROADMAP, ADRs, specs) do NOT live in the repo — they go to the knowledge graph vault at `~/.sddk-knowledge/{project}/` (v3.5: "The project repo has ZERO documentation files").
    - Resolve project root with `git rev-parse --show-toplevel 2>/dev/null || pwd`.
-   - If `${PROJECT_ROOT}/.gitignore` exists, append the contents of `prompts/sdd-kernel/templates/sddk.gitignore.template` under a `# --- SDDK Local-Only Artifact Policy (v3.3) ---` header. Do not overwrite existing rules; merge idempotently.
-   - If `${PROJECT_ROOT}/.ignore` does not exist, write the contents of `prompts/sdd-kernel/templates/sddk.dotignore.template` verbatim. If it exists, append the SDDK section under a `# --- SDDK companion ignore (v3.3) ---` header, idempotently (skip patterns already present).
+   - If `${PROJECT_ROOT}/.gitignore` exists, append the contents of `prompts/sdd-kernel/templates/sddk.gitignore.template` under a `# --- SDDK Local-Only Artifact Policy (v3.5) ---` header. Do not overwrite existing rules; merge idempotently.
+   - If `${PROJECT_ROOT}/.ignore` does not exist, write the contents of `prompts/sdd-kernel/templates/sddk.dotignore.template` verbatim. If it exists, append the SDDK section under a `# --- SDDK companion ignore (v3.5) ---` header, idempotently (skip patterns already present).
    - Confirm with `git check-ignore -v sddk/ openspec/changes/ .atl/` that the listed paths ARE ignored by git. Confirm with `rg --files --hidden sddk/` that working paths remain searchable.
    - If either check fails, log `sddk-local-only-policy-applied` (success) or `sddk-local-only-policy-failed` (with reasons) in the return envelope.
 6. Unless `mode=none`, build `.atl/skill-registry.md` using the skill-registry scan rules.
