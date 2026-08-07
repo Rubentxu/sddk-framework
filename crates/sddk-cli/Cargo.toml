@@ -17,12 +17,13 @@ std = []
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde-saphyr = { workspace = true }
+toml = "0.8"
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 clap_complete = { workspace = true }
 regex = { workspace = true }
-serde-saphyr = { workspace = true }
 walkdir = { workspace = true }
 uuid = { workspace = true }
 time = { workspace = true }

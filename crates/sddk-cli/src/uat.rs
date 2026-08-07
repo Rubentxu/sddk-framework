@@ -43,6 +43,11 @@ pub(crate) enum UatCommand {
     /// List failed/blocked scenarios with context — what the agent reads to
     /// study where the UAT did not pass.
     Failures(UatFailuresArgs),
+    /// Per-project UAT config (XDG-resident, ADR-0011): show or set.
+    Config(UatConfigArgs),
+    /// Evaluate the `release-uat-approved` gate for a release type under the
+    /// project's config. Used by the orchestrator/release agent.
+    Gate(UatGateArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -171,6 +176,129 @@ pub(crate) struct UatFailuresArgs {
     pub(crate) format: OutputFormat,
 }
 
+#[derive(Debug, Clone, Args)]
+pub(crate) struct UatConfigArgs {
+    #[command(subcommand)]
+    pub(crate) command: UatConfigCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum UatConfigCommand {
+    /// Print the current per-project UAT config (defaults if no file).
+    Show(UatConfigShowArgs),
+    /// Update fields of the per-project UAT config (XDG-resident, ADR-0011).
+    Set(UatConfigSetArgs),
+}
+
+/// CLI wrapper for `sddk_domain::ReleaseGateAction` so the value_enum derive
+/// stays in the CLI layer (domain must not depend on clap).
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub(crate) enum ReleaseGateActionArg {
+    Required,
+    Skip,
+    Advisory,
+}
+
+impl From<ReleaseGateActionArg> for sddk_domain::ReleaseGateAction {
+    fn from(value: ReleaseGateActionArg) -> Self {
+        match value {
+            ReleaseGateActionArg::Required => sddk_domain::ReleaseGateAction::Required,
+            ReleaseGateActionArg::Skip => sddk_domain::ReleaseGateAction::Skip,
+            ReleaseGateActionArg::Advisory => sddk_domain::ReleaseGateAction::Advisory,
+        }
+    }
+}
+
+/// CLI wrapper for `sddk_domain::ReleaseType`.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub(crate) enum ReleaseTypeArg {
+    Major,
+    Minor,
+    Patch,
+}
+
+impl From<ReleaseTypeArg> for sddk_domain::ReleaseType {
+    fn from(value: ReleaseTypeArg) -> Self {
+        match value {
+            ReleaseTypeArg::Major => sddk_domain::ReleaseType::Major,
+            ReleaseTypeArg::Minor => sddk_domain::ReleaseType::Minor,
+            ReleaseTypeArg::Patch => sddk_domain::ReleaseType::Patch,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct UatConfigShowArgs {
+    /// Project identifier (defaults to the current adoption's `project_id`).
+    #[arg(long)]
+    pub(crate) project: Option<String>,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct UatConfigSetArgs {
+    /// Project identifier (defaults to the current adoption's `project_id`).
+    #[arg(long)]
+    pub(crate) project: Option<String>,
+    /// Release gate policy for major releases.
+    #[arg(long, value_enum)]
+    pub(crate) major: Option<ReleaseGateActionArg>,
+    /// Release gate policy for minor releases.
+    #[arg(long, value_enum)]
+    pub(crate) minor: Option<ReleaseGateActionArg>,
+    /// Release gate policy for patch releases.
+    #[arg(long, value_enum)]
+    pub(crate) patch: Option<ReleaseGateActionArg>,
+    /// Whether a developer is available to validate UAT.
+    #[arg(long)]
+    pub(crate) developer: Option<bool>,
+    /// Whether an architect is available to validate UAT.
+    #[arg(long)]
+    pub(crate) architect: Option<bool>,
+    /// Activation threshold: minimum number of features in the release.
+    #[arg(long)]
+    pub(crate) min_features: Option<u32>,
+    /// Activation threshold: minimum diff lines in the release.
+    #[arg(long)]
+    pub(crate) min_diff_lines: Option<u32>,
+    /// Critical domains (comma-separated) that trigger UAT activation.
+    #[arg(long, value_delimiter = ',')]
+    pub(crate) critical_domains: Vec<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct UatGateArgs {
+    #[command(subcommand)]
+    pub(crate) command: UatGateCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum UatGateCommand {
+    /// Evaluate the `release-uat-approved` gate for a candidate release.
+    Release(UatGateReleaseArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct UatGateReleaseArgs {
+    /// Project identifier (defaults to the current adoption's `project_id`).
+    #[arg(long)]
+    pub(crate) project: Option<String>,
+    /// Candidate tag, e.g. `v1.5.2`.
+    #[arg(long)]
+    pub(crate) tag: String,
+    /// Previous tag for semver diff (alternative to `--release-type`).
+    #[arg(long)]
+    pub(crate) previous_tag: Option<String>,
+    /// Explicit release type (overrides `--previous-tag`).
+    #[arg(long, value_enum)]
+    pub(crate) release_type: Option<ReleaseTypeArg>,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
+}
+
 pub(crate) fn run_uat(command: UatCommand, environment: &crate::CliEnvironment) -> CommandOutput {
     match command {
         UatCommand::Plan(args) => run_uat_plan(args, environment),
@@ -181,6 +309,8 @@ pub(crate) fn run_uat(command: UatCommand, environment: &crate::CliEnvironment) 
         UatCommand::Report(args) => run_uat_report(args),
         UatCommand::Status(args) => run_uat_status(args),
         UatCommand::Failures(args) => run_uat_failures(args),
+        UatCommand::Config(args) => run_uat_config(args, environment),
+        UatCommand::Gate(args) => run_uat_gate(args, environment),
     }
 }
 
@@ -572,6 +702,218 @@ struct UatFailure {
     rationale: Option<String>,
     session_id: String,
     executed_by: String,
+}
+
+/// Resolve the project_id, falling back to `--project` or erroring.
+fn resolve_project_id(args_project: Option<&str>, _environment: &crate::CliEnvironment) -> anyhow::Result<String> {
+    if let Some(id) = args_project {
+        return Ok(id.to_string());
+    }
+    if let Ok(id) = std::env::var("SDDK_PROJECT_ID")
+        && !id.is_empty()
+    {
+        return Ok(id);
+    }
+    // Last resort: cwd adoption.json.
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let candidates = [
+        cwd.join("adoption.json"),
+        cwd.join(".sddk").join("adoption.json"),
+    ];
+    for path in candidates {
+        if let Ok(raw) = std::fs::read_to_string(&path)
+            && let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw)
+            && let Some(id) = value.get("project_id").and_then(|v| v.as_str())
+        {
+            return Ok(id.to_string());
+        }
+    }
+    anyhow::bail!(
+        "could not determine project_id: pass --project <id>, set $SDDK_PROJECT_ID, or run from a project root with adoption.json"
+    )
+}
+
+/// Build an `XdgEnvironment` from the flat `CliEnvironment` fields.
+fn xdg_from_env(environment: &crate::CliEnvironment) -> sddk_engine::XdgEnvironment {
+    sddk_engine::XdgEnvironment {
+        home: environment.home.clone(),
+        data_home: environment.data_home.clone(),
+        sddk_data_dir: environment.sddk_data_dir.clone(),
+        state_home: environment.state_home.clone(),
+        cache_home: environment.cache_home.clone(),
+    }
+}
+
+fn load_uat_config(project_id: &str, environment: &crate::CliEnvironment) -> anyhow::Result<sddk_domain::UatConfig> {
+    let path = sddk_engine::uat_config_path(&xdg_from_env(environment), project_id)?;
+    if !path.exists() {
+        return Ok(sddk_domain::UatConfig::default());
+    }
+    let raw = std::fs::read_to_string(&path)
+        .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
+    let config: sddk_domain::UatConfig = toml::from_str(&raw)
+        .map_err(|e| anyhow::anyhow!("invalid uat.toml at {}: {e}", path.display()))?;
+    Ok(config)
+}
+
+fn save_uat_config(project_id: &str, config: &sddk_domain::UatConfig, environment: &crate::CliEnvironment) -> anyhow::Result<()> {
+    let path = sddk_engine::uat_config_path(&xdg_from_env(environment), project_id)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let serialized = toml::to_string_pretty(config)
+        .map_err(|e| anyhow::anyhow!("uat.toml serialization failed: {e}"))?;
+    std::fs::write(&path, serialized)?;
+    Ok(())
+}
+
+fn run_uat_config(args: UatConfigArgs, environment: &crate::CliEnvironment) -> CommandOutput {
+    match args.command {
+        UatConfigCommand::Show(a) => run_uat_config_show(a, environment),
+        UatConfigCommand::Set(a) => run_uat_config_set(a, environment),
+    }
+}
+
+fn run_uat_config_show(args: UatConfigShowArgs, environment: &crate::CliEnvironment) -> CommandOutput {
+    let format = args.format;
+    let result = (|| -> anyhow::Result<String> {
+        let project_id = resolve_project_id(args.project.as_deref(), environment)?;
+        let path = sddk_engine::uat_config_path(&xdg_from_env(environment), &project_id)?;
+        let config = load_uat_config(&project_id, environment)?;
+        if matches!(format, OutputFormat::Json) {
+            return serde_json::to_string_pretty(&serde_json::json!({
+                "project_id": project_id,
+                "path": path.display().to_string(),
+                "exists": path.exists(),
+                "config": config,
+            }))
+            .map_err(|e| anyhow::anyhow!("json serialization failed: {e}"));
+        }
+        let mut out = String::new();
+        out.push_str(&format!("project: {project_id}\n"));
+        out.push_str(&format!("path:    {}\n", path.display()));
+        out.push_str(&format!("exists:  {}\n\n", if path.exists() { "yes" } else { "no (defaults shown)" }));
+        out.push_str(&format!(
+            "[release_gate]\n  major = {}\n  minor = {}\n  patch = {}\n\n",
+            config_action_str(config.release_gate.major),
+            config_action_str(config.release_gate.minor),
+            config_action_str(config.release_gate.patch),
+        ));
+        out.push_str(&format!(
+            "[human]\n  developer = {}\n  architect = {}\n\n",
+            if config.human.developer { "true" } else { "false" },
+            if config.human.architect { "true" } else { "false" },
+        ));
+        out.push_str(&format!(
+            "[activation]\n  min_features = {}\n  min_diff_lines = {}\n  critical_domains = [{}]\n",
+            config.activation.min_features,
+            config.activation.min_diff_lines,
+            config.activation.critical_domains.join(", "),
+        ));
+        Ok(out)
+    })();
+    render_result(result, format, |text| text.to_string())
+}
+
+fn run_uat_config_set(args: UatConfigSetArgs, environment: &crate::CliEnvironment) -> CommandOutput {
+    let result = (|| -> anyhow::Result<String> {
+        let project_id = resolve_project_id(args.project.as_deref(), environment)?;
+        let mut config = load_uat_config(&project_id, environment)?;
+        if let Some(v) = args.major { config.release_gate.major = v.into(); }
+        if let Some(v) = args.minor { config.release_gate.minor = v.into(); }
+        if let Some(v) = args.patch { config.release_gate.patch = v.into(); }
+        if let Some(v) = args.developer { config.human.developer = v; }
+        if let Some(v) = args.architect { config.human.architect = v; }
+        if let Some(v) = args.min_features { config.activation.min_features = v; }
+        if let Some(v) = args.min_diff_lines { config.activation.min_diff_lines = v; }
+        if !args.critical_domains.is_empty() {
+            config.activation.critical_domains = args.critical_domains;
+        }
+save_uat_config(&project_id, &config, environment)?;
+        let path = sddk_engine::uat_config_path(&xdg_from_env(environment), &project_id)?;
+        Ok(format!("uat config saved: {}\n", path.display()))
+    })();
+    render_result(result, OutputFormat::Text, |t| t.to_string())
+}
+
+fn run_uat_gate(args: UatGateArgs, environment: &crate::CliEnvironment) -> CommandOutput {
+    match args.command {
+        UatGateCommand::Release(a) => run_uat_gate_release(a, environment),
+    }
+}
+
+fn run_uat_gate_release(args: UatGateReleaseArgs, environment: &crate::CliEnvironment) -> CommandOutput {
+    let format = args.format;
+    let result: anyhow::Result<String> = (|| -> anyhow::Result<String> {
+        let project_id = resolve_project_id(args.project.as_deref(), environment)?;
+        let config = load_uat_config(&project_id, environment)?;
+
+        let release_type = if let Some(rt) = args.release_type {
+            rt.into()
+        } else if let Some(prev) = &args.previous_tag {
+            sddk_domain::release_type_from_diff(&args.tag, prev).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "could not derive release type from diff {} -> {}: equal tags or invalid semver; pass --release-type explicitly",
+                    prev,
+                    args.tag
+                )
+            })?
+        } else {
+            anyhow::bail!("either --previous-tag or --release-type is required");
+        };
+
+        let action = sddk_domain::evaluate_release_gate(&config, release_type);
+        let blocks = matches!(action, sddk_domain::ReleaseGateAction::Required);
+
+        if matches!(format, OutputFormat::Json) {
+            return serde_json::to_string_pretty(&serde_json::json!({
+                "project_id": project_id,
+                "tag": args.tag,
+                "release_type": release_type.as_str(),
+                "action": action,
+            }))
+            .map_err(|e| anyhow::anyhow!("json serialization failed: {e}"));
+        }
+
+        let mut out = String::new();
+        out.push_str(&format!("project:    {project_id}\n"));
+        out.push_str(&format!("tag:        {}\n", args.tag));
+        out.push_str(&format!("release:    {}\n", release_type.as_str()));
+        out.push_str(&format!("gate:       {}\n", config_action_str(action)));
+        if blocks {
+            out.push_str("\nBLOCKED: this release requires a human UAT verdict.\n");
+            out.push_str("Next steps:\n");
+            out.push_str(&format!(
+                "  1. Generate the plan:  sddk uat plan --release {}\n",
+                args.tag.trim_start_matches('v')
+            ));
+            out.push_str(&format!(
+                "  2. Run the dashboard:  sddk uat open --release {}\n",
+                args.tag.trim_start_matches('v')
+            ));
+            out.push_str("  3. After executing:    sddk uat ingest --session <file>\n");
+            out.push_str(&format!(
+                "  4. Verify readiness:   sddk uat gate release --tag {} --release-type {}\n",
+                args.tag,
+                release_type.as_str()
+            ));
+        } else {
+            out.push_str(&format!(
+                "\nALLOWED: gate = {} (no human verdict required for this release type)\n",
+                config_action_str(action)
+            ));
+        }
+        Ok(out)
+    })();
+    render_result(result, format, |t| t.to_string())
+}
+
+fn config_action_str(action: sddk_domain::ReleaseGateAction) -> &'static str {
+    match action {
+        sddk_domain::ReleaseGateAction::Required => "required",
+        sddk_domain::ReleaseGateAction::Skip => "skip",
+        sddk_domain::ReleaseGateAction::Advisory => "advisory",
+    }
 }
 
 fn run_uat_report(args: UatReportArgs) -> CommandOutput {

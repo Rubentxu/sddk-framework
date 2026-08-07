@@ -282,3 +282,16 @@ mod tests {
         ));
     }
 }
+
+/// Resolve the path of a project's UAT config (`uat.toml`) under the
+/// XDG data root (ADR-0011 compliant — no files written into the project repo).
+/// Returns a path even if the file does not exist yet; callers should create
+/// the parent dir on first save.
+pub fn uat_config_path(
+    environment: &XdgEnvironment,
+    project_id: &str,
+) -> Result<PathBuf, PathResolutionError> {
+    ProjectId::new(project_id).map_err(|_| unsafe_identity(project_id))?;
+    let paths = resolve_xdg_paths(environment, project_id, "default")?;
+    Ok(paths.vault.parent().unwrap_or(std::path::Path::new(".")).join(project_id).join("uat.toml"))
+}
