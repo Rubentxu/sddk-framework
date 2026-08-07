@@ -3,11 +3,19 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.5.1] - 2026-08-07
+
+### Features
+  - feat(uat): `sddk uat open` — render dashboard + abrir en navegador del sistema sin servidor (file://, JS+CSS inline, ABR-0010); auto-resolve por `--release`, SO-aware launcher (xdg-open/open/cmd-start), `--browser` override. Cierra el loop humano: el tester abre el HTML, marca verdicts, exporta sesión JSON, se ingesta.
+
+### Fixes
+  - fix(uat): views HTML inline storage.js/components.js (Chrome bloqueaba scripts file:// por CORS; el HTML ahora es 100% autocontenido y abre vía file:// sin warnings).
+
 ## [1.5.0] - 2026-08-07
 
 ### Features
   - feat(uat): milestone UAT-2026-08 U1-U7 — dashboard kit en bundle (assets/uat-dashboard), dominio uat.rs, CLI uat plan/validate/dashboard/ingest/report/status, workflow fase uat + status UAT_WAITING + gates uat-activated/uat-verdict/release-uat-approved, control plane uat_results + panel "UAT readiness" en dashboard telemetría, agentes uat-planner/guide/runner/reporter + 4 skills (ADR-0012/0013, RF-019/020, RNF-010)
-  - feat(uat): U8 dogfooding completo — el framework se valida a sí mismo: uat-plan v1.5.0 (6 features, 13 escenarios), dashboard guiado desde bundle, sesión 13/13 PASS, verdict READY, coverage 100%
+  - feat(uat): U8 dogfooding parcial — uat-plan v1.5.0 (6 features, 13 escenarios), dashboard guiado generado y validado (determinismo, cero URLs externas); la sesión humana queda PENDIENTE de validación real (la sesión inicial fue fabricada por el agente y eliminada del control plane)
 
 ### Fixes
   - fix(agents): uat-planner craft rule 9 — quoting YAML-safe (colon-space rompe el plan; hallazgo del dogfooding)
