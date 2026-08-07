@@ -189,7 +189,7 @@ La consolidación exige: cambios versionados, CI obligatoria, criterios del back
 | validate-project.sh --lang (matrix 5 lenguajes) | feature | ADR-0001 | **done** |
 | scripts/e2e-all.sh (orquestador) | feature | N1+N2+matrix | **done** |
 | docs/validation/e2e-report.md + evidencia | docs | e2e-all | **done** |
-| Checklist N3 (editor real) | docs | dev link | planificado |
+| Checklist N3 (editor real) | docs | dev link | **done** |
 
 **Criterios de salida:**
 - 5/5 lenguajes validados (adopt + cycle + tests baseline)

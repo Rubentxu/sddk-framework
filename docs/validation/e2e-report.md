@@ -15,12 +15,14 @@
 | ml-go | PASS |
 | ml-node | PASS |
 | ml-c | PASS |
+| n3-editor (checklist entorno real) | PASS |
 
 ## Evidence
 
 - N1 reports: `~/.sddk-e2e/{a,b,c,d}/report.json` (install variants: no-cosign, cosign keyless, editor-none, pinned)
 - N2 artifacts: `~/.sddk-e2e/render/diagrams/workflow-states.svg` + `screenshots/vault-inspector.png`, `screenshots/closing-report.png`
 - ML reports: `~/.sddk-validate/fixture-{rust,python,go,node,c}/report.json` (adopt + cycle open on fixture projects, musl static binary)
+- N3 checklist: `e2e-plan.md` §N3 (dev link → 67 agents / 93 skills / 35 prompts; doctor all_present; orchestrator + sdd-kernel-verify prompts resueltos; skills sddk-* disponibles)
 
 ## Key Fixes This Round
 
