@@ -10,11 +10,11 @@
 
 | Estado | Historias | Significado |
 | --- | ---: | --- |
-| Completa | 43 | Todos los criterios de la historia tienen implementación y prueba directa. |
+| Completa | 49 | Todos los criterios de la historia tienen implementación y prueba directa. |
 | Parcial | 0 | No queda ninguna historia parcial. |
 | Desviada | 0 | No queda ninguna desviación contractual conocida. |
-| No iniciada | 6 | Épica E11 (control plane, CP-2026-08) — resto de G5/G6. |
-| **Total** | **49** | v3.6 + E12 (RS-2026-08) completas; E11 en curso. |
+| No iniciada | 0 | El backlog completo (v3.6 + E11 + E12) está cerrado. |
+| **Total** | **49** | v3.6 + CP-2026-08 + RS-2026-08 completos. |
 
 ## Matriz de aceptación
 
@@ -55,12 +55,12 @@
 | SDDK-1005 | Completa | Packs declarativos (RF-012/ADR-0004): `manifest.toml`, validación PACK001-007, `sddk pack validate` y SDDK014 | Sin gap funcional demostrado. |
 | SDDK-1006 | Completa | Indexación incremental del vault por hash de contenido (RNF-004) y profundidad FTS con tags/enlaces/backlinks (RF-009) | Sin gap funcional demostrado. |
 | SDDK-1007 | Completa | Envolvente de error estructurada (RNF-006): código estable, causa y recuperación en errores del runtime | Sin gap funcional demostrado. |
-| SDDK-1101 | No iniciada | Gaps de datos: costos/tokens estimados por modelo, teleological coherence, context quality real, verdict con receipt (RF-016) | Sin implementación (milestone CP-2026-08). |
-| SDDK-1102 | No iniciada | Store SQLite central `control-plane.sqlite` (projects/cycles/aggregates) reconstruible (RF-016/ADR-0009) | Sin implementación. |
-| SDDK-1103 | No iniciada | `sddk telemetry ingest` cross-proyecto con upsert idempotente y derive desde ledger (RF-016) | Sin implementación. |
-| SDDK-1104 | No iniciada | `sddk telemetry aggregate` cross-proyecto reusando `compute_aggregate` (RF-016) | Sin implementación. |
-| SDDK-1105 | No iniciada | `sddk telemetry dashboard` HTML autocontenido sin CDN (RF-017/ADR-0010) | Sin implementación. |
-| SDDK-1106 | No iniciada | Research packet cross-proyecto para agentes self-research (RF-016, sin MCP) | Sin implementación. |
+| SDDK-1101 | Completa | Gaps de datos: costos/tokens estimados por modelo, teleological coherence, context quality real, verdict con receipt (RF-016) | Sin gap funcional demostrado. |
+| SDDK-1102 | Completa | Store SQLite central `control-plane.sqlite` (projects/cycles/aggregates) reconstruible (RF-016/ADR-0009) | Sin gap funcional demostrado. |
+| SDDK-1103 | Completa | `sddk telemetry ingest` cross-proyecto con upsert idempotente y derive desde ledger (RF-016) | Sin gap funcional demostrado. |
+| SDDK-1104 | Completa | `sddk telemetry aggregate` cross-proyecto reusando `compute_aggregate` (RF-016) | Sin gap funcional demostrado. |
+| SDDK-1105 | Completa | `sddk telemetry dashboard` HTML autocontenido sin CDN (RF-017/ADR-0010) | Sin gap funcional demostrado. |
+| SDDK-1106 | Completa | Research packet cross-proyecto para agentes self-research (RF-016, sin MCP) | Sin gap funcional demostrado. |
 | SDDK-1201 | Completa | Adopción no intrusiva: eliminar plantado de `workflow/workflow.yaml` en el repo (ADR-0011) | Sin gap funcional demostrado. |
 | SDDK-1202 | Completa | Artefactos de ciclo en XDG (`cycle-artifacts/{cycle_id}/`) + prompts/skills actualizados (ADR-0011) | Sin gap funcional demostrado. |
 | SDDK-1203 | Completa | `generate docs/inventory` → XDG por defecto con `--in-repo` explícito (ADR-0011) | Sin gap funcional demostrado. |

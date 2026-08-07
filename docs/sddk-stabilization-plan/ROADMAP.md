@@ -214,25 +214,25 @@ La consolidación exige: cambios versionados, CI obligatoria, criterios del back
 
 ## Milestone CP-2026-08 — Control plane local de telemetría (post-E2E)
 
-**Estado:** PLANIFICADO (2026-08-07) — ADRs 0009/0010 aceptados, spec `docs/control-plane/SPEC.md`
+**Estado:** IMPLEMENTADO (2026-08-07) — ADRs 0009/0010 aceptados, G1-G6 completos
 **Objetivo:** agregar la telemetría de todos los proyectos adoptados en un SQLite central local, cerrar los gaps de datos y presentarla en un dashboard HTML autocontenido. Sin componente MCP.
 
 | Work item | Tipo | Depende de | Estado |
 |-----------|------|-----------|--------|
-| G1 — Gaps de datos (costos, coherence, context quality, verdict) | feature | — | planificado |
-| G2 — Store SQLite central + `telemetry ingest` (schema v1, upsert, derive) | feature | G1 | planificado |
-| G3 — `telemetry aggregate` cross-proyecto (reuso `compute_aggregate`) | feature | G2 | planificado |
-| G4 — `telemetry dashboard` HTML autocontenido (patrón `export_html`) | feature | G2+G3 | planificado |
-| G5 — Research packet cross-proyecto + agentes self-research (sin MCP) | feature | G3 | planificado |
-| G6 — Docs (README control plane), tests y CI | docs | G1-G5 | planificado |
+| G1 — Gaps de datos (costos, coherence, context quality, verdict) | feature | — | **done** |
+| G2 — Store SQLite central + `telemetry ingest` (schema v1, upsert, derive) | feature | G1 | **done** |
+| G3 — `telemetry aggregate` cross-proyecto (reuso `compute_aggregate`) | feature | G2 | **done** |
+| G4 — `telemetry dashboard` HTML autocontenido (patrón `export_html`) | feature | G2+G3 | **done** |
+| G5 — Research packet cross-proyecto + agentes self-research (sin MCP) | feature | G3 | **done** |
+| G6 — Docs (README control plane), tests y CI | docs | G1-G5 | **done** |
 
 **Criterios de salida:**
-- Ingest idempotente y reconstruible (delete + ingest == mismo estado)
-- Aggregate cross-proyecto con sample = suma de ciclos de todos los proyectos
-- Dashboard HTML sin URLs externas, determinista, abrible vía `file://`
-- Gaps cerrados evidenciables con `sddk telemetry status`
-- 0 regresiones (`cargo test` + `act -j required`)
-- Requisitos PRD RF-016, RF-017 y RNF-007 cubiertos
+- Ingest idempotente y reconstruible (delete + ingest == mismo estado) ✅
+- Aggregate cross-proyecto con sample = suma de ciclos de todos los proyectos ✅
+- Dashboard HTML sin URLs externas, determinista, abrible vía `file://` ✅
+- Gaps cerrados evidenciables con `sddk telemetry status` ✅
+- 0 regresiones (`cargo test` + `act -j required`) ✅ (44 CLI + engine tests)
+- Requisitos PRD RF-016, RF-017 y RNF-007 cubiertos ✅
 
 ---
 
