@@ -62,6 +62,18 @@ CREATE TABLE IF NOT EXISTS aggregates (
 
 CREATE INDEX IF NOT EXISTS idx_cycles_project ON cycles(project_id);
 CREATE INDEX IF NOT EXISTS idx_cycles_recorded ON cycles(recorded_at);
+
+CREATE TABLE IF NOT EXISTS uat_results (
+    project_id     TEXT NOT NULL REFERENCES projects(project_id),
+    tag_version    TEXT NOT NULL,
+    verdict        TEXT NOT NULL,           -- READY|READY_WITH_RISKS|NOT_READY
+    coverage_pct   REAL NOT NULL DEFAULT 0,
+    defects        INTEGER NOT NULL DEFAULT 0,
+    session_count  INTEGER NOT NULL DEFAULT 0,
+    uat_duration_minutes INTEGER NOT NULL DEFAULT 0,
+    recorded_at    TEXT NOT NULL,
+    PRIMARY KEY (project_id, tag_version)
+);
 "#;
 
 #[derive(Debug, Subcommand)]
@@ -444,6 +456,79 @@ fn upsert_cycle(
     Ok(())
 }
 
+/// Upsert a UAT aggregate into the control plane (ADR-012: the CP stores
+/// only the numeric rollup; sessions/evidence stay in XDG artifacts).
+pub(crate) fn upsert_uat_result(
+    conn: &Connection,
+    result: &UatResultRow,
+) -> anyhow::Result<()> {
+    conn.execute(
+        r#"
+        INSERT INTO uat_results (
+            project_id, tag_version, verdict, coverage_pct, defects,
+            session_count, uat_duration_minutes, recorded_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        ON CONFLICT(project_id, tag_version) DO UPDATE SET
+            verdict = excluded.verdict,
+            coverage_pct = excluded.coverage_pct,
+            defects = excluded.defects,
+            session_count = excluded.session_count,
+            uat_duration_minutes = excluded.uat_duration_minutes,
+            recorded_at = excluded.recorded_at
+        "#,
+        params![
+            result.project_id,
+            result.tag_version,
+            result.verdict,
+            result.coverage_pct,
+            result.defects,
+            result.session_count,
+            result.uat_duration_minutes,
+            result.recorded_at,
+        ],
+    )?;
+    Ok(())
+}
+
+/// Load UAT aggregates for the readiness panel (ADR-013).
+pub(crate) fn load_uat_results(
+    conn: &Connection,
+) -> anyhow::Result<Vec<UatResultRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT project_id, tag_version, verdict, coverage_pct, defects,
+                session_count, uat_duration_minutes, recorded_at
+         FROM uat_results ORDER BY recorded_at DESC",
+    )?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(UatResultRow {
+                project_id: row.get(0)?,
+                tag_version: row.get(1)?,
+                verdict: row.get(2)?,
+                coverage_pct: row.get(3)?,
+                defects: row.get(4)?,
+                session_count: row.get(5)?,
+                uat_duration_minutes: row.get(6)?,
+                recorded_at: row.get(7)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+/// A row of the control-plane `uat_results` table.
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct UatResultRow {
+    pub project_id: String,
+    pub tag_version: String,
+    pub verdict: String,
+    pub coverage_pct: f64,
+    pub defects: i64,
+    pub session_count: i64,
+    pub uat_duration_minutes: i64,
+    pub recorded_at: String,
+}
+
 /// Derive metrics records for cycles only present in the project ledger.
 fn derive_ledger_cycles(
     project: &DiscoveredProject,
@@ -763,10 +848,17 @@ fn run_telemetry_dashboard(
     let result = (|| -> anyhow::Result<PathBuf> {
         let conn = open_store(environment, false)?;
         let records = load_cycles(&conn)?;
+        let uat_rows = load_uat_results(&conn)?;
         let aggregate_7d = metrics::compute_aggregate(&records, 7);
         let aggregate_30d = metrics::compute_aggregate(&records, 30);
         let tuning = metrics::tuning_from_aggregate(&aggregate_30d);
-        let html = render_dashboard_html(&records, &aggregate_7d, &aggregate_30d, &tuning);
+        let html = render_dashboard_html(
+            &records,
+            &aggregate_7d,
+            &aggregate_30d,
+            &tuning,
+            &uat_rows,
+        );
         let dir = control_plane_dir(environment)?;
         std::fs::create_dir_all(&dir)?;
         let path = args
@@ -790,11 +882,13 @@ fn render_dashboard_html(
     aggregate_7d: &sddk_domain::MetricsAggregate,
     aggregate_30d: &sddk_domain::MetricsAggregate,
     tuning: &sddk_domain::F3Tuning,
+    uat_results: &[UatResultRow],
 ) -> String {
     let cycles_json = serde_json::to_string_pretty(&records).unwrap_or_else(|_| "[]".into());
     let agg7_json = serde_json::to_string_pretty(aggregate_7d).unwrap_or_else(|_| "{}".into());
     let agg30_json = serde_json::to_string_pretty(aggregate_30d).unwrap_or_else(|_| "{}".into());
     let tuning_json = serde_json::to_string_pretty(tuning).unwrap_or_else(|_| "{}".into());
+    let uat_json = serde_json::to_string_pretty(uat_results).unwrap_or_else(|_| "[]".into());
     let generated_at = now_rfc3339().unwrap_or_else(|_| "unknown".into());
     let (sample, first_pass, lead_time, cost, bottleneck) = aggregate_summary(aggregate_30d);
     format!(
@@ -842,6 +936,9 @@ fn render_dashboard_html(
 <h2>Cycles</h2>
 <table id="cycles"></table>
 
+<h2>UAT readiness</h2>
+<table id="uat"></table>
+
 <h2>Data gaps</h2>
 <div id="gaps" class="gap"></div>
 
@@ -852,6 +949,7 @@ const CYCLES = {cycles_json};
 const AGG7 = {agg7_json};
 const AGG30 = {agg30_json};
 const TUNING = {tuning_json};
+const UAT = {uat_json};
 
 function fmtMoney(v) {{ return (v == null || v === 0) ? "n/a" : v.toFixed(2); }}
 function fmtLead(v) {{ return (v == null) ? "n/a" : v.toFixed(2); }}
@@ -889,6 +987,18 @@ for (const r of CYCLES) {{
 document.getElementById("gaps").innerHTML = gaps.length
   ? gaps.slice(0, 50).map(g => "<div>"+g+"</div>").join("")
   : "none";
+
+const uatCols = ["project_id","tag_version","verdict","coverage_pct","defects","session_count","uat_duration_minutes"];
+document.getElementById("uat").innerHTML = UAT.length === 0
+  ? "<tr><td>no UAT results yet</td></tr>"
+  : "<tr>" + uatCols.map(c => "<th>"+c.replace(/_/g," ")+"</th>").join("") + "</tr>" +
+    UAT.map(r => "<tr>" + uatCols.map(c => {{
+      const v = r[c];
+      let s = (v === null || v === undefined) ? "" : String(v);
+      if (c === "verdict") s = v === "READY" ? '<span class="pass">READY</span>' : '<span class="warn">'+v+'</span>';
+      if (c === "coverage_pct") s = v + "%";
+      return "<td>"+s+"</td>";
+    }}).join("") + "</tr>").join("");
 </script>
 </body>
 </html>

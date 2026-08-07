@@ -28,6 +28,8 @@ pub enum CycleStatus {
     Abandoned,
     /// Cycle is in recovery state.
     Recovering,
+    /// Cycle is waiting on a human UAT verdict (ADR-012, synchronous mode).
+    UatWaiting,
 }
 
 /// Workflow phases.
@@ -47,6 +49,8 @@ pub enum Phase {
     Build,
     /// Verification phase.
     Verify,
+    /// UAT phase (optional, orchestrator-decided — ADR-012).
+    Uat,
     /// Review phase.
     Review,
     /// Release phase.

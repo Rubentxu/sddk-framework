@@ -800,6 +800,27 @@ fn resolve_active_framework_root(environment: &CliEnvironment) -> anyhow::Result
         })
 }
 
+/// Resolve the static `assets/` directory of the active framework root
+/// (ADR-0013: dashboard kit shipped in the bundle). Returns `None` when the
+/// bundle has no assets (pre-1.5.0 bundles are still supported).
+pub(crate) fn resolve_assets_dir(environment: &CliEnvironment) -> anyhow::Result<Option<PathBuf>> {
+    let root = resolve_active_framework_root(environment)?;
+    let assets = root.join("assets");
+    if assets.is_dir() {
+        return Ok(Some(assets));
+    }
+    // Dogfooding fallback: when running from the framework development repo
+    // (which carries `manifest.toml` and an `assets/` tree), resolve there.
+    let cwd = std::env::current_dir().unwrap_or_default();
+    if cwd.join("manifest.toml").is_file() {
+        let repo_assets = cwd.join("assets");
+        if repo_assets.is_dir() {
+            return Ok(Some(repo_assets));
+        }
+    }
+    Ok(None)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "snake_case")]
 struct UseOutput {

@@ -20,6 +20,7 @@ mod permission;
 mod release_cmd;
 mod result_cmd;
 mod telemetry;
+mod uat;
 mod vault_cmd;
 
 use std::ffi::{OsStr, OsString};
@@ -172,6 +173,12 @@ enum Command {
     Telemetry {
         #[command(subcommand)]
         command: telemetry::TelemetryCommand,
+    },
+    /// UAT (User Acceptance Testing): data-driven YAML plans rendered to
+    /// self-contained HTML dashboards, with human-in-the-loop validation.
+    Uat {
+        #[command(subcommand)]
+        command: uat::UatCommand,
     },
     /// Generate or install shell completion scripts.
     Completion {
@@ -469,6 +476,7 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         Command::Metrics { command } => metrics::run_metrics(command, environment),
         Command::Analytics { command } => analytics::run_analytics(command, environment),
         Command::Telemetry { command } => telemetry::run_telemetry(command, environment),
+        Command::Uat { command } => uat::run_uat(command, environment),
         Command::Completion { command } => run_completion(command),
     }
 }

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>UAT — Modo guiado</title>
+<style>@TOKENS@</style>
+<style>@COMPONENTS@</style>
+</head>
+<body>
+<h1>UAT guiado — @RELEASE@</h1>
+<div class="sub">Un escenario por pantalla &middot; plan: @PLAN_REF@ &middot; recuerda: el humano valida, el agente ejecuta</div>
+
+<div class="progress-bar"><div id="bar" style="width:0%"></div></div>
+<div class="progress-label" id="progress-label">Escenario 1 / N</div>
+
+<div id="wizard" class="scenario-card"></div>
+
+<footer>sddk uat dashboard &middot; guided view &middot; pega el screenshot con Ctrl+V cuando lo pida</footer>
+
+<script>
+const PLAN = @PLAN_JSON@;
+const RELEASE = '@RELEASE@';
+const all = [];
+for (const f of PLAN.features || []) for (const s of f.scenarios || []) all.push({feature: f, scenario: s});
+let idx = 0;
+let verdicts = {};
+
+function loadVerdicts() {
+  const s = UAT.loadSession(RELEASE);
+  verdicts = (s && s.scenario_results) ? s.scenario_results : {};
+}
+function saveVerdicts() {
+  const s = UAT.loadSession(RELEASE) || { release: RELEASE, scenario_results: {} };
+  s.scenario_results = verdicts;
+  UAT.saveSession(RELEASE, s);
+}
+
+function render() {
+  const total = all.length;
+  const { feature, scenario } = all[idx];
+  const steps = (scenario.plain_steps || []).map((step, i) => `
+    <div class="step-title">Paso ${i + 1} de ${scenario.plain_steps.length}</div>
+    <div class="step-action">${step.copy_hint ? `<button class="copy-btn" onclick="navigator.clipboard.writeText(${JSON.stringify(step.action)});this.textContent='copiado'">copiar</button>` : ""} ${step.action}</div>
+    <div class="step-expected"><strong>Esperado:</strong> ${step.expected}</div>
+  `).join("");
+  const current = verdicts[scenario.id] || {};
+  const btn = (key, label, cls) =>
+    `<button class="btn ${cls} ${current.status === key ? 'active-' + key.toLowerCase() : ''}" onclick="setVerdict('${scenario.id}', '${key}')">${label}</button>`;
+  const ev = current.evidence && current.evidence.length
+    ? `<div class="sub">Evidencia: ${current.evidence.map(e => e.kind).join(", ")}</div>` : "";
+  document.getElementById('wizard').innerHTML = `
+    <div class="step-title">Escenario ${idx + 1} de ${total} &middot; ${feature.name} (${scenario.priority})</div>
+    <h2 style="text-transform:none;margin:.25rem 0 .75rem">${scenario.title}</h2>
+    ${scenario.rationale ? `<div class="rationale"><strong>Por qué importa:</strong> ${scenario.rationale}</div>` : ""}
+    ${steps}
+    <div class="verdict-row">
+      ${btn('PASS', '✅ Pasó', 'pass-btn')}
+      ${btn('FAIL', '❌ Falló', 'fail-btn')}
+      ${btn('BLOCKED', '⏸ Bloqueado', 'blocked-btn')}
+    </div>
+    ${scenario.evidence_prompt ? `<div class="step-expected"><strong>Evidencia requerida:</strong> ${scenario.evidence_prompt} <em>(pega screenshot con Ctrl+V)</em></div>` : ""}
+    <div class="evidence-drop" id="drop">🖼 Pega aquí el screenshot (Ctrl+V) o espera la evidencia</div>
+    ${ev}
+    <textarea id="comment" rows="2" placeholder="Comentario / observación (opcional)">${current.comment || ""}</textarea>
+    <div class="wizard-nav">
+      <button class="btn" ${idx === 0 ? 'disabled' : ''} onclick="nav(-1)">← Anterior</button>
+      <button class="btn" ${idx === total - 1 ? 'disabled' : ''} onclick="nav(1)">Siguiente →</button>
+    </div>`;
+  const done = Object.keys(verdicts).length;
+  document.getElementById('bar').style.width = (100 * done / total) + "%";
+  document.getElementById('progress-label').textContent = `Progreso: ${done}/${total} escenarios valorados`;
+  UAT.pasteScreenshot(RELEASE, scenario.id, () => { document.getElementById('drop').textContent = "✅ Screenshot capturado"; });
+}
+
+function setVerdict(id, status) {
+  const entry = verdicts[id] || {};
+  entry.status = status;
+  entry.comment = document.getElementById('comment') ? document.getElementById('comment').value : (entry.comment || "");
+  verdicts[id] = entry;
+  saveVerdicts();
+  render();
+}
+
+function nav(delta) {
+  const cur = all[idx].scenario;
+  const entry = verdicts[cur.id] || {};
+  entry.comment = document.getElementById('comment').value;
+  verdicts[cur.id] = entry;
+  saveVerdicts();
+  idx = Math.max(0, Math.min(all.length - 1, idx + delta));
+  render();
+}
+
+loadVerdicts();
+render();
+</script>
+<script src="file://@KIT_STORAGE@"></script>
+</body>
+</html>

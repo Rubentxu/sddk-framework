@@ -1,0 +1,58 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font); background: var(--bg); color: var(--text); padding: 2rem; }
+h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
+h2 { font-size: 1rem; margin: 1.5rem 0 .5rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.sub { color: var(--muted); font-size: .8rem; margin-bottom: 1rem; }
+
+/* Status pills */
+.status-pill { display: inline-block; padding: .15rem .5rem; border-radius: 999px; font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+.status-pill.pass { background: rgba(76,175,80,.15); color: var(--ok); }
+.status-pill.fail { background: rgba(239,83,80,.15); color: var(--danger); }
+.status-pill.blocked { background: rgba(255,183,77,.15); color: var(--warn); }
+.status-pill.partial { background: rgba(77,163,255,.15); color: var(--accent); }
+.status-pill.pending { background: rgba(154,160,166,.15); color: var(--muted); }
+
+/* Scenario card (guided wizard) */
+.scenario-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; max-width: 720px; margin: 0 auto; }
+.step-title { font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: .5rem; }
+.step-action { font-size: 1.1rem; margin: .5rem 0; display: flex; align-items: center; gap: .5rem; }
+.step-expected { color: var(--muted); font-size: .85rem; margin-bottom: 1rem; }
+.step-expected strong { color: var(--text); }
+.rationale { background: rgba(77,163,255,.08); border-left: 3px solid var(--accent); padding: .6rem .9rem; border-radius: 4px; font-size: .85rem; margin: 1rem 0; }
+.evidence-drop { border: 2px dashed var(--border); border-radius: var(--radius); padding: 1rem; text-align: center; color: var(--muted); font-size: .85rem; margin: 1rem 0; }
+.evidence-drop.dragging { border-color: var(--accent); color: var(--accent); }
+
+/* Verdict buttons */
+.verdict-row { display: flex; gap: .6rem; margin: 1rem 0; }
+.btn { border: 1px solid var(--border); background: var(--card); color: var(--text); padding: .6rem 1.1rem; border-radius: var(--radius); font-size: .9rem; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.btn.pass-btn:hover { border-color: var(--ok); color: var(--ok); }
+.btn.fail-btn:hover { border-color: var(--danger); color: var(--danger); }
+.btn.blocked-btn:hover { border-color: var(--warn); color: var(--warn); }
+.btn.active-pass { background: rgba(76,175,80,.2); border-color: var(--ok); color: var(--ok); }
+.btn.active-fail { background: rgba(239,83,80,.2); border-color: var(--danger); color: var(--danger); }
+.btn.active-blocked { background: rgba(255,183,77,.2); border-color: var(--warn); color: var(--warn); }
+
+/* Wizard navigation */
+.wizard-nav { display: flex; justify-content: space-between; margin-top: 1.25rem; }
+.progress-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin: 1rem 0; }
+.progress-bar > div { height: 100%; background: var(--accent); transition: width .2s; }
+.progress-label { font-size: .72rem; color: var(--muted); text-align: right; margin-top: .25rem; }
+
+/* Tables (matrix + traceability) */
+table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: var(--radius); overflow: hidden; font-size: .82rem; }
+th, td { padding: .5rem .65rem; text-align: left; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); font-weight: 500; text-transform: uppercase; font-size: .7rem; letter-spacing: .05em; }
+tr:last-child td { border-bottom: none; }
+
+/* KPI row */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
+.kpi { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: .9rem; }
+.kpi .v { font-size: 1.3rem; font-weight: 600; }
+.kpi .l { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; }
+
+.copy-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 4px; padding: .1rem .45rem; font-size: .72rem; cursor: pointer; }
+.copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+footer { margin-top: 2rem; color: var(--muted); font-size: .7rem; }
+textarea { width: 100%; background: var(--card); border: 1px solid var(--border); color: var(--text); border-radius: 4px; padding: .5rem; font-family: inherit; font-size: .85rem; resize: vertical; }

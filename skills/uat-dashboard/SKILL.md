@@ -1,0 +1,54 @@
+---
+name: uat-dashboard
+description: "Trigger: uat-dashboard, generar dashboard UAT, render dashboard. Generate or extend the self-contained UAT HTML dashboard from uat-plan.yaml using the bundle dashboard kit."
+disable-model-invocation: true
+user-invocable: false
+license: MIT
+metadata:
+  author: sddk-framework
+  version: "1.0"
+  delegate_only: true
+---
+
+> **ORCHESTRATOR GATE**: If you loaded this skill, STOP. Delegate to `uat-planner`.
+
+## Purpose
+
+Generate the self-contained UAT dashboard (ADR-013) from a canonical `uat-plan.yaml`. The renderer is deterministic: same YAML → same HTML, zero external URLs, opens via `file://`.
+
+## Commands
+
+```bash
+# Guided wizard (junior, one scenario per screen)
+sddk uat dashboard --plan uat-plan.yaml --view guided --output uat-guided.html
+
+# Matrix (senior, TestRail-style table)
+sddk uat dashboard --plan uat-plan.yaml --view matrix --output uat-matrix.html
+
+# Report view (architect traceability; uses uat-report.yaml when present)
+sddk uat dashboard --plan uat-plan.yaml --view traceability --output uat-report-view.html
+
+# Theme
+sddk uat dashboard --plan uat-plan.yaml --theme light --output uat-guided.html
+```
+
+## Kit layout (bundle, ADR-013)
+
+```
+assets/uat-dashboard/
+├── kit/          tokens.css, components.css, components.js, storage.js
+├── views/        guided.html, interactive.html, report.html
+└── themes/       dark.css, light.css
+```
+
+## Rules
+
+- The plan is the single source of truth; the dashboard is derived, never edited by hand.
+- `flags` are semantic (smoke/warning/optional/data-verify) — the template decides the style. Never put style in the YAML.
+- Validate first: `sddk uat validate --file <plan>` — a failing plan must not render.
+- Evidence pasted in the browser (Ctrl+V) is stored in localStorage and exported as session JSON; `sddk uat ingest` accepts it.
+
+## References
+
+- ADR-013 (dashboard kit) in the knowledge vault
+- `agents/uat-planner.md` — the plan contract
