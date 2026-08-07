@@ -32,6 +32,8 @@ pub(crate) enum UatCommand {
     Validate(UatValidateArgs),
     /// Render a self-contained HTML dashboard from a plan (ADR-0013 kit).
     Dashboard(UatDashboardArgs),
+    /// Render the dashboard and open it in the system browser (file://, no server).
+    Open(UatOpenArgs),
     /// Ingest a session into the ledger + control plane (aggregate only).
     Ingest(UatIngestArgs),
     /// Aggregate sessions into a `uat-report.yaml` with a verdict.
@@ -86,6 +88,32 @@ pub(crate) struct UatDashboardArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+pub(crate) struct UatOpenArgs {
+    /// Plan YAML to render (default: auto-resolve `uat-plan-<release>.yaml`).
+    #[arg(long)]
+    pub(crate) plan: Option<PathBuf>,
+    /// Candidate release tag; required when --plan is omitted.
+    #[arg(long)]
+    pub(crate) release: Option<String>,
+    /// View to render.
+    #[arg(long, value_enum, default_value_t = UatView::Guided)]
+    pub(crate) view: UatView,
+    /// Theme: dark | light.
+    #[arg(long, default_value = "dark")]
+    pub(crate) theme: String,
+    /// Explicit browser/command to open the HTML (default: xdg-open/open/start
+    /// by platform). Overrides auto-detection.
+    #[arg(long)]
+    pub(crate) browser: Option<String>,
+    /// Output HTML path (default: alongside the plan, `uat-<view>-<release>.html`).
+    #[arg(long)]
+    pub(crate) output: Option<PathBuf>,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
+}
+
+#[derive(Debug, Clone, Args)]
 pub(crate) struct UatIngestArgs {
     /// Session YAML/JSON to ingest.
     #[arg(long)]
@@ -129,6 +157,7 @@ pub(crate) fn run_uat(command: UatCommand, environment: &crate::CliEnvironment) 
         UatCommand::Plan(args) => run_uat_plan(args, environment),
         UatCommand::Validate(args) => run_uat_validate(args),
         UatCommand::Dashboard(args) => run_uat_dashboard(args, environment),
+        UatCommand::Open(args) => run_uat_open(args, environment),
         UatCommand::Ingest(args) => run_uat_ingest(args, environment),
         UatCommand::Report(args) => run_uat_report(args),
         UatCommand::Status(args) => run_uat_status(args),
@@ -217,6 +246,74 @@ fn run_uat_dashboard(args: UatDashboardArgs, environment: &crate::CliEnvironment
     })
 }
 
+fn run_uat_open(args: UatOpenArgs, environment: &crate::CliEnvironment) -> CommandOutput {
+    let format = args.format;
+    let result = (|| -> anyhow::Result<PathBuf> {
+        // Resolve the plan: explicit --plan, or auto-resolve by release tag.
+        let plan_path = match &args.plan {
+            Some(path) => path.clone(),
+            None => {
+                let release = args.release.as_deref().ok_or_else(|| {
+                    anyhow::anyhow!("missing plan: pass --plan <file> or --release <tag>")
+                })?;
+                let candidate = PathBuf::from(format!("uat-plan-{release}.yaml"));
+                if !candidate.exists() {
+                    anyhow::bail!(
+                        "plan not found: {} (run `sddk uat plan --release {release}` first)",
+                        candidate.display()
+                    );
+                }
+                candidate
+            }
+        };
+
+        let raw = std::fs::read_to_string(&plan_path)
+            .map_err(|e| anyhow::anyhow!("cannot read plan {}: {e}", plan_path.display()))?;
+        let plan: UatPlan = serde_saphyr::from_str(&raw)
+            .map_err(|e| anyhow::anyhow!("invalid plan {}: {e}", plan_path.display()))?;
+
+        let html = render_dashboard_html(&plan, args.view, &args.theme, environment)?;
+
+        let view_name = match args.view {
+            UatView::Guided => "guided",
+            UatView::Matrix => "matrix",
+            UatView::Traceability => "traceability",
+        };
+        let output = args.output.clone().unwrap_or_else(|| {
+            let dir = plan_path.parent().unwrap_or_else(|| Path::new("."));
+            dir.join(format!("uat-{view_name}-{}.html", plan.release.candidate))
+        });
+        std::fs::write(&output, html)?;
+
+        open_in_browser(&output, args.browser.as_deref())?;
+        Ok(output)
+    })();
+    render_result(result, format, |path| {
+        format!(
+            "uat dashboard opened in browser: {}\n",
+            path.display()
+        )
+    })
+}
+
+/// Open a local HTML file in the platform browser. No server: `file://` only.
+/// On Linux uses `xdg-open`, macOS `open`, Windows `cmd /c start`. An explicit
+/// `--browser` overrides auto-detection.
+fn open_in_browser(path: &Path, browser: Option<&str>) -> anyhow::Result<()> {
+    let cmd = browser_command(path, browser);
+    let status = std::process::Command::new(&cmd[0])
+        .args(&cmd[1..])
+        .status()
+        .map_err(|e| anyhow::anyhow!("failed to open browser: {e}"))?;
+    if !status.success() {
+        anyhow::bail!(
+            "browser exited with {status}; open the file manually: {}",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
 fn run_uat_ingest(args: UatIngestArgs, environment: &crate::CliEnvironment) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<UatSession> {
@@ -224,6 +321,32 @@ fn run_uat_ingest(args: UatIngestArgs, environment: &crate::CliEnvironment) -> C
             .map_err(|e| anyhow::anyhow!("cannot read session {}: {e}", args.session.display()))?;
         let session: UatSession = serde_saphyr::from_str(&raw)
             .map_err(|e| anyhow::anyhow!("invalid session {}: {e}", args.session.display()))?;
+
+        // Integrity guard (human-in-the-loop): an agent MUST NOT write
+        // `executor: human`. A human session comes from the guided dashboard
+        // export: finished_at set, an executed_by name, and at least one
+        // evidence entry OR a non-PASS status. Without those signals, a
+        // hand-written "human" session is rejected as fabrication.
+        if session.executor == sddk_domain::UatExecutor::Human {
+            let has_name = session.executed_by.is_some();
+            let finished = session.finished_at.is_some();
+            let evidenced = session
+                .results
+                .iter()
+                .any(|r| !r.evidence.is_empty());
+            let has_non_pass = session
+                .results
+                .iter()
+                .any(|r| r.status != sddk_domain::UatStatus::Pass);
+            if !(has_name && finished && (evidenced || has_non_pass)) {
+                anyhow::bail!(
+                    "integrity: `executor: human` session without human signals \
+                     (executed_by + finished_at + evidence/non-PASS required). \
+                     Agents must use `executor: fara`; human sessions come from \
+                     the guided dashboard export."
+                );
+            }
+        }
 
         // Control plane (ADR-012): upsert only the aggregate — sessions and
         // evidence stay in XDG artifacts, the CP keeps its numeric contract.
@@ -488,8 +611,8 @@ fn render_dashboard_html(
 
     let tokens = read_asset(&kit.join("kit/tokens.css"))?;
     let components_css = read_asset(&kit.join("kit/components.css"))?;
-    let _components_js = read_asset(&kit.join("kit/components.js"))?;
-    let _storage_js = read_asset(&kit.join("kit/storage.js"))?;
+    let components_js = read_asset(&kit.join("kit/components.js"))?;
+    let storage_js = read_asset(&kit.join("kit/storage.js"))?;
 
     let view_name = match view {
         UatView::Guided => "guided",
@@ -515,8 +638,8 @@ fn render_dashboard_html(
         .replace("@RELEASE@", &plan.release.candidate)
         .replace("@GENERATED_AT@", &now_rfc3339())
         .replace("@PLAN_REF@", &plan.release.candidate)
-        .replace("@KIT_STORAGE@", &kit.join("kit/storage.js").display().to_string())
-        .replace("@KIT_COMPONENTS@", &kit.join("kit/components.js").display().to_string());
+        .replace("@STORAGE_JS@", &storage_js)
+        .replace("@COMPONENTS_JS@", &components_js);
 
     Ok(html)
 }
@@ -639,5 +762,47 @@ features: []
             })
             .unwrap_or(false);
         assert!(!has_scenarios);
+    }
+
+    #[test]
+    fn browser_command_shapes() {
+        let path = Path::new("/tmp/uat.html");
+
+        // Explicit --browser override wins.
+        let cmd = browser_command(path, Some("firefox"));
+        assert_eq!(cmd[0], "firefox");
+        assert!(cmd[1].ends_with("uat.html"));
+
+        // Default launcher is platform-dependent.
+        let default = browser_command(path, None);
+        #[cfg(target_os = "windows")]
+        {
+            assert_eq!(default[0], "cmd");
+            assert_eq!(default[2], "start");
+        }
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(default[0], "open");
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            assert_eq!(default[0], "xdg-open");
+        }
+    }
+}
+
+/// Resolve the `(program, args)` pair used to open a local HTML file.
+/// Exposed for tests; `open_in_browser` executes it.
+fn browser_command(path: &Path, browser: Option<&str>) -> Vec<String> {
+    let target = path.display().to_string();
+    if let Some(b) = browser {
+        return vec![b.to_string(), target];
+    }
+    if cfg!(target_os = "windows") {
+        vec!["cmd".into(), "/c".into(), "start".into(), "".into(), target]
+    } else if cfg!(target_os = "macos") {
+        vec!["open".into(), target]
+    } else {
+        vec!["xdg-open".into(), target]
     }
 }

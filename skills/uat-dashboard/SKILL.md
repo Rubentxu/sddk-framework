@@ -19,8 +19,15 @@ Generate the self-contained UAT dashboard (ADR-013) from a canonical `uat-plan.y
 ## Commands
 
 ```bash
-# Guided wizard (junior, one scenario per screen)
+# Render the dashboard (writes HTML, opens nothing).
 sddk uat dashboard --plan uat-plan.yaml --view guided --output uat-guided.html
+
+# Render AND open the dashboard in the system browser. No server: the
+# HTML is fully self-contained (CSS+JS inlined) and opened via file://.
+sddk uat open --plan uat-plan.yaml --view guided
+sddk uat open --release v1.5.0           # auto-resolves uat-plan-v1.5.0.yaml
+sddk uat open --release v1.5.0 --browser firefox   # override launcher
+sddk uat open --release v1.5.0 --view matrix --theme light
 
 # Matrix (senior, TestRail-style table)
 sddk uat dashboard --plan uat-plan.yaml --view matrix --output uat-matrix.html
@@ -31,6 +38,20 @@ sddk uat dashboard --plan uat-plan.yaml --view traceability --output uat-report-
 # Theme
 sddk uat dashboard --plan uat-plan.yaml --theme light --output uat-guided.html
 ```
+
+## Platform launchers (`uat open`)
+
+`uat open` resolves the platform launcher via `cfg!(target_os)`:
+
+| OS | Command |
+|----|---------|
+| Linux | `xdg-open <path>` |
+| macOS | `open <path>` |
+| Windows | `cmd /c start "" <path>` |
+
+Override with `--browser <cmd>` (useful in containers or to pin a browser).
+
+If the launcher fails (no display server, headless, missing tool), the command prints the resolved HTML path so the user can open it manually.
 
 ## Kit layout (bundle, ADR-013)
 
