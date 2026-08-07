@@ -10,11 +10,11 @@
 
 | Estado | Historias | Significado |
 | --- | ---: | --- |
-| Completa | 35 | Todos los criterios de la historia tienen implementación y prueba directa. |
+| Completa | 43 | Todos los criterios de la historia tienen implementación y prueba directa. |
 | Parcial | 0 | No queda ninguna historia parcial. |
 | Desviada | 0 | No queda ninguna desviación contractual conocida. |
-| No iniciada | 14 | Épicas E11 (control plane, CP-2026-08) y E12 (separación responsabilidades, RS-2026-08). |
-| **Total** | **49** | v3.6 completo; E11 y E12 planificadas con ADRs 0009-0011. |
+| No iniciada | 6 | Épica E11 (control plane, CP-2026-08) — resto de G5/G6. |
+| **Total** | **49** | v3.6 + E12 (RS-2026-08) completas; E11 en curso. |
 
 ## Matriz de aceptación
 
@@ -61,14 +61,14 @@
 | SDDK-1104 | No iniciada | `sddk telemetry aggregate` cross-proyecto reusando `compute_aggregate` (RF-016) | Sin implementación. |
 | SDDK-1105 | No iniciada | `sddk telemetry dashboard` HTML autocontenido sin CDN (RF-017/ADR-0010) | Sin implementación. |
 | SDDK-1106 | No iniciada | Research packet cross-proyecto para agentes self-research (RF-016, sin MCP) | Sin implementación. |
-| SDDK-1201 | No iniciada | Adopción no intrusiva: eliminar plantado de `workflow/workflow.yaml` en el repo (ADR-0011) | Sin implementación. |
-| SDDK-1202 | No iniciada | Artefactos de ciclo en XDG (`cycle-artifacts/{cycle_id}/`) + prompts/skills actualizados (ADR-0011) | Sin implementación. |
-| SDDK-1203 | No iniciada | `generate docs/inventory` → XDG por defecto con `--in-repo` explícito (ADR-0011) | Sin implementación. |
-| SDDK-1204 | No iniciada | `lint` lee manifest embebido/bundle, no exige `workflow.yaml` en el repo (ADR-0011) | Sin implementación. |
-| SDDK-1205 | No iniciada | Bundle runtime `$SDDK_DATA_DIR/framework/<v>/` multi-versión + `dev use` + link → `current` (ADR-0011/asdf) | Sin implementación. |
-| SDDK-1206 | No iniciada | Migración: limpiar receipts duplicados, mover `sddk/` a XDG, re-linkear editores (ADR-0011) | Sin implementación. |
-| SDDK-1207 | No iniciada | Resolución de versión por proyecto: `.sddk-versions` → `current` → `path:` (ADR-0011/asdf) | Sin implementación. |
-| SDDK-1208 | No iniciada | Resolución multiplataforma con crate `dirs`: macOS `~/Library/...`, Windows `%APPDATA%` (ADR-0011) | Sin implementación. |
+| SDDK-1201 | Completa | Adopción no intrusiva: eliminar plantado de `workflow/workflow.yaml` en el repo (ADR-0011) | Sin gap funcional demostrado. |
+| SDDK-1202 | Completa | Artefactos de ciclo en XDG (`cycle-artifacts/{cycle_id}/`) + prompts/skills actualizados (ADR-0011) | Sin gap funcional demostrado. |
+| SDDK-1203 | Completa | `generate docs/inventory` → XDG por defecto con `--in-repo` explícito (ADR-0011) | Sin gap funcional demostrado. |
+| SDDK-1204 | Completa | `lint` lee manifest embebido/bundle, no exige `workflow.yaml` en el repo (ADR-0011) | Sin gap funcional demostrado. |
+| SDDK-1205 | Completa | Bundle runtime `$SDDK_DATA_DIR/framework/<v>/` multi-versión + `dev use` + link → `current` (ADR-0011/asdf) | Sin gap funcional demostrado. |
+| SDDK-1206 | Completa | Migración: limpiar receipts duplicados, mover `sddk/` a XDG, re-linkear editores (ADR-0011) | Sin gap funcional demostrado. |
+| SDDK-1207 | Completa | Resolución de versión por proyecto: `.sddk-versions` → `current` → `path:` (ADR-0011/asdf) | Sin gap funcional demostrado. |
+| SDDK-1208 | Completa | Resolución multiplataforma con crate `dirs`: macOS `~/Library/...`, Windows `%APPDATA%` (ADR-0011) | Sin gap funcional demostrado. |
 
 ## ÉPICA E1 — Fuente canónica del workflow
 
