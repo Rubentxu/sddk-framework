@@ -543,6 +543,8 @@ mod tests {
             paths: AdoptionStoragePaths {
                 vault: "/data/sddk/projects/proj-1/vault".into(),
                 artifacts: "/data/sddk/projects/proj-1/artifacts".into(),
+                cycle_artifacts: "/data/sddk/projects/proj-1/cycle-artifacts".into(),
+                generated: "/data/sddk/projects/proj-1/generated".into(),
                 ledger: "/state/sddk/projects/proj-1/ledger.sqlite".into(),
                 cache: "/cache/sddk".into(),
                 receipt: "/data/sddk/projects/proj-1/workspaces/ws-1/adoption.json".into(),

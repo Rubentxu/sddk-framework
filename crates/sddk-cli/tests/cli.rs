@@ -4218,7 +4218,6 @@ fn version_resolves_sddk_versions_walking_parents() {
 #[test]
 fn analytics_research_all_projects_uses_control_plane() {
     let fixture = CliFixture::new("research-all-projects");
-    let binary = env!("CARGO_BIN_EXE_sddk");
 
     // No control plane store yet → error with hint.
     let missing = fixture.run(&[
