@@ -32,7 +32,7 @@ impl MetricsWindow {
 #[derive(Debug, Subcommand)]
 pub(crate) enum MetricsCommand {
     /// Record metrics for a closed cycle (Levels A-E + L1-L6 costs).
-    Record(MetricsRecordArgs),
+    Record(Box<MetricsRecordArgs>),
     /// Compute rolling aggregates over a window.
     Aggregate(MetricsAggregateArgs),
     /// Emit the F3 self-tuning recommendation block.
@@ -87,6 +87,12 @@ pub(crate) struct MetricsRecordArgs {
     /// Model used (for cost estimation when --cost is absent).
     #[arg(long)]
     pub(crate) model: Option<String>,
+    /// Teleological coherence percentage (Level E) for the cycle.
+    #[arg(long)]
+    pub(crate) coherence: Option<f64>,
+    /// Loop costs as JSON, e.g. '{"L1": 0.4, "L2": 1.2}'.
+    #[arg(long)]
+    pub(crate) costs: Option<String>,
     /// Persist a context quality override for this cycle (C0..C3).
     #[arg(long)]
     pub(crate) set_context: Option<String>,
@@ -291,21 +297,21 @@ pub(crate) fn capture_cycle_metrics(
 }
 
 /// Fields derived from a cycle's ledger event history.
-struct DerivedFields {
-    phase_durations_sec: HashMap<String, u64>,
-    verify_verdict: String,
-    lead_time_hours: Option<f64>,
-    tag_version: Option<String>,
-    correction_cycles: u8,
-    first_pass_success: bool,
-    merged_to_main: bool,
+pub(crate) struct DerivedFields {
+    pub(crate) phase_durations_sec: HashMap<String, u64>,
+    pub(crate) verify_verdict: String,
+    pub(crate) lead_time_hours: Option<f64>,
+    pub(crate) tag_version: Option<String>,
+    pub(crate) correction_cycles: u8,
+    pub(crate) first_pass_success: bool,
+    pub(crate) merged_to_main: bool,
 }
 
 /// Derive metrics fields from the cycle's ledger events.
 ///
 /// Best-effort per field: a corrupt timestamp degrades one field, not the
 /// record. Defaults match the pre-enrichment behavior.
-fn derive_from_events(events: &[sddk_storage::LedgerEvent]) -> DerivedFields {
+pub(crate) fn derive_from_events(events: &[sddk_storage::LedgerEvent]) -> DerivedFields {
     let mut phase_durations_sec = HashMap::new();
     let mut phase_start: Option<(String, OffsetDateTime)> = None;
     let mut verify_verdict = "UNKNOWN".to_owned();
@@ -355,6 +361,18 @@ fn derive_from_events(events: &[sddk_storage::LedgerEvent]) -> DerivedFields {
             .as_ref()
             .and_then(|state| state.get("status"))
             .and_then(|value| value.as_str());
+        // Explicit verdict in the event payload wins over status derivation.
+        let payload_verdict = event
+            .payload
+            .get("verify_verdict")
+            .or_else(|| event.payload.get("verdict"))
+            .and_then(|value| value.as_str())
+            .map(|value| value.to_uppercase());
+        if let Some(verdict) = payload_verdict
+            && verify_verdict == "UNKNOWN"
+        {
+            verify_verdict = verdict;
+        }
         if status == Some("REMEDIATING") {
             correction_cycles = correction_cycles.saturating_add(1);
             verify_verdict = "FAIL".to_owned();
@@ -550,7 +568,7 @@ fn read_aggregate(context: &RuntimeContext) -> anyhow::Result<Option<MetricsAggr
 
 pub(crate) fn run_metrics(command: MetricsCommand, environment: &CliEnvironment) -> CommandOutput {
     match command {
-        MetricsCommand::Record(args) => run_metrics_record(args, environment),
+        MetricsCommand::Record(args) => run_metrics_record(*args, environment),
         MetricsCommand::Aggregate(args) => run_metrics_aggregate(args, environment),
         MetricsCommand::Tuning(args) => run_metrics_tuning(args, environment),
         MetricsCommand::Backfill(args) => run_metrics_backfill(args, environment),
@@ -707,6 +725,11 @@ fn run_metrics_record(args: MetricsRecordArgs, environment: &CliEnvironment) -> 
         }
         let now = OffsetDateTime::now_utc();
         let recorded_at = now.format(&time::format_description::well_known::Rfc3339)?;
+        let costs = match &args.costs {
+            Some(raw) => serde_json::from_str::<HashMap<String, f64>>(raw)
+                .map_err(|error| anyhow::anyhow!("invalid --costs JSON: {error}"))?,
+            None => HashMap::new(),
+        };
         let record = MetricsRecord {
             cycle_id: args.cycle.clone(),
             path: args.path.clone().unwrap_or_else(|| "unknown".to_owned()),
@@ -723,15 +746,30 @@ fn run_metrics_record(args: MetricsRecordArgs, environment: &CliEnvironment) -> 
             merged_to_main: args.merged,
             tag_version: args.tag.clone(),
             lead_time_hours: None,
-            teleological_coherence_pct: None,
-            costs: HashMap::new(),
+            teleological_coherence_pct: args.coherence,
+            costs,
             recorded_at,
         };
-        let path = append_record(&context, &record)?;
+        let path = upsert_record(&context, &record)?;
         eprintln!("metrics appended: {}", path.display());
         Ok(record)
     })();
     render_result(result, format, metrics_record_text)
+}
+
+/// Idempotent upsert: replace any existing record for the same `cycle_id`.
+///
+/// The manual `metrics record` wins over the auto-captured record: a cycle
+/// closed by the CLI gets its first (derived) record, then an agent may
+/// enrich it with tokens/model/cost/coherence without duplicating rows.
+fn upsert_record(context: &RuntimeContext, record: &MetricsRecord) -> anyhow::Result<PathBuf> {
+    let existing = read_records(context)?;
+    let retained: Vec<MetricsRecord> = existing
+        .into_iter()
+        .filter(|current| current.cycle_id != record.cycle_id)
+        .collect();
+    write_jsonl(context, &retained)?;
+    append_record(context, record)
 }
 
 fn run_metrics_aggregate(
@@ -829,7 +867,7 @@ pub(crate) fn aggregate_text(aggregate: &MetricsAggregate) -> String {
     )
 }
 
-fn tuning_text(tuning: &F3Tuning) -> String {
+pub(crate) fn tuning_text(tuning: &F3Tuning) -> String {
     let mut text = String::new();
     if let Some(path_bias) = &tuning.path_bias {
         text.push_str(&format!("path_bias: {path_bias}\n"));

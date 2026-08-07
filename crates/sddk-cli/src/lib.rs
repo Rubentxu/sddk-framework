@@ -19,6 +19,7 @@ mod pack_cmd;
 mod permission;
 mod release_cmd;
 mod result_cmd;
+mod telemetry;
 mod vault_cmd;
 
 use std::ffi::{OsStr, OsString};
@@ -164,6 +165,11 @@ enum Command {
     Analytics {
         #[command(subcommand)]
         command: AnalyticsCommand,
+    },
+    /// Central telemetry control plane (cross-project ingest, aggregates, dashboard).
+    Telemetry {
+        #[command(subcommand)]
+        command: telemetry::TelemetryCommand,
     },
     /// Generate or install shell completion scripts.
     Completion {
@@ -429,6 +435,7 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         Command::Pack { command } => pack_cmd::run_pack(command),
         Command::Metrics { command } => metrics::run_metrics(command, environment),
         Command::Analytics { command } => analytics::run_analytics(command, environment),
+        Command::Telemetry { command } => telemetry::run_telemetry(command, environment),
         Command::Completion { command } => run_completion(command),
     }
 }

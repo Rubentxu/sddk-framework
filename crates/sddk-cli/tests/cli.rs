@@ -1224,6 +1224,111 @@ fn cli_metrics_record_aggregate_tuning_and_analytics() {
 }
 
 #[test]
+fn cli_metrics_record_upsert_enriches_with_tokens_and_coherence() {
+    let fixture = CliFixture::new("metrics-upsert");
+    write(
+        fixture.root.join("workflow/workflow.yaml"),
+        CANONICAL_WORKFLOW,
+    );
+    let remote = "https://example.com/acme/repo.git";
+    let common = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        remote,
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+        "--format",
+        "json",
+    ];
+    let adopted = fixture.run_adopt("apply", &common);
+    assert!(adopted.status.success());
+
+    // First record: derived/poor (no tokens).
+    let first = fixture.run(&[
+        "metrics",
+        "record",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        remote,
+        "--cycle",
+        "p-1/cycle-gamma",
+        "--verdict",
+        "PASS",
+        "--first-pass",
+        "--format",
+        "json",
+    ]);
+    assert!(first.status.success());
+
+    // Second record for the SAME cycle: upsert replaces, no duplicate row,
+    // and enriches with tokens/model/coherence/costs.
+    let enriched = fixture.run(&[
+        "metrics",
+        "record",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        remote,
+        "--cycle",
+        "p-1/cycle-gamma",
+        "--verdict",
+        "PW",
+        "--tokens",
+        "200000",
+        "--model",
+        "mini-m2.7",
+        "--coherence",
+        "88",
+        "--costs",
+        r#"{"L1": 0.4, "L2": 1.1}"#,
+        "--format",
+        "json",
+    ]);
+    assert!(
+        enriched.status.success(),
+        "{}",
+        String::from_utf8_lossy(&enriched.stderr)
+    );
+    let enriched_json: serde_json::Value = serde_json::from_slice(&enriched.stdout).unwrap();
+    assert_eq!(enriched_json["cycle_id"], "p-1/cycle-gamma");
+    assert_eq!(enriched_json["verify_verdict"], "PW");
+    assert_eq!(enriched_json["tokens_used"], 200000);
+    assert_eq!(enriched_json["teleological_coherence_pct"], 88.0);
+    assert_eq!(enriched_json["costs"]["L1"], 0.4);
+    assert_eq!(enriched_json["costs"]["L2"], 1.1);
+
+    // Exactly one record for the cycle in the JSONL (upsert, no duplicates).
+    let projects_dir = fixture.data.join("sddk/projects");
+    let metrics_jsonl = std::fs::read_dir(&projects_dir)
+        .unwrap()
+        .filter_map(|entry| {
+            let path = entry.ok()?.path().join("metrics/metrics.jsonl");
+            path.exists().then_some(path)
+        })
+        .next()
+        .expect("metrics.jsonl under the fixture data root");
+    let jsonl = std::fs::read_to_string(metrics_jsonl).unwrap();
+    let gamma_lines: Vec<&str> = jsonl
+        .lines()
+        .filter(|l| l.contains("cycle-gamma"))
+        .collect();
+    assert_eq!(gamma_lines.len(), 1, "upsert must not duplicate records");
+    let last: serde_json::Value = serde_json::from_str(gamma_lines[0]).unwrap();
+    assert_eq!(last["tokens_used"], 200000);
+    assert_eq!(last["teleological_coherence_pct"], 88.0);
+}
+
+#[test]
 fn cli_closing_cycle_auto_captures_metrics_record() {
     let fixture = CliFixture::new("auto-metrics");
     write(
