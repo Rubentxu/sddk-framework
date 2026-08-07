@@ -257,6 +257,14 @@ GitHub será el primer adaptador, pero el dominio debe usar una interfaz neutral
 
 El cierre del ciclo no puede ocurrir con efectos pendientes o desconocidos.
 
+### RF-016 Control plane local de telemetría
+
+El CLI debe agregar la telemetría de todos los proyectos adoptados del host en un store SQLite central reconstruible (`sddk telemetry ingest|aggregate|status`), permitiendo análisis cross-proyecto de ciclos, costos, lead time, bottlenecks y señales F3.
+
+### RF-017 Dashboard HTML autocontenido
+
+El CLI debe generar un dashboard HTML estático, sin dependencias CDN ni red, que presente KPIs, tendencias y distribuciones agregados desde el control plane (`sddk telemetry dashboard`).
+
 ## 8. Requisitos no funcionales
 
 ### RNF-001 Determinismo
@@ -291,6 +299,10 @@ Todo error debe incluir:
 - Contexto.
 - Causa.
 - Acción de recuperación sugerida.
+
+### RNF-007 Privacidad y localidad de la telemetría
+
+La telemetría agregada se almacena y analiza localmente. No se transmite telemetría a servicios remotos salvo decisión explícita documentada en un ADR.
 
 ## 9. Arquitectura lógica
 
@@ -340,6 +352,8 @@ LadybugDB queda como backend analítico opcional futuro.
 - Un ciclo interrumpido puede recuperarse sin editar manualmente SQLite.
 - Dos repositorios con igual basename no colisionan.
 - El informe HTML se genera sin dependencias CDN.
+- La telemetría de todos los proyectos adoptados es consultable en un solo store local.
+- El dashboard se regenera determinista desde el store central sin red.
 
 ## 12. Riesgos
 

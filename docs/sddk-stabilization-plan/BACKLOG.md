@@ -1,6 +1,6 @@
 # Backlog técnico — SDDK v3.6
 
-**Estado auditado:** 2026-08-04
+**Estado auditado:** 2026-08-04 (v3.6 completo); 2026-08-07 añadida épica E11 (CP-2026-08, planificada)
 **Baseline:** `v0.14.0`
 **Informe:** [`CURRENT-STATE-AUDIT.md`](CURRENT-STATE-AUDIT.md)
 
@@ -13,8 +13,8 @@
 | Completa | 35 | Todos los criterios de la historia tienen implementación y prueba directa. |
 | Parcial | 0 | No queda ninguna historia parcial. |
 | Desviada | 0 | No queda ninguna desviación contractual conocida. |
-| No iniciada | 0 | El backlog v3.6 está completo. |
-| **Total** | **35** | La base Rust es funcional; v3.6 estable con endurecimiento post-estabilidad. |
+| No iniciada | 6 | Épica E11 (control plane local de telemetría, CP-2026-08). |
+| **Total** | **41** | v3.6 completo; E11 planificada con ADRs 0009/0010 y spec `docs/control-plane/SPEC.md`. |
 
 ## Matriz de aceptación
 
@@ -55,6 +55,12 @@
 | SDDK-1005 | Completa | Packs declarativos (RF-012/ADR-0004): `manifest.toml`, validación PACK001-007, `sddk pack validate` y SDDK014 | Sin gap funcional demostrado. |
 | SDDK-1006 | Completa | Indexación incremental del vault por hash de contenido (RNF-004) y profundidad FTS con tags/enlaces/backlinks (RF-009) | Sin gap funcional demostrado. |
 | SDDK-1007 | Completa | Envolvente de error estructurada (RNF-006): código estable, causa y recuperación en errores del runtime | Sin gap funcional demostrado. |
+| SDDK-1101 | No iniciada | Gaps de datos: costos/tokens estimados por modelo, teleological coherence, context quality real, verdict con receipt (RF-016) | Sin implementación (milestone CP-2026-08). |
+| SDDK-1102 | No iniciada | Store SQLite central `control-plane.sqlite` (projects/cycles/aggregates) reconstruible (RF-016/ADR-0009) | Sin implementación. |
+| SDDK-1103 | No iniciada | `sddk telemetry ingest` cross-proyecto con upsert idempotente y derive desde ledger (RF-016) | Sin implementación. |
+| SDDK-1104 | No iniciada | `sddk telemetry aggregate` cross-proyecto reusando `compute_aggregate` (RF-016) | Sin implementación. |
+| SDDK-1105 | No iniciada | `sddk telemetry dashboard` HTML autocontenido sin CDN (RF-017/ADR-0010) | Sin implementación. |
+| SDDK-1106 | No iniciada | Research packet cross-proyecto para agentes self-research (RF-016, sin MCP) | Sin implementación. |
 
 ## ÉPICA E1 — Fuente canónica del workflow
 
@@ -319,3 +325,71 @@
 **PR:** 9
 
 - Binarios, checksums, SBOM y attestations.
+
+## ÉPICA E11 — Control plane local de telemetría (CP-2026-08)
+
+### SDDK-1101 Cerrar gaps de datos de métricas
+
+**Prioridad:** P0
+**Milestone:** CP-2026-08
+
+- Estimar `tokens_used` y `cost_estimate_usd` en la captura automática por modelo (`estimate_cost`).
+- Persistir `costs` (L1-L6) cuando el ledger/manifiesto los exponga.
+- Poblar `teleological_coherence_pct` desde artifacts del ciclo cuando existan.
+- Leer `context_quality` real del `context.json` en lugar del default C2.
+- Completar `verify_verdict` con el receipt de verify cuando exista.
+
+**Criterio:** `sddk telemetry status` evidencia >0 ciclos con costos y coherence poblados (o gap documentado).
+
+### SDDK-1102 Store SQLite central del control plane
+
+**Prioridad:** P0
+**Milestone:** CP-2026-08
+
+- Schema v1 (`projects`, `cycles`, `aggregates`) en `~/.local/share/sddk/control-plane/control-plane.sqlite`.
+- Upsert idempotente por `cycle_id`; proyección reconstruible desde JSONL locales.
+
+**Criterio:** `rm control-plane.sqlite && sddk telemetry ingest` reconstruye el mismo estado; doble ingest no duplica.
+
+### SDDK-1103 Ingest de telemetría cross-proyecto
+
+**Prioridad:** P0
+**Milestone:** CP-2026-08
+
+- `sddk telemetry ingest` escanea `projects/*/` (adoption.json + metrics.jsonl + ledger.sqlite).
+- Derivación de registros pobres desde eventos del ledger (reuso `derive_from_events`).
+- `--dry-run` y `--format json|text`.
+
+**Criterio:** ingest registra todos los proyectos adoptados del host y sus ciclos sin duplicados.
+
+### SDDK-1104 Agregación cross-proyecto
+
+**Prioridad:** P1
+**Milestone:** CP-2026-08
+
+- `sddk telemetry aggregate --window 7d|30d` reutilizando `compute_aggregate` sobre el store central.
+- Persistencia en `aggregates` + `aggregate.json` + `tuning.md` del control plane.
+
+**Criterio:** aggregate 30d con sample ≥ aggregate 7d cuando existen ciclos de más de 7 días.
+
+### SDDK-1105 Dashboard HTML autocontenido
+
+**Prioridad:** P1
+**Milestone:** CP-2026-08
+
+- `sddk telemetry dashboard --output` genera HTML estático sin CDN ni red (patrón `export_html`).
+- KPIs, tendencias 7d/30d, distribuciones paths/verdicts, bottleneck por proyecto, señales F3.
+- Datasets JSON embebidos; determinista.
+
+**Criterio:** HTML sin URLs externas (grep `https?://` y `src=` externos → vacío), abrible vía `file://`, mismo hash para el mismo store.
+
+### SDDK-1106 Research packet cross-proyecto
+
+**Prioridad:** P1
+**Milestone:** CP-2026-08
+
+- `sddk analytics research` alimentado desde el store central cuando exista.
+- Research packet con resumen por proyecto (`projects: [...]`).
+- Agentes self-research actualizados para consumir el packet cross-proyecto (sin MCP).
+
+**Criterio:** el research packet lista ciclos de todos los proyectos con agregados cross-proyecto.

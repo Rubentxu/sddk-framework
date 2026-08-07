@@ -209,3 +209,28 @@ La consolidación exige: cambios versionados, CI obligatoria, criterios del back
 - Cada cambio se valida localmente con act antes de mergear (sin consumir minutos del plan)
 - El milestone E2E-2026-08 se ejecuta 100% local (podman + mmdc)
 - Nota: act no ejecuta jobs de `macos-*` ni `ubuntu-24.04-arm` (solo ubuntu-latest mapeado); el release multi-target sigue siendo un flujo local separado
+
+---
+
+## Milestone CP-2026-08 — Control plane local de telemetría (post-E2E)
+
+**Estado:** PLANIFICADO (2026-08-07) — ADRs 0009/0010 aceptados, spec `docs/control-plane/SPEC.md`
+**Objetivo:** agregar la telemetría de todos los proyectos adoptados en un SQLite central local, cerrar los gaps de datos y presentarla en un dashboard HTML autocontenido. Sin componente MCP.
+
+| Work item | Tipo | Depende de | Estado |
+|-----------|------|-----------|--------|
+| G1 — Gaps de datos (costos, coherence, context quality, verdict) | feature | — | planificado |
+| G2 — Store SQLite central + `telemetry ingest` (schema v1, upsert, derive) | feature | G1 | planificado |
+| G3 — `telemetry aggregate` cross-proyecto (reuso `compute_aggregate`) | feature | G2 | planificado |
+| G4 — `telemetry dashboard` HTML autocontenido (patrón `export_html`) | feature | G2+G3 | planificado |
+| G5 — Research packet cross-proyecto + agentes self-research (sin MCP) | feature | G3 | planificado |
+| G6 — Docs (README control plane), tests y CI | docs | G1-G5 | planificado |
+
+**Criterios de salida:**
+- Ingest idempotente y reconstruible (delete + ingest == mismo estado)
+- Aggregate cross-proyecto con sample = suma de ciclos de todos los proyectos
+- Dashboard HTML sin URLs externas, determinista, abrible vía `file://`
+- Gaps cerrados evidenciables con `sddk telemetry status`
+- 0 regresiones (`cargo test` + `act -j required`)
+- Requisitos PRD RF-016, RF-017 y RNF-007 cubiertos
+
