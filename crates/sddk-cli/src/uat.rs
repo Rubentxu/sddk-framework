@@ -352,7 +352,7 @@ pub(crate) struct UatScenarioContextArgs {
 pub(crate) struct UatHistoryArgs {
     #[arg(long)] pub(crate) release: String,
     #[arg(long)] pub(crate) plan: PathBuf,
-    #[arg(long)] pub(crate) sessions: Vec<PathBuf>,
+    #[arg(long, num_args = 1..)] pub(crate) sessions: Vec<PathBuf>,
     #[arg(long)] pub(crate) output: Option<PathBuf>,
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)] pub(crate) format: OutputFormat,
 }
