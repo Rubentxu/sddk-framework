@@ -6,6 +6,7 @@
 //! bundle under `assets/uat-dashboard/` (ADR-013).
 
 use std::path::{Path, PathBuf};
+use std::thread;
 
 use clap::{Args, Subcommand};
 
@@ -500,10 +501,81 @@ fn run_uat_open(args: UatOpenArgs, environment: &crate::CliEnvironment) -> Comma
             let dir = plan_path.parent().unwrap_or_else(|| Path::new("."));
             dir.join(format!("uat-{view_name}-{}.html", plan.release.candidate))
         });
-        std::fs::write(&output, html)?;
 
-        open_in_browser(&output, args.browser.as_deref())?;
-        Ok(output)
+        // For the guided wizard: start the in-process ingest server BEFORE
+        // opening the browser, so the wizard can auto-POST the exported
+        // session to /ingest (closing the dashboard → control plane loop).
+        // The server runs on 127.0.0.1 only and dies with this CLI process
+        // (via the IngestServer's Drop impl).
+        let mut ingest_server: Option<crate::uat_serve::IngestServer> = None;
+        let mut open_url: Option<String> = None;
+        if matches!(args.view, UatView::Guided) {
+            // Tell the in-process server where to read the wizard HTML from.
+            // This lets the server serve the HTML on the same origin as the
+            // API, avoiding file:// → http://127.0.0.1 CORS issues in some
+            // browsers.
+            crate::uat_serve::set_wizard_html_path(output.clone());
+            let env = std::sync::Arc::new(environment.clone());
+            match crate::uat_serve::spawn(env) {
+                Ok(server) => {
+                    eprintln!(
+                        "uat open: ingest endpoint listening at {} (health {})",
+                        server.ingest_url, server.health_url
+                    );
+                    // Re-render with the ingest URL injected.
+                    let html2 = html
+                        .replace("@INGEST_URL@", &server.ingest_url)
+                        .replace("@HEALTH_URL@", &server.health_url);
+                    std::fs::write(&output, html2)?;
+                    // Prefer opening the wizard on the same origin as the
+                    // ingest endpoint. Fall back to file:// only if no port.
+                    let url = format!("http://127.0.0.1:{}/", server.port);
+                    open_url = Some(url.clone());
+                    ingest_server = Some(server);
+                }
+                Err(e) => {
+                    eprintln!(
+                        "uat open: failed to start ingest server ({e}); wizard will fall back to manual ingest"
+                    );
+                    let html2 = html
+                        .replace("@INGEST_URL@", "")
+                        .replace("@HEALTH_URL@", "");
+                    std::fs::write(&output, html2)?;
+                }
+            }
+        } else {
+            std::fs::write(&output, html)?;
+        }
+
+        // Open the browser. Prefer the same-origin URL (http://127.0.0.1:PORT/)
+        // so the wizard's fetch() is same-origin. Fall back to file:// only if
+        // the ingest server didn't start.
+        if let Some(url) = &open_url {
+            if let Err(e) = open_in_browser(Path::new(url), args.browser.as_deref()) {
+                eprintln!(
+                    "uat open: browser launch failed ({e}); open manually with: xdg-open {url}"
+                );
+            }
+        } else if let Err(e) = open_in_browser(&output, args.browser.as_deref()) {
+            eprintln!(
+                "uat open: browser launch failed ({e}); open manually with: xdg-open {}",
+                output.display()
+            );
+        }
+        let result_path = output.clone();
+
+        // Keep the CLI process alive while the wizard is open. The browser
+        // process is independent; we just need to keep our ingest server
+        // running. SIGINT (Ctrl+C) cleanly drops the IngestServer, which
+        // signals the thread to exit on its next accept iteration.
+        if ingest_server.is_some() {
+            eprintln!(
+                "uat open: wizard running — press Ctrl+C in this terminal to close the ingest server"
+            );
+            // Park the main thread; the server thread runs until shutdown.
+            std::thread::park();
+        }
+        Ok(result_path)
     })();
     render_result(result, format, |path| {
         format!(
@@ -531,6 +603,82 @@ fn open_in_browser(path: &Path, browser: Option<&str>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Validate + upsert a session into the control plane (shared by the file
+/// CLI ingest and the in-process HTTP server). Pure side-effect function
+/// that opens the telemetry store and writes one `uat_results` row.
+pub(crate) fn process_session_for_ingest(session: &UatSession, environment: &crate::CliEnvironment) -> anyhow::Result<()> {
+    // Integrity guard (human-in-the-loop): an agent MUST NOT write
+    // `executor: human`. A human session comes from the guided dashboard
+    // export: finished_at set, an executed_by name, and at least one
+    // evidence entry OR a non-PASS status. Without those signals, a
+    // hand-written "human" session is rejected as fabrication.
+    if session.executor == sddk_domain::UatExecutor::Human {
+        let has_name = session.executed_by.is_some();
+        let finished = session.finished_at.is_some();
+        let evidenced = session
+            .results
+            .iter()
+            .any(|r| !r.evidence.is_empty());
+        let has_non_pass = session
+            .results
+            .iter()
+            .any(|r| r.status != sddk_domain::UatStatus::Pass);
+        if !(has_name && finished && (evidenced || has_non_pass)) {
+            anyhow::bail!(
+                "integrity: `executor: human` session without human signals \
+                 (executed_by + finished_at + evidence/non-PASS required). \
+                 Agents must use `executor: fara`; human sessions come from \
+                 the guided dashboard export."
+            );
+        }
+    }
+
+    if let Ok(conn) = crate::telemetry::open_store(environment, false) {
+        let project_id = session
+            .executed_by
+            .clone()
+            .map(|by| format!("uat-{}", by.to_lowercase().replace(' ', "-")))
+            .unwrap_or_else(|| "uat-unknown".into());
+        let now = now_rfc3339();
+        conn.execute(
+            "INSERT OR IGNORE INTO projects (project_id, display_name, scope, first_seen, last_seen)
+             VALUES (?1, ?2, 'uat', ?3, ?3)",
+            rusqlite::params![project_id, project_id, now],
+        )?;
+        let passed = session.results.iter().filter(|r| r.status == sddk_domain::UatStatus::Pass).count() as u32;
+        let failed = session.results.iter().filter(|r| r.status == sddk_domain::UatStatus::Fail).count() as u32;
+        let blocked = session.results.iter().filter(|r| r.status == sddk_domain::UatStatus::Blocked).count() as u32;
+        let total = session.results.len().max(1) as u32;
+        let coverage = 100.0 * (passed + blocked) as f64 / total as f64;
+        let verdict = if failed == 0 && blocked == 0 {
+            "READY"
+        } else if failed == 0 {
+            "READY_WITH_RISKS"
+        } else {
+            "NOT_READY"
+        };
+        let duration = session.results.iter().map(|r| r.duration_minutes).sum::<u32>();
+        let recorded_at = session
+            .finished_at
+            .clone()
+            .unwrap_or_else(|| session.started_at.clone());
+        crate::telemetry::upsert_uat_result(
+            &conn,
+            &crate::telemetry::UatResultRow {
+                project_id,
+                tag_version: session.release.clone(),
+                verdict: verdict.into(),
+                coverage_pct: coverage,
+                defects: failed as i64,
+                session_count: session.results.len() as i64,
+                uat_duration_minutes: duration as i64,
+                recorded_at,
+            },
+        )?;
+    }
+    Ok(())
+}
+
 fn run_uat_ingest(args: UatIngestArgs, environment: &crate::CliEnvironment) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<UatSession> {
@@ -538,92 +686,7 @@ fn run_uat_ingest(args: UatIngestArgs, environment: &crate::CliEnvironment) -> C
             .map_err(|e| anyhow::anyhow!("cannot read session {}: {e}", args.session.display()))?;
         let session: UatSession = serde_saphyr::from_str(&raw)
             .map_err(|e| anyhow::anyhow!("invalid session {}: {e}", args.session.display()))?;
-
-        // Integrity guard (human-in-the-loop): an agent MUST NOT write
-        // `executor: human`. A human session comes from the guided dashboard
-        // export: finished_at set, an executed_by name, and at least one
-        // evidence entry OR a non-PASS status. Without those signals, a
-        // hand-written "human" session is rejected as fabrication.
-        if session.executor == sddk_domain::UatExecutor::Human {
-            let has_name = session.executed_by.is_some();
-            let finished = session.finished_at.is_some();
-            let evidenced = session
-                .results
-                .iter()
-                .any(|r| !r.evidence.is_empty());
-            let has_non_pass = session
-                .results
-                .iter()
-                .any(|r| r.status != sddk_domain::UatStatus::Pass);
-            if !(has_name && finished && (evidenced || has_non_pass)) {
-                anyhow::bail!(
-                    "integrity: `executor: human` session without human signals \
-                     (executed_by + finished_at + evidence/non-PASS required). \
-                     Agents must use `executor: fara`; human sessions come from \
-                     the guided dashboard export."
-                );
-            }
-        }
-
-        // Control plane (ADR-012): upsert only the aggregate — sessions and
-        // evidence stay in XDG artifacts, the CP keeps its numeric contract.
-        if let Ok(conn) = crate::telemetry::open_store(environment, false) {
-            let project_id = session
-                .executed_by
-                .clone()
-                .map(|by| format!("uat-{}", by.to_lowercase().replace(' ', "-")))
-                .unwrap_or_else(|| "uat-unknown".into());
-            // Ensure the FK target exists (projects table) before inserting.
-            let now = now_rfc3339();
-            conn.execute(
-                "INSERT OR IGNORE INTO projects (project_id, display_name, scope, first_seen, last_seen)
-                 VALUES (?1, ?2, 'uat', ?3, ?3)",
-                rusqlite::params![project_id, project_id, now],
-            )?;
-            let passed = session
-                .results
-                .iter()
-                .filter(|r| r.status == sddk_domain::UatStatus::Pass)
-                .count() as u32;
-            let failed = session
-                .results
-                .iter()
-                .filter(|r| r.status == sddk_domain::UatStatus::Fail)
-                .count() as u32;
-            let blocked = session
-                .results
-                .iter()
-                .filter(|r| r.status == sddk_domain::UatStatus::Blocked)
-                .count() as u32;
-            let total = session.results.len().max(1) as u32;
-            let coverage = 100.0 * (passed + blocked) as f64 / total as f64;
-            let verdict = if failed == 0 && blocked == 0 {
-                "READY"
-            } else if failed == 0 {
-                "READY_WITH_RISKS"
-            } else {
-                "NOT_READY"
-            };
-            let duration = session.results.iter().map(|r| r.duration_minutes).sum::<u32>();
-            let recorded_at = session
-                .finished_at
-                .clone()
-                .unwrap_or_else(|| session.started_at.clone());
-            crate::telemetry::upsert_uat_result(
-                &conn,
-                &crate::telemetry::UatResultRow {
-                    project_id,
-                    tag_version: session.release.clone(),
-                    verdict: verdict.into(),
-                    coverage_pct: coverage,
-                    defects: failed as i64,
-                    session_count: session.results.len() as i64,
-                    uat_duration_minutes: duration as i64,
-                    recorded_at,
-                },
-            )?;
-        }
-
+        process_session_for_ingest(&session, environment)?;
         Ok(session)
     })();
     render_result(result, format, |session| {

@@ -45,6 +45,8 @@
 <script>
 const PLAN = @PLAN_JSON@;
 const RELEASE = '@RELEASE@';
+const SDDK_INGEST_URL = '@INGEST_URL@';
+const SDDK_HEALTH_URL = '@HEALTH_URL@';
 const all = [];
 for (const f of PLAN.features || []) for (const s of f.scenarios || []) all.push({feature: f, scenario: s});
 const SCENARIO_ORDER = all.map(({scenario}) => scenario.id);
@@ -381,7 +383,34 @@ function nav(delta) {
   render();
 }
 
-function finalizeReport() {
+// POST the session to the in-process ingest server (started by
+// `sddk uat open`). Returns a one-line summary for the final alert.
+async function ingestSession(session) {
+  if (!SDDK_INGEST_URL) {
+    return "\n  ingest: skipped (no endpoint — open with `sddk uat open`)\n" +
+      "\n  manual: sddk uat ingest --session uat-session-" + RELEASE + ".json\n";
+  }
+  try {
+    const resp = await fetch(SDDK_INGEST_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(session),
+    });
+    const json = await resp.json();
+    if (resp.ok && json.ok) {
+      return "\n  ingest: ✅ " + (json.verdict || 'OK') +
+        " — session_id=" + json.session_id + "\n" +
+        "  (the control plane already knows about this session; you can close this tab)\n";
+    }
+    return "\n  ingest: ❌ " + (json.error || ('HTTP ' + resp.status)) + "\n" +
+      "\n  manual: sddk uat ingest --session uat-session-" + RELEASE + ".json\n";
+  } catch (e) {
+    return "\n  ingest: ⚠️  could not reach " + SDDK_INGEST_URL + " (" + e + ")\n" +
+      "\n  manual: sddk uat ingest --session uat-session-" + RELEASE + ".json\n";
+  }
+}
+
+async function finalizeReport() {
   startIfNeeded();
   finishedAt = UAT.nowRfc3339();
   const cur = all[idx].scenario;
@@ -421,11 +450,18 @@ function finalizeReport() {
   const fail = Object.values(verdicts).filter(v => v.status === 'FAIL').length;
   const block = Object.values(verdicts).filter(v => v.status === 'BLOCKED').length;
   const testerId = UAT.ensureTesterId();
+
+  // Auto-ingest: POST the session to the local sddk ingest endpoint. If the
+  // endpoint isn't reachable (e.g. user opened the HTML directly without
+  // `sddk uat open`), fall back to the manual command.
+  const ingestSummary = await ingestSession(session);
+
   alert(
     `Reporte finalizado y descargado:\n\n` +
     `  pass: ${ok} | fail: ${fail} | blocked: ${block}\n` +
     `  session_id: ${session.session_id}\n` +
     `  tester_id: ${testerId}\n` +
+    ingestSummary +
     `  plan_version: ${session.plan_version}\n\n` +
     `Siguiente paso:\n` +
     `  sddk uat ingest --session uat-session-${RELEASE}.json\n` +

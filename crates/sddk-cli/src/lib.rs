@@ -21,6 +21,7 @@ mod release_cmd;
 mod result_cmd;
 mod telemetry;
 mod uat;
+mod uat_serve;
 mod vault_cmd;
 
 use std::ffi::{OsStr, OsString};
