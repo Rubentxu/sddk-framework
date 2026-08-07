@@ -30,7 +30,7 @@ SDDK es un framework completo de orquestación de agentes para desarrollo de sof
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                   ~/.sddk-shared/                    │
+│   ~/Proyectos/agentesIA/sddk-framework/    │
 │           (este repositorio — framework)             │
 │                                                      │
 │  ┌──────────┐  ┌─────────┐  ┌────────────────────┐  │
@@ -67,8 +67,8 @@ Las rutas actuales de agentes y skills se mantienen en el [inventario generado d
 ### Instalar
 
 ```bash
-git clone https://github.com/Rubentxu/sddk-framework.git ~/.sddk-shared
-~/.sddk-shared/bootstrap.sh --all
+git clone https://github.com/Rubentxu/sddk-framework.git ~/Proyectos/agentesIA/sddk-framework
+~/Proyectos/agentesIA/sddk-framework/bootstrap.sh --all
 ```
 
 El script de bootstrap detecta automáticamente los editores instalados (ZCode, OpenCode) y crea los symlinks. Tus repos de proyecto quedan limpios — **cero archivos de documentación en tus repos de código**.

@@ -42,7 +42,7 @@ mv ~/.sddk-knowledge/old-name ~/.sddk-knowledge/new-name
 
 **CRITICAL**: The vault is per-project. Each project has its own vault at `~/.sddk-knowledge/{project}/`. It is NOT in the project repo — it lives in `$HOME`, separate from the code. The project repo has ZERO documentation files.
 
-The **template** for the vault lives in the **SDDK framework repo** (`~/.sddk-shared/knowledge-template/`). The first time `sddk-adopt` runs in a project, it copies the template into `~/.sddk-knowledge/{project}/`.
+The **template** for the vault lives in the **SDDK framework repo** (`~/Proyectos/agentesIA/sddk-framework/knowledge-template/`). The first time `sddk-adopt` runs in a project, it copies the template into `~/.sddk-knowledge/{project}/`.
 
 ## Node Types
 
@@ -113,7 +113,7 @@ Before creating any node, read the corresponding template from the SDDK framewor
 
 ```bash
 # Template source (in the SDDK framework, NOT in the project repo)
-cat ~/.sddk-shared/knowledge-template/templates/{type}.md
+cat ~/Proyectos/agentesIA/sddk-framework/knowledge-template/templates/{type}.md
 ```
 
 Fill in the placeholders. Do not invent properties not in the template.
@@ -224,7 +224,7 @@ If `~/.sddk-knowledge/{project}/` doesn't exist when the orchestrator needs it (
 
 ```bash
 # The vault template lives in the SDDK framework (source of truth)
-cp -r ~/.sddk-shared/knowledge-template/ ~/.sddk-knowledge/{project}/
+cp -r ~/Proyectos/agentesIA/sddk-framework/knowledge-template/ ~/.sddk-knowledge/{project}/
 sed -i "s/{PROJECT_NAME}/$(basename "$(pwd)")/" ~/.sddk-knowledge/{project}/_index.md
 ```
 
@@ -237,12 +237,12 @@ The vault lives in `$HOME`, not in the project repo. It is NOT committed to git 
 ## Compact Rules
 
 - Vault lives at `~/.sddk-knowledge/{project}/` — IN the user `$HOME`, NEVER inside the project repo
-- Template source lives in the SDDK framework: `~/.sddk-shared/knowledge-template/`
+- Template source lives in the SDDK framework: `~/Proyectos/agentesIA/sddk-framework/knowledge-template/`
 - Properties use `snake_case`; values use wikilinks `[[]]`
 - Every node has `type`, `title`, `slug`, `status`, `created`, `stale_after`
 - Changelog is append-only (bi-temporal)
 - Log every write to `~/.sddk-knowledge/{project}/_log.md`
 - Serialization lock = `~/.sddk-knowledge/{project}/milestones/_active.md`
 - The vault lives in `$HOME`, separate from the project repo
-- Read templates from `~/.sddk-shared/knowledge-template/templates/` before creating nodes
+- Read templates from `~/Proyectos/agentesIA/sddk-framework/knowledge-template/templates/` before creating nodes
 - For adoption, delegate to `sddk-adopt` — it creates the vault AND plants SDDK working artifacts

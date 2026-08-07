@@ -25,7 +25,7 @@ set -euo pipefail
 REPO="${SDDK_REPO:-Rubentxu/sddk-framework}"
 VERSION="${SDDK_VERSION:-latest}"
 PREFIX="${SDDK_PREFIX:-$HOME/.local/bin}"
-FRAMEWORK_DIR="${SDDK_FRAMEWORK_DIR:-$HOME/.sddk-shared/framework}"
+FRAMEWORK_DIR="${SDDK_FRAMEWORK_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/sddk/framework}"
 EDITOR="${SDDK_EDITOR:-}"
 BASE_URL="${SDDK_BASE_URL:-https://github.com/$REPO/releases}"
 

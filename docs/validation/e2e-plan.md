@@ -26,7 +26,7 @@ container limpio
   → curl install.sh (de GitHub Releases o SDDK_BASE_URL local)
   → binario instalado en ~/.local/bin + sha256 verificado
   → [variante cosign] firma keyless verificada
-  → bundle sddk-framework.tar.gz extraído en ~/.sddk-shared/framework
+  → bundle sddk-framework.tar.gz extraído en ~/.local/share/sddk/framework (XDG runtime)
   → dev link --editor all → estructura de editor simulada (~/.config/opencode vacío)
   → verificación: 67 agents, 93 skills, 35 prompts, 4 workflows, opencode.json registrado
   → dev doctor all_present

@@ -37,7 +37,7 @@ golden-dataset/
 ## Cómo ejecutar
 
 ```bash
-cd ~/.sddk-shared/golden-dataset
+cd ~/Proyectos/agentesIA/sddk-framework/golden-dataset
 ./runner/run-golden.sh                    # corre todos los casos
 ./runner/run-golden.sh cases/06-god-class-fail/  # corre un caso específico
 ```

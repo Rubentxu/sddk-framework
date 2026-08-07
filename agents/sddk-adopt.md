@@ -150,7 +150,7 @@ Reuse the project context resolved before Step 1:
 mkdir -p "$(dirname "$VAULT")"
 
 if [ ! -d "$VAULT" ]; then
-    cp -r ~/.sddk-shared/knowledge-template/ "$VAULT/"
+    cp -r ~/Proyectos/agentesIA/sddk-framework/knowledge-template/ "$VAULT/"
     sed -i "s/{PROJECT_NAME}/$PROJECT/g" "$VAULT/_index.md"
     echo "✅ Vault initialized at $VAULT"
 else
@@ -311,7 +311,7 @@ EOF
 # List sddk-* skills (always relevant)
 echo "### SDDK Core Skills" >> "$SKILL_REGISTRY"
 for skill in knowledge-graph sddk-init sddk-verify sddk-debt-verify sddk-spec sddk-apply sddk-archive sddk-release; do
-    if [ -d "$HOME/.sddk-shared/skills/$skill" ]; then
+    if [ -d "$HOME/Proyectos/agentesIA/sddk-framework/skills/$skill" ]; then
         echo "- [[$skill]]" >> "$SKILL_REGISTRY"
     fi
 done

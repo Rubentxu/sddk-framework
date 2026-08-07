@@ -7,8 +7,9 @@
 #   ./bootstrap.sh --opencode         # only OpenCode
 #   ./bootstrap.sh --all              # all detected + force re-link
 #
-# This script makes ~/.sddk-shared/ the single source of truth and symlinks
-# agents/skills/prompts into each editor's expected directory.
+# This script symlinks agents/skills/prompts from the framework root
+# (default: the dir containing this script = the CWD repo) into each
+# editor's expected directory (~/.config/opencode, ~/.zcode, ...).
 
 set -euo pipefail
 

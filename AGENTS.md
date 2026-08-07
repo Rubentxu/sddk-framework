@@ -142,26 +142,19 @@ sddk system          # instalación del sistema (brew, etc.) — opcional
 Estas cosas **no se arreglaron todavía** pero violan el spec. Documentadas
 para no perderlas de vista.
 
-### 5.1. `~/.sddk-shared/` es un segundo checkout del repo (DRIFT)
+### 5.1. `~/.sddk-shared/` (REGRESIÓN RESUELTA — 2026-08-08)
 
-```
-$ ls -d /var/home/rubentxu/.sddk-shared
-/var/home/rubentxu/.sddk-shared    # existe
+`~/.sddk-shared/` era un **segundo checkout** del mismo repo. Todo el
+trabajo de desarrollo debe ocurrir en el CWD (`sddk-framework/`).
 
-$ git -C /var/home/rubentxu/.sddk-shared remote -v
-origin  https://github.com/Rubentxu/sddk-framework.git
-```
+**Resuelto**: eliminado con `rm -rf /var/home/rubentxu/.sddk-shared/`
+previa verificación de que los 3 commits y los 4 cambios uncommitted
+estaban en el CWD / `origin/main` (ver commit `98b20d7` que documenta
+esta regresión retrospectivamente).
 
-**Problema**: por el spec RS-2026-08, no debería existir un segundo
-checkout del repo. Todo el trabajo de desarrollo debe ocurrir en el CWD
-(`sddk-framework/`).
-
-**Acción**: cuando el usuario confirme, eliminar `~/.sddk-shared/` con
-`rm -rf`. Antes de hacerlo:
-1. Verificar que no hay commits uncommitted en ese checkout.
-2. Verificar que ningún editor está apuntando a `~/.sddk-shared/`
-   (buscar en `~/.config/opencode/`, `~/.claude/`, etc.).
-3. Actualizar `bootstrap.sh` (ver §5.2) ANTES de eliminar el dir.
+**Prevención**: no vuelvas a crear un segundo checkout. Si necesitas
+iterar, usa el CWD. El bundle runtime (`~/.local/share/sddk/framework/v1.5.3/`)
+se actualiza con `sddk dev install` (ver §4.2).
 
 ### 5.2. `bootstrap.sh` referencia `~/.sddk-shared/` (DRIFT)
 
