@@ -30,7 +30,9 @@ pub(crate) enum DevCommand {
     /// Generate or verify MANIFEST.sha256 — per-file content hashes of the
     /// framework surfaces (agents, skills, prompts, workflows, assets).
     Manifest(ManifestArgs),
-    /// Update the framework: pull, re-link, rebuild, verify.
+    /// Install a framework release bundle (download, verify checksum +
+    /// internal MANIFEST.sha256, extract). Never touches git — source
+    /// checkouts are managed by the developer (`git pull` + `dev link`).
     Update(UpdateArgs),
 }
 
@@ -1031,12 +1033,24 @@ fn run_dev_link(args: LinkArgs, environment: &CliEnvironment) -> CommandOutput {
     let result = (|| -> anyhow::Result<Vec<LinkReport>> {
         // When no explicit root is given, link from the active framework
         // bundle (`$SDDK_DATA_DIR/framework/current`, asdf-style). An explicit
-        // `--root` still links from a repo/checkout (dogfooding).
+        // `--root` still links from a repo/checkout (dogfooding) and syncs
+        // its assets into the active bundle so the CLI resolves them.
         let root = if args.root.as_os_str() == "." {
             resolve_active_framework_root(environment)?
         } else {
             std::fs::canonicalize(&args.root)?
         };
+        // Dogfooding from an explicit source root: sync its assets into the
+        // active bundle so `uat dashboard`/`uat run` resolve the latest kit
+        // and drivers, then regenerate the runtime manifest. This never
+        // touches git — the source is whatever the user points at.
+        if args.root.as_os_str() != "."
+            && let Ok(framework_root) = resolve_active_framework_root(environment)
+            && root.join("assets").is_dir()
+        {
+            let _ = sync_assets(&root.join("assets"), &framework_root.join("assets"));
+            let _ = write_manifest(&framework_root);
+        }
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("/tmp"));
@@ -1519,13 +1533,20 @@ fn run_dev_update(args: UpdateArgs, environment: &CliEnvironment) -> CommandOutp
     let result = (|| -> anyhow::Result<String> {
         let mut output = String::new();
 
+        // The framework distributes RELEASE BUNDLES (agents/skills/prompts/
+        // workflows/assets + MANIFEST.sha256), never repository clones. Git
+        // operations are the developer's responsibility: if the target root
+        // is a checkout, the user updates it with `git pull` themselves and
+        // re-links with `sddk dev link --root <checkout>` (dogfooding).
         if args.root.join(".git").is_dir() {
-            // Developer checkout: pull, re-link, rebuild.
-            let root = std::fs::canonicalize(&args.root)?;
-            output.push_str(&update_checkout(&root, environment)?);
-            // Re-link the requested editors from this checkout (dogfooding).
-            re_link_editors(&root, args.editor, &mut output);
-            return Ok(output);
+            anyhow::bail!(
+                "`dev update` installs release bundles and never touches git. \
+                 You passed a repository checkout ({}). \
+                 To update a checkout, run `git pull` yourself, then \
+                 `sddk dev link --root {}` to re-link the editors.",
+                args.root.display(),
+                args.root.display()
+            );
         }
 
         // Bundle install: download the framework release bundle, verify, and
@@ -1560,126 +1581,6 @@ fn run_dev_update(args: UpdateArgs, environment: &CliEnvironment) -> CommandOutp
 }
 
 /// Re-link the requested editors from a given framework root.
-fn re_link_editors(root: &Path, editor: LinkEditor, output: &mut String) {
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/tmp"));
-    let opencode_dir = home.join(".config/opencode");
-    let zcode_dir = home.join(".zcode");
-    if matches!(editor, LinkEditor::OpenCode | LinkEditor::All) && opencode_dir.is_dir() {
-        let report = link_editor(root, &opencode_dir);
-        output.push_str(&format!(
-            "opencode: {} agents, {} skills, {} stale replaced\n",
-            report.agents_linked, report.skills_linked, report.stale_replaced
-        ));
-    }
-    if matches!(editor, LinkEditor::ZCode | LinkEditor::All) && zcode_dir.is_dir() {
-        let report = link_editor(root, &zcode_dir);
-        output.push_str(&format!(
-            "zcode: {} agents, {} skills, {} stale replaced\n",
-            report.agents_linked, report.skills_linked, report.stale_replaced
-        ));
-    }
-}
-
-/// Update a developer checkout (git work tree): pull, re-link, rebuild.
-fn update_checkout(root: &Path, environment: &CliEnvironment) -> anyhow::Result<String> {
-    let mut output = String::new();
-    let pull = std::process::Command::new("git")
-        .args(["pull", "--ff-only"])
-        .current_dir(root)
-        .output()?;
-    output.push_str(&format!(
-        "git pull: {} {}\n",
-        if pull.status.success() {
-            "ok"
-        } else {
-            "failed"
-        },
-        String::from_utf8_lossy(&pull.stderr).trim()
-    ));
-
-    // Sync runtime assets (uat-dashboard kit, uat-driver harnesses) from the
-    // checkout into the active framework bundle. The CLI resolves assets
-    // from the bundle (`resolve_assets_dir`), so without this step
-    // `uat dashboard`/`uat run --executor playwright` would use stale or
-    // missing assets after a dev update (ADR-013/014 regression guard).
-    let assets_source = root.join("assets");
-    if assets_source.is_dir() {
-        let framework = framework_dir(environment)?;
-        let current = framework.join("current");
-        let target = if let Ok(target) = std::fs::read_link(&current) {
-            if target.is_absolute() {
-                target
-            } else {
-                framework.join(target)
-            }
-        } else {
-            current
-        };
-        let assets_target = target.join("assets");
-        match sync_assets(&assets_source, &assets_target) {
-            Ok(copied) => output.push_str(&format!("assets: {copied} file(s) synced to {}\n", assets_target.display())),
-            Err(e) => output.push_str(&format!("assets: sync failed: {e}\n")),
-        }
-        // Manifest: regenerate for the runtime root (and checkout root when
-        // it differs) so doctor can verify content hashes per version. The
-        // manifest lives at the FRAMEWORK root, not inside assets/.
-        let manifest_root = if target == root {
-            root.to_path_buf()
-        } else {
-            // Best effort: write into both roots so either can be audited.
-            let _ = write_manifest(&target);
-            root.to_path_buf()
-        };
-        match write_manifest(&manifest_root) {
-            Ok(n) => output.push_str(&format!(
-                "manifest: {} files hashed at {}\n",
-                n,
-                manifest_root.join(MANIFEST_FILE).display()
-            )),
-            Err(e) => output.push_str(&format!("manifest: failed: {e}\n")),
-        }
-        if target != root && target.join(MANIFEST_FILE).is_file() {
-            output.push_str(&format!(
-                "manifest: also at {}\n",
-                target.join(MANIFEST_FILE).display()
-            ));
-        }
-    } else {
-        output.push_str("assets: no assets/ dir in checkout (skipped)\n");
-        // Manifest may still exist for the checkout root.
-        match write_manifest(root) {
-            Ok(n) => output.push_str(&format!(
-                "manifest: {} files hashed at {}\n",
-                n,
-                root.join(MANIFEST_FILE).display()
-            )),
-            Err(e) => output.push_str(&format!("manifest: failed: {e}\n")),
-        }
-    }
-
-    let build = std::process::Command::new("cargo")
-        .args(["build", "--release", "-p", "sddk-cli"])
-        .current_dir(root)
-        .output()?;
-    output.push_str(&format!(
-        "build: {} {}\n",
-        if build.status.success() {
-            "ok"
-        } else {
-            "failed"
-        },
-        String::from_utf8_lossy(&build.stderr)
-            .lines()
-            .last()
-            .unwrap_or("")
-            .trim()
-    ));
-    Ok(output)
-}
-
-/// Download and extract the framework release bundle into a bundle install root.
 fn update_bundle(root: &Path, args: &UpdateArgs) -> anyhow::Result<String> {
     let version = args.version.as_deref().unwrap_or("latest");
     let base_url = match &args.base_url {
@@ -1726,10 +1627,41 @@ fn update_bundle(root: &Path, args: &UpdateArgs) -> anyhow::Result<String> {
             String::from_utf8_lossy(&extract.stderr).trim()
         );
     }
+    // Post-extract integrity: verify every file of the extracted bundle
+    // against the manifest that SHIPPED INSIDE the tarball. The tarball
+    // checksum proves transport integrity; the internal manifest proves
+    // content integrity of each framework surface (agents, skills, prompts,
+    // workflows, assets) — no repository clone involved, only the release
+    // surfaces (ADR-011).
+    let manifest_path = root.join(MANIFEST_FILE);
+    if manifest_path.is_file() {
+        match verify_manifest(root) {
+            Ok(mismatches) if mismatches.is_empty() => {}
+            Ok(mismatches) => {
+                let _ = std::fs::remove_dir_all(&tmp);
+                anyhow::bail!(
+                    "bundle content verification FAILED ({} mismatch(es)):\n  {}",
+                    mismatches.len(),
+                    mismatches.join("\n  ")
+                );
+            }
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&tmp);
+                anyhow::bail!("bundle manifest unreadable: {e}");
+            }
+        }
+    }
     let _ = std::fs::remove_dir_all(&tmp);
     Ok(format!(
-        "framework: {version} ({asset}) sha256 verified: {actual}\n"
+        "framework: {version} ({asset}) sha256 verified: {actual}; {} files content-verified via {MANIFEST_FILE}\n",
+        count_manifest_entries(root).unwrap_or(0)
     ))
+}
+
+/// Count entries in a root's MANIFEST.sha256 (0 when absent).
+fn count_manifest_entries(root: &Path) -> anyhow::Result<usize> {
+    let raw = std::fs::read_to_string(root.join(MANIFEST_FILE))?;
+    Ok(raw.lines().filter(|l| !l.trim().is_empty()).count())
 }
 
 /// Download a URL to a destination via curl/wget, or copy from file://.
