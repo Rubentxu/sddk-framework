@@ -43,6 +43,7 @@ surface = ["dev"]
 "git.inspect" = "creates"
 "git.create_branch" = "creates"
 "git.commit" = "modifies"
+"git.tag" = "creates"
 "git.merge" = "modifies"
 "git.delete_branch" = "irreversible"
 "git.push" = "modifies"

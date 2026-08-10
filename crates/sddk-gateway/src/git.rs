@@ -184,6 +184,175 @@ impl GitExecutor {
         })
     }
 
+    /// Returns the full SHA of the current HEAD.
+    pub fn head_sha(&self) -> Result<String, GitError> {
+        let head = self
+            .run_ok("rev-parse", &["HEAD"])?
+            .stdout
+            .trim()
+            .to_owned();
+        if head.is_empty() {
+            return Err(GitError::Postcondition {
+                command: "rev-parse HEAD".into(),
+                expected: "a non-empty HEAD SHA".into(),
+                actual: "empty".into(),
+            });
+        }
+        Ok(head)
+    }
+
+    /// Returns the remote SHA of a branch, or `None` when it does not exist.
+    pub fn remote_branch_sha(&self, branch: &str) -> Result<Option<String>, GitError> {
+        let reference = format!("refs/heads/{branch}");
+        let output = self.run_ok("ls-remote", &["--heads", "origin", &reference])?;
+        Ok(output.stdout.split_whitespace().next().map(str::to_owned))
+    }
+
+    /// Pushes a branch and verifies that its remote SHA equals the local HEAD.
+    pub fn push_and_verify_branch(&self, branch: &str) -> Result<String, GitError> {
+        let head = self.head_sha()?;
+        self.run_ok("push", &["origin", branch])?;
+        let remote = self.remote_branch_sha(branch)?.unwrap_or_default();
+        if remote != head {
+            return Err(GitError::Postcondition {
+                command: format!("push origin {branch}"),
+                expected: head,
+                actual: remote,
+            });
+        }
+        self.head_sha()
+    }
+
+    /// Verifies that the remote branch SHA equals the current local HEAD.
+    pub fn verify_head_matches_remote_branch(&self, branch: &str) -> Result<String, GitError> {
+        let head = self.head_sha()?;
+        let remote = self.remote_branch_sha(branch)?.unwrap_or_default();
+        if remote != head {
+            return Err(GitError::Postcondition {
+                command: format!("verify origin/{branch}"),
+                expected: head,
+                actual: remote,
+            });
+        }
+        Ok(head)
+    }
+
+    /// Returns the peeled commit SHA of a local annotated tag.
+    pub fn annotated_tag_target(&self, tag: &str) -> Result<Option<String>, GitError> {
+        let reference = format!("refs/tags/{tag}");
+        let output = self.run_ok("for-each-ref", &["--format=%(objecttype)", &reference])?;
+        let line = output.stdout.trim();
+        if line.is_empty() {
+            return Ok(None);
+        }
+        if line != "tag" {
+            return Err(GitError::Postcondition {
+                command: format!("verify annotated tag {tag}"),
+                expected: "an annotated tag pointing to a commit".into(),
+                actual: line.to_owned(),
+            });
+        }
+        let peeled_reference = format!("{reference}^{{}}");
+        let target = self
+            .run_ok("rev-parse", &[&peeled_reference])?
+            .stdout
+            .trim()
+            .to_owned();
+        if target.is_empty() {
+            return Err(GitError::Postcondition {
+                command: format!("verify annotated tag {tag}"),
+                expected: "an annotated tag pointing to a commit".into(),
+                actual: "empty peeled target".into(),
+            });
+        }
+        Ok(Some(target))
+    }
+
+    /// Returns the peeled commit SHA of a remote annotated tag.
+    pub fn remote_annotated_tag_target(&self, tag: &str) -> Result<Option<String>, GitError> {
+        let reference = format!("refs/tags/{tag}");
+        let peeled_reference = format!("{reference}^{{}}");
+        let output = self.run_ok(
+            "ls-remote",
+            &["--tags", "origin", &reference, &peeled_reference],
+        )?;
+        let lines = output.stdout.lines().collect::<Vec<_>>();
+        if lines.is_empty() {
+            return Ok(None);
+        }
+        let target = lines.iter().find_map(|line| {
+            line.strip_suffix(&peeled_reference)
+                .and_then(|prefix| prefix.split_whitespace().next())
+        });
+        match target {
+            Some(target) => Ok(Some(target.to_owned())),
+            None => Err(GitError::Postcondition {
+                command: format!("verify remote annotated tag {tag}"),
+                expected: "an annotated tag pointing to a commit".into(),
+                actual: output.stdout.trim().to_owned(),
+            }),
+        }
+    }
+
+    /// Creates an annotated tag at `target`, accepting an existing identical tag.
+    pub fn create_annotated_tag(
+        &self,
+        tag: &str,
+        target: &str,
+        message: &str,
+    ) -> Result<GitTag, GitError> {
+        match self.annotated_tag_target(tag)? {
+            Some(existing) if existing == target => {
+                return Ok(GitTag {
+                    tag: tag.to_owned(),
+                });
+            }
+            Some(existing) => {
+                return Err(GitError::Postcondition {
+                    command: format!("create annotated tag {tag}"),
+                    expected: target.to_owned(),
+                    actual: existing,
+                });
+            }
+            None => {}
+        }
+        self.run_ok("tag", &["-a", tag, target, "-m", message])?;
+        let actual = self.annotated_tag_target(tag)?.unwrap_or_default();
+        if actual != target {
+            return Err(GitError::Postcondition {
+                command: format!("tag -a {tag}"),
+                expected: target.to_owned(),
+                actual,
+            });
+        }
+        Ok(GitTag {
+            tag: tag.to_owned(),
+        })
+    }
+
+    /// Pushes an annotated tag and verifies its remote peeled commit SHA.
+    pub fn push_and_verify_annotated_tag(&self, tag: &str, target: &str) -> Result<(), GitError> {
+        let local = self.annotated_tag_target(tag)?.unwrap_or_default();
+        if local != target {
+            return Err(GitError::Postcondition {
+                command: format!("push annotated tag {tag}"),
+                expected: target.to_owned(),
+                actual: local,
+            });
+        }
+        let reference = format!("refs/tags/{tag}");
+        self.run_ok("push", &["origin", &reference])?;
+        let remote = self.remote_annotated_tag_target(tag)?.unwrap_or_default();
+        if remote != target {
+            return Err(GitError::Postcondition {
+                command: format!("push origin {tag}"),
+                expected: target.to_owned(),
+                actual: remote,
+            });
+        }
+        Ok(())
+    }
+
     fn run_ok(&self, command: &str, args: &[&str]) -> Result<RunOutcome, GitError> {
         let mut spec = RunSpec {
             program: "git".into(),

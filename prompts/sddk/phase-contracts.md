@@ -33,10 +33,10 @@ The orchestrator owns git operations, but phases must respect the interleaving:
 | `sddk-apply` | Branch exists, pushed to remote | Produce atomic conventional commits per task slice. Never commit broken code. |
 | `sddk-verify` | Commits exist on branch | Fix commits follow conventional format. |
 | **`sddk-debt-verify`** (MANDATORY on A-*, n/a on B-direct) | Commits exist on feature branch, pre-PR — runs unconditionally after verify PASS/PW on A-* paths | **Read-only audit.** Launches cluster orchestrators in parallel with depth derived from path. Emits `debt-report.md` and verdict. On FAIL with `re_iterate_from: apply`, triggers remediation on the SAME feature branch (increment `remediation_round`; max 3 rounds). Never commits; never pushes. |
-| `sddk-archive` | All commits pushed + debt-report PASS/PW (mandatory on A-*) | Orchestrator hands off to `sddk-release`, which owns PR + merge + tag + HTML + knowledge graph + lock release + trunk-sync. |
+| `sddk-archive` | Local verification evidence + debt-report PASS/PW (mandatory on A-*) | Orchestrator hands off to `sddk-release`, which owns direct main push, SHA verification, annotated tag, local receipts, HTML, knowledge graph, lock release, and trunk sync. |
 | **`sddk-release`** (NEW v3.3 — MANDATORY post-archive) | All commits pushed + archive-report success | Single owner of Phase 3 end-to-end. See `prompts/sddk/phases/release.md` and `skills/sddk-release/SKILL.md`. |
 
-Phases must NOT perform git operations directly. The orchestrator owns branch creation. From Phase 3 onward, `sddk-release` owns pushing, PR creation, merging, tagging, HTML report generation, knowledge graph updates, lock release, and trunk synchronization.
+Phases must NOT perform git operations directly. The orchestrator owns local integration to trunk. From Phase 3 onward, `sddk-release` owns direct main push, SHA verification, annotated tagging, local receipts, HTML report generation, knowledge graph updates, lock release, and trunk synchronization. It does not depend on a PR or CI/CD system.
 
 The ROADMAP, ADRs, archive folders, and HTML reports live in user space (XDG + knowledge vault, ADR-0011): `$SDDK_DATA_DIR/projects/<project_id>/` and `<vault>` from `sddk knowledge path`. They are never written into the project repo and never committed.
 

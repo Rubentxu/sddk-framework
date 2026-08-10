@@ -179,6 +179,98 @@ fn unsafe_identity(identity: &str) -> PathResolutionError {
     PathResolutionError::UnsafeIdentity(identity.to_owned())
 }
 
+/// Resolve the path of a project's UAT config (`uat.toml`) under the
+/// XDG data root (ADR-0011 compliant — no files written into the project repo).
+/// Returns a path even if the file does not exist yet; callers should create
+/// the parent dir on first save.
+pub fn uat_config_path(
+    environment: &XdgEnvironment,
+    project_id: &str,
+) -> Result<PathBuf, PathResolutionError> {
+    ProjectId::new(project_id).map_err(|_| unsafe_identity(project_id))?;
+    let paths = resolve_xdg_paths(environment, project_id, "default")?;
+    Ok(paths.project_data.join("uat.toml"))
+}
+
+/// Resolve the XDG base directory for a project's UAT state.
+pub fn uat_storage_root(
+    environment: &XdgEnvironment,
+    project_id: &str,
+) -> Result<PathBuf, PathResolutionError> {
+    ProjectId::new(project_id).map_err(|_| unsafe_identity(project_id))?;
+    let paths = resolve_xdg_paths(environment, project_id, "default")?;
+    Ok(paths.project_data.join("uat"))
+}
+
+/// Resolves the XDG profile path for one stable project identity.
+pub fn knowledge_profile_path(
+    environment: &XdgEnvironment,
+    project_id: &str,
+) -> Result<PathBuf, PathResolutionError> {
+    Ok(resolve_xdg_paths(environment, project_id, "default")?.knowledge_profile)
+}
+
+/// Resolves the external canonical knowledge vault for a project name.
+pub fn knowledge_vault_path(
+    environment: &XdgEnvironment,
+    project_id: &str,
+    project_name: &str,
+) -> Result<PathBuf, PathResolutionError> {
+    ProjectId::new(project_id).map_err(|_| unsafe_identity(project_id))?;
+    if project_name.is_empty()
+        || project_name == "."
+        || project_name == ".."
+        || project_name.contains('/')
+        || project_name.contains('\\')
+    {
+        return Err(unsafe_identity(project_name));
+    }
+    validate_optional("HOME", environment.home.as_deref())?;
+    let home = environment
+        .home
+        .clone()
+        .or_else(dirs::home_dir)
+        .ok_or(PathResolutionError::MissingHome)?;
+    let root = home.join(".sddk-knowledge");
+    let legacy = root.join(project_name);
+    Ok(if legacy.exists() {
+        legacy
+    } else {
+        root.join(project_id)
+    })
+}
+
+/// Resolve the manifest path for a project's UAT state.
+pub fn uat_manifest_path(
+    environment: &XdgEnvironment,
+    project_id: &str,
+) -> Result<PathBuf, PathResolutionError> {
+    Ok(uat_storage_root(environment, project_id)?.join("manifest.yaml"))
+}
+
+/// Resolve the path of one evidence payload by content hash.
+pub fn uat_evidence_path(
+    environment: &XdgEnvironment,
+    project_id: &str,
+    sha256_ref: &str,
+    ext: &str,
+) -> Result<PathBuf, PathResolutionError> {
+    ProjectId::new(project_id).map_err(|_| unsafe_identity(project_id))?;
+    let bare = sha256_ref.strip_prefix("sha256:").unwrap_or(sha256_ref);
+    if bare.len() < 2 {
+        return Err(PathResolutionError::UnsafeIdentity(sha256_ref.to_string()));
+    }
+    let (prefix, rest) = bare.split_at(2);
+    if ext.contains('/') || ext.contains('\\') || ext.contains("..") {
+        return Err(PathResolutionError::UnsafeIdentity(ext.to_string()));
+    }
+    let root = uat_storage_root(environment, project_id)?;
+    Ok(root
+        .join("evidence")
+        .join(prefix)
+        .join(format!("{rest}.{ext}")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -287,96 +379,4 @@ mod tests {
             Err(PathResolutionError::UnsafeIdentity(_))
         ));
     }
-}
-
-/// Resolve the path of a project's UAT config (`uat.toml`) under the
-/// XDG data root (ADR-0011 compliant — no files written into the project repo).
-/// Returns a path even if the file does not exist yet; callers should create
-/// the parent dir on first save.
-pub fn uat_config_path(
-    environment: &XdgEnvironment,
-    project_id: &str,
-) -> Result<PathBuf, PathResolutionError> {
-    ProjectId::new(project_id).map_err(|_| unsafe_identity(project_id))?;
-    let paths = resolve_xdg_paths(environment, project_id, "default")?;
-    Ok(paths.project_data.join("uat.toml"))
-}
-
-/// Resolve the XDG base directory for a project's UAT state.
-pub fn uat_storage_root(
-    environment: &XdgEnvironment,
-    project_id: &str,
-) -> Result<PathBuf, PathResolutionError> {
-    ProjectId::new(project_id).map_err(|_| unsafe_identity(project_id))?;
-    let paths = resolve_xdg_paths(environment, project_id, "default")?;
-    Ok(paths.project_data.join("uat"))
-}
-
-/// Resolves the XDG profile path for one stable project identity.
-pub fn knowledge_profile_path(
-    environment: &XdgEnvironment,
-    project_id: &str,
-) -> Result<PathBuf, PathResolutionError> {
-    Ok(resolve_xdg_paths(environment, project_id, "default")?.knowledge_profile)
-}
-
-/// Resolves the external canonical knowledge vault for a project name.
-pub fn knowledge_vault_path(
-    environment: &XdgEnvironment,
-    project_id: &str,
-    project_name: &str,
-) -> Result<PathBuf, PathResolutionError> {
-    ProjectId::new(project_id).map_err(|_| unsafe_identity(project_id))?;
-    if project_name.is_empty()
-        || project_name == "."
-        || project_name == ".."
-        || project_name.contains('/')
-        || project_name.contains('\\')
-    {
-        return Err(unsafe_identity(project_name));
-    }
-    validate_optional("HOME", environment.home.as_deref())?;
-    let home = environment
-        .home
-        .clone()
-        .or_else(dirs::home_dir)
-        .ok_or(PathResolutionError::MissingHome)?;
-    let root = home.join(".sddk-knowledge");
-    let legacy = root.join(project_name);
-    Ok(if legacy.exists() {
-        legacy
-    } else {
-        root.join(project_id)
-    })
-}
-
-/// Resolve the manifest path for a project's UAT state.
-pub fn uat_manifest_path(
-    environment: &XdgEnvironment,
-    project_id: &str,
-) -> Result<PathBuf, PathResolutionError> {
-    Ok(uat_storage_root(environment, project_id)?.join("manifest.yaml"))
-}
-
-/// Resolve the path of one evidence payload by content hash.
-pub fn uat_evidence_path(
-    environment: &XdgEnvironment,
-    project_id: &str,
-    sha256_ref: &str,
-    ext: &str,
-) -> Result<PathBuf, PathResolutionError> {
-    ProjectId::new(project_id).map_err(|_| unsafe_identity(project_id))?;
-    let bare = sha256_ref.strip_prefix("sha256:").unwrap_or(sha256_ref);
-    if bare.len() < 2 {
-        return Err(PathResolutionError::UnsafeIdentity(sha256_ref.to_string()));
-    }
-    let (prefix, rest) = bare.split_at(2);
-    if ext.contains('/') || ext.contains('\\') || ext.contains("..") {
-        return Err(PathResolutionError::UnsafeIdentity(ext.to_string()));
-    }
-    let root = uat_storage_root(environment, project_id)?;
-    Ok(root
-        .join("evidence")
-        .join(prefix)
-        .join(format!("{rest}.{ext}")))
 }

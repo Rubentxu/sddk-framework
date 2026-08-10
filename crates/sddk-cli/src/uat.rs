@@ -1776,8 +1776,7 @@ features: []
     #[test]
     fn uat_session_to_failure_serializes_for_agents() {
         // The agent consumes `uat failures --format json`; verify shape.
-        let mut findings: Vec<UatFailure> = Vec::new();
-        findings.push(UatFailure {
+        let findings: Vec<UatFailure> = vec![UatFailure {
             scenario_id: "S-2".into(),
             status: "FAIL".into(),
             comment: "no muestra error".into(),
@@ -1788,7 +1787,7 @@ features: []
             rationale: Some("bloquea el onboarding".into()),
             session_id: "uat-1".into(),
             executed_by: "Test".into(),
-        });
+        }];
         let json = serde_json::to_string(&findings).unwrap();
         // The agent must be able to read these fields directly.
         assert!(json.contains("\"scenario_id\":\"S-2\""));

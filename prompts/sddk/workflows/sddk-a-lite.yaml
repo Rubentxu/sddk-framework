@@ -50,7 +50,7 @@ phases:
     step: 0.2
     pattern: trunk-sync-gate
     agent: orchestrator
-    gate: "no unmerged branches AND no open PRs from prior cycles AND ROADMAP 'Active Milestones' has zero in_progress entries"
+    gate: "no unmerged branches AND ROADMAP 'Active Milestones' has zero in_progress entries"
     failure_mode: BLOCK — resume prior cycle or mark it blocked/abandoned in ROADMAP
     notes: |
       v3.4: ROADMAP Serialization Lock. Read docs/ROADMAP.md, extract "## Active Milestones",
@@ -132,7 +132,7 @@ phases:
     step: 2.3
     pattern: multi-lens-verification
     agent: sddk-verify
-    model: GLM-4.7
+    model: minimax-coding-plan/MiniMax-M3
     parallel_group: verify-lenses
     lenses: 3  # spec + test + design (per orchestrator.md § Multi-lens verify table)
     notes: "A-lite = 3 lenses (vs 6 in A-full)"
@@ -174,19 +174,16 @@ phases:
     step: 3
     pattern: orchestrator-worker
     agent: sddk-release
-    model: GLM-4.7
+    model: minimax-coding-plan/MiniMax-M3
     depends_on: archive
     mandatory: true
-    policy_routing:
-      default: auto
-      override_field: launch_plan.merge_policy
-      overrides: [strict, guided]
     sub_steps_owned_by_agent:
-      - push-branch
-      - create-pr
-      - wait-approval
-      - merge-to-main
-      - semver-tag
+      - local-verify
+      - push-main
+      - verify-main-sha
+      - annotated-semver-tag
+      - verify-remote-tag
+      - local-receipts
       - html-closing-report   # always (A-lite)
       - close-tracking-issue
       - update-knowledge-graph  # v3.5: vault nodes (milestone + ADRs + REQs + cycle)
@@ -231,7 +228,7 @@ phases:
 success_criteria:
   - "all phases completed"
   - "release-report persisted with status=success"
-  - "PR merged to main"
+  - "main SHA pushed directly and verified on origin/main"
   - "semver tag pushed and confirmed on remote"
   - "main HEAD == origin/main (trunk-sync-end PASS)"
   - "html-report generated"
@@ -243,8 +240,8 @@ failure_modes:
     action: "re-iterate per orchestrator decision matrix"
   - condition: "max fix rounds (3)"
     action: "escalate to user"
-  - condition: "PR not merged (24h)"
-    action: "BLOCK, notify user"
+  - condition: "main SHA differs from origin/main"
+    action: "BLOCK, investigate local Git postcondition"
 
 provenance:
   derived_from:

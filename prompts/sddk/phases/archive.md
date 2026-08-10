@@ -33,7 +33,7 @@ Merge delta specs into main specs (source of truth) in the knowledge vault, then
 2. Verify passing `verify-report` exists.
 3. **Sync delta specs to main specs** in the knowledge vault.
 4. **Persist archive report** to the knowledge vault.
-5. Return the **release-handoff envelope**: emit `ready_for_release=true` with `{change, branch, merge_policy}`. The orchestrator treats this as a hard obligation: the very next phase is `sddk-release`, no opt-in. See orchestrator.md § "Release Is Mandatory Post-Archive (v3.3, no opt-out)".
+5. Return the **release-handoff envelope**: emit `ready_for_release=true` with `{change, tag, route: local}`. The orchestrator treats this as a hard obligation: the next phase is `sddk-release`, which closes through local main SHA plus annotated remote tag with no PR or CI/CD gate.
 
 ## Required Router Context
 

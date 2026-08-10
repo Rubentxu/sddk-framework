@@ -2853,6 +2853,8 @@ fn cli_release_plan_reports_canonical_sequence() {
         &[
             "release",
             "plan",
+            "--route",
+            "forge",
             "--repo",
             "acme/repo",
             "--branch",
@@ -2884,6 +2886,55 @@ fn cli_release_plan_reports_canonical_sequence() {
         .map(|step| step.as_str().unwrap())
         .collect::<Vec<_>>();
     assert_eq!(steps, vec!["create_pr", "merge_pr", "create_release"]);
+}
+
+#[test]
+fn cli_release_plan_defaults_to_the_local_git_route() {
+    let fixture = CliFixture::new("release-plan-local");
+    write(
+        fixture.root.join("workflow/workflow.yaml"),
+        CANONICAL_WORKFLOW,
+    );
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&fixture.root)
+        .output()
+        .unwrap();
+    let common = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+    ];
+    let plan = run_with_root(
+        &fixture,
+        &["release", "plan", "--tag", "v1.0.0", "--format", "json"],
+        &common,
+    );
+    assert!(
+        plan.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plan.stderr)
+    );
+    let plan_json: serde_json::Value = serde_json::from_slice(&plan.stdout).unwrap();
+    assert_eq!(plan_json["route"], "local");
+    let steps = plan_json["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|step| step.as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        steps,
+        vec![
+            "push_main",
+            "verify_main_sha",
+            "create_annotated_tag",
+            "verify_remote_tag"
+        ]
+    );
 }
 
 #[test]
@@ -3801,6 +3852,8 @@ agents:
         &[
             "release",
             "plan",
+            "--route",
+            "forge",
             "--repo",
             "acme/repo",
             "--branch",

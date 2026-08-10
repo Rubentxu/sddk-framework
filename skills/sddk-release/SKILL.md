@@ -1,6 +1,6 @@
 ---
 name: sddk-release
-description: "Trigger: sddk-release. Release the archived SDDK change to trunk — push branch, PR, merge to main, semver tag, HTML report, close tracking issue, update ROADMAP. MANDATORY post-sddk-archive, no opt-out."
+description: "Trigger: sddk-release. Release an archived SDDK change through local Git: verify, push main, verify SHA, tag, and record local receipts. CI/CD distribution is optional post-tag work."
 disable-model-invocation: true
 user-invocable: false
 license: MIT
@@ -23,125 +23,67 @@ If you ARE the `sddk-release` sub-agent, continue. Run the **SDDK Release Checkl
 
 `prompts/sddk/git-contract.md` is the **single source of truth** for git invariants. This skill references it; do not duplicate its rules.
 
-## Activation Contract
+## Local Release Contract
 
-You are the SDDK Release Executor (MCW Phase 3). You own the git-flow chain from `push-branch` through `trunk-sync-end`. On entry you receive:
-- change name
-- branch name `<type>/<description>`
-- archive-report observation/path
-- PR template (auto-generated from artifacts)
-- mode (auto / guided — see `merge_policy`)
+The mandatory authority is local Git:
 
-## Hard Rules
-
-- **PR is the gate to main.** Never commit directly to `main`. Always go through a PR.
-- **Merge commit (`--no-ff`).** Never fast-forward, never rebase onto main. Per `git-contract.md` rule 6.
-- **One PR per change.** Never batch multiple changes into a single PR.
-- **Conventional commit title.** PR title matches `<type>(<scope>): <description>`.
-- **No AI attribution in PR body.** Per repo policy; never add `Co-Authored-By` or AI signatures.
-- **Atomic semver.** Tag bump type comes from the change's outermost scope. Patch for `fix|chore|docs|refactor|perf|test|ci`, Minor for `feat`, Major for any `BREAKING CHANGE:` footer.
-- **Never delete branches.** Feature branches live forever as historical record.
-- **HTML report is mandatory on A-full / A-lite, conditional on A-min (minor/major only) and B-direct (major only).**
-
-## Merge Policy (v3.3 — locked at launch, NEVER auto-degraded)
-
-The mode is decided once at the start of the release invocation and locked for the entire release. Mid-cycle mode switching is forbidden. Friction that prevents the chosen mode produces `status=blocked` with an explicit recovery command — never a silent pause.
-
-| Mode | Behavior | Used when |
-|------|----------|-----------|
-| `auto` (default) | `gh pr merge --auto --merge`; required checks may complete asynchronously. If auto-merge is disabled, block with guided recovery. | No required human approvals. |
-| `guided` | Poll `gh pr view` at 60s up to 24h, then `status=blocked`. | User explicitly asked for HITL via `--mode=guided` or `launch_plan.merge_policy=guided`. |
-| `strict` | Poll + require `reviewDecision == APPROVED`. Up to 24h, then `status=blocked`. | User explicitly asked for review-required via `--mode=strict`. |
-
-Detection (run ONCE at Step 2; result is locked):
 ```
-1. Read launch plan: explicit mode → lock it.
-2. If mode is unset and required approvals > 0 → guided.
-3. Otherwise → auto. Required status checks are compatible with auto-merge.
-4. If auto-merge is disabled, Step 5b blocks with a guided recovery command.
+local verify -> push main -> verify HEAD == origin/main -> annotated tag -> verify remote tag -> receipts
 ```
 
-The locked mode is logged in `release-report.pr.mode`. Operators may override per-cycle via the `/sddk-release <change> --mode=...` command or `launch_plan.merge_policy` field.
+Never require a PR, `gh`, CI/CD check, GitHub Action, hosted asset, signature,
+or external release to close an SDDK cycle. They are optional post-tag
+distribution only.
+CI/CD and optional post-tag distribution are explicitly excluded from the
+`no-pending-effects` gate.
 
-**Why the v3.3 change:** in v3.2 the auto path silently slid into a 24h guided wait when the repo had required reviewers. Feature branches rotted for a day after every cycle. v3.3: pick the mode before launch; if it can't complete, fail loudly with a recovery command the operator can paste.
+1. Confirm the archive report, local verification, UAT gate, clean worktree,
+   and trunk checkout.
+2. Fast-forward `main`, push it directly, and verify full `HEAD == origin/main`.
+3. Create or verify an annotated semver tag that peels to that SHA; push it and
+   verify the remote peeled SHA.
+4. Store `merge-receipt` from the verified `git.push` postcondition and
+   `release-receipt` from the verified `git.tag` postcondition.
+5. Complete the HTML report, knowledge graph update, serialization lock release,
+   and ledger verification.
 
-## Execution Steps (the Release Checklist)
+Use `sddk release apply --route local --branch main --base main --tag <tag>
+--title <message> --approve` when the typed CLI is available. A retry is safe:
+an existing remote tag succeeds only if it is annotated and points to `HEAD`.
 
-You MUST complete every step. Missing a step is a release failure.
+`--route forge --repo owner/repo` is optional integration after local success.
+It does not read provider checks and its failure cannot block the cycle.
 
-1. **Verify preconditions** — confirm `archive-report` exists with verdict ∈ {PASS, PASS_WITH_WARNINGS} for the change. BLOCK if missing.
-2. **Detect merge policy** (above). Log decision.
-3. **`push-branch`** — `git push origin <branch>` if not already pushed. Gate: `git ls-remote origin <branch>` returns the local head SHA.
-4. **`create-or-reuse-pr`** — Resolve the latest PR for `<branch>` in any state. Reuse it when found; otherwise create one and query it again to populate `PR_NUM` and `PR_URL`. A MERGED PR resumes at Step 5c.
-5. **`merge-pr`** — Execute in order: **5a `wait-checks-and-approval`**; **5b `request-merge`** (`gh pr merge <num> --auto --merge` in auto mode, authorized human action in guided/strict); **5c `wait-merged`** until `state == "MERGED"`. If already merged, request-merge is a no-op. Never invoke `gh pr merge` after wait-merged succeeds.
-6. **`verify-merge`** — **VERIFY only**. Read `MERGE_SHA` from the PR and prove that the branch head is its ancestor and `MERGE_SHA` is on `origin/main`:
-   ```bash
-   BRANCH_HEAD="$(git rev-parse origin/<branch>)"
-   MERGE_SHA="$(gh pr view <num> --json mergeCommit --jq '.mergeCommit.oid')"
-   git merge-base --is-ancestor "$BRANCH_HEAD" "$MERGE_SHA"
-   git merge-base --is-ancestor "$MERGE_SHA" origin/main
-   ```
-7. **`semver-tag`** — Compute bump from commits/footers. `git tag -a v<major>.<minor>.<patch> -m "<type>: <description>"` then `git push origin v<...>`. Bump rules: see `git-contract.md` § Lifecycle Overview rule 8.
-8. **`html-closing-report`** — Render the cycle's HTML closing report per `prompts/sddk/HTML-REPORT.md`. Path: `$SDDK_DATA_DIR/projects/{project_id}/changes/{change_name}/reports/cierre.html`. Skip on A-min unless tag is minor/major; skip on B-direct unless tag is major.
-9. **`close-tracking-issue`** — Find open issues referencing `<change-name>` or the PR. `gh issue close <num> --comment "Completed in PR #<n>. Released as v<version>."`. If no tracking issue → no-op.
-10. **`update-knowledge-graph`** — Update milestone, touched ADRs, touched requirements, and cycle manifest in the external vault. This is blocking: retain the lock if any update fails.
-11. **`release-lock`** — Mark `milestones/_active.md` AVAILABLE only after the graph update succeeds.
-12. **`trunk-sync-end`** — `git checkout main && git pull origin main`. Gate: `HEAD == origin/main`.
+If `release-lock` fails, BLOCK and retain the lock. Never report success while
+the local release bookkeeping remains incomplete.
 
 ## Result Contract
 
-Return a single envelope:
-
 ```yaml
-status: success | partial | blocked
-executive_summary: 1-3 sentences
-change: {name}
-branch: {type}/{description}
-pr:
-  number: {n}
-  url: {url}
-  merged_at: {iso}
-tag: v{major}.{minor}.{patch}
-merge_policy: auto | guided | strict
-html_report: {path}
+status: success | blocked
+route: local
+change: <name>
+main_sha: <full-sha>
+tag: v<major>.<minor>.<patch>
+merge_receipt: <path-or-receipt-id>
+release_receipt: <path-or-receipt-id>
 knowledge_graph_updated: bool
 lock_released: bool
-tracking_issue_closed: {n} | null
-next_recommended: "ready for next cycle"
-artifacts_persisted:
-  - artifact: "{cycle-artifacts-dir}/release-report"
-    topic_key: "{cycle-artifacts-dir}/release-report"
-    type: "architecture"
-risks: list or "None"
-phase_duration_sec: int
+optional_distribution: not_requested | pending | completed | failed
+blockers: []
 ```
 
-The `release-report` is MANDATORY even on BLOCK. It records what was reached and why it stopped.
-
-## Failure Modes
-
-| Failure | Action |
-|---------|--------|
-| `push-branch` fails | BLOCK (likely permissions / no upstream) |
-| `create-pr` fails | BLOCK (likely GH auth or branch pushed to wrong remote) |
-| `wait-checks-and-approval` or `wait-merged` times out (24h) | BLOCK + notify user. Tag and graph update are not executed. |
-| `request-merge` or `verify-merge` fails | BLOCK (likely merge conflict, force-push, or branch protection refused) |
-| `semver-tag` fails | Existing tag on `MERGE_SHA` is success; the same tag on another commit is BLOCK. Never bump again during retry. |
-| `update-knowledge-graph` fails | BLOCK and retain the serialization lock |
-| `release-lock` fails | BLOCK; never report release success while the lock remains LOCKED |
-| `trunk-sync-end` fails | BLOCK (orphan commits detected) |
-
-Recovery: re-running `/sddk-release <change>` resumes from the first uncompleted step. Idempotent by design.
+The `release-report` is mandatory even on block.
 
 ## CLI Contract (sddk ledger)
 
 When the project is adopted (`sddk cycle status --root . --scope .` exits 0), record the release in the cycle ledger BEFORE returning:
 
-1. Evaluate the release gates:
-   `sddk cycle evaluate-gate --root . --scope . --cycle {cycle_id} --transition release.complete --gate release-receipt --evaluator sddk.cli --evidence '{"checked": true}' --timestamp {now} --actor sddk-kernel`
-   `sddk cycle evaluate-gate --root . --scope . --cycle {cycle_id} --transition release.complete --gate no-pending-effects --evaluator sddk.cli --evidence '{"checked": true}' --timestamp {now} --actor sddk-kernel`
-2. Transition with the merge receipt:
-   `sddk cycle transition --root . --scope . --cycle {cycle_id} --transition release.complete --artifact merge-receipt={path} --gate-receipt {receipt_id_1} --gate-receipt {receipt_id_2} --lease-owner {lease_owner} --fencing-token {fencing_token}`
+1. Evaluate `release-receipt` with the annotated tag and SHA evidence, and
+   `no-pending-effects` with evidence that required local Git effects settled.
+   Do not include CI/CD or optional distribution in that evidence.
+2. Transition with both local artifacts:
+    `sddk cycle transition --root . --scope . --cycle {cycle_id} --transition release.complete --artifact merge-receipt={main-sha-receipt} --artifact release-receipt={tag-receipt} --gate-receipt {receipt_id_1} --gate-receipt {receipt_id_2} --lease-owner {lease_owner} --fencing-token {fencing_token}`
 3. Close the loop with telemetry: `sddk metrics record --root . --scope . --cycle {cycle_id} --verdict {PASS|PW|FAIL}`
 4. Verify ledger integrity: `sddk ledger verify --root . --scope .`
 

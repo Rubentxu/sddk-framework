@@ -857,19 +857,22 @@ This is **not** an opt-out from reading them. Every phase agent MUST be able to 
 
 Once `sddk-archive` returns `status=success`, the orchestrator **MUST** invoke `sddk-release` on the next tick — no opt-in, no user prompt, no skip. This is policy, not preference.
 
-**Why mandatory:** historically Phase 3 was 8 inline sub-steps (`push-branch`, `create-pr`, `wait-approval`, `merge-to-main`, `semver-tag`, `html-closing-report`, `close-tracking-issue`, `update-roadmap`) delegated to the orchestrator, each with its own HITL / branch-protection gate. Whenever any of the 3 HITL gates was not closed, the chain silently aborted — feature branches rotted, semver tags were missed, ROADMAP drifted. As of v3.3 the entire Phase 3 is owned by one agent (`sddk-release`) that runs the Release Checklist end-to-end. The orchestrator's only job at this transition is to invoke the agent and surface its result contract.
+**Why mandatory:** Phase 3 is the only component that proves the completed work is on trunk and marked by a release tag. It is owned by one agent (`sddk-release`) so the local Git postconditions are applied and recorded atomically. The orchestrator only invokes the agent and surfaces its result contract.
 
 **Single mandatory transition:**
 
 ```
 sddk-archive(status=success)
     ↓  (next tick, no questions, no opt-in)
-sddk-release(mode=auto)
-    ↓  (handles push + PR + wait + merge + tag + html + close-issue + roadmap + trunk-sync)
+sddk-release(route=local)
+    ↓  (handles local verify + direct main push + SHA verification + annotated tag + receipts + bookkeeping)
 trunk-sync-end (Phase 4.1)
 ```
 
-**Override (cycle start only):** per-cycle merge policy can be set in the launch plan (`launch_plan.merge_policy: auto|guided|strict`). If unset, `sddk-release` probes the repo's branch protection and locks the mode. **Mode locked at launch — never auto-degraded mid-cycle.** If `auto` is incompatible with the repo's protection, `sddk-release` returns `status=blocked` with a recovery command — it does NOT silently fall back to `guided`.
+The local route is the default and release authority. Forge and distribution
+integrations are optional post-tag consumers; their provider state is never
+queried as a cycle gate and cannot change `status=success` after local Git has
+converged.
 
 **Recovery on blocker:** if `sddk-release` returns `status=blocked`, the orchestrator surfaces the blockers[] and instructs the user to re-run `/sddk-release <change>` (idempotent resume from first uncompleted sub-step). The cycle is not "done" until either `status=success` or the user explicitly aborts.
 
@@ -887,7 +890,7 @@ Forbidden mid-cycle pauses:
 - "Do you want me to archive?" — archive is mandatory after verify PASS.
 - "Do you want me to release?" — release is mandatory after archive.
 - "Should I continue?" — never asked in auto mode.
-- "Choose merge policy mid-cycle" — locked at launch.
+- "Wait for CI/CD or a hosted release" — never a release step.
 
 The **only** legitimate mid-cycle user interaction is `escalation_needed=true` from a phase agent — and even then, the orchestrator surfaces the question AFTER `status=blocked` is recorded, not before phase changes.
 

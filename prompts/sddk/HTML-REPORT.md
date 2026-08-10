@@ -2,10 +2,10 @@
 
 **IDIOMA: El reporte debe ser siempre en español.** Todos los textos, etiquetas, títulos y contenido deben estar en español.
 
-The SDDK closing report is a self-contained HTML file generated as part of the **Mandatory Complete Workflow (MCW) Step 3.6**, after the cycle is fully consolidated (PR merged, semver tag pushed). It is the **canonical artefact for the change**: an architect-level document explaining what was built, how it works, why it was built that way, and what risk it carries.
+The SDDK closing report is a self-contained HTML file generated after the local release is fully consolidated (verified `main` SHA pushed and annotated semver tag pushed). It is the **canonical artefact for the change**: an architect-level document explaining what was built, how it works, why it was built that way, and what risk it carries.
 
 The report must include:
-- The merge commit SHA, PR URL, and tag version (from Step 3.4, 3.5)
+- The verified main SHA, annotated tag version, and local receipt references
 - The semver bump reasoning (why major/minor/patch)
 - The full MCW status (which steps completed, which were skipped if any — should be NONE)
 - Link to all artifacts (proposal, spec, design, tasks, verify-report, archive-report)

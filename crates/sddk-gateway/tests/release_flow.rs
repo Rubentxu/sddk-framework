@@ -1,8 +1,9 @@
 //! Release flow integration tests: plan, idempotent apply, reconciliation.
 
 use sddk_gateway::{
-    CapabilityGateway, CapabilityPlanInput, CapabilityPolicy, Forge, MockForge, ReleasePlanInput,
-    apply_release, plan_release, reconcile_pending,
+    CapabilityGateway, CapabilityPlanInput, CapabilityPolicy, Forge, GitExecutor,
+    LocalReleaseInput, MockForge, ReleasePlanInput, apply_local_release, apply_release,
+    plan_release, reconcile_pending,
 };
 use sddk_storage::{CapabilityStatus, ProjectRecord, Storage};
 
@@ -44,6 +45,50 @@ fn release_input(tag: &str) -> ReleasePlanInput {
     }
 }
 
+fn local_release_input(tag: &str) -> LocalReleaseInput {
+    LocalReleaseInput {
+        project_id: "project-1".into(),
+        cycle_id: None,
+        branch: "main".into(),
+        tag: tag.into(),
+        tag_message: "release test".into(),
+        approve: true,
+        timestamp: "2026-08-04T10:00:00Z".into(),
+        actor: "release-test".into(),
+    }
+}
+
+fn local_git_repo() -> (tempfile::TempDir, GitExecutor) {
+    let directory = tempfile::tempdir().unwrap();
+    let origin = directory.path().join("origin.git");
+    let worktree = directory.path().join("worktree");
+    for (directory, args) in [
+        (directory.path(), vec!["init", "--bare", "origin.git"]),
+        (directory.path(), vec!["init", "-b", "main", "worktree"]),
+    ] {
+        let status = std::process::Command::new("git")
+            .args(args)
+            .current_dir(directory)
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
+    for args in [
+        vec!["config", "user.name", "SDDK Test"],
+        vec!["config", "user.email", "test@sddk.dev"],
+        vec!["commit", "--allow-empty", "-m", "initial"],
+        vec!["remote", "add", "origin", origin.to_str().unwrap()],
+    ] {
+        let status = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&worktree)
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
+    (directory, GitExecutor::new(worktree))
+}
+
 #[test]
 fn full_release_creates_pr_merges_and_publishes() {
     let (_directory, mut gateway) = gateway();
@@ -66,6 +111,73 @@ fn full_release_creates_pr_merges_and_publishes() {
         receipts
             .iter()
             .all(|receipt| receipt.status == CapabilityStatus::Succeeded)
+    );
+}
+
+#[test]
+fn forge_release_does_not_gate_on_provider_checks() {
+    let (_directory, _gateway) = gateway();
+    let mut forge = MockForge::new();
+    forge.seed_open_pr("feat/release", "main", 3);
+    forge.seed_checks(
+        3,
+        vec![sddk_gateway::CheckState {
+            name: "external-ci".into(),
+            passed: Some(false),
+        }],
+    );
+
+    let plan = plan_release(release_input("v1.0.0"), &forge).unwrap();
+
+    assert_eq!(
+        plan.steps,
+        vec![
+            sddk_gateway::ReleaseStep::MergePr,
+            sddk_gateway::ReleaseStep::CreateRelease
+        ]
+    );
+}
+
+#[test]
+fn local_release_pushes_main_and_an_annotated_tag_idempotently() {
+    let (_directory, git) = local_git_repo();
+    let (_ledger, mut gateway) = gateway();
+
+    let first = apply_local_release(&mut gateway, &local_release_input("v1.0.0"), &git).unwrap();
+    assert!(first.converged);
+    assert_eq!(first.applied.len(), 2);
+    assert_eq!(first.sha, git.remote_branch_sha("main").unwrap().unwrap());
+    assert_eq!(
+        git.remote_annotated_tag_target("v1.0.0")
+            .unwrap()
+            .as_deref(),
+        Some(first.sha.as_str())
+    );
+
+    let second = apply_local_release(&mut gateway, &local_release_input("v1.0.0"), &git).unwrap();
+    assert!(second.converged);
+    assert!(second.applied.is_empty());
+    assert_eq!(second.skipped.len(), 2);
+    assert_eq!(gateway.receipts("project-1").unwrap().len(), 2);
+}
+
+#[test]
+fn local_release_pushes_an_existing_annotated_tag_missing_from_remote() {
+    let (_directory, git) = local_git_repo();
+    let (_ledger, mut gateway) = gateway();
+    let sha = git.head_sha().unwrap();
+    git.create_annotated_tag("v1.0.0", &sha, "release test")
+        .unwrap();
+
+    let outcome = apply_local_release(&mut gateway, &local_release_input("v1.0.0"), &git).unwrap();
+
+    assert!(outcome.converged);
+    assert_eq!(outcome.applied.len(), 2);
+    assert_eq!(
+        git.remote_annotated_tag_target("v1.0.0")
+            .unwrap()
+            .as_deref(),
+        Some(sha.as_str())
     );
 }
 

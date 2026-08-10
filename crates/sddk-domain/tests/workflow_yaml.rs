@@ -150,6 +150,24 @@ fn test_workflow_yaml_deserialization() {
         assert!(definition.terminal);
         assert!(definition.consumers.is_empty());
     }
+    assert_eq!(
+        manifest.artifacts.get("merge-receipt").unwrap().producer,
+        "local-git"
+    );
+    assert_eq!(
+        manifest.artifacts.get("release-receipt").unwrap().producer,
+        "local-git"
+    );
+    assert!(
+        manifest
+            .gates
+            .get("no-pending-effects")
+            .unwrap()
+            .description
+            .as_deref()
+            .unwrap()
+            .contains("excluded")
+    );
 
     // Verify gates are defined
     assert!(manifest.gates.contains_key("exploration-sufficient"));

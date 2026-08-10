@@ -71,7 +71,7 @@ for file in "${SDDK_CORE_FILES[@]}"; do
   fi
 done
 
-banner "REGRESSION 2: Release has correct step order (request-merge -> wait-MERGED -> verify-SHA)"
+banner "REGRESSION 2: Release authority is local Git, not PR checks or CI/CD"
 
 RELEASE_FILES=(
   "$SDDK_ROOT/agents/sddk-release.md"
@@ -83,34 +83,18 @@ for file in "${RELEASE_FILES[@]}"; do
   if [ -f "$file" ]; then
     fname=$(basename "$file")
 
-    # merge-to-main must NOT call gh pr merge after MERGED
-    if grep -qE "merge-to-main.*gh pr merge" "$file" 2>/dev/null; then
-      if grep -qE "merge-to-main.*VERIFY.*only|merge-to-main.*do NOT call gh pr merge" "$file" 2>/dev/null; then
-        inc_pass "$fname: merge-to-main is verify-only (correct)"
-      else
-        inc_fail "$fname: merge-to-main calls gh pr merge (should be verify-only)"
-      fi
+    if grep -q '^gh pr checks\|^gh pr merge' "$file" 2>/dev/null; then
+      inc_fail "$fname: executes a provider PR command"
     else
-      inc_pass "$fname: no gh pr merge in merge-to-main"
+      inc_pass "$fname: has no executable provider PR command"
     fi
 
-    wait_line=$(grep -n -m1 '5a.*wait-checks-and-approval' "$file" | cut -d: -f1 || true)
-    request_line=$(grep -n -m1 '5b.*request-merge' "$file" | cut -d: -f1 || true)
-    merged_line=$(grep -n -m1 '5c.*wait-merged' "$file" | cut -d: -f1 || true)
-    verify_line=$(grep -n -m1 '6.*verify-merge' "$file" | cut -d: -f1 || true)
-
-    if [ -n "$wait_line" ] && [ -n "$request_line" ] && [ -n "$merged_line" ] && [ -n "$verify_line" ] \
-      && [ "$wait_line" -le "$request_line" ] && [ "$request_line" -le "$merged_line" ] && [ "$merged_line" -lt "$verify_line" ]; then
-      inc_pass "$fname: release steps are ordered checks -> request -> MERGED -> verify"
+    if grep -q 'local verify -> push main -> verify HEAD' "$file" \
+      && grep -qi 'annotated.*tag' "$file" \
+      && grep -qi 'optional.*post-tag\|post-tag.*optional' "$file"; then
+      inc_pass "$fname: local SHA and annotated tag are authoritative"
     else
-      inc_fail "$fname: release steps are missing or out of order"
-    fi
-
-    # auto mode must call gh pr merge --auto --merge in request-merge step
-    if grep -qE "auto.*gh pr merge.*--auto.*--merge|gh pr merge.*--auto.*--merge.*auto" "$file" 2>/dev/null; then
-      inc_pass "$fname: auto mode uses gh pr merge --auto --merge"
-    else
-      inc_fail "$fname: auto mode does not request auto-merge"
+      inc_fail "$fname: missing local release authority contract"
     fi
   fi
 done
@@ -254,21 +238,6 @@ else
   inc_fail "Merge ancestry gate rejected a valid no-ff merge"
 fi
 
-for file in "${RELEASE_FILES[@]}"; do
-  if grep -q 'git merge-base --is-ancestor' "$file"; then
-    inc_pass "$(basename "$file"): uses executable ancestry verification"
-  else
-    inc_fail "$(basename "$file"): missing ancestry verification"
-  fi
-done
-
-if grep -q 'PR_NUM=$(gh pr list.*--state all' "$SDDK_ROOT/prompts/sddk/phases/release.md" \
-  && [ "$(grep -c 'PR_NUM=$(gh pr list.*--state all' "$SDDK_ROOT/prompts/sddk/phases/release.md")" -ge 2 ]; then
-  inc_pass "Release resolves PR_NUM both before and after PR creation"
-else
-  inc_fail "Release may leave PR_NUM empty after creating a PR"
-fi
-
 if grep -q 'UNMERGED=$(git branch -r --no-merged' "$MCW_FILE" \
   && grep -q '\[ -z "$UNMERGED" \] || BLOCK' "$MCW_FILE" \
   && ! grep -q 'no active lock.*OR' "$MCW_FILE"; then
@@ -291,34 +260,19 @@ else
   inc_fail "Archive still claims the cycle is complete before release"
 fi
 
-if ! grep -qE 'semver-cli|python -c.*semver|origin/main\.\.HEAD' "$SDDK_ROOT/prompts/sddk/phases/release.md" \
-  && grep -q 'git tag --points-at "$MERGE_SHA"' "$SDDK_ROOT/prompts/sddk/phases/release.md" \
-  && grep -q 'COMMIT_TEXT=$(gh pr view "$PR_NUM" --json commits' "$SDDK_ROOT/prompts/sddk/phases/release.md"; then
-  inc_pass "Semver is dependency-free, PR-based, and idempotent on MERGE_SHA"
+if grep -q 'git push origin main' "$SDDK_ROOT/prompts/sddk/phases/release.md" \
+  && grep -q 'git rev-parse origin/main' "$SDDK_ROOT/prompts/sddk/phases/release.md" \
+  && grep -q 'git tag -a "$TAG" "$SHA"' "$SDDK_ROOT/prompts/sddk/phases/release.md" \
+  && grep -q 'refs/tags/$TAG^{}' "$SDDK_ROOT/prompts/sddk/phases/release.md"; then
+  inc_pass "Local release is dependency-free and verifies main SHA plus annotated remote tag"
 else
-  inc_fail "Semver calculation is not dependency-free and idempotent"
+  inc_fail "Local release is missing a required Git postcondition"
 fi
 
-COMMIT_TEXT_LINE=$(grep -n -m1 'COMMIT_TEXT=$(gh pr view "$PR_NUM" --json commits' "$SDDK_ROOT/prompts/sddk/phases/release.md" | cut -d: -f1 || true)
-TAG_REUSE_LINE=$(grep -n -m1 'TAG=$(git tag --points-at "$MERGE_SHA"' "$SDDK_ROOT/prompts/sddk/phases/release.md" | cut -d: -f1 || true)
-if [ -n "$COMMIT_TEXT_LINE" ] && [ -n "$TAG_REUSE_LINE" ] && [ "$COMMIT_TEXT_LINE" -lt "$TAG_REUSE_LINE" ]; then
-  inc_pass "BUMP_TYPE is computed even when an existing tag is reused"
+if ! grep -qE 'gh pr checks|gh pr merge|wait-checks-and-approval' "$MCW_FILE"; then
+  inc_pass "Authoritative MCW has no PR or CI/CD release gate"
 else
-  inc_fail "Semver retry can leave BUMP_TYPE uninitialized"
-fi
-
-if grep -q 'A deliberately skipped report has no file gate' "$SDDK_ROOT/prompts/sddk/phases/release.md"; then
-  inc_pass "Conditional HTML skip does not trigger an impossible file gate"
-else
-  inc_fail "Conditional HTML skip is contradicted by an unconditional gate"
-fi
-
-if grep -q 'gh pr list --head <branch> --state all' "$MCW_FILE" \
-  && grep -q 'git merge-base --is-ancestor "$BRANCH_HEAD" "$MERGE_SHA"' "$MCW_FILE" \
-  && ! grep -q 'git log --oneline -1 | grep "<branch>"' "$MCW_FILE"; then
-  inc_pass "Authoritative MCW uses idempotent PR lookup and ancestry merge verification"
-else
-  inc_fail "Authoritative MCW retains the obsolete release algorithm"
+  inc_fail "Authoritative MCW retains the obsolete provider release algorithm"
 fi
 
 git -C "$WORK" tag -a v0.0.1 "$MERGE_SHA" -m "test release"
@@ -326,24 +280,24 @@ if [ -z "$(git --git-dir="$ORIGIN" tag --list v0.0.1)" ]; then
   git -C "$WORK" push origin v0.0.1 >/dev/null
 fi
 if [ "$(git --git-dir="$ORIGIN" tag --list v0.0.1)" = "v0.0.1" ] \
-  && grep -q '^git push origin "$TAG"$' "$SDDK_ROOT/prompts/sddk/phases/release.md"; then
-  inc_pass "Release retry pushes a locally-created tag that is missing remotely"
+  && grep -q 'git push origin "refs/tags/$TAG"' "$SDDK_ROOT/prompts/sddk/phases/release.md"; then
+  inc_pass "Release retry pushes a locally-created annotated tag that is missing remotely"
 else
   inc_fail "Release retry can strand a local-only semver tag"
 fi
 
 if ! grep -q 'docs/ROADMAP.md' "$SDDK_ROOT/prompts/sddk/mcw.md" \
-  && grep -q 'Step 3.8.*Update Knowledge Graph' "$SDDK_ROOT/prompts/sddk/mcw.md" \
-  && grep -q 'Step 3.9.*Release Serialization Lock' "$SDDK_ROOT/prompts/sddk/mcw.md"; then
+  && grep -q 'Step 3.3.*Local Receipts And Bookkeeping' "$SDDK_ROOT/prompts/sddk/mcw.md" \
+  && grep -q 'serialization lock' "$SDDK_ROOT/prompts/sddk/mcw.md"; then
   inc_pass "MCW uses the external knowledge graph and explicit lock release"
 else
   inc_fail "MCW still conflicts with the vault-only knowledge contract"
 fi
 
-if ! grep -qE 'required CI.*incompatible|reviewers>0 or required CI|Repo has no branch protection with required reviewers/CI' "$SDDK_ROOT/prompts/sddk/phases/release.md" "$SDDK_ROOT/agents/sddk-release.md" "$SDDK_ROOT/skills/sddk-release/SKILL.md"; then
-  inc_pass "Required status checks remain compatible with auto-merge"
+if grep -q 'CI/CD.*excluded\|excluded.*CI/CD' "$SDDK_ROOT/prompts/sddk/phases/release.md" "$SDDK_ROOT/agents/sddk-release.md" "$SDDK_ROOT/skills/sddk-release/SKILL.md"; then
+  inc_pass "CI/CD is explicitly excluded from local release gates"
 else
-  inc_fail "Release policy still treats required status checks as auto-merge blockers"
+  inc_fail "Release policy does not explicitly exclude CI/CD from local release gates"
 fi
 
 banner "SUMMARY"

@@ -56,12 +56,12 @@ UNMERGED=$(git branch -r --no-merged "$PRIMARY_REMOTE/$DEFAULT_BRANCH" \
   || true)
 [ -z "$UNMERGED" ] || BLOCK "Unmerged cycle branches: $UNMERGED"
 
-# Check for open PRs from this actor
-OPEN_PRS=$(gh pr list --state open --author @me --base "$DEFAULT_BRANCH" --json number,title,headRefName)
-[ "$OPEN_PRS" = "[]" ] || BLOCK "Open PRs from a previous cycle: $OPEN_PRS"
 ```
 
-Hard gate: the serialization lock is AVAILABLE **AND** there are no matching unmerged cycle branches **AND** no open PR from a prior cycle. A historical tag never overrides an active lock.
+Hard gate: the serialization lock is AVAILABLE **AND** there are no matching
+unmerged cycle branches. A historical tag never overrides an active lock.
+Provider pull-request state is optional external context and is never queried as
+an SDDK cycle gate.
 
 If unmerged branches exist: resume that cycle, do not start new one.
 
@@ -254,57 +254,24 @@ The archive report embeds the debt summary so it travels with the PR description
 
 ## Phase 3 — Consolidate (after archive)
 
-### Step 3.1 — Push Branch (MANDATORY)
+### Step 3.1 — Local Verify And Push Main (MANDATORY)
 
 ```
-git push origin <branch>
+git fetch origin main --tags
+git checkout main && git pull --ff-only origin main
+test -z "$(git status --porcelain)"
+git push origin main
+SHA="$(git rev-parse HEAD)"
+git fetch origin main
+test "$SHA" = "$(git rev-parse origin/main)"
 ```
 
-Hard gate: `git ls-remote origin <branch>` returns latest local commit SHA.
+Hard gate: the verified local HEAD SHA equals `origin/main`. This direct Git
+postcondition, not a PR or CI/CD result, is the merge receipt authority.
 
-### Step 3.2 — Create or Reuse Pull Request (MANDATORY)
+### Step 3.2 — Create Or Verify Semver Tag (MANDATORY)
 
-```
-gh pr list --head <branch> --state all --json number,url,state
-# If no PR exists in any state:
-gh pr create --base main --head <branch> --title "<type>(<scope>): <description>" --body "..."
-# Query again to populate PR number and URL after creation.
-```
-
-PR body includes: summary, test plan, artifacts, tracking issue.
-
-Hard gate: `gh pr view --json number,url` returns valid PR.
-
-### Step 3.3 — Checks, Approval, Merge Request, and MERGED Gate
-
-```
-gh pr checks <pr-number> --watch
-# auto mode, after required checks/approval:
-gh pr merge <pr-number> --auto --merge
-# guided/strict: authorized human performs the merge action.
-# Then poll:
-gh pr view <pr-number> --json state
-```
-
-Required order: wait checks and required approval → request merge or enable auto-merge → wait until `state == MERGED`. Timeout (default 24h, configurable) → BLOCK and notify the user. If the PR is already merged, the merge request is an idempotent no-op.
-
-### Step 3.4 — Verify Merge SHA
-
-The PR is already MERGED. Verify only; do not invoke `gh pr merge` in this step:
-
-```bash
-git fetch origin main <branch>
-BRANCH_HEAD="$(git rev-parse origin/<branch>)"
-MERGE_SHA="$(gh pr view <pr-number> --json mergeCommit --jq '.mergeCommit.oid')"
-git merge-base --is-ancestor "$BRANCH_HEAD" "$MERGE_SHA"
-git merge-base --is-ancestor "$MERGE_SHA" origin/main
-```
-
-Hard gate: branch head is an ancestor of the PR merge commit, and the merge commit is an ancestor of the remote default branch.
-
-### Step 3.5 — Create Semver Tag (MANDATORY)
-
-Bump derives from the PR commit headlines and bodies:
+Compute the bump from local cycle commits and verified archive metadata:
 
 | Change type | Bump |
 |-------------|------|
@@ -312,43 +279,24 @@ Bump derives from the PR commit headlines and bodies:
 | New feature (non-breaking) | `minor` |
 | Bug fix, chore, docs, refactor | `patch` |
 
-Use the dependency-free, idempotent algorithm in `prompts/sddk/phases/release.md` Step 7. If a semver tag already points to `MERGE_SHA`, reuse it. Otherwise compute the next version once, tag `MERGE_SHA`, and push. Never bump again merely because release resumed.
+Create or reuse one annotated tag at `SHA`, push it, and prove the remote tag
+peels to `SHA`. A tag that points elsewhere blocks; a retry never creates a
+replacement version. See `prompts/sddk/phases/release.md` for the executable
+idempotent sequence.
 
-Hard gate: exactly one selected semver tag points to `MERGE_SHA` and exists on the remote.
+Hard gate: exactly one selected annotated semver tag exists remotely and peels
+to the verified main SHA.
 
-### Step 3.6 — HTML Closing Report (CONDITIONAL)
+### Step 3.3 — Local Receipts And Bookkeeping (MANDATORY)
 
-- A-full: always.
-- A-lite: always.
-- A-min: only if tag is `minor` or `major`.
-- B-direct: only if tag is `major`.
+Persist `merge-receipt` from the direct-main SHA postcondition and
+`release-receipt` from the annotated remote tag. Generate the required HTML
+report, update the external knowledge graph, and release the serialization
+lock only after those writes succeed.
 
-Generate via `sddk-archive` agent (uses `prompts/sddk/HTML-REPORT.md`):
-
-```
-xdg-open <report-path>
-```
-
-Path routing:
-- `/tmp/sddk-<change>-<YYYYMMDD>.html` + `$SDDK_DATA_DIR/projects/{project_id}/changes/<change>/reports/cierre.html`
-
-Hard gate (when required): HTML exists and non-empty.
-
-### Step 3.7 — Close Tracking Issue (if any)
-
-```
-gh issue close <issue-number> --comment "Completed in PR #<pr-number>. Released as v<version>."
-```
-
-### Step 3.8 — Update Knowledge Graph (MANDATORY)
-
-Update the external vault milestone, touched ADRs, touched requirements, and cycle manifest with PR, tag, verdicts, completion time, and report path. Append every mutation to `_log.md`.
-
-Hard gate: milestone and cycle manifest are `completed`; touched ADRs and requirements reference this cycle and tag. Failure BLOCKS release and retains the serialization lock.
-
-### Step 3.9 — Release Serialization Lock (MANDATORY)
-
-Mark `milestones/_active.md` AVAILABLE only after Step 3.8 succeeds. Failure BLOCKS release; never announce next-cycle readiness with a stale lock.
+`no-pending-effects` means no required local Git action remains. It explicitly
+excludes CI/CD, Actions, hosted releases, assets, signing, and distribution.
+Those optional consumers may run after the tag and are never awaited.
 
 ---
 
@@ -394,7 +342,7 @@ mem_save(
   Verdict: {verdict} {first_pass_badge}
   Lead time: {h}h  |  Cost: ${usd}  |  Tokens: {n}
   Spec coverage: {passing}/{total} scenarios ({pct}%)
-  PR #{n} → main @ {tag}
+  main @ {tag} ({sha})
   Bottleneck: {phase} ({reason})
   Saved as jurisprudence: {topic_key} {if reusable}
 
@@ -418,7 +366,7 @@ Ready for next cycle.
 | verify fails | Fix in apply, re-verify. Do not skip. |
 | coherence < 60 | BLOCK. Resolve contradiction. |
 | artifact registry unreachable | Block. Use last-known state, mark `unverified`. |
-| PR not merged within timeout | BLOCK. Notify user. |
+| Local main SHA differs from origin/main | BLOCK. Investigate the remote state. |
 | Tag push fails | BLOCK. Investigate permissions. |
 | HTML report fails (when required) | BLOCK. Re-generate via sddk-archive. |
 | Per-task attempts > CIRCUIT_PER_TASK_MAX_ATTEMPTS | BLOCK. Escalate to user (loop engineering freno duro). |
@@ -437,12 +385,11 @@ Last checkpoint: <task-id>
 
 | Anti-pattern | Consequence | Enforcement |
 |--------------|-------------|-------------|
-| Committing directly to main | Bypasses review | Checklist blocks |
+| Treating a PR as the only route to main | Adds an external dependency | Local Git postcondition is authoritative |
 | Force-pushing to main | Destroys history | Checklist blocks |
 | Rebasing feature branches | Loses review history | Checklist blocks |
 | Starting new cycle without closing previous | Two cycles open | Step 0.2 gate |
-| Skipping PR review | Merge of unreviewed code | Step 3.3 gate |
-| Merging without PR | Bypasses review | Step 3.4 verifies |
+| Waiting for CI/CD or Actions | External distribution can stall the cycle | Explicitly excluded from release gates |
 | Skipping semver tag | Lost milestone | Step 3.5 gate |
 | Skipping trunk sync | Working on stale main | Step 0.1 + 4.1 gates |
 | Co-Authored-By in commit | AI attribution leaked | Checklist blocks |
@@ -474,15 +421,9 @@ Last checkpoint: <task-id>
 | 2 | 2.4 | **Debt-verify (MANDATORY on A-*; n/a on B-direct; depth derived from path)** | PASS or PW |
 | 2 | 2.5 | Coherence verify→archive (A-full) | ≥ 60 |
 | 2 | 2.6 | Archive | archive-report registered |
-| 3 | 3.1 | Push branch | ls-remote matches |
-| 3 | 3.2 | Create PR | gh pr view valid |
-| 3 | 3.3 | Checks + merge request + wait | PR MERGED |
-| 3 | 3.4 | Verify merge | Branch head and merge SHA are ancestors of main |
-| 3 | 3.5 | Semver tag | Tag pushed |
-| 3 | 3.6 | HTML report (conditional) | File exists |
-| 3 | 3.7 | Close issue | Issue CLOSED |
-| 3 | 3.8 | Update knowledge graph | Vault nodes completed |
-| 3 | 3.9 | Release lock | Lock AVAILABLE |
+| 3 | 3.1 | Local verify + direct main push | HEAD == origin/main |
+| 3 | 3.2 | Annotated semver tag | Remote tag peels to main SHA |
+| 3 | 3.3 | Local receipts + bookkeeping | Receipts persisted and lock released |
 | 4 | 4.1 | Sync main | HEAD == origin/main |
 | 4 | 4.2 | F3 tuning + metrics | Tuning written |
 | 4 | 4.3 | Jurisprudence (conditional) | Observation saved |

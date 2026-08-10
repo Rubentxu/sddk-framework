@@ -2,9 +2,10 @@
 
 use std::path::PathBuf;
 
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 use sddk_gateway::{
-    CapabilityGateway, CapabilityPolicy, GitHubForge, ReleasePlanInput, apply_release, plan_release,
+    CapabilityGateway, CapabilityPolicy, GitExecutor, GitHubForge, LocalReleaseInput,
+    LocalReleaseOutcome, ReleasePlanInput, apply_local_release, apply_release, plan_release,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -15,14 +16,24 @@ use crate::{
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum ReleaseCommand {
-    /// Show the canonical release sequence for a branch.
+    /// Show the selected release sequence.
     Plan(ReleaseArgs),
-    /// Apply the release through the GitHub adapter.
+    /// Apply the selected release route.
     Apply(ReleaseArgs),
     /// Package the current binary with checksums, SBOM, and attestation.
     Dist(DistArgs),
     /// Verify a dist prefix against its checksums and attestation.
     Verify(DistArgs),
+}
+
+/// Release authority selected for one invocation.
+#[derive(Debug, Clone, Copy, ValueEnum, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ReleaseRoute {
+    /// Push the trunk branch and annotated tag with local Git only.
+    Local,
+    /// Use the optional external forge integration.
+    Forge,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -48,17 +59,20 @@ pub(crate) struct DistArgs {
 pub(crate) struct ReleaseArgs {
     #[command(flatten)]
     pub(crate) runtime: RuntimeArgs,
-    /// GitHub repository as `owner/repo`.
+    /// Release authority. `local` never uses GitHub, CI/CD, or assets.
+    #[arg(long, value_enum, default_value_t = ReleaseRoute::Local)]
+    pub(crate) route: ReleaseRoute,
+    /// GitHub repository as `owner/repo`, required only for `--route forge`.
     #[arg(long)]
-    pub(crate) repo: String,
-    /// Source branch to release.
-    #[arg(long)]
+    pub(crate) repo: Option<String>,
+    /// Branch to release. Local releases must target the trunk branch.
+    #[arg(long, default_value = "main")]
     pub(crate) branch: String,
-    /// Target branch for the pull request.
+    /// Target branch for the optional forge pull request.
     #[arg(long, default_value = "main")]
     pub(crate) base: String,
-    /// Pull request and release title.
-    #[arg(long)]
+    /// Annotated tag message and optional forge release title.
+    #[arg(long, default_value = "SDDK release")]
     pub(crate) title: String,
     /// Release tag.
     #[arg(long)]
@@ -66,7 +80,7 @@ pub(crate) struct ReleaseArgs {
     /// Release notes.
     #[arg(long, default_value = "")]
     pub(crate) notes: String,
-    /// Explicit approval for R3/R4 forge steps.
+    /// Explicit approval for capability effects.
     #[arg(long)]
     pub(crate) approve: bool,
     /// Explicit RFC 3339 timestamp for deterministic execution.
@@ -255,6 +269,7 @@ fn dist_verify_text(output: &serde_json::Value) -> String {
 #[derive(Serialize)]
 #[serde(rename_all = "snake_case")]
 struct ReleasePlanOutput {
+    route: ReleaseRoute,
     branch: String,
     base: String,
     tag: String,
@@ -265,16 +280,28 @@ struct ReleasePlanOutput {
 fn run_release_plan(args: ReleaseArgs, environment: &CliEnvironment) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<ReleasePlanOutput> {
+        if matches!(args.route, ReleaseRoute::Local) && args.branch != args.base {
+            anyhow::bail!("--route local requires --branch to equal --base (the trunk branch)");
+        }
         let context = RuntimeContext::open(&args.runtime, environment, false)?;
         let head = sddk_gateway::GitExecutor::new(context.root.clone())
             .inspect()?
             .head;
         Ok(ReleasePlanOutput {
+            route: args.route,
             branch: args.branch.clone(),
             base: args.base.clone(),
             tag: args.tag.clone(),
             head,
-            steps: vec!["create_pr", "merge_pr", "create_release"],
+            steps: match args.route {
+                ReleaseRoute::Local => vec![
+                    "push_main",
+                    "verify_main_sha",
+                    "create_annotated_tag",
+                    "verify_remote_tag",
+                ],
+                ReleaseRoute::Forge => vec!["create_pr", "merge_pr", "create_release"],
+            },
         })
     })();
     render_result(result, format, release_plan_text)
@@ -282,10 +309,13 @@ fn run_release_plan(args: ReleaseArgs, environment: &CliEnvironment) -> CommandO
 
 fn run_release_apply(args: ReleaseArgs, environment: &CliEnvironment) -> CommandOutput {
     let format = args.format;
-    let result = (|| -> anyhow::Result<sddk_gateway::ReleaseOutcome> {
+    let result =
+        (|| -> anyhow::Result<(String, std::path::PathBuf, CapabilityGateway, String, String)> {
         let context = RuntimeContext::open(&args.runtime, environment, false)?;
+        let project_id = context.identity.project_id.to_string();
+        let root = context.root.clone();
         let policy = CapabilityPolicy::from_workflow(context.engine.workflow());
-        let mut gateway = CapabilityGateway::new(policy, context.storage);
+        let gateway = CapabilityGateway::new(policy, context.storage);
         let timestamp = args
             .timestamp
             .clone()
@@ -296,41 +326,105 @@ fn run_release_apply(args: ReleaseArgs, environment: &CliEnvironment) -> Command
             .or_else(|| environment.sddk_actor.clone())
             .or_else(|| environment.user.clone())
             .unwrap_or_else(|| "sddk-cli".into());
-        let input = ReleasePlanInput {
-            project_id: context.identity.project_id.to_string(),
-            cycle_id: None,
-            branch: args.branch.clone(),
-            base_branch: args.base.clone(),
-            pr_title: args.title.clone(),
-            pr_body: format!("Release {} from {}", args.tag, args.branch),
-            tag: args.tag.clone(),
-            release_title: args.title.clone(),
-            release_notes: args.notes.clone(),
-            approve: args.approve,
-            timestamp,
-            actor,
-        };
-        let mut forge = GitHubForge::new(&args.repo);
-        let plan = plan_release(input, &forge)?;
-        Ok(apply_release(&mut gateway, &plan, &mut forge)?)
+        Ok((project_id, root, gateway, timestamp, actor))
     })();
-    render_result(result, format, release_outcome_text)
+    let (project_id, root, mut gateway, timestamp, actor) = match result {
+        Ok(value) => value,
+        Err(error) => return render_result(Err(error), format, release_outcome_text),
+    };
+
+    match args.route {
+        ReleaseRoute::Local => {
+            let result = (|| -> anyhow::Result<LocalReleaseOutcome> {
+                if args.branch != args.base {
+                    anyhow::bail!(
+                        "--route local requires --branch to equal --base (the trunk branch)"
+                    );
+                }
+                Ok(apply_local_release(
+                    &mut gateway,
+                    &LocalReleaseInput {
+                        project_id,
+                        cycle_id: None,
+                        branch: args.branch,
+                        tag: args.tag,
+                        tag_message: args.title,
+                        approve: args.approve,
+                        timestamp,
+                        actor,
+                    },
+                    &GitExecutor::new(root),
+                )?)
+            })();
+            render_result(result, format, local_release_outcome_text)
+        }
+        ReleaseRoute::Forge => {
+            let result = (|| -> anyhow::Result<sddk_gateway::ReleaseOutcome> {
+                let repo = args.repo.as_deref().ok_or_else(|| {
+                    anyhow::anyhow!("--repo is required when --route forge is selected")
+                })?;
+                let input = ReleasePlanInput {
+                    project_id,
+                    cycle_id: None,
+                    branch: args.branch.clone(),
+                    base_branch: args.base.clone(),
+                    pr_title: args.title.clone(),
+                    pr_body: format!("Release {} from {}", args.tag, args.branch),
+                    tag: args.tag.clone(),
+                    release_title: args.title.clone(),
+                    release_notes: args.notes.clone(),
+                    approve: args.approve,
+                    timestamp,
+                    actor,
+                };
+                let mut forge = GitHubForge::new(repo);
+                let plan = plan_release(input, &forge)?;
+                Ok(apply_release(&mut gateway, &plan, &mut forge)?)
+            })();
+            render_result(result, format, release_outcome_text)
+        }
+    }
 }
 
 fn release_plan_text(output: &ReleasePlanOutput) -> String {
-    format!(
-        "branch: {}\nbase: {}\ntag: {}\nhead: {}\nsteps:\n- create_pr\n- merge_pr\n- create_release\n",
+    let route = match output.route {
+        ReleaseRoute::Local => "local",
+        ReleaseRoute::Forge => "forge",
+    };
+    let mut text = format!(
+        "route: {route}\nbranch: {}\nbase: {}\ntag: {}\nhead: {}\nsteps:\n",
         output.branch,
         output.base,
         output.tag,
         output.head.as_deref().unwrap_or("null")
-    )
+    );
+    for step in &output.steps {
+        text.push_str(&format!("- {step}\n"));
+    }
+    text
 }
 
 fn release_outcome_text(output: &sddk_gateway::ReleaseOutcome) -> String {
     let mut text = format!(
         "converged: {}\napplied: {}\n",
         output.converged,
+        output.applied.len()
+    );
+    for step in &output.applied {
+        text.push_str(&format!("- {} {}\n", step.step, step.receipt_id));
+    }
+    for skip in &output.skipped {
+        text.push_str(&format!("- skipped: {skip}\n"));
+    }
+    text
+}
+
+fn local_release_outcome_text(output: &LocalReleaseOutcome) -> String {
+    let mut text = format!(
+        "converged: {}\nsha: {}\ntag: {}\napplied: {}\n",
+        output.converged,
+        output.sha,
+        output.tag,
         output.applied.len()
     );
     for step in &output.applied {

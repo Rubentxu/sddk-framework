@@ -509,17 +509,17 @@ artifacts:
     required: true
     description: Review approval report
   merge-receipt:
-    producer: forge-provider
+    producer: local-git
     consumers: []
     required: true
     terminal: true
-    description: Receipt confirming merge to target branch
+    description: Receipt confirming the local HEAD SHA was pushed and verified on origin/main; no PR or CI/CD authority is required
   release-receipt:
-    producer: forge-provider
+    producer: local-git
     consumers: []
     required: true
     terminal: true
-    description: Receipt confirming release artifacts
+    description: Receipt confirming an annotated tag for the verified main SHA exists on the remote; external distribution is optional post-tag work
   archive-manifest:
     producer: archiver
     consumers: []
@@ -567,7 +567,7 @@ gates:
   no-pending-effects:
     gate_type:
       binary: {}
-    description: No pending external effects
+    description: No pending required local Git effects; CI/CD, GitHub Actions, forge releases, and distribution are optional post-tag consumers and are excluded
   ledger-valid:
     gate_type:
       binary: {}

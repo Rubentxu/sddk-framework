@@ -122,19 +122,16 @@ phases:
     step: 3
     pattern: orchestrator-worker
     agent: sddk-release
-    model: GLM-4.7
+    model: minimax-coding-plan/MiniMax-M3
     depends_on: archive
     mandatory: true
-    policy_routing:
-      default: auto
-      override_field: launch_plan.merge_policy
-      overrides: [strict, guided]
     sub_steps_owned_by_agent:
-      - push-branch
-      - create-pr
-      - wait-approval
-      - merge-to-main
-      - semver-tag
+      - local-verify
+      - push-main
+      - verify-main-sha
+      - annotated-semver-tag
+      - verify-remote-tag
+      - local-receipts
       - html-closing-report   # conditional: only on major tags
       - close-tracking-issue  # no-op when no tracking issue
       - update-knowledge-graph  # v3.5: vault nodes (conditional: only if cycle created/touched knowledge)
@@ -178,7 +175,7 @@ phases:
 success_criteria:
   - "skill loaded and executed"
   - "branch created and commits pushed"
-  - "PR merged to main"
+  - "main SHA pushed directly and verified on origin/main"
   - "semver tag pushed and confirmed on remote (minimum: patch bump)"
   - "main HEAD == origin/main (trunk-sync-end PASS)"
   - "release-report status=success persisted"
@@ -189,8 +186,8 @@ failure_modes:
     action: "inline retry, no formal cycle"
   - condition: "verify FAIL"
     action: "inline fix"
-  - condition: "PR not merged (24h)"
-    action: "BLOCK, notify user"
+  - condition: "main SHA differs from origin/main"
+    action: "BLOCK, investigate local Git postcondition"
 
 provenance:
   derived_from:
@@ -201,6 +198,6 @@ provenance:
   integration_design: "docs/sddk-evolution/dynamic-workflows-integration.md"
   notes: |
     B-direct does NOT bypass the orchestrator or git — it bypasses the SDD phases (spec/propose/design/tasks).
-    Git flow (trunk-sync, branch, PR, tag) is still mandatory per git-contract.md.
+    Local Git flow (trunk sync, direct main push, SHA verification, annotated tag) is mandatory per git-contract.md.
     Debt-verify is NOT invoked for B-direct (per orchestrator.md § Debt-Verify Opt-In Question).
     C3 + jurisprudence hit is the most common trigger — past solution covers the change.

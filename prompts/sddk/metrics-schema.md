@@ -80,7 +80,7 @@ At the end of each cycle the orchestrator prints:
   Verdict: {verdict} {first_pass_badge}
   Lead time: {h}h  |  Cost: ${usd}  |  Tokens: {n}
   Spec coverage: {passing}/{total} scenarios ({pct}%)
-  PR #{n} → main @ {tag}
+  main @ {tag} ({sha})
   Bottleneck: {phase} ({reason})
   Saved as jurisprudence: {topic_key} {if reusable}
 

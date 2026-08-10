@@ -142,7 +142,7 @@ enum Command {
         #[command(subcommand)]
         command: AgentResultCommand,
     },
-    /// Plan and apply releases through the forge adapter.
+    /// Plan and apply local Git releases or optional forge integrations.
     Release {
         #[command(subcommand)]
         command: ReleaseCommand,

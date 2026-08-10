@@ -29,8 +29,9 @@ pub use git::{GitBranch, GitCommit, GitError, GitExecutor, GitInspect, GitTag};
 pub use permissions::{AgentPermissions, PermissionDecision, PermissionPolicy, PermissionsError};
 pub use policy::{CapabilityPolicy, Consequence, PolicyDecision, Risk};
 pub use release::{
-    ReleaseError, ReleaseOutcome, ReleasePlan, ReleasePlanInput, ReleaseStep, apply_release,
-    plan_release, reconcile_pending,
+    LocalReleaseInput, LocalReleaseOutcome, ReleaseError, ReleaseOutcome, ReleasePlan,
+    ReleasePlanInput, ReleaseStep, apply_local_release, apply_release, plan_release,
+    reconcile_pending,
 };
 pub use runner::{RunOutcome, RunSpec, RunnerError, run};
 pub use sddk_storage::CapabilityReceipt;
@@ -68,6 +69,7 @@ impl sddk_domain::SddkErrorCode for crate::release::ReleaseError {
             Self::Gateway(..) => "RELEASE_GATEWAY",
             Self::Serialization(..) => "RELEASE_SERIALIZATION",
             Self::Storage(..) => "RELEASE_STORAGE",
+            Self::Git(..) => "RELEASE_GIT",
         }
     }
 
@@ -79,6 +81,7 @@ impl sddk_domain::SddkErrorCode for crate::release::ReleaseError {
             Self::Gateway(..) => "resolve the underlying gateway error first",
             Self::Serialization(..) => "fix the release payload before retrying",
             Self::Storage(..) => "resolve the underlying storage error first",
+            Self::Git(..) => "restore the local and remote Git postconditions before retrying",
         }
     }
 }

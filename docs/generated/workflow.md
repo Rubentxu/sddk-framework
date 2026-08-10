@@ -85,8 +85,8 @@
 | `exploration-report` | `agent` | `reviewer` | yes | no | Report documenting exploration findings |
 | `implementation-plan` | `planner` | `builder` | yes | no | Implementation plan with tasks |
 | `implementation-receipt` | `builder` | `verifier` | yes | no | Receipt confirming implementation completion |
-| `merge-receipt` | `forge-provider` | — | yes | yes | Receipt confirming merge to target branch |
-| `release-receipt` | `forge-provider` | — | yes | yes | Receipt confirming release artifacts |
+| `merge-receipt` | `local-git` | — | yes | yes | Receipt confirming the local HEAD SHA was pushed and verified on origin/main; no PR or CI/CD authority is required |
+| `release-receipt` | `local-git` | — | yes | yes | Receipt confirming an annotated tag for the verified main SHA exists on the remote; external distribution is optional post-tag work |
 | `review-report` | `reviewer` | `release-manager` | yes | no | Review approval report |
 | `specification` | `agent` | `designer` | yes | no | Requirements specification document |
 | `uat-plan` | `agent` | `uat-runner`<br>`human` | no | no | UAT acceptance plan (YAML canonical, ADR-012) |
@@ -102,7 +102,7 @@
 | `exploration-sufficient` | `binary` | Exploration produced sufficient information |
 | `implementation-complete` | `binary` | Implementation meets requirements |
 | `ledger-valid` | `binary` | Ledger state is valid |
-| `no-pending-effects` | `binary` | No pending external effects |
+| `no-pending-effects` | `binary` | No pending required local Git effects; CI/CD, GitHub Actions, forge releases, and distribution are optional post-tag consumers and are excluded |
 | `plan-executable` | `binary` | Implementation plan is executable |
 | `policy-compliant` | `binary` | Implementation complies with policies |
 | `release-uat-approved` | `binary` | Release UAT gate passed for the configured release type (ADR-012) |

@@ -57,7 +57,7 @@ phases:
     step: 0.2
     pattern: trunk-sync-gate
     agent: orchestrator
-    gate: "no unmerged branches AND no open PRs from prior cycles AND ROADMAP 'Active Milestones' has zero in_progress entries"
+    gate: "no unmerged branches AND ROADMAP 'Active Milestones' has zero in_progress entries"
     failure_mode: BLOCK — resume prior cycle or mark it blocked/abandoned in ROADMAP
     notes: |
       v3.4: ROADMAP Serialization Lock. Read docs/ROADMAP.md, extract "## Active Milestones",
@@ -185,7 +185,7 @@ phases:
     step: 2.3
     pattern: multi-lens-verification
     agent: sddk-verify
-    model: GLM-4.7
+    model: minimax-coding-plan/MiniMax-M3
     parallel_group: verify-lenses
     lenses:
       - spec-compliance
@@ -252,21 +252,16 @@ phases:
     step: 3
     pattern: orchestrator-worker
     agent: sddk-release
-    model: GLM-4.7
+    model: minimax-coding-plan/MiniMax-M3
     depends_on: archive
     mandatory: true   # orchestrator MUST invoke this after archive returns success
-    policy_routing:
-      default: auto
-      override_field: launch_plan.merge_policy
-      overrides:
-        - strict
-        - guided
     sub_steps_owned_by_agent:
-      - push-branch
-      - create-pr
-      - wait-approval
-      - merge-to-main
-      - semver-tag
+      - local-verify
+      - push-main
+      - verify-main-sha
+      - annotated-semver-tag
+      - verify-remote-tag
+      - local-receipts
       - html-closing-report
       - close-tracking-issue
       - update-knowledge-graph  # v3.5: milestone + ADRs + requirements + cycle in vault
@@ -317,7 +312,7 @@ phases:
         Verdict: {verdict} {first_pass_badge}
         Lead time: {h}h  |  Cost: ${usd}  |  Tokens: {n}
         Spec coverage: {passing}/{total} scenarios ({pct}%)
-        PR #{n} → main @ {tag}
+        main @ {tag} ({sha})
         main_synced: {true/false}     # MUST be true to show this output
         Bottleneck: {phase} ({reason})
         Saved as jurisprudence: {topic_key} {if reusable}
@@ -325,7 +320,7 @@ phases:
 success_criteria:
   - "all phases completed (Phase 0 → 4)"
   - "release-report persisted with status=success"
-  - "PR merged to main"
+  - "main SHA pushed directly and verified on origin/main"
   - "semver tag pushed and confirmed on remote"
   - "main HEAD == origin/main (trunk-sync-end PASS)"
   - "html-report generated (conditional)"
@@ -342,8 +337,8 @@ failure_modes:
     action: "BLOCK (no orphan commits)"
   - condition: "max fix rounds reached (3)"
     action: "escalate to user with full debt report, STOP"
-  - condition: "PR not merged within timeout (24h)"
-    action: "BLOCK, notify user"
+  - condition: "main SHA differs from origin/main"
+    action: "BLOCK, investigate local Git postcondition"
   - condition: "tag push fails"
     action: "BLOCK, investigate permissions"
   - condition: "artifact registry unreachable"
