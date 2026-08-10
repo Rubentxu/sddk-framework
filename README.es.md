@@ -34,7 +34,7 @@ SDDK es un framework completo de orquestación de agentes para desarrollo de sof
 │           (este repositorio — framework)             │
 │                                                      │
 │  ┌──────────┐  ┌─────────┐  ┌────────────────────┐  │
-│  │  agents/  │  │ skills/ │  │ prompts/sdd-kernel │  │
+│  │  agents/  │  │ skills/ │  │   prompts/sddk    │  │
 │  │ (prompts) │  │ (tools)  │  │ (phase specs, MCW) │  │
 │  └────┬─────┘  └────┬────┘  └─────────┬──────────┘  │
 │       │              │                  │             │
@@ -170,7 +170,7 @@ La **Behavioral Compliance Matrix** mapea cada escenario de spec a un test que p
 sddk-framework/
 ├── agents/                 # Prompts de agentes; ver docs/generated/inventory.md
 ├── skills/                 # Skills; ver docs/generated/inventory.md
-├── prompts/sdd-kernel/     # Phase specs, MCW, git-contract, decision-model, plantillas ADR/roadmap
+├── prompts/sddk/            # Phase specs, MCW, git-contract, decision-model, plantillas ADR/roadmap
 ├── knowledge-template/     # Plantilla de vault (6 tipos de nodo, MOCs, lock de serialización)
 ├── golden-dataset/         # Casos de meta-verificación (5 casos iniciales + runner)
 ├── bootstrap.sh            # Instalador para ZCode/OpenCode
@@ -181,7 +181,7 @@ sddk-framework/
 
 ## Conceptos clave
 
-- **MCW (Mandatory Complete Workflow)** — la ley. 5 fases, pasos numerados, gates duros. Fuente de verdad: `prompts/sdd-kernel/mcw.md`.
+- **MCW (Mandatory Complete Workflow)** — la ley. 5 fases, pasos numerados, gates duros. Fuente de verdad: `prompts/sddk/mcw.md`.
 - **Lock de serialización** — un ciclo a la vez. Lock file: `milestones/_active.md`. Sobrevive crashes de sesión.
 - **Release Completion Guard** — el orchestrator no puede emitir `status: success` sin `HEAD == origin/main` + tag semver confirmado en remoto.
 - **Zero docs en repo** — todo el conocimiento del proyecto vive en el vault, nunca en el repo git del proyecto.
@@ -191,11 +191,11 @@ sddk-framework/
 
 - **Editores**: ZCode, OpenCode (extensible a cualquier runner de agentes que lea prompts markdown)
 - **Formato de conocimiento**: [OKF v0.2](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md), [Obsidian Properties v1.4+](https://obsidian.md/)
-- **MCPs** (opcional): CogniCode (análisis de arquitectura), Chronos (debugging time-travel), LogSeq (vault alternativo), Engram (memoria cross-session)
+- **MCPs** (opcional): CogniCode (análisis de arquitectura), Chronos (debugging time-travel), Engram (memoria cross-session)
 
 ## Contribuir
 
-Las contribuciones son bienvenidas. Por favor lee la arquitectura en `prompts/sdd-kernel/mcw.md` antes de proponer cambios.
+Las contribuciones son bienvenidas. Por favor lee la arquitectura en `prompts/sddk/mcw.md` antes de proponer cambios.
 
 ## Licencia
 

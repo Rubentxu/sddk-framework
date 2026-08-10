@@ -99,7 +99,7 @@ jobs:
       - name: Bundle framework (agents/skills/prompts)
         run: |
           mkdir -p bundle
-          tar czf bundle/sddk-framework.tar.gz agents skills prompts/sdd-kernel
+          tar czf bundle/sddk-framework.tar.gz agents skills prompts/sddk
           (cd bundle && sha256sum sddk-framework.tar.gz > sddk-framework.tar.gz.sha256)
           ls -la bundle/
 

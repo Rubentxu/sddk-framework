@@ -51,7 +51,7 @@ When invoked, you will receive:
 - **FAIL → loop back max 2 rounds.** Validator FAIL routes to the relevant agent (Block for missing UI, Page for routing, Component for missing primitive).
 - **Emit concise prompts.** Each agent prompt includes: input paths, output paths, mode, brand brief, project name. Nothing more.
 - **Track progress in Engram.** After each phase, save `studio-progress/<project>/<phase>`.
-- **Inject reference docs into every agent prompt.** Use the project's existing SDDK docs (`CONTEXT.md`, `CONTEXT-MAP.md`, `docs/adr/`, `docs/architecture/`) — NEVER invent new top-level docs like `INVARIANTS.md` or `CONVENTIONS.md`. The Studio integrates with existing SDDK document model (`prompts/sdd-kernel/document-catalog.md`).
+- **Inject reference docs into every agent prompt.** Use the project's existing SDDK docs (`CONTEXT.md`, `CONTEXT-MAP.md`, `docs/adr/`, `docs/architecture/`) — NEVER invent new top-level docs like `INVARIANTS.md` or `CONVENTIONS.md`. The Studio integrates with existing SDDK document model (`prompts/sddk/document-catalog.md`).
 
 ## Algorithm (the full pipeline)
 
@@ -361,4 +361,4 @@ Save cycle metrics to:
 - `prompts/studio-agents/studio-block.md`
 - `prompts/studio-agents/studio-page.md`
 - `prompts/studio-agents/studio-validator.md`
-- `prompts/sdd-kernel/orchestrator.md` (parent pattern)
+- `prompts/sddk/orchestrator.md` (parent pattern)

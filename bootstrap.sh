@@ -87,31 +87,31 @@ link_opencode() {
     done
     info "Linked $(ls "$OPENCODE_DIR/agents"/*.md 2>/dev/null | wc -l) agents"
 
-    info "Linking OpenCode prompts (sdd-kernel)..."
-    mkdir -p "$OPENCODE_DIR/prompts/sdd-kernel"
+    info "Linking OpenCode prompts (sddk)..."
+    mkdir -p "$OPENCODE_DIR/prompts/sddk"
     # Link phase specs and docs
-    for f in "$SHARED_DIR"/prompts/sdd-kernel/*.md; do
+    for f in "$SHARED_DIR"/prompts/sddk/*.md; do
         name=$(basename "$f")
-        target="$OPENCODE_DIR/prompts/sdd-kernel/$name"
+        target="$OPENCODE_DIR/prompts/sddk/$name"
         ln -sf "$f" "$target"
     done
     # Link phase specs subdirectory
-    mkdir -p "$OPENCODE_DIR/prompts/sdd-kernel/phases"
-    for f in "$SHARED_DIR"/prompts/sdd-kernel/phases/*.md; do
+    mkdir -p "$OPENCODE_DIR/prompts/sddk/phases"
+    for f in "$SHARED_DIR"/prompts/sddk/phases/*.md; do
         name=$(basename "$f")
-        target="$OPENCODE_DIR/prompts/sdd-kernel/phases/$name"
+        target="$OPENCODE_DIR/prompts/sddk/phases/$name"
         ln -sf "$f" "$target"
     done
     # Link templates subdirectory
-    if [ -d "$SHARED_DIR/prompts/sdd-kernel/templates" ]; then
-        mkdir -p "$OPENCODE_DIR/prompts/sdd-kernel/templates"
-        for f in "$SHARED_DIR"/prompts/sdd-kernel/templates/*; do
+    if [ -d "$SHARED_DIR/prompts/sddk/templates" ]; then
+        mkdir -p "$OPENCODE_DIR/prompts/sddk/templates"
+        for f in "$SHARED_DIR"/prompts/sddk/templates/*; do
             name=$(basename "$f")
-            target="$OPENCODE_DIR/prompts/sdd-kernel/templates/$name"
+            target="$OPENCODE_DIR/prompts/sddk/templates/$name"
             ln -sf "$f" "$target"
         done
     fi
-    info "Linked sdd-kernel prompts"
+    info "Linked sddk prompts"
 
     info "OpenCode agents linked to: $OPENCODE_DIR/agents/"
     info "Register agents in opencode.json with: {file: \"$SHARED_DIR/agents/<name>.md\"}"

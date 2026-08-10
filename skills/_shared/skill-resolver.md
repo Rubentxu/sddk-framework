@@ -18,9 +18,10 @@ The registry is an **index** of skill names, triggers, scopes, and exact `SKILL.
 
 Resolution order:
 1. Use the session cache if present.
-2. `mem_search(query: "skill-registry", project: "{project}")` → `mem_get_observation(id)` for full content.
-3. Fallback: read `.atl/skill-registry.md` from the project root.
-4. No registry found → proceed without project skills and warn the user to run `gentle-ai skill-registry refresh`.
+2. Read the orchestrator-provided `{project-data-dir}/skill-registry.md` XDG
+   cache when present.
+3. Otherwise use the installed skills exposed by the current agent session.
+4. No registry found → proceed without extra project skills and report the gap.
 
 ### Step 2: Match Relevant Skills
 
@@ -61,12 +62,13 @@ If a sub-agent reports anything other than `paths-injected`, the orchestrator MU
 
 ## Compaction Safety
 
-- The registry persists in Engram and `.atl/skill-registry.md`.
+- The registry cache persists under `{project-data-dir}`. Engram may mirror it
+  only when enabled by the knowledge profile.
 - Delegators can recover selected paths after compaction by re-reading the registry.
 - Sub-agents receive exact files to read, so skill meaning is not degraded by generated summaries.
 
 ## Integration Points
 
-- **ATL Orchestrator**: resolves paths for all SDD and non-SDD delegations.
+- **SDDK orchestrator**: resolves paths for SDDK and general delegations.
 - **judgment-day**: resolves paths before Judge A, Judge B, and Fix Agent.
 - **pr-review and future delegators**: use this protocol when launching sub-agents.

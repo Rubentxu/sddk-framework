@@ -2,9 +2,9 @@
 name: cognicode-sdd
 description: >
   CogniCode code intelligence integration for SDD phases.
-  Trigger: Automatic when any sdd-* sub-agent needs codebase analysis,
+  Trigger: Automatic when any sddk-* sub-agent needs codebase analysis,
   impact assessment, safe refactoring, or architecture validation.
-  Applies to: sdd-explore, sdd-propose, sdd-design, sdd-tasks, sdd-apply, sdd-verify.
+  Applies to: sddk-explore, sddk-propose, sddk-design, sddk-tasks, sddk-apply, sddk-verify.
 license: MIT
 metadata:
   author: rubentxu
@@ -46,7 +46,7 @@ cognicode_build_graph(
 
 ## Phase Integration Guide
 
-### sdd-explore — Code Intelligence First
+### sddk-explore — Code Intelligence First
 
 Before reading raw files, build the graph and get a structural view.
 This replaces manually opening dozens of files to understand the codebase.
@@ -79,7 +79,7 @@ Use `compressed: true` on all explore calls to preserve context window.
 
 ---
 
-### sdd-propose — Quantified Risk
+### sddk-propose — Quantified Risk
 
 Before writing the proposal, get a risk baseline for the change:
 
@@ -98,7 +98,7 @@ Map risk levels to proposal language:
 
 ---
 
-### sdd-design — Architecture Validation
+### sddk-design — Architecture Validation
 
 Validate design decisions don't introduce technical debt BEFORE writing the design:
 
@@ -119,7 +119,7 @@ If `check_architecture` after design shows new SCCs, revise the design.
 
 ---
 
-### sdd-tasks — Dependency-Aware Ordering
+### sddk-tasks — Dependency-Aware Ordering
 
 Use call hierarchy to order tasks correctly — implement dependencies first:
 
@@ -140,7 +140,7 @@ For each task group, identify which files will be touched:
 
 ---
 
-### sdd-apply — Safe Refactoring Protocol
+### sddk-apply — Safe Refactoring Protocol
 
 **Pre-implementation (before touching any file):**
 
@@ -180,7 +180,7 @@ is a hard violation of this protocol.
 
 ---
 
-### sdd-verify — Structural Validation Layer
+### sddk-verify — Structural Validation Layer
 
 Run these AFTER the standard spec compliance matrix and test execution,
 as an additional structural validation layer:
@@ -192,7 +192,7 @@ as an additional structural validation layer:
      file list = potential missed update → FLAG as WARNING
 
 2. cognicode_check_architecture
-   → Compare score to baseline from sdd-design (if available)
+   → Compare score to baseline from sddk-design (if available)
    → New cycle introduced = CRITICAL issue
    → Score drop > 10 points = WARNING
 
@@ -239,7 +239,7 @@ Add a **CogniCode Structural Analysis** section to the verify-report:
 
 ## Worked Examples by SDD Phase
 
-### Example A — sdd-explore: Onboarding a New Codebase
+### Example A — sddk-explore: Onboarding a New Codebase
 
 > "I just cloned this repo. Help me understand what it does, what the main
 > entry points are, and which functions are called the most."
@@ -258,7 +258,7 @@ Interpret:
 
 ---
 
-### Example B — sdd-propose / sdd-design: Analyzing Change Impact
+### Example B — sddk-propose / sddk-design: Analyzing Change Impact
 
 > "I'm about to change the signature of `UserRepository::find_by_email`.
 > What's the blast radius?"
@@ -276,7 +276,7 @@ Interpret:
 
 ---
 
-### Example C — sdd-design: Architecture Health Baseline
+### Example C — sddk-design: Architecture Health Baseline
 
 > "Is there any circular dependency? Give me an architecture health score."
 
@@ -299,7 +299,7 @@ to understand why the dependency exists, then document it in Design Decisions.
 
 ---
 
-### Example D — sdd-apply: Safe Rename
+### Example D — sddk-apply: Safe Rename
 
 > "Rename `calc_total` to `calculate_order_total` everywhere. Make sure
 > nothing breaks."
@@ -329,7 +329,7 @@ to understand why the dependency exists, then document it in Design Decisions.
 
 ---
 
-### Example E — sdd-tasks / sdd-verify: Finding Critical Functions
+### Example E — sddk-tasks / sddk-verify: Finding Critical Functions
 
 > "Which functions should I never break? Show me the most depended-upon code."
 
@@ -345,7 +345,7 @@ Interpret:
 
 ---
 
-### Example F — sdd-apply: Full Refactoring Workflow (multi-step)
+### Example F — sddk-apply: Full Refactoring Workflow (multi-step)
 
 > "Refactor `UserService` — it's doing too much. Help me split it safely."
 
@@ -379,32 +379,6 @@ Step 6 — Verify final state
   → cognicode_find_usages("UserService")   ← should show fewer direct usages
   → cognicode_get_hot_paths()              ← confirm new services have reasonable fan-in
 ```
-
----
-
-## LogSeq Vault Persistence (when mode is logseq)
-
-When the artifact store mode is `logseq`, persist CogniCode output to the vault:
-
-### After sdd-explore:
-- `cognicode_get_entry_points` → create Slice pages with `entry-point::` property
-- `cognicode_analyze_impact` → update Component pages with `cognicode-risk::`, `cognicode-impacted-files::`
-- `cognicode_get_hot_paths` → update Component pages with `cognicode-fan-in::`
-- `cognicode_get_complexity` → update Component pages with `cognicode-complexity::`
-- Set `cognicode-source:: auto` on all auto-populated pages
-
-### After sdd-design:
-- `cognicode_check_architecture` → write Journal SNAPSHOT with score and cycles count
-
-### After sdd-verify:
-- `cognicode_find_usages` → verify no orphaned callers, update Component pages
-- `cognicode_check_architecture` → write Journal SNAPSHOT with post-apply score
-- Update SDD Change page with `cognicode-pre-score::` and `cognicode-post-score::`
-
-### For .groovy files (CogniCode unsupported):
-- Set `cognicode-source:: manual` on affected pages
-- Populate metrics manually from code reading
-- Set `metodo:: Heuristico` and `confianza:: estimada`
 
 ## Compact Rules
 
@@ -452,7 +426,7 @@ When the artifact store mode is `logseq`, persist CogniCode output to the vault:
 - `cognicode_project_overview(detail: "quick"|"medium"|"detailed")` — replaces smart_overview + auto_diagnose + system_prompt_context + suggest_context
 - `cognicode_compare_graph(mode: "diff"|"api"|"quality")` — replaces compare_call_graphs + detect_api_breaks + evaluate_refactor_quality
 
-### sdd-explore Updated Workflow
+### sddk-explore Updated Workflow
 
 ```
 1. cognicode_build_graph              strategy: "full"
@@ -461,11 +435,10 @@ When the artifact store mode is `logseq`, persist CogniCode output to the vault:
 4. cognicode_graph_query(question: "...") → specific investigation
 ```
 
-### sdd-verify Updated Workflow
+### sddk-verify Updated Workflow
 
 ```
 1. cognicode_solid_audit()            → SOLID analysis
 2. cognicode_review_pr(files: [...])  → PR impact
 3. cognicode_graph_diff(baseline_date: "...") → compare changes
 ```
-

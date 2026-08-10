@@ -101,5 +101,5 @@ khononov_critique:
 ## References
 
 - `debt-architecture-cluster` — your parent cluster
-- `prompts/sdd-kernel/phases/debt-verify.md` — phase spec
+- `prompts/sddk/phases/debt-verify.md` — phase spec
 - Original inspiration: Alex Khononov, "Learning Domain-Driven Design" — bounded context design, domain alignment, coupling-consistency trade-off; also: John Ousterhout, "A Philosophy of Software Design" — deep modules

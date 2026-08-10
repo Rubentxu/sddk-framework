@@ -54,7 +54,7 @@ Take the proposal and produce **delta specs** — structured requirements and sc
 When writing a `## MODIFIED Requirements` section, follow EXACTLY:
 
 ```
-1. Locate the requirement in openspec/specs/{domain}/spec.md
+1. Locate the requirement in `$SDDK_DATA_DIR/projects/{project_id}/specs/{domain}/spec.md`
 2. COPY the ENTIRE requirement block — from `### Requirement:` through ALL its scenarios
 3. PASTE it under `## MODIFIED Requirements`
 4. EDIT the copy to reflect the new behavior
@@ -186,6 +186,6 @@ A failed evaluate-gate or transition is a BLOCKER: report it in the envelope and
 
 ## References
 
-- `prompts/sdd-kernel/phases/spec.md` — full phase spec
-- `prompts/sdd-kernel/decision-model.md` — knowledge contract
+- `prompts/sddk/phases/spec.md` — full phase spec
+- `prompts/sddk/decision-model.md` — knowledge contract
 - `skills/_shared/sddk-phase-common.md` — shared protocol

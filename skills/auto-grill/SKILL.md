@@ -6,7 +6,7 @@ description: >
   and produces an HTML report with enriched escalated decisions for human review.
   Trigger: Runs automatically within SDD phases (like entropy-sdd) or when the
   user invokes "auto-grill" on a plan, proposal, or design.
-  Applies to: sdd-explore, sdd-propose, sdd-design, improve-codebase-architecture.
+  Applies to: sddk-explore, sddk-propose, sddk-design, improve-codebase-architecture.
 license: MIT
 metadata:
   author: rubentxu
@@ -80,9 +80,9 @@ se españoliza siempre.
 
 | Phase | What gets grilled | Auto-grill focus |
 |-------|-------------------|------------------|
-| `sdd-explore` | Exploration findings | Verify claims against codebase + connascence landscape |
-| `sdd-propose` | Proposal document | Challenge decisions against CONTEXT.md + ADRs + entropy budget |
-| `sdd-design` | Design document | Interface quality (I(X;T), I(T;Y)) + architecture check |
+| `sddk-explore` | Exploration findings | Verify claims against codebase + connascence landscape |
+| `sddk-propose` | Proposal document | Challenge decisions against CONTEXT.md + ADRs + entropy budget |
+| `sddk-design` | Design document | Interface quality (I(X;T), I(T;Y)) + architecture check |
 | `improve-codebase-architecture` | Deepening candidates | Seam placement + adapter count + depth assessment |
 
 ### When invoked standalone:
@@ -189,16 +189,7 @@ Output: ranked table with OS scores and ratings.
 
 Write a self-contained HTML file. See [HTML-REPORT.md](HTML-REPORT.md) for the full scaffold.
 
-**Report placement follows the persistence mode** (see `openspec-convention.md`):
-
-| Mode | HTML Destination |
-|------|-----------------|
-| `engram` | `/tmp/sdd-{change-name}-auto-grill.html` |
-| `openspec` | `{cycle-artifacts-dir}/reports/auto-grill.html` + `/tmp/` copy |
-| `hybrid` | Both: `openspec/.../reports/` AND `/tmp/` |
-| `none` | `/tmp/auto-grill.html` only |
-
-Always open the `/tmp/` copy for immediate user display. Return the openspec path (if applicable) in the output envelope.
+**Report placement**: Always write to `/tmp/sdd-{change-name}-auto-grill.html` for immediate user display. Return the path in the output envelope.
 
 The report has 4 sections:
 
@@ -226,7 +217,7 @@ Return to the orchestrator:
 
 **Input**: {what was grilled}
 **Preguntas**: {N} | **Auto-resueltas**: {M} ({rate}%) | **Escaladas**: {K}
-**Reporte**: {openspec path or /tmp/ path}
+**Reporte**: `$SDDK_DATA_DIR/projects/{project_id}/changes/{change_name}/auto-grill-report.md`
 **Reporte temporal**: /tmp/sdd-{change-name}-auto-grill.html
 
 ### Auto-Resolved Decisions
@@ -249,7 +240,7 @@ Return to the orchestrator:
 
 Auto-grill runs as a sub-step within existing phases:
 
-### In sdd-explore (Step 3.5)
+### In sddk-explore (Step 3.5)
 ```
 After investigating codebase, before analyzing options:
 - Auto-grill the exploration findings
@@ -258,7 +249,7 @@ After investigating codebase, before analyzing options:
 - Add Auto-Grill Results section to exploration output
 ```
 
-### In sdd-propose (Step 3.5)
+### In sddk-propose (Step 3.5)
 ```
 After reading existing specs, before writing proposal:
 - Auto-grill the proposal intent
@@ -267,7 +258,7 @@ After reading existing specs, before writing proposal:
 - Escalated decisions become "Open Questions" in proposal
 ```
 
-### In sdd-design (Step 2.5)
+### In sddk-design (Step 2.5)
 ```
 After reading codebase, before writing design:
 - Auto-grill the design approach
@@ -306,5 +297,5 @@ After HTML report, before grilling loop:
 | Tool | Purpose | When |
 |------|---------|------|
 | [os-calc.py](os-calc.py) | Opportunity Score para opciones escaladas | Phase 4: enriched escalation |
-| [adversarial-metrics.py](adversarial-metrics.py) | AES para deficiencias del juicio adversarial | sdd-verify Step 7b |
+| [adversarial-metrics.py](adversarial-metrics.py) | AES para deficiencias del juicio adversarial | sddk-verify Step 7b |
 | [ADVERSARIAL-ENTROPY.md](ADVERSARIAL-ENTROPY.md) | Framework completo de métricas adversariales | Referencia para jueces |

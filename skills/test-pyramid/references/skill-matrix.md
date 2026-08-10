@@ -26,7 +26,7 @@ This is the index that maps a concrete problem to the skill you should load next
 | Design-level testability analysis | `entropy-sdd` | SOLID-entropy, connascence |
 | Code-aware refactor across many files | `cognicode-sdd` (CogniCode MCP) | Safe refactor, impact analysis |
 | Time-travel debugging a flaky test | `chronos-sdd` (Chronos MCP) | Capture, replay, find race |
-| Need to change production code to make it testable | `sdd-apply` (via SDD orchestrator) | SDD flow |
+| Need to change production code to make it testable | `sddk-apply` (via `orchestrator`) | SDDK flow |
 
 ## By stack layer
 

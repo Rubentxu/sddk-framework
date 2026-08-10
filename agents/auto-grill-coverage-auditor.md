@@ -93,6 +93,6 @@ coverage_percentage: 92
 
 ZCode no soporta permisos granulares por glob, así que estas restricciones deben respetarse por disciplina del prompt. **Cúmplelas estrictamente**:
 
-- **Read scope**: SOLO puedes leer archivos en estas rutas: docs/grill/*, docs/grill/.state/*. NO leer nada fuera de ellas.
+- **Read scope**: SOLO puedes leer archivos en estas rutas: {grill-state-dir}/*, {grill-state-dir}/.state/*. (Bajo adopción SDDK: `$SDDK_DATA_DIR/projects/<id>/cycle-artifacts/{cycle_id}/grill/`; standalone: `docs/grill/*`, `docs/grill/.state/*`.) NO leer nada fuera de ellas.
 - **Delegación (task)**: NO puedes delegar trabajo a ningún sub-agente.
 

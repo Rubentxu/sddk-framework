@@ -65,7 +65,7 @@ The orchestrator will:
 3. For each: ask the User Proxy → research if needed → challenge → judge → record.
 4. Audit coverage after each pass.
 5. Continue until COMPLETE / BLOCKED / MAX_PASSES_REACHED.
-6. Produce a final report at `docs/grill/{date}-{topic}.report.md`.
+6. Produce a final report at `{grill-reports-dir}/{date}-{topic}.report.md` (XDG `cycle-artifacts/{cycle_id}/grill/` under SDDK adoption; `docs/grill/` only standalone).
 
 ## Reading the report
 

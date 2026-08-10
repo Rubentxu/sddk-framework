@@ -7,7 +7,7 @@ description: >
   Trigger: Mandatory in all SDD phases. The LLM always produces entropy metrics.
   When CogniCode is available: quantitative estimation using call graphs and
   architecture analysis. When not: qualitative estimation using code reading heuristics.
-  Applies to: sdd-explore, sdd-propose, sdd-design, sdd-verify, sdd-archive.
+  Applies to: sddk-explore, sddk-propose, sddk-design, sddk-verify, sddk-archive.
 license: MIT
 metadata:
   author: rubentxu
@@ -216,9 +216,9 @@ Components:
 
 ---
 
-## Protocol A: Connascence Landscape (for sdd-explore)
+## Protocol A: Connascence Landscape (for sddk-explore)
 
-**When:** Mandatory in sdd-explore Step 3.
+**When:** Mandatory in sddk-explore Step 3.
 
 **Purpose:** Map all connascence pairs in the affected areas, identify
 hidden coupling (meaning/timing connascence), and surface critical pairs.
@@ -263,9 +263,9 @@ hidden coupling (meaning/timing connascence), and surface critical pairs.
 
 ---
 
-## Protocol B: Entropy Budget Prediction (for sdd-propose)
+## Protocol B: Entropy Budget Prediction (for sddk-propose)
 
-**When:** Mandatory in sdd-propose Step 3.
+**When:** Mandatory in sddk-propose Step 3.
 
 **Purpose:** Predict how much coupling this change will introduce before
 writing any code. Quantify OCP compliance.
@@ -313,9 +313,9 @@ writing any code. Quantify OCP compliance.
 
 ---
 
-## Protocol C: Information Bottleneck Interface Check (for sdd-design)
+## Protocol C: Information Bottleneck Interface Check (for sddk-design)
 
-**When:** Mandatory in sdd-design Step 2 (after architecture check).
+**When:** Mandatory in sddk-design Step 2 (after architecture check).
 
 **Purpose:** Validate that every new or modified interface is an optimal
 information bottleneck: minimizes I(X;T) while maximizing I(T;Y).
@@ -374,9 +374,9 @@ For each NEW or MODIFIED interface in the design:
 
 ---
 
-## Protocol D: Entropy Verification (for sdd-verify)
+## Protocol D: Entropy Verification (for sddk-verify)
 
-**When:** Mandatory in sdd-verify Step 5b (between TDD Compliance and Testing).
+**When:** Mandatory in sddk-verify Step 5b (between TDD Compliance and Testing).
 
 **Purpose:** Verify that the implementation did not worsen entropy metrics
 and that SOLID entropy principles are satisfied.
@@ -386,7 +386,7 @@ and that SOLID entropy principles are satisfied.
 ```
 1. Connascence Delta Audit:
    For each pair modified in this change:
-   a. Estimate I(A;B) BEFORE (from sdd-propose entropy budget)
+   a. Estimate I(A;B) BEFORE (from sddk-propose entropy budget)
    b. Estimate I(A;B) AFTER (from current codebase reading)
    c. ΔI = I_after - I_before
 
@@ -403,10 +403,10 @@ and that SOLID entropy principles are satisfied.
 
 3. Design Quality Score:
    Compute DQS using the formula in Section 2.
-   Compare against baseline from sdd-design (if available).
+   Compare against baseline from sddk-design (if available).
 
 4. Entropy Budget vs Actual:
-   Compare sdd-propose predictions against actual measurements.
+   Compare sddk-propose predictions against actual measurements.
    | Metric | Predicted | Actual | Delta | Status |
 ```
 
@@ -440,9 +440,9 @@ and that SOLID entropy principles are satisfied.
 
 ---
 
-## Protocol E: Entropy Trend (for sdd-archive)
+## Protocol E: Entropy Trend (for sddk-archive)
 
-**When:** Mandatory in sdd-archive Step 4 (after syncing specs).
+**When:** Mandatory in sddk-archive Step 4 (after syncing specs).
 
 **Purpose:** Record entropy metrics alongside archived specs and compare
 with previous archives to detect improving or degrading trends.
@@ -456,7 +456,7 @@ with previous archives to detect improving or degrading trends.
    c. SOLID-entropy compliance summary
 
 2. Check for previous archives:
-   a. Look for sdd-archive/{previous_change}/entropy-metrics
+   a. Look for sddk-archive/{previous_change}/entropy-metrics
    b. If found, compare:
       - DQS trend: improving / stable / degrading
       - Connascence pairs: fewer / same / more
@@ -547,19 +547,3 @@ Critical coupling (H > 5 bits): >10 files, circular dependencies
 - **DQS < 0.3 = NEEDS REFACTORING** — design quality is poor
 - **Report ALL metrics** in every phase — partial entropy data is insufficient
 - **Trend analysis** in archive is mandatory — always compare with previous if available
-
-## LogSeq Vault Persistence (when mode is logseq)
-
-When the artifact store mode is `logseq`, persist entropy metrics to the vault:
-
-### Connascence pairs with I > 3.0 bits (CRITICAL):
-- Create or update `Cross-cutting Concern: Connascence {A}-{B}` page
-- Set `concern-type:: connascence`, `consistency:: baja`
-- Link to both Component pages
-
-### Per-component entropy:
-- Update Component pages with `DQS::`, entropy metrics
-- Set `metodo:: Heuristico` or `metodo:: CogniCode` as applicable
-
-### After sdd-archive:
-- Update Proyecto page with entropy trend in Architecture Delta section

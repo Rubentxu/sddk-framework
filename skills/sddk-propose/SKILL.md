@@ -23,27 +23,22 @@ Take the exploration analysis (or direct user input) and produce a structured pr
 ## Hard Rules
 
 - ALWAYS include the **Capabilities** section — it is the contract with sddk-spec.
-- Research existing capabilities (e.g., `openspec/specs/`) BEFORE writing Capabilities — use correct existing names.
 - Every proposal MUST have a **Rollback Plan** and **Success Criteria**.
 - Use concrete file paths in Affected Areas.
 - If existing proposal found, READ first and UPDATE.
-- Apply any `rules.proposal` from `openspec/config.yaml`.
 - **Size budget**: proposal MUST be under 450 words. Bullets and tables over prose.
 
 ## Capabilities Section Rules (the contract)
 
 ```
 ### New Capabilities
-<!-- Each becomes a new openspec/specs/<name>/spec.md (full spec).
-     Use kebab-case (e.g., user-auth, data-export). -->
+<!-- Each becomes a new full spec in XDG: $SDDK_DATA_DIR/projects/{project_id}/changes/{change_name}/specs/<name>/spec.md -->
 
 ### Modified Capabilities
-<!-- Each becomes a delta spec. Existing requirements are CHANGING (not just implementation).
-     Use existing spec names from openspec/specs/. -->
+<!-- Each becomes a delta spec. Existing requirements are CHANGING (not just implementation). -->
 ```
 
 - If nothing changes at spec level (pure refactor, config), explicitly write "None" under both — don't leave placeholders.
-- Use Existing Capability Names: research `openspec/specs/` first.
 
 ## Execution Steps
 
@@ -52,7 +47,7 @@ Take the exploration analysis (or direct user input) and produce a structured pr
 3. Define scope, approach, invariants, explicit unknowns.
 4. **Write Capabilities section** (this is the contract with sddk-spec).
 5. Identify knowledge gaps requiring escalation.
-6. Persist to `{cycle-artifacts-dir}/proposal`.
+6. Persist to `$SDDK_DATA_DIR/projects/{project_id}/changes/{change_name}/proposal.md`
 7. Return envelope.
 
 ## Proposal Template (use this exact structure)
@@ -76,10 +71,9 @@ Take the exploration analysis (or direct user input) and produce a structured pr
 ## Capabilities
 
 > This section is the CONTRACT between proposal and specs phases.
-> Research `openspec/specs/` before filling this in.
 
 ### New Capabilities
-<!-- Each becomes a new openspec/specs/<name>/spec.md. Kebab-case. -->
+<!-- Each becomes a new full spec. Use kebab-case names. -->
 - `<capability-name>`: <brief description>
 
 ### Modified Capabilities
@@ -117,11 +111,11 @@ Take the exploration analysis (or direct user input) and produce a structured pr
 ```markdown
 **Status**: success
 **Summary**: Proposal created for `{change-name}`. Defined scope, approach, and rollback plan.
-**Artifacts**: Engram `{cycle-artifacts-dir}/proposal` | `{cycle-artifacts-dir}/proposal.md`
+**Artifacts**: `$SDDK_DATA_DIR/projects/{project_id}/changes/{change_name}/proposal.md`
 **Change**: {change-name}
 **Capabilities**:
-- New: {N} (each will become openspec/specs/<name>/spec.md)
-- Modified: {M} (each will become a delta spec)
+- New: {N}
+- Modified: {M}
 **Risk Level**: {Low/Medium/High}
 **Next**: sddk-spec
 **Risks**: {list or "None"}
@@ -129,17 +123,17 @@ Take the exploration analysis (or direct user input) and produce a structured pr
 
 ## CLI Contract (sddk ledger)
 
-When the project is adopted (`sddk cycle status --root . --scope .` exits 0), register the proposal artifact in the cycle ledger BEFORE returning (proposal has no own workflow transition — it feeds the specify transition):
+When the project is adopted (`sddk cycle status --root . --scope .` exits 0), register the proposal artifact in the cycle ledger BEFORE returning:
 
 ```
 sddk artifact store --root . --scope . --file {proposal-file} --kind proposal --cycle {cycle_id} --producer sddk-kernel
 sddk ledger verify --root . --scope .
 ```
 
-In `engram` mode, materialize the proposal to a temp file first. A failed store is a BLOCKER: report it in the envelope and do not proceed. Full protocol: `skills/_shared/persistence-contract.md` → CLI Ledger Channel.
+A failed store is a BLOCKER: report it in the envelope and do not proceed.
 
 ## References
 
-- `prompts/sdd-kernel/phases/propose.md` — full phase spec
-- `prompts/sdd-kernel/decision-model.md` — context quality, path selection
+- `prompts/sddk/phases/propose.md` — full phase spec
+- `prompts/sddk/decision-model.md` — context quality, path selection
 - `skills/_shared/sddk-phase-common.md` — shared protocol

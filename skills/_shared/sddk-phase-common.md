@@ -8,19 +8,22 @@ Executor boundary: every SDDK phase agent is an EXECUTOR, not an orchestrator. D
 
 1. Check if the orchestrator injected a `## Skills to load before work` block in your launch prompt. If yes, read those exact `SKILL.md` files before task-specific work.
 2. If no skills block was provided, check for `SKILL: Load` instructions. If present, load those exact skill files.
-3. If neither was provided, search for the skill registry as a fallback:
-   a. `mem_search(query: "skill-registry", project: "{project}")` — if found, `mem_get_observation(id)` for full content
-   b. Fallback: read `.atl/skill-registry.md` from the project root if it exists
-   c. From the registry's skills index, match triggers to your task and read the exact listed `SKILL.md` paths.
+3. If neither was provided, read `{project-data-dir}/skill-registry.md` when
+   the orchestrator supplied that XDG path, then match triggers and load exact
+   `SKILL.md` paths.
 4. If no registry exists, proceed with your phase skill only.
 
 NOTE: the preferred path is (1) — exact skill paths selected by the orchestrator. Paths (2) and (3) are fallbacks. Searching the registry is SKILL LOADING, not delegation. If `## Skills to load before work` is present, IGNORE redundant `SKILL: Load` instructions.
 
-## B. Artifact Retrieval (Engram Mode)
+## B. Artifact Retrieval
 
-**CRITICAL**: `mem_search` returns 300-char PREVIEWS, not full content. You MUST call `mem_get_observation(id)` for EVERY artifact. **Skipping this produces wrong output.**
+Read dependencies directly from `{cycle-artifacts-dir}` and durable knowledge
+from `{vault}`. These filesystem authorities always take precedence.
 
-**Run all searches in parallel** — do NOT search sequentially.
+When the resolved knowledge profile enables Engram, it may be queried for
+recovery context. `mem_search` returns previews, so call `mem_get_observation`
+before using any result. Engram never replaces a missing authoritative
+artifact.
 
 ```
 mem_search(query: "sddk/{change-name}/{artifact-type}", project: "{project}") → save ID
@@ -38,7 +41,13 @@ Do NOT use search previews as source material.
 
 Every phase that produces an artifact MUST persist it. Skipping this BREAKS the pipeline — downstream phases will not find your output.
 
-### Engram mode
+### File System (always)
+
+Write to `{cycle-artifacts-dir}/{artifact}.md`.
+
+### Engram Memory (optional)
+
+If `sddk knowledge status` reports `engram_enabled: true`, also call:
 
 ```
 mem_save(
@@ -53,18 +62,6 @@ mem_save(
 
 `topic_key` enables upserts — saving again updates, not duplicates.
 `capture_prompt: false` is mandatory for SDDK artifacts because they are automated pipeline outputs, not human/proactive memory saves.
-
-### OpenSpec mode
-
-File was already written during the phase's main step. No additional action needed.
-
-### Hybrid mode
-
-Do BOTH: write the file to the filesystem AND call `mem_save` as above.
-
-### None mode
-
-Return result inline only. Do not write any files or call `mem_save`.
 
 ## D. Return Envelope
 
@@ -85,7 +82,7 @@ Example:
 ```markdown
 **Status**: success
 **Summary**: Design created for `{change-name}`. Defined architecture, interfaces, and data flows.
-**Artifacts**: Engram `sddk/{change-name}/design`
+**Artifacts**: `{cycle-artifacts-dir}/design.md`
 **Next**: sddk-tasks
 **Risks**: None
 **Skill Resolution**: paths-injected

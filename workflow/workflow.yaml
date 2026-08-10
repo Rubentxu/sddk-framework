@@ -401,6 +401,8 @@ transitions:
         name: release-receipt
       - kind: gate
         name: no-pending-effects
+      - kind: gate
+        name: release-uat-approved
     produces:
       - merge-receipt
       - release-receipt

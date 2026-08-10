@@ -122,4 +122,4 @@ rationale: {one sentence}
 
 ## References
 
-- `prompts/sdd-kernel/phases/debt-verify.md` — parent phase spec
+- `prompts/sddk/phases/debt-verify.md` — parent phase spec

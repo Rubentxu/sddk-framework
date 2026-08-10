@@ -51,3 +51,6 @@ jobs:
 
       - name: Run adoption contract tests
         run: bash tests/test_adoption_contract.sh
+
+      - name: Run zero-intrusion + namespace contract tests
+        run: bash tests/test_zero_intrusion.sh

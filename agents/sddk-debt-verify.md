@@ -100,7 +100,7 @@ Per Re-Iteration Decision Matrix in SKILL.md.
 
 ## Output Contract
 
-Return the **Debt Report** in the schema defined in `prompts/sdd-kernel/phases/debt-verify.md` plus the standard envelope:
+Return the **Debt Report** in the schema defined in `prompts/sddk/phases/debt-verify.md` plus the standard envelope:
 
 ```yaml
 status: success | partial | blocked
@@ -136,7 +136,7 @@ Execute the `## CLI Contract (sddk ledger)` section of `skills/sddk-debt-verify/
 ## References
 
 - `skills/sddk-debt-verify/SKILL.md` — full SKILL contract
-- `prompts/sdd-kernel/phases/debt-verify.md` — phase spec
+- `prompts/sddk/phases/debt-verify.md` — phase spec
 - `prompts/debt-verify/debt-{architecture,smells,duplication,coupling,overeng}-cluster.md` — cluster sub-agents
-- `prompts/sdd-kernel/orchestrator.md` — parent
-- `prompts/sdd-kernel/git-contract.md` — trunk-based discipline
+- `prompts/sddk/orchestrator.md` — parent
+- `prompts/sddk/git-contract.md` — trunk-based discipline

@@ -48,7 +48,7 @@ The orchestrator does NOT ask the user whether to run debt-verify, and does NOT 
 - **Cluster agents are read-only on the codebase** — they audit and emit findings, never modify code.
 - **Do NOT fix issues yourself** — emit `debt-report.md` with verdict and `re_iterate_from` recommendation.
 - **Trunk-based discipline**: if any cluster finds CRITICAL findings that originated on `main` (not introduced by this branch), flag `pre_existing_main_debt` and create a follow-up incidence. Do not open a nested cycle.
-- Persist `debt-report` per artifact store mode (Engram, openspec, hybrid, inline for `none`).
+- Persist `debt-report` to `$SDDK_DATA_DIR/projects/{project_id}/changes/{change_name}/debt-verify-report.md`. If `engram_memory: true`, also save to Engram.
 - Return the standard envelope.
 
 ## Decision Gates
@@ -107,7 +107,7 @@ B-direct: debt-verify not invoked.
 7. Merge findings into the **debt-report**.
 8. Apply Decision Gates → compute verdict.
 9. Emit `re_iterate_from: beginning | apply | none` based on the merged report.
-10. Persist `debt-report` per artifact store mode.
+10. Persist `debt-report` under `{cycle-artifacts-dir}`.
 11. Return envelope.
 
 ## Re-Iteration Decision Matrix
@@ -224,10 +224,10 @@ In `engram` mode, materialize the debt report to a temp file first. A failed sto
 
 ## References
 
-- `prompts/sdd-kernel/phases/debt-verify.md` — full phase spec
+- `prompts/sddk/phases/debt-verify.md` — full phase spec
 - `prompts/debt-verify/sddk-debt-verify.md` — this agent's prompt
 - `prompts/debt-verify/debt-{architecture,smells,duplication,coupling,overeng}-cluster.md` — cluster sub-agents
-- `prompts/sdd-kernel/orchestrator.md` — parent orchestrator
-- `prompts/sdd-kernel/mcw.md` — Mandatory Complete Workflow (Step 2.4)
-- `prompts/sdd-kernel/git-contract.md` — trunk-based discipline + fix-cycle branch naming
-- `prompts/sdd-kernel/metrics-schema.md` — telemetry metrics
+- `prompts/sddk/orchestrator.md` — parent orchestrator
+- `prompts/sddk/mcw.md` — Mandatory Complete Workflow (Step 2.4)
+- `prompts/sddk/git-contract.md` — trunk-based discipline + fix-cycle branch naming
+- `prompts/sddk/metrics-schema.md` — telemetry metrics

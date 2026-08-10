@@ -9,7 +9,7 @@ acquired:
 > **This file is the serialization lock.** If it exists and contains a milestone link, no new SDDK cycle can start.
 >
 > **Acquired** by the orchestrator at MCW Step 0.2 when a new cycle begins.
-> **Released** by `sdd-kernel-release` when the cycle closes (milestone status → completed).
+> **Released** by `sddk-release` when the cycle closes (milestone status → completed).
 
 ## Current Lock
 

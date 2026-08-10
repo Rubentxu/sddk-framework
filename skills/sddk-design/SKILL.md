@@ -28,7 +28,7 @@ Take the proposal + spec and produce a design document. The design captures **HO
 - Use the project's ACTUAL patterns and conventions, not generic best practices.
 - If the codebase uses a pattern different from what you'd recommend, note it but FOLLOW the existing pattern unless the change specifically addresses it.
 - Keep ASCII diagrams simple — clarity over beauty.
-- Apply any `rules.design` from `openspec/config.yaml`.
+- Follow the design patterns established in the project.
 - If open questions BLOCK the design, say so clearly — don't guess.
 - **Size budget**: design MUST be under 800 words. Decisions as tables (option | tradeoff | decision). Code snippets only for non-obvious patterns.
 
@@ -137,7 +137,7 @@ If none apply, proceed without them. Token economy is a feature.
 ## Design Created
 
 **Change**: {change-name}
-**Location**: `{cycle-artifacts-dir}/design.md` (openspec/hybrid) | Engram `{cycle-artifacts-dir}/design` (engram) | inline (none)
+**Location**: `$SDDK_DATA_DIR/projects/{project_id}/changes/{change_name}/design.md`
 
 ### Summary
 - **Approach**: {one-line technical approach}
@@ -167,8 +167,8 @@ A failed evaluate-gate or transition is a BLOCKER: report it in the envelope and
 
 ## References
 
-- `prompts/sdd-kernel/phases/design.md` — full phase spec
-- `prompts/sdd-kernel/decision-model.md` — knowledge contract
-- `prompts/sdd-kernel/lens-registry.md` — available lenses
+- `prompts/sddk/phases/design.md` — full phase spec
+- `prompts/sddk/decision-model.md` — knowledge contract
+- `prompts/sddk/lens-registry.md` — available lenses
 - `skills/_shared/sddk-phase-common.md` — shared protocol
-- `prompts/sdd-kernel/adr-template.md` — ADR format
+- `prompts/sddk/adr-template.md` — ADR format

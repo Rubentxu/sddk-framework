@@ -71,9 +71,6 @@ agents:
   debt-smells-cluster:
     phases: []
     capabilities: []
-  gentle-orchestrator:
-    phases: []
-    capabilities: []
   impeccable-primary:
     phases: []
     capabilities: []
@@ -96,78 +93,48 @@ agents:
       - git.push
       - pr.create
       - release.create
-  sdd-apply:
+  sddk-adopt:
     phases: []
     capabilities: []
-  sdd-archive:
-    phases: []
-    capabilities: []
-  sdd-design:
-    phases: []
-    capabilities: []
-  sdd-explore:
-    phases: []
-    capabilities: []
-  sdd-init:
-    phases: []
-    capabilities: []
-  sdd-kernel-apply:
+  sddk-apply:
     phases: ['build', 'verify']
     capabilities:
       - git.inspect
       - git.commit
-  sdd-kernel-archive:
+  sddk-archive:
     phases: []
     capabilities: []
-  sdd-kernel-coherence:
-    phases: []
-    capabilities: []
-  sdd-kernel-design:
-    phases: []
-    capabilities: []
-  sdd-kernel-explore:
-    phases: []
-    capabilities: []
-  sdd-kernel-init:
-    phases: []
-    capabilities: []
-  sdd-kernel-propose:
-    phases: []
-    capabilities: []
-  sdd-kernel-release:
-    phases: []
-    capabilities: []
-  sdd-kernel-spec:
-    phases: []
-    capabilities: []
-  sdd-kernel-tasks:
-    phases: []
-    capabilities: []
-  sdd-kernel-verify:
-    phases: ['verify']
-    capabilities:
-      - git.inspect
-  sdd-onboard:
-    phases: []
-    capabilities: []
-  sdd-propose:
-    phases: []
-    capabilities: []
-  sdd-spec:
-    phases: []
-    capabilities: []
-  sdd-tasks:
-    phases: []
-    capabilities: []
-  sdd-verify:
-    phases: []
-    capabilities: []
-  sddk-adopt:
+  sddk-coherence:
     phases: []
     capabilities: []
   sddk-debt-verify:
     phases: ['verify']
     capabilities: []
+  sddk-design:
+    phases: []
+    capabilities: []
+  sddk-explore:
+    phases: []
+    capabilities: []
+  sddk-init:
+    phases: []
+    capabilities: []
+  sddk-propose:
+    phases: []
+    capabilities: []
+  sddk-release:
+    phases: []
+    capabilities: []
+  sddk-spec:
+    phases: []
+    capabilities: []
+  sddk-tasks:
+    phases: []
+    capabilities: []
+  sddk-verify:
+    phases: ['verify']
+    capabilities:
+      - git.inspect
   analytics-researcher:
     phases: ['verify']
     capabilities: [ledger.read]
@@ -212,4 +179,16 @@ agents:
     capabilities: []
   ui-auditor:
     phases: []
+    capabilities: []
+  uat-guide:
+    phases: ['uat']
+    capabilities: []
+  uat-planner:
+    phases: ['uat']
+    capabilities: []
+  uat-reporter:
+    phases: ['uat']
+    capabilities: []
+  uat-runner:
+    phases: ['uat']
     capabilities: []

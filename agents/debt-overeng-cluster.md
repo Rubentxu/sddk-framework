@@ -127,4 +127,4 @@ rationale: {one sentence}
 - `skills/ponytail-audit/SKILL.md`
 - `skills/ponytail-debt/SKILL.md`
 - GitHub: https://github.com/DietrichGebert/ponytail
-- `prompts/sdd-kernel/phases/debt-verify.md` — parent phase spec
+- `prompts/sddk/phases/debt-verify.md` — parent phase spec

@@ -36,11 +36,13 @@ MAX_RESEARCH_ROUNDS_PER_QUESTION = 3
 
 ### Resume detection
 
+`{grill-state-dir}` = `$SDDK_DATA_DIR/projects/<id>/cycle-artifacts/{cycle_id}/grill/.state/` under SDDK adoption (zero intrusion, ADR-0011); `docs/grill/.state/` only in standalone Gentle AI use.
+
 Before starting the loop, check for a previous session:
 
-1. Glob `docs/grill/.state/*.ledger.md` and `docs/grill/.state/*.summary.md`.
+1. Glob `{grill-state-dir}/*.ledger.md` and `{grill-state-dir}/*.summary.md`.
 2. If files exist AND today's date matches the date in the filename:
-   - Read `docs/grill/.state/CHECKPOINT.md` to get: last_pass, completed_cycles, working_summary.
+   - Read `{grill-state-dir}/CHECKPOINT.md` to get: last_pass, completed_cycles, working_summary.
    - Load the working summary into the current state.
    - Start from `last_pass + 1`.
    - Skip already-answered questions (deduplicate against ledger).
@@ -86,7 +88,7 @@ For each pass:
    - update working_summary
    - update ledger
    - enqueue follow-up questions
-4. CHECKPOINT: Write a checkpoint report to `docs/grill/.state/CHECKPOINT.md` with:
+4. CHECKPOINT: Write a checkpoint report to `{grill-state-dir}/CHECKPOINT.md` with:
    - Current pass number and max passes
    - Completed cycles count
    - Coverage snapshot
@@ -147,8 +149,8 @@ Track the current pass number and include it in:
 ZCode no soporta permisos granulares por glob, así que estas restricciones deben respetarse por disciplina del prompt. **Cúmplelas estrictamente**:
 
 - **Bash scope**: SOLO puedes ejecutar estos comandos: cat *, echo *, find *, git diff*, git status*, grep *, ls *, mkdir *, rg *, wc *. NO ejecutes ningún otro comando bash.
-- **Edit scope**: SOLO puedes editar archivos en estas rutas: <your-opencode-config>/**, docs/adr/drafts/**, docs/grill/**. NO editar nada fuera de ellas.
+- **Edit scope**: SOLO puedes editar archivos en estas rutas: <your-opencode-config>/**, {grill-drafts-dir}/**, {grill-state-dir}/**. (Bajo adopción SDDK: `{vault}/adrs/drafts/` y `$SDDK_DATA_DIR/projects/<id>/cycle-artifacts/{cycle_id}/grill/.state/`; standalone: `docs/adr/drafts/**`, `docs/grill/**`.) NO editar nada fuera de ellas.
 - **Skills**: SOLO puedes usar estos skills: auto-grill-loop.
 - **Delegación (task)**: SOLO puedes delegar trabajo a estos sub-agentes: auto-grill-*. NO invoques ningún otro.
-- **Write scope**: SOLO puedes escribir archivos en estas rutas: docs/CONTEXT.md, docs/adr/drafts/**, docs/grill/**. NO escribir nada fuera de ellas.
+- **Write scope**: SOLO puedes escribir archivos en estas rutas: {grill-drafts-dir}/**, {grill-state-dir}/**. (Bajo adopción SDDK: `{vault}/adrs/drafts/` y `$SDDK_DATA_DIR/projects/<id>/cycle-artifacts/{cycle_id}/grill/.state/`; standalone: `docs/adr/drafts/**`, `docs/grill/**`.) NO escribir nada fuera de ellas.
 

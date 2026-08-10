@@ -1,6 +1,6 @@
 ---
 name: _shared
-description: "Shared SDD references for installed skills. Not invokable."
+description: "Shared SDDK references for installed skills. Not invokable."
 disable-model-invocation: true
 user-invocable: false
 license: MIT
@@ -11,8 +11,8 @@ metadata:
 
 ## Purpose
 
-This directory stores shared reference documents consumed by real SDD skills
-(for example: `sdd-phase-common.md`, `persistence-contract.md`).
+This directory stores shared reference documents consumed by real SDDK skills
+(for example: `sddk-phase-common.md`, `persistence-contract.md`).
 
 ## Not Invokable
 

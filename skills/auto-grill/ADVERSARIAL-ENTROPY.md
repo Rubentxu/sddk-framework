@@ -1,6 +1,6 @@
 # Adversarial Entropy Metrics
 
-Inteligencia entrópica basada en métricas para el juicio adversarial en sdd-verify.
+Inteligencia entrópica basada en métricas para el juicio adversarial en sddk-verify.
 
 ## Concepto
 
@@ -142,12 +142,12 @@ python3 adversarial-metrics.py --spec-alignment --file findings.json
 python3 adversarial-metrics.py --json --file findings.json
 ```
 
-## Integración con sdd-verify
+## Integración con sddk-verify
 
 El flujo completo:
 
 ```
-sdd-verify Step 7 (Adversarial Entropy Judgment):
+sddk-verify Step 7 (Adversarial Entropy Judgment):
 │
 ├── 7.1 Lanzar 2 jueces adversariales (delegación paralela)
 │    Cada juez:
@@ -172,8 +172,8 @@ sdd-verify Step 7 (Adversarial Entropy Judgment):
 │    └── Añadir al reporte
 │
 ├── 7.5 Correction Cycle (orchestrator)
-│    ├── IF CRITICAL findings → delegate sdd-apply with fix list
-│    ├── After fix → re-run sdd-verify (solo Steps 7.1-7.3)
+│    ├── IF CRITICAL findings → delegate sddk-apply with fix list
+│    ├── After fix → re-run sddk-verify (solo Steps 7.1-7.3)
 │    ├── Max 2 iterations → then ESCALATE
 │    └── Clean → APPROVED
 │

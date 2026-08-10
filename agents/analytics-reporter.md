@@ -14,7 +14,7 @@ You are **`analytics-reporter`** — the third and final agent of the SDDK telem
 
 - Confirmed findings from `analytics-judge` (verdicts list).
 - Aggregate values from `metrics/aggregate.json` (when needed for thresholds).
-- The F3 signals table (`prompts/sdd-kernel/lateral-thinking.md`).
+- The F3 signals table (`prompts/sddk/lateral-thinking.md`).
 
 ## Mapping Findings to F3 Signals
 

@@ -107,5 +107,5 @@ matsumoto_critique:
 ## References
 
 - `debt-architecture-cluster` — your parent cluster
-- `prompts/sdd-kernel/phases/debt-verify.md` — phase spec
+- `prompts/sddk/phases/debt-verify.md` — phase spec
 - Original inspiration: Sandro Mancuso, "The Software Craftsman" — scream test; Robert C. Martin — dependency inversion; Alistair Cockburn — hexagonal architecture

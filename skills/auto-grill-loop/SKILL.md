@@ -68,14 +68,16 @@ RESEARCH_CONFIDENCE_THRESHOLD = 0.7  (research only below this)
 
    d. ORCHESTRATOR PERSISTENCE:
       → Append all decisions to ledger
-      → If ADR candidates → write draft files to docs/adr/drafts/
+      → If ADR candidates → write draft files to `{grill-drafts-dir}/`
       → Write checkpoint (pass#, coverage%, summary, next questions)
       → If COMPLETE or pass >= MAX → break
 
 3. FINAL REPORT (Judge-Reporter produces):
    → Full report from ledger
-   → Orchestrator writes to docs/grill/{date}-{topic}.report.md
+   → Orchestrator writes to `{grill-reports-dir}/{date}-{topic}.report.md`
 ```
+
+> **Path resolution (zero-intrusion, ADR-0011):** `{grill-drafts-dir}` = `{vault}/adrs/drafts/` and `{grill-reports-dir}` / `{grill-state-dir}` = `$SDDK_DATA_DIR/projects/<id>/cycle-artifacts/{cycle_id}/grill/` when the project is adopted into SDDK. Standalone Gentle AI use (no SDDK adoption) falls back to `docs/adr/drafts/` and `docs/grill/` in the repo. Never write grill artifacts inside an adopted workspace.
 
 ## Agent Instructions (passed by orchestrator to each sub-agent)
 
@@ -142,10 +144,10 @@ Return decisions, ADR candidates, coverage, and CONTINUE/COMPLETE.
 
 | Artifact | Format | When | Location |
 |----------|--------|------|----------|
-| **Ledger** | Tabular markdown, one file | Updated after each Judge-Reporter cycle | `docs/grill/.state/{date}-{topic}.ledger.md` |
-| **Checkpoint** | Compact markdown | After each pass | `docs/grill/.state/CHECKPOINT.md` |
-| **ADR Drafts** | Individual markdown files | When Judge-Reporter identifies candidates | `docs/adr/drafts/DRAFT-{slug}.md` |
-| **Final Report** | Structured markdown | End of loop | `docs/grill/{date}-{topic}.report.md` |
+| **Ledger** | Tabular markdown, one file | Updated after each Judge-Reporter cycle | `{grill-state-dir}/{date}-{topic}.ledger.md` |
+| **Checkpoint** | Compact markdown | After each pass | `{grill-state-dir}/CHECKPOINT.md` |
+| **ADR Drafts** | Individual markdown files | When Judge-Reporter identifies candidates | `{grill-drafts-dir}/DRAFT-{slug}.md` |
+| **Final Report** | Structured markdown | End of loop | `{grill-reports-dir}/{date}-{topic}.report.md` |
 
 ### Ledger Format (compact, progressive)
 
@@ -174,7 +176,7 @@ Return decisions, ADR candidates, coverage, and CONTINUE/COMPLETE.
 - **Evidence**: Insufficient
 - **Confidence**: 0.4
 - **Classification**: NEEDS_VALIDATION
-- **ADR candidate**: Yes → docs/adr/drafts/DRAFT-{slug}.md
+- **ADR candidate**: Yes → `{grill-drafts-dir}/DRAFT-{slug}.md`
 
 ## Pass 2
 ...
@@ -242,7 +244,7 @@ the full history, just the current decisions and their specific task.
 4. **You handle failures** — retry failed agent once, escalate if fails again.
 5. **You control context** — pass only what each agent needs, not the full state.
 6. **You write ADR drafts** — when Judge-Reporter flags candidates.
-7. **You never modify source code** — only write under docs/grill/ and docs/adr/drafts/.
+7. **You never modify source code** — only write under `{grill-drafts-dir}/` and `{grill-state-dir}/` / `{grill-reports-dir}/` (XDG under SDDK adoption, per ADR-0011; `docs/grill/` + `docs/adr/drafts/` only standalone).
 8. **You never ask the user during the loop.**
 
 ## Coverage Dimensions

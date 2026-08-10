@@ -139,7 +139,8 @@ Out of scope:
 `auto-grill-loop-orchestrator` writes the final report to:
 
 ```
-docs/grill/{YYYY-MM-DD}-auto-grill-{topic-slug}.report.md
+`{grill-reports-dir}/{YYYY-MM-DD}-auto-grill-{topic-slug}.report.md`
+(under SDDK adoption: `$SDDK_DATA_DIR/projects/<id>/cycle-artifacts/{cycle_id}/grill/` — ADR-0011; standalone: `docs/grill/`)
 ```
 
 Read the report. Map each "accepted decision" to one or more test cases. Surface "decisions requiring user validation" to the user before writing tests. Use "rejected alternatives" to write tests that assert the rejected behavior is rejected.

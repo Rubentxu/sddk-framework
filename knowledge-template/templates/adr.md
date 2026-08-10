@@ -56,7 +56,7 @@ stale_after: <% tp.date.now("YYYY-MM-DD", 365) %>
 | [[auth]] | [[REQ-Session-Expiration]] | Defines HOW sessions expire |
 | [[auth]] | [[REQ-Token-Refresh]] | Refresh depends on this ADR |
 
-## Implementation Log (append-only — updated by `sdd-kernel-release`)
+## Implementation Log (append-only — updated by `sddk-release`)
 
 > One entry per cycle that touches this ADR. Do not edit existing entries.
 

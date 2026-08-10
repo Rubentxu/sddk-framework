@@ -8,20 +8,20 @@ metadata:
   author: gentleman-programming
   version: "1.0"
   delegate_only: true
-  source_of_truth: prompts/sdd-kernel/git-contract.md
+  source_of_truth: prompts/sddk/git-contract.md
 ---
 
-> **ORCHESTRATOR GATE**: If you loaded this skill, STOP. Delegate to `sdd-kernel-release`. Do NOT execute inline.
+> **ORCHESTRATOR GATE**: If you loaded this skill, STOP. Delegate to `sddk-release`. Do NOT execute inline.
 
 ## Executor Override
 
-If you ARE the `sdd-kernel-release` sub-agent, continue. Run the **SDDK Release Checklist** end-to-end. Do NOT delegate further. Do NOT loop back to other SDDK phases.
+If you ARE the `sddk-release` sub-agent, continue. Run the **SDDK Release Checklist** end-to-end. Do NOT delegate further. Do NOT loop back to other SDDK phases.
 
 ## Mandatory Post-Archive
 
-`sdd-kernel-release` is **mandatory** after a successful `sdd-kernel-archive`. There is no opt-out. The release phase is what closes the loop back to `main` — without it, feature branches rot, semver tags are missed, and the ROADMAP drifts from reality.
+`sddk-release` is **mandatory** after a successful `sddk-archive`. There is no opt-out. The release phase is what closes the loop back to `main` — without it, feature branches rot, semver tags are missed, and the ROADMAP drifts from reality.
 
-`prompts/sdd-kernel/git-contract.md` is the **single source of truth** for git invariants. This skill references it; do not duplicate its rules.
+`prompts/sddk/git-contract.md` is the **single source of truth** for git invariants. This skill references it; do not duplicate its rules.
 
 ## Activation Contract
 
@@ -82,7 +82,7 @@ You MUST complete every step. Missing a step is a release failure.
    git merge-base --is-ancestor "$MERGE_SHA" origin/main
    ```
 7. **`semver-tag`** — Compute bump from commits/footers. `git tag -a v<major>.<minor>.<patch> -m "<type>: <description>"` then `git push origin v<...>`. Bump rules: see `git-contract.md` § Lifecycle Overview rule 8.
-8. **`html-closing-report`** — Render the cycle's HTML closing report per `prompts/sdd-kernel/HTML-REPORT.md`. Path: `{engram|none: /tmp/sddk-{change}-{YYYYMMDD}.html}` or `{openspec|hybrid: {cycle-artifacts-dir}/changes/archive/{date}-{change}/reports/cierre.html}`. Skip on A-min unless tag is minor/major; skip on B-direct unless tag is major.
+8. **`html-closing-report`** — Render the cycle's HTML closing report per `prompts/sddk/HTML-REPORT.md`. Path: `$SDDK_DATA_DIR/projects/{project_id}/changes/{change_name}/reports/cierre.html`. Skip on A-min unless tag is minor/major; skip on B-direct unless tag is major.
 9. **`close-tracking-issue`** — Find open issues referencing `<change-name>` or the PR. `gh issue close <num> --comment "Completed in PR #<n>. Released as v<version>."`. If no tracking issue → no-op.
 10. **`update-knowledge-graph`** — Update milestone, touched ADRs, touched requirements, and cycle manifest in the external vault. This is blocking: retain the lock if any update fails.
 11. **`release-lock`** — Mark `milestones/_active.md` AVAILABLE only after the graph update succeeds.
@@ -149,8 +149,8 @@ A failed evaluate-gate or transition is a BLOCKER: report it in the envelope and
 
 ## References
 
-- `prompts/sdd-kernel/git-contract.md` — git invariants (source of truth)
-- `prompts/sdd-kernel/HTML-REPORT.md` — HTML report format
-- `prompts/sdd-kernel/roadmap-template.md` — ROADMAP update format
+- `prompts/sddk/git-contract.md` — git invariants (source of truth)
+- `prompts/sddk/HTML-REPORT.md` — HTML report format
+- `prompts/sddk/roadmap-template.md` — ROADMAP update format
 - `skills/sddk-archive/SKILL.md` — predecessor, hands off to release
-- `prompts/sdd-kernel/phases/release.md` — full agent prompt
+- `prompts/sddk/phases/release.md` — full agent prompt

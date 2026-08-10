@@ -37,7 +37,7 @@
       "type": "array",
       "items": {
         "type": "string",
-        "enum": ["OPEN", "BLOCKED", "REMEDIATING", "RELEASE_PENDING", "RELEASED", "CLOSED", "ABANDONED", "RECOVERING"]
+        "enum": ["OPEN", "BLOCKED", "REMEDIATING", "UAT_WAITING", "RELEASE_PENDING", "RELEASED", "CLOSED", "ABANDONED", "RECOVERING"]
       },
       "minItems": 1,
       "uniqueItems": true
@@ -46,7 +46,7 @@
       "type": "array",
       "items": {
         "type": "string",
-        "enum": ["explore", "specify", "design", "plan", "build", "verify", "review", "release", "archive"]
+        "enum": ["explore", "specify", "design", "plan", "build", "verify", "uat", "review", "release", "archive"]
       },
       "minItems": 1,
       "uniqueItems": true

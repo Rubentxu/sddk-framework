@@ -436,4 +436,4 @@ skill(name="impeccable")  # then load reference/<command>.md
 - **GitHub**: https://github.com/pbakaus/impeccable
 - **CLI**: `npx impeccable --help`
 - **Local references**: `docs/impeccable-reference/`
-- **SDDK routing**: `prompts/sdd-kernel/orchestrator.md` § Path D
+- **SDDK routing**: `prompts/sddk/orchestrator.md` § Path D

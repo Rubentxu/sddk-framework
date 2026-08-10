@@ -21,7 +21,7 @@ If you ARE the `sddk-apply` sub-agent, continue. Implement the assigned tasks.
 From the orchestrator:
 - Change name
 - Specific tasks to implement
-- Artifact store mode
+- Cycle artifacts directory and knowledge profile
 
 ## Execution Steps
 
@@ -34,7 +34,7 @@ From the orchestrator:
 7. Persist progress to `{cycle-artifacts-dir}/apply-progress`
 8. Return envelope
 
-Read `prompts/sdd-kernel/phases/apply.md` for the full phase spec.
+Read `prompts/sddk/phases/apply.md` for the full phase spec.
 Read `skills/_shared/sddk-phase-common.md` for common protocol.
 
 ## CLI Contract (sddk ledger)

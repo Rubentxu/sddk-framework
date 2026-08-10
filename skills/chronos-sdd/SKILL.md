@@ -2,9 +2,9 @@
 name: chronos-sdd
 description: >
   Chronos runtime evidence integration for SDD phases.
-  Trigger: Automatic when any sdd-* sub-agent needs runtime behavior analysis,
+  Trigger: Automatic when any sddk-* sub-agent needs runtime behavior analysis,
   crash investigation, performance regression detection, or concurrency validation.
-  Applies to: sdd-explore (runtime bugs), sdd-verify (regression gate), sdd-apply (concurrency/memory features).
+  Applies to: sddk-explore (runtime bugs), sddk-verify (regression gate), sddk-apply (concurrency/memory features).
 license: MIT
 metadata:
   author: rubentxu
@@ -57,7 +57,7 @@ Key differences from native capture:
 
 ## When to Use Chronos in Each SDD Phase
 
-### sdd-explore — Runtime Evidence for Bug Investigations
+### sddk-explore — Runtime Evidence for Bug Investigations
 
 Use Chronos when the exploration topic involves **runtime behavior**: crashes,
 performance regressions, data races, or unexpected variable values.
@@ -92,7 +92,7 @@ If no runtime bug → skip Chronos entirely.
 
 ---
 
-### sdd-verify — Performance Regression Gate
+### sddk-verify — Performance Regression Gate
 
 **Always run when a Chronos baseline session exists** (stored in engram as
 `chronos-baseline/{project}`). This is the verify phase's structural equivalent
@@ -143,7 +143,7 @@ Add a **Chronos Regression Analysis** section to the verify-report:
 
 ---
 
-### sdd-apply — Concurrency and Memory Feature Validation
+### sddk-apply — Concurrency and Memory Feature Validation
 
 Use Chronos **after implementing** features that touch:
 - Multi-threading / async / channels

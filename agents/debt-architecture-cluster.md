@@ -175,4 +175,4 @@ rationale: {one sentence}
 - `skills/entropy-sdd/SKILL.md` — Protocol A–E (conceptual framework)
 - `skills/cognicode-sdd/SKILL.md` — quantitative path (when MCP available)
 - `skills/improve-codebase-architecture/SKILL.md` — deepening candidates
-- `prompts/sdd-kernel/phases/debt-verify.md` — parent phase spec
+- `prompts/sddk/phases/debt-verify.md` — parent phase spec

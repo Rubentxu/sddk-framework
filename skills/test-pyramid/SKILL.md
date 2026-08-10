@@ -92,7 +92,7 @@ Testing is the BEST time to find and fix production code bugs. When tests expose
 |---|---|---|
 | **Trivial** | Missing field assignment, inconsistent constructor, off-by-one | Fix directly. Write regression test first, watch it fail, then fix. |
 | **Moderate** | Logic error, missing validation, race condition | Fix directly. Optionally invoke `auto-grill` for one-shot adversarial review. |
-| **Systemic** | Design flaw across modules, duplicated data, missing error handling chain | Invoke `auto-grill-loop-orchestrator` to find ALL related occurrences. Then fix each, delegating complex refactors (>50 LOC) to `sdd-apply`. |
+| **Systemic** | Design flaw across modules, duplicated data, missing error handling chain | Invoke `auto-grill-loop-orchestrator` to find ALL related occurrences. Then fix each, delegating complex refactors (>50 LOC) to `sddk-apply`. |
 
 ### Workflow
 
@@ -107,7 +107,7 @@ Testing is the BEST time to find and fix production code bugs. When tests expose
 
 - Do NOT just document the bug and move on.
 - Do NOT write a test that "works around" the buggy behavior.
-- Do NOT refactor >50 LOC of production code without delegating to `sdd-apply`.
+- Do NOT refactor >50 LOC of production code without delegating to `sddk-apply`.
 - Do NOT fix bugs in code you haven't tested — the test proves the fix.
 
 ## Edge-Case Discovery with `auto-grill-loop`
@@ -138,7 +138,7 @@ The `auto-grill-loop-orchestrator` will:
 4. Judge each with a Judge.
 5. Audit coverage and continue until COMPLETE / BLOCKED / MAX_PASSES_REACHED.
 
-The output is a **final report** in `docs/grill/{date}-{topic}.report.md` with:
+The output is a **final report** in `{grill-reports-dir}/{date}-{topic}.report.md` (XDG `cycle-artifacts/{cycle_id}/grill/` under SDDK adoption; `docs/grill/` only standalone) with:
 - Accepted decisions (auto-resolved).
 - Modified decisions.
 - Decisions requiring user validation.
@@ -265,8 +265,8 @@ When invoked, produce or update:
 | Code intelligence (CogniCode MCP) | `cognicode-sdd` |
 | Time-travel debugging (Chronos MCP) | `chronos-sdd` |
 | Entropy-based design quality (SOLID, connascence) | `entropy-sdd` |
-| SDD full pipeline (proposal → apply → verify) | `sdd-onboard` (or use the SDD orchestrator agent) |
-| Production code fix (complex refactor >50 LOC) | `sdd-apply` |
+| SDDK full pipeline (proposal → apply → verify) | `orchestrator` |
+| Production code fix (complex refactor >50 LOC) | `sddk-apply` |
 
 ## Templates (load on demand from `assets/`)
 

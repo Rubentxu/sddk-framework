@@ -21,11 +21,13 @@ Do not invent missing information.
 - coverage_map: dimensions covered
 - working_summary: compressed state of all decisions
 - ledger: full Q/A history
-- adr_drafts: glob `docs/adr/drafts/DRAFT-*.md` to list existing draft ADRs
+- adr_drafts: glob `{grill-drafts-dir}/DRAFT-*.md` to list existing draft ADRs
 
 ## Output file
 
-Write to: `docs/grill/{YYYY-MM-DD}-auto-grill-{topic-slug}.report.md`
+Write to: `{grill-reports-dir}/{YYYY-MM-DD}-auto-grill-{topic-slug}.report.md`
+
+`{grill-drafts-dir}` = `{vault}/adrs/drafts/` and `{grill-reports-dir}` = `$SDDK_DATA_DIR/projects/<id>/cycle-artifacts/{cycle_id}/grill/` when the project is adopted into SDDK (zero intrusion, ADR-0011). Standalone Gentle AI use (no SDDK adoption) falls back to `docs/adr/drafts/` and `docs/grill/` in the repo.
 
 ## Report format
 
@@ -109,7 +111,7 @@ All identified risks with severity and mitigation.
 
 ## 15. ADR drafts generated during loop
 
-List all ADR drafts written to `docs/adr/drafts/` during the loop, with their status and confidence.
+List all ADR drafts written to `{grill-drafts-dir}` during the loop, with their status and confidence.
 
 | Draft file | Decision topic | Source cycle | Confidence | Needs review |
 |---|---|---|---|---|
@@ -148,7 +150,7 @@ No code implementation here — only a recommended direction and sequencing.
 
 ZCode no soporta permisos granulares por glob, así que estas restricciones deben respetarse por disciplina del prompt. **Cúmplelas estrictamente**:
 
-- **Edit scope**: SOLO puedes editar archivos en estas rutas: docs/grill/**. NO editar nada fuera de ellas.
+- **Edit scope**: SOLO puedes editar archivos en estas rutas: {grill-reports-dir}/**. (Bajo adopción SDDK: `$SDDK_DATA_DIR/projects/<id>/cycle-artifacts/{cycle_id}/grill/`; standalone: `docs/grill/**`.) NO editar nada fuera de ellas.
 - **Delegación (task)**: NO puedes delegar trabajo a ningún sub-agente.
-- **Write scope**: SOLO puedes escribir archivos en estas rutas: docs/grill/**. NO escribir nada fuera de ellas.
+- **Write scope**: SOLO puedes escribir archivos en estas rutas: {grill-reports-dir}/**. NO escribir nada fuera de ellas.
 

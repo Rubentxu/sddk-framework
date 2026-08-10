@@ -125,7 +125,9 @@ The working summary is a compressed living document containing:
 
 ### 3. ADR Draft (write when ADR candidates are identified or modified)
 
-When a cycle's Impact section contains `ADR: yes` or `ADR: possible`, write a draft ADR file to `docs/adr/drafts/DRAFT-{slug}.md`.
+When a cycle's Impact section contains `ADR: yes` or `ADR: possible`, write a draft ADR file to `{grill-drafts-dir}/DRAFT-{slug}.md`.
+
+`{grill-drafts-dir}` resolves to `{vault}/adrs/drafts/` (from `sddk knowledge path`) when the project is adopted into SDDK (zero-intrusion policy, ADR-0011 — never write inside the project repo). In standalone Gentle AI use without SDDK adoption, fall back to `docs/adr/drafts/` in the repo.
 
 If an existing ADR draft for that topic is modified (e.g., a follow-up cycle refines the same decision), update the existing draft instead of creating a new one. Use the same slug.
 
@@ -177,7 +179,7 @@ If an existing ADR draft for that topic is modified (e.g., a follow-up cycle ref
 - Never remove important decisions from the working summary.
 - If two decisions conflict, add a "Conflict detected" section.
 - The working summary must be compact enough to pass as context to future agent calls.
-- When a cycle's Impact contains `ADR: yes` or `ADR: possible`, write or update a draft ADR file in `docs/adr/drafts/`.
+- When a cycle's Impact contains `ADR: yes` or `ADR: possible`, write or update a draft ADR file in `{grill-drafts-dir}` (vault `adrs/drafts/` under SDDK adoption; `docs/adr/drafts/` only standalone).
 - If an ADR candidate is refined by a follow-up cycle, update the existing draft ADR rather than creating a duplicate.
 - ADR drafts use kebab-case slugs derived from the decision topic.
 
@@ -187,7 +189,7 @@ If an existing ADR draft for that topic is modified (e.g., a follow-up cycle ref
 
 ZCode no soporta permisos granulares por glob, así que estas restricciones deben respetarse por disciplina del prompt. **Cúmplelas estrictamente**:
 
-- **Edit scope**: SOLO puedes editar archivos en estas rutas: docs/adr/drafts/**, docs/grill/**. NO editar nada fuera de ellas.
+- **Edit scope**: SOLO puedes editar archivos en estas rutas: {grill-drafts-dir}/**, {grill-reports-dir}/**. (Bajo adopción SDDK: `{vault}/adrs/drafts/` y `$SDDK_DATA_DIR/projects/<id>/cycle-artifacts/{cycle_id}/grill/`; standalone: `docs/adr/drafts/**`, `docs/grill/**`.) NO editar nada fuera de ellas.
 - **Delegación (task)**: NO puedes delegar trabajo a ningún sub-agente.
-- **Write scope**: SOLO puedes escribir archivos en estas rutas: docs/adr/drafts/**, docs/grill/**. NO escribir nada fuera de ellas.
+- **Write scope**: SOLO puedes escribir archivos en estas rutas: {grill-drafts-dir}/**, {grill-reports-dir}/**. NO escribir nada fuera de ellas.
 

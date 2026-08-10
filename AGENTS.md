@@ -26,6 +26,16 @@ release se hace desde aquí. Ver §3 para el layout completo.
 
 ## 2. Convenciones duras (no negociables)
 
+### 2.0. Frontera de namespace
+
+- Gentle AI SDD y SDDK son sistemas distintos. Sus agentes, skills, prompts y
+  contratos de persistencia no se mezclan.
+- El nombre historico "SDD-kernel" designaba este mismo flujo y queda
+  normalizado a **SDDK**.
+- La unica superficie activa de este framework es `orchestrator`, `sddk-*` y
+  `prompts/sddk/`. No se crean aliases `sdd-*`, `sdd-kernel-*` ni
+  `gentle-orchestrator`.
+
 ### 2.1. Commits
 
 - **Conventional Commits** en español: `feat(uat): …`, `fix(uat): …`,

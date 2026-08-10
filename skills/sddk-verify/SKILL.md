@@ -29,7 +29,7 @@ You are the **quality gate**. Prove completion with source inspection plus real 
 - A spec scenario is compliant ONLY when a covering test passed at runtime.
 - Compare **specs first, design second, task completion third**.
 - **Do NOT fix issues** — report them for the orchestrator/user.
-- Persist `verify-report` per artifact store mode (Engram, openspec, hybrid, or inline for `none`).
+- Persist `verify-report` to `$SDDK_DATA_DIR/projects/{project_id}/changes/{change_name}/verify-report.md`. If `engram_memory: true`, also save to Engram.
 - If Strict TDD is active: load `phases/strict-tdd-verify.md`. **No silent fallback** — follow it or report failure.
 - Return the standard envelope.
 
@@ -220,7 +220,7 @@ A failed evaluate-gate or transition is a BLOCKER: report it in the envelope and
 
 ## References
 
-- `prompts/sdd-kernel/phases/verify.md` — full phase spec
-- `prompts/sdd-kernel/phases/strict-tdd-verify.md` — Strict TDD verify (load if active)
-- `prompts/sdd-kernel/decision-model.md` — knowledge contract
-- `prompts/sdd-kernel/metrics-schema.md` — telemetry metrics
+- `prompts/sddk/phases/verify.md` — full phase spec
+- `prompts/sddk/phases/strict-tdd-verify.md` — Strict TDD verify (load if active)
+- `prompts/sddk/decision-model.md` — knowledge contract
+- `prompts/sddk/metrics-schema.md` — telemetry metrics

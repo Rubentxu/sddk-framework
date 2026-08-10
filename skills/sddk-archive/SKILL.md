@@ -28,22 +28,17 @@ Merge delta specs into the main specs (source of truth), then move the change fo
 - Use ISO date format (`YYYY-MM-DD`) for archive folder prefix.
 - If the merge would be destructive (removing large sections), **WARN the orchestrator and ask for confirmation**.
 - The archive is an **AUDIT TRAIL** — never delete or modify archived changes.
-- If `{cycle-artifacts-dir}/changes/archive/` doesn't exist, create it.
-- Apply any `rules.archive` from `openspec/config.yaml`.
 
 ## Delta Spec Sync (the core operation)
 
-For each delta spec in `{cycle-artifacts-dir}/specs/`:
+For each delta spec in `$SDDK_DATA_DIR/projects/{project_id}/changes/{change_name}/specs/`:
 
-### If Main Spec Exists (`openspec/specs/{domain}/spec.md`)
+### If Main Spec Exists
 
-```
-FOR EACH SECTION in delta spec:
-├── ADDED Requirements     → Append to main spec's Requirements section
-├── MODIFIED Requirements  → Replace the matching requirement in main spec
-│                             (match by Requirement name; preserve all OTHER requirements)
-└── REMOVED Requirements   → Delete the matching requirement from main spec
-```
+Sync the delta spec into the main spec:
+- **ADDED Requirements** → Append to main spec's Requirements section
+- **MODIFIED Requirements** → Replace the matching requirement (match by Requirement name; preserve all OTHER requirements)
+- **REMOVED Requirements** → Delete the matching requirement from main spec
 
 **Match by Requirement name** (e.g., `### Requirement: Session Expiration`). Preserve all OTHER requirements that aren't in the delta. Maintain proper Markdown formatting and heading hierarchy.
 
@@ -54,55 +49,35 @@ FOR EACH SECTION in delta spec:
 
 ### If Main Spec Does NOT Exist
 
-The delta spec IS a full spec (not a delta). Copy it directly:
-
-```bash
-{cycle-artifacts-dir}/specs/{domain}/spec.md
-  → openspec/specs/{domain}/spec.md
-```
+The delta spec IS a full spec (not a delta). Copy it directly to `$SDDK_DATA_DIR/projects/{project_id}/specs/{domain}/spec.md`.
 
 ## Execution Steps
 
 1. Load skills per `skills/_shared/sddk-phase-common.md` Section A.
 2. Verify passing `verify-report` exists (verdict ∈ {PASS, PASS_WITH_WARNINGS}).
 3. **Sync delta specs to main specs** (above).
-4. **Move to archive** (Step 3 below).
-5. Verify archive completeness (Step 4).
+4. **Move to archive** at `$SDDK_DATA_DIR/projects/{project_id}/archive/YYYY-MM-DD-{change_name}/`
+5. Verify archive completeness.
 6. Persist archive report.
-7. Return envelope with the **release-handoff envelope**: `{ "ready_for_release": true, "change": "{name}", "branch": "{type}/{description}", "merge_policy": "{auto|guided|strict|null}" }`. The orchestrator MUST launch `sdd-kernel-release` on the next tick — no opt-in, no user prompt. See orchestrator.md § "Release Is Mandatory Post-Archive (v3.3, no opt-out)".
+7. Return envelope with the **release-handoff envelope**: `{ "ready_for_release": true, "change": "{name}", "branch": "{type}/{description}", "merge_policy": "{auto|guided|strict|null}" }`. The orchestrator MUST launch `sddk-release` on the next tick — no opt-in, no user prompt.
 
 ### Step 3 — Move to Archive
 
-**IF mode is `engram`:** Skip filesystem sync and move — artifacts live in Engram. The archive report in Engram serves as the audit trail.
-
-**IF mode is `none`:** Skip — no filesystem operations.
-
-**IF mode is `openspec` or `hybrid`:** Move the entire change folder to archive with date prefix:
-
+Move the entire change folder to archive:
 ```
-{cycle-artifacts-dir}/
-  → {cycle-artifacts-dir}/changes/archive/YYYY-MM-DD-{change-name}/
+$SDDK_DATA_DIR/projects/{project_id}/changes/{change_name}/
+  → $SDDK_DATA_DIR/projects/{project_id}/archive/YYYY-MM-DD-{change_name}/
 ```
-
-Use today's date in ISO format.
 
 ### Step 4 — Verify Archive
 
-**IF mode is `openspec` or `hybrid`:** Confirm:
-- [ ] Main specs updated correctly
-- [ ] Change folder moved to archive
-- [ ] Archive contains all artifacts (proposal, specs, design, tasks, verify-report)
-- [ ] Active changes directory no longer has this change
-
-**IF mode is `engram`:** Confirm all artifact observation IDs are recorded in the archive report.
-
-**IF mode is `none`:** Skip verification — no persisted artifacts.
+Confirm all artifact paths are recorded in the archive report.
 
 ### Step 5 — Persist Archive Report (MANDATORY)
 
 Follow `skills/_shared/sddk-phase-common.md` Section C:
 - artifact: `archive-report`
-- topic_key: `{cycle-artifacts-dir}/archive-report`
+- topic_key: `sddk/{change_name}/archive-report`
 - type: `architecture`
 
 Include in the archive report:
@@ -110,7 +85,6 @@ Include in the archive report:
 - **Knowledge impact**: which specs became stale, which ADRs were superseded.
 - **Entropy trend** (when `entropy-sdd` available): delta from pre-cycle to post-cycle.
 - **Jurisprudence candidate**: if cycle had `verify_verdict=PASS` + `first_pass_success=true` + reusable decision, flag for F3 jurisprudence save.
-- **Roadmap update**: change moves from "Active" to "Completed" in `docs/ROADMAP.md`.
 
 ## Return Format
 
@@ -118,7 +92,7 @@ Include in the archive report:
 ## Change Archived
 
 **Change**: {change-name}
-**Archived to**: `{cycle-artifacts-dir}/changes/archive/{YYYY-MM-DD}-{change-name}/` (openspec/hybrid) | Engram archive report (engram) | inline (none)
+**Archived to**: `$SDDK_DATA_DIR/projects/{project_id}/archive/YYYY-MM-DD-{change_name}/`
 
 ### Specs Synced
 
@@ -136,7 +110,7 @@ Include in the archive report:
 
 ### Source of Truth Updated
 The following specs now reflect the new behavior:
-- `openspec/specs/{domain}/spec.md`
+- `$SDDK_DATA_DIR/projects/{project_id}/specs/{domain}/spec.md`
 
 ### Knowledge Impact
 - Specs made stale: {list}
@@ -157,10 +131,10 @@ When the project is adopted (`sddk cycle status --root . --scope .` exits 0), re
    `sddk cycle transition --root . --scope . --cycle {cycle_id} --transition archive.complete --artifact archive-manifest={path} --gate-receipt {receipt_id} --lease-owner {lease_owner} --fencing-token {fencing_token}`
 3. Verify ledger integrity: `sddk ledger verify --root . --scope .`
 
-A failed evaluate-gate or transition is a BLOCKER: report it in the envelope and do not proceed. `{cycle_id}`, `{lease_owner}`, `{fencing_token}` come from the orchestrator launch prompt (the cycle is opened with `sddk cycle start`). Full protocol: `skills/_shared/persistence-contract.md` → CLI Ledger Channel.
+A failed evaluate-gate or transition is a BLOCKER: report it in the envelope and do not proceed.
 
 ## References
 
-- `prompts/sdd-kernel/phases/archive.md` — full phase spec
-- `prompts/sdd-kernel/decision-model.md` — knowledge contract, jurisprudence schema
-- `prompts/sdd-kernel/metrics-schema.md` — aggregate metrics
+- `prompts/sddk/phases/archive.md` — full phase spec
+- `prompts/sddk/decision-model.md` — knowledge contract, jurisprudence schema
+- `prompts/sddk/metrics-schema.md` — aggregate metrics

@@ -117,6 +117,6 @@ A failed evaluate-gate or transition is a BLOCKER: report it in the envelope and
 
 ## References
 
-- `prompts/sdd-kernel/phases/explore.md` — full phase spec
-- `prompts/sdd-kernel/decision-model.md` — context quality + taxonomy
+- `prompts/sddk/phases/explore.md` — full phase spec
+- `prompts/sddk/decision-model.md` — context quality + taxonomy
 - `skills/_shared/sddk-phase-common.md` — shared protocol

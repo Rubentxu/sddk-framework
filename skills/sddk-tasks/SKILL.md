@@ -27,7 +27,7 @@ Take the proposal + spec + design and produce a `tasks.md` with concrete, action
 - Each task should be completable in ONE session (if too big, split).
 - Use hierarchical numbering: 1.1, 1.2, 2.1, 2.2, etc.
 - NEVER include vague tasks like "implement feature" or "add tests".
-- Apply any `rules.tasks` from `openspec/config.yaml`.
+- Follow the established project conventions and patterns.
 - If project uses TDD, integrate test-first tasks: RED → GREEN → REFACTOR.
 - **Size budget**: tasks MUST be under 530 words. Each task: 1-2 lines max.
 - **Review workload guard**: ALWAYS include the Review Workload Forecast with exact plain-text lines.
@@ -188,7 +188,7 @@ Phase 2: Core Implementation
 ## Tasks Created
 
 **Change**: {change-name}
-**Location**: `{cycle-artifacts-dir}/tasks.md` (openspec/hybrid) | Engram `{cycle-artifacts-dir}/tasks` (engram) | inline (none)
+**Location**: `$SDDK_DATA_DIR/projects/{project_id}/changes/{change_name}/tasks.md`
 
 ### Breakdown
 
@@ -229,6 +229,6 @@ A failed evaluate-gate or transition is a BLOCKER: report it in the envelope and
 
 ## References
 
-- `prompts/sdd-kernel/phases/tasks.md` — full phase spec
-- `prompts/sdd-kernel/mcw.md` Step 1.7 (Review Budget Guard)
+- `prompts/sddk/phases/tasks.md` — full phase spec
+- `prompts/sddk/mcw.md` Step 1.7 (Review Budget Guard)
 - `skills/_shared/sddk-phase-common.md` — shared protocol
