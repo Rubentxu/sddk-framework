@@ -2365,7 +2365,7 @@ fn run_uat_run(args: UatRunArgs) -> CommandOutput {
             })?;
         // Fuente de la spec de ejecución: eje v3 `executor` (ADR-014) o
         // `automation` v2 heredado. El runner tipado es el mismo para ambos.
-        let (_executor_kind, ref_str) = if let Some(executor) = scenario.executor.as_ref() {
+        let (executor_kind, ref_str) = if let Some(executor) = scenario.executor.as_ref() {
             match executor.kind {
                 sddk_domain::UatExecutorKind::Cli | sddk_domain::UatExecutorKind::Script => {
                     let command = executor.command.as_deref().ok_or_else(|| {
@@ -2377,8 +2377,17 @@ fn run_uat_run(args: UatRunArgs) -> CommandOutput {
                     })?;
                     (executor.kind, command.to_owned())
                 }
+                sddk_domain::UatExecutorKind::Playwright => {
+                    let url = executor.url.as_deref().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "scenario {} executor kind=playwright but url is empty",
+                            scenario.id
+                        )
+                    })?;
+                    (executor.kind, url.to_owned())
+                }
                 other => anyhow::bail!(
-                    "scenario {} executor kind={} is not runnable by `uat run` yet; use cli|script (playwright/computer_use arrive in F2/F8)",
+                    "scenario {} executor kind={} is not runnable by `uat run` yet; use cli|script|playwright (computer_use arrives in F8)",
                     scenario.id,
                     uat_executor_kind_str(other)
                 ),
@@ -2408,79 +2417,275 @@ fn run_uat_run(args: UatRunArgs) -> CommandOutput {
             )
         };
 
-        // Typed argv split — first token is the program, rest are args.
-        let tokens: Vec<String> = ref_str.split_whitespace().map(str::to_owned).collect();
-        let (program, argv) = tokens
-            .split_first()
-            .ok_or_else(|| anyhow::anyhow!("scenario {} executor command is empty", scenario.id))?;
-        let spec = sddk_gateway::RunSpec {
-            program: program.clone(),
-            args: argv.to_vec(),
-            env: Default::default(),
-            timeout_ms: args.timeout_ms,
-            output_max_bytes: 1_048_576,
-        };
         let started = std::time::Instant::now();
-        let outcome = sddk_gateway::run(&spec).map_err(|e| {
-            anyhow::anyhow!(
-                "scenario {} failed to spawn `{}`: {e}",
+
+        // --- Dispatch por kind de executor (ADR-014, eje 1) ---
+        // Cli|Script → runner tipado (sin shell). Playwright → driver
+        // browser (sensor/actuador) que escribe el directorio de evidencia.
+        let (run_status, run_comment, stderr_detail, bundle, run_ctx) = match executor_kind {
+            sddk_domain::UatExecutorKind::Cli | sddk_domain::UatExecutorKind::Script => {
+                // Typed argv split — first token is the program, rest are args.
+                let tokens: Vec<String> =
+                    ref_str.split_whitespace().map(str::to_owned).collect();
+                let (program, argv) = tokens.split_first().ok_or_else(|| {
+                    anyhow::anyhow!("scenario {} executor command is empty", scenario.id)
+                })?;
+                let spec = sddk_gateway::RunSpec {
+                    program: program.clone(),
+                    args: argv.to_vec(),
+                    env: Default::default(),
+                    timeout_ms: args.timeout_ms,
+                    output_max_bytes: 1_048_576,
+                };
+                let outcome = sddk_gateway::run(&spec).map_err(|e| {
+                    anyhow::anyhow!(
+                        "scenario {} failed to spawn `{}`: {e}",
+                        scenario.id,
+                        program
+                    )
+                })?;
+                let (status, comment, stderr_detail) = if outcome.timed_out {
+                    (
+                        sddk_domain::UatStatus::Blocked,
+                        format!("blocked: `{ref_str}` timed out after {}ms", args.timeout_ms),
+                        None,
+                    )
+                } else if outcome.exit_status == Some(0) {
+                    (
+                        sddk_domain::UatStatus::Pass,
+                        format!("pass: `{ref_str}` exited 0"),
+                        None,
+                    )
+                } else {
+                    (
+                        sddk_domain::UatStatus::Fail,
+                        format!("fail: `{ref_str}` exited {:?}", outcome.exit_status),
+                        Some(
+                            outcome
+                                .stderr
+                                .trim()
+                                .lines()
+                                .take(20)
+                                .collect::<Vec<_>>()
+                                .join("\n"),
+                        ),
+                    )
+                };
+                let bundle = sddk_gateway::EvidenceCollector::new(
+                    sddk_gateway::EvidenceContext {
+                        executor: "cli".into(),
+                        ..Default::default()
+                    },
+                )
+                .add(sddk_gateway::EvidenceFile {
+                    kind: sddk_domain::UatEvidenceKind::CommandOutput,
+                    path: write_evidence_payload(&scenario.id, &ref_str, &outcome)?,
+                    mime: Some("text/plain".into()),
+                    note: Some(comment.clone()),
+                })
+                .build()
+                .map_err(|e| anyhow::anyhow!("evidence collection failed: {e}"))?;
+                let run_ctx = sddk_gateway::OracleRunContext {
+                    exit_status: outcome.exit_status,
+                    final_url: None,
+                };
+                (status, comment, stderr_detail, bundle, run_ctx)
+            }
+            sddk_domain::UatExecutorKind::Playwright => {
+                // Evidence bundle spec (eje 2) o defaults conservadores.
+                let bundle_spec = scenario.evidence_bundle.clone().unwrap_or_default();
+                let output_dir = std::env::temp_dir().join(format!(
+                    "sddk-uat-ev-{}-{}",
+                    scenario.id.replace('.', "-"),
+                    std::process::id()
+                ));
+                // Geometry selectors derivados de los oracles geometry (eje 3).
+                let geometry_file = if scenario
+                    .oracles
+                    .iter()
+                    .any(|o| o.kind == sddk_domain::UatOracleKind::Geometry)
+                {
+                    let selectors: Vec<String> = scenario
+                        .oracles
+                        .iter()
+                        .filter(|o| o.kind == sddk_domain::UatOracleKind::Geometry)
+                        .filter_map(|o| {
+                            o.expect.as_ref().and_then(|e| e.get("selector"))
+                                .and_then(serde_json::Value::as_str)
+                                .map(str::to_owned)
+                        })
+                        .collect();
+                    let path = output_dir.join("geometry-selectors.json");
+                    std::fs::create_dir_all(&output_dir)?;
+                    std::fs::write(
+                        &path,
+                        serde_json::to_string(&selectors)
+                            .map_err(|e| anyhow::anyhow!("selector serialization failed: {e}"))?,
+                    )?;
+                    Some(path)
+                } else {
+                    None
+                };
+                let pw_spec = sddk_gateway::PlaywrightSpec {
+                    url: ref_str.clone(),
+                    viewport: None,
+                    actions: None,
+                    screenshot: bundle_spec.screenshots || bundle_spec.playwright_trace,
+                    trace: bundle_spec.playwright_trace,
+                    console: bundle_spec.console,
+                    network: bundle_spec.network,
+                    dom: bundle_spec.accessibility || bundle_spec.geometry,
+                    geometry: geometry_file,
+                    output_dir: output_dir.clone(),
+                    timeout_ms: args.timeout_ms,
+                };
+                let outcome = sddk_gateway::run_playwright(&pw_spec, None, None).map_err(|e| {
+                    anyhow::anyhow!("scenario {} playwright run failed: {e}", scenario.id)
+                })?;
+                let (status, comment) = if outcome.network_failures > 0 {
+                    (
+                        sddk_domain::UatStatus::Fail,
+                        format!(
+                            "fail: {} network failure(s) on `{}`",
+                            outcome.network_failures, ref_str
+                        ),
+                    )
+                } else {
+                    (
+                        sddk_domain::UatStatus::Pass,
+                        format!("pass: `{ref_str}` loaded (title {:?})", outcome.page_title),
+                    )
+                };
+                let mut collector = sddk_gateway::EvidenceCollector::new(
+                    sddk_gateway::EvidenceContext {
+                        executor: "playwright".into(),
+                        browser: Some("chromium".into()),
+                        viewport: None,
+                        git_sha: None,
+                        app_version: Some(plan.release.candidate.clone()),
+                        ..Default::default()
+                    },
+                );
+                collector.collect_dir(&output_dir);
+                let bundle = collector
+                    .build()
+                    .map_err(|e| anyhow::anyhow!("evidence collection failed: {e}"))?;
+                let run_ctx = sddk_gateway::OracleRunContext {
+                    exit_status: Some(0),
+                    final_url: outcome.final_url.clone(),
+                };
+                (status, comment, None, bundle, run_ctx)
+            }
+            other => anyhow::bail!(
+                "scenario {} executor kind={} is not runnable by `uat run` yet",
                 scenario.id,
-                program
-            )
-        })?;
+                uat_executor_kind_str(other)
+            ),
+        };
         let duration_ms = started.elapsed().as_millis() as u64;
 
-        let (status, failure_reason, comment) = if outcome.timed_out {
-            (
-                sddk_domain::UatStatus::Blocked,
-                Some(format!("timeout after {}ms", args.timeout_ms)),
-                format!("blocked: `{ref_str}` timed out after {}ms", args.timeout_ms),
-            )
-        } else if outcome.exit_status == Some(0) {
-            (
-                sddk_domain::UatStatus::Pass,
-                None,
-                format!("pass: `{ref_str}` exited 0 in {duration_ms}ms"),
-            )
-        } else {
-            (
-                sddk_domain::UatStatus::Fail,
-                Some(
-                    outcome
-                        .stderr
-                        .trim()
-                        .lines()
-                        .take(20)
-                        .collect::<Vec<_>>()
-                        .join("\n"),
-                ),
-                format!(
-                    "fail: `{ref_str}` exited {:?} in {duration_ms}ms",
-                    outcome.exit_status
-                ),
-            )
-        };
+        // --- Oracles (eje 3): evaluar los deterministas contra el bundle ---
+        let mut oracle_assessments = Vec::new();
+        for oracle in &scenario.oracles {
+            match sddk_gateway::evaluate_deterministic(oracle, &bundle, &run_ctx) {
+                Ok(assessment) => oracle_assessments.push(assessment),
+                Err(sddk_gateway::OracleError::NotDeterministic { .. }) => {
+                    // Semánticos (visual_ai/llm_rubric) y human se evalúan
+                    // en fases posteriores; se omiten aquí.
+                }
+                Err(e) => {
+                    // Evidencia ausente → Uncertain (el review humano decide).
+                    oracle_assessments.push(sddk_domain::UatOracleAssessment {
+                        oracle: oracle.clone(),
+                        verdict: sddk_domain::UatOracleVerdict::Uncertain,
+                        confidence: 0.0,
+                        details: Some(format!("missing evidence: {e}")),
+                    });
+                }
+            }
+        }
+        let machine_verdict = sddk_gateway::aggregate_verdict(&oracle_assessments);
 
-        // Evidence payload = stdout+stderr captured; sha256-pinned (integrity).
-        let evidence_payload = format!(
-            "scenario: {}\nref: {}\n--- stdout ---\n{}\n--- stderr ---\n{}\n",
-            scenario.id, ref_str, outcome.stdout, outcome.stderr
-        );
-        let evidence = vec![sddk_domain::UatEvidence {
-            kind: sddk_domain::UatEvidenceKind::CommandOutput,
-            r#ref: sha256_hex(evidence_payload.as_bytes()),
-            note: Some(comment.clone()),
-            captured_at: Some(now_rfc3339()),
-            size_bytes: Some(evidence_payload.len() as u64),
-            mime: Some("text/plain".into()),
-            path: None,
-            observed_value: Some(outcome.stdout.trim().chars().take(2000).collect()),
-            expected_value: Some("exit 0".into()),
-            match_mode: None,
-        }];
+        // Status final: el run base + los oracles bloqueantes mandan.
+        let (status, failure_reason, comment) = if oracle_assessments.is_empty() {
+            let (reason, note) = match &run_status {
+                sddk_domain::UatStatus::Blocked => (
+                    Some(format!("timeout after {}ms", args.timeout_ms)),
+                    run_comment.clone(),
+                ),
+                sddk_domain::UatStatus::Fail => (
+                    stderr_detail
+                        .clone()
+                        .or_else(|| Some("executor failed".into())),
+                    run_comment.clone(),
+                ),
+                _ => (None, run_comment.clone()),
+            };
+            (run_status, reason, note)
+        } else {
+            match machine_verdict {
+                sddk_domain::UatOracleVerdict::Fail => (
+                    sddk_domain::UatStatus::Fail,
+                    Some("oracle(s) failed".into()),
+                    format!(
+                        "machine verdict: {} oracle(s), {} failed",
+                        oracle_assessments.len(),
+                        oracle_assessments
+                            .iter()
+                            .filter(|a| a.verdict == sddk_domain::UatOracleVerdict::Fail)
+                            .count()
+                    ),
+                ),
+                sddk_domain::UatOracleVerdict::Uncertain => (
+                    sddk_domain::UatStatus::Blocked,
+                    Some("evidence insufficient for oracle verdict".into()),
+                    format!(
+                        "machine verdict: {} oracle(s), some uncertain",
+                        oracle_assessments.len()
+                    ),
+                ),
+                sddk_domain::UatOracleVerdict::Pass => (
+                    sddk_domain::UatStatus::Pass,
+                    None,
+                    format!(
+                        "machine verdict: {} oracle(s) passed",
+                        oracle_assessments.len()
+                    ),
+                ),
+                _ => (
+                    sddk_domain::UatStatus::Blocked,
+                    Some("conflicting oracle verdicts".into()),
+                    "machine verdict: conflicting".into(),
+                ),
+            }
+        };
 
         let now = now_rfc3339();
         let session_id = format!("auto-{}-{}", scenario.id, now.replace([':', '-'], ""));
+        // Evidence v2 items from the content-addressable bundle.
+        let evidence: Vec<sddk_domain::UatEvidence> = bundle
+            .artifacts
+            .iter()
+            .map(|a| sddk_domain::UatEvidence {
+                kind: a.kind,
+                r#ref: a.r#ref.clone(),
+                note: a.note.clone(),
+                captured_at: Some(now.clone()),
+                size_bytes: a.size_bytes,
+                mime: a.mime.clone(),
+                path: a.path.clone(),
+                observed_value: None,
+                expected_value: None,
+                match_mode: None,
+            })
+            .collect();
+        let observed = bundle
+            .artifacts
+            .iter()
+            .find(|a| a.kind == sddk_domain::UatEvidenceKind::Dom)
+            .and_then(|a| a.path.as_deref())
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .map(|html| html.chars().take(2000).collect());
         let session = UatSession {
             schema_version: sddk_domain::LATEST_SESSION_SCHEMA_VERSION,
             session_id: session_id.clone(),
@@ -2499,10 +2704,11 @@ fn run_uat_run(args: UatRunArgs) -> CommandOutput {
                 verdict_at: Some(now.clone()),
                 verdict_duration_ms: Some(duration_ms),
                 tester_notes: None,
-                observed: Some(outcome.stdout.trim().chars().take(2000).collect()),
+                observed,
                 failure_reason,
                 linked_defect: None,
                 repro_command: Some(ref_str.to_owned()),
+                oracle_assessments,
             }],
             metadata: None,
             plan_version: Some(plan.schema_version),
@@ -2545,6 +2751,12 @@ fn run_uat_run(args: UatRunArgs) -> CommandOutput {
                     "session_id": session.session_id,
                     "session_path": output_path.display().to_string(),
                     "executor": "automated",
+                    "oracles": session.results[0].oracle_assessments.len(),
+                    "oracle_verdict": session.results[0]
+                        .oracle_assessments
+                        .iter()
+                        .map(|a| format!("{:?}", a.verdict))
+                        .collect::<Vec<_>>(),
                 })
                 .to_string()
                     + "\n"
@@ -2579,6 +2791,27 @@ fn uat_automation_status_str(status: sddk_domain::UatAutomationStatus) -> &'stat
         sddk_domain::UatAutomationStatus::Scripted => "scripted",
         sddk_domain::UatAutomationStatus::Automated => "automated",
     }
+}
+
+/// Persists the raw stdout+stderr of a cli/script run to a temp file so the
+/// EvidenceCollector can hash it into the content-addressable bundle.
+fn write_evidence_payload(
+    scenario_id: &str,
+    ref_str: &str,
+    outcome: &sddk_gateway::RunOutcome,
+) -> anyhow::Result<PathBuf> {
+    let payload = format!(
+        "scenario: {}\nref: {}\n--- stdout ---\n{}\n--- stderr ---\n{}\n",
+        scenario_id, ref_str, outcome.stdout, outcome.stderr
+    );
+    let path = std::env::temp_dir().join(format!(
+        "sddk-uat-cli-ev-{}-{}.log",
+        scenario_id.replace('.', "-"),
+        std::process::id()
+    ));
+    std::fs::write(&path, payload)
+        .map_err(|e| anyhow::anyhow!("cannot write evidence payload: {e}"))?;
+    Ok(path)
 }
 
 fn uat_executor_kind_str(kind: sddk_domain::UatExecutorKind) -> &'static str {

@@ -918,6 +918,10 @@ pub struct UatScenarioResult {
     pub linked_defect: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repro_command: Option<String>,
+    /// Oracle assessments (v3, eje 3): veredictos deterministas/semánticos
+    /// sobre la evidencia capturada. Vacío en sesiones v2.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub oracle_assessments: Vec<UatOracleAssessment>,
 }
 
 /// Evidence captured for a scenario result.
