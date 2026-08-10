@@ -1254,7 +1254,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "sddk-cli"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -1282,7 +1282,7 @@ dependencies = [
 
 [[package]]
 name = "sddk-domain"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "anyhow",
  "jsonschema",
@@ -1300,7 +1300,7 @@ dependencies = [
 
 [[package]]
 name = "sddk-engine"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "dirs",
  "sddk-domain",
@@ -1315,7 +1315,7 @@ dependencies = [
 
 [[package]]
 name = "sddk-gateway"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "anyhow",
  "proptest",
@@ -1333,7 +1333,7 @@ dependencies = [
 
 [[package]]
 name = "sddk-storage"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "proptest",
  "rusqlite",
@@ -1347,14 +1347,14 @@ dependencies = [
 
 [[package]]
 name = "sddk-testkit"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "tempfile",
 ]
 
 [[package]]
 name = "sddk-vault"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "anyhow",
  "petgraph",
