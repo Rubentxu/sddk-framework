@@ -47,8 +47,11 @@ CI/CD and optional post-tag distribution are explicitly excluded from the
 5. Complete the HTML report, knowledge graph update, serialization lock release,
    and ledger verification.
 
-Use `sddk release apply --route local --branch main --base main --tag <tag>
---title <message> --approve` when the typed CLI is available. A retry is safe:
+Use `sddk release apply --route local --branch main --base main --cycle <cycle-id>
+--tag <tag> --title <message> --approve` when the typed CLI is available. The
+`--cycle <cycle-id>` argument is **mandatory** for the local route: the CLI
+links the release to the release-pending cycle, verifies the manifest commit
+is an ancestor of HEAD, and requires a clean trunk checkout. A retry is safe:
 an existing remote tag succeeds only if it is annotated and points to `HEAD`.
 
 `--route forge --repo owner/repo` is optional integration after local success.
@@ -67,13 +70,16 @@ main_sha: <full-sha>
 tag: v<major>.<minor>.<patch>
 merge_receipt: <path-or-receipt-id>
 release_receipt: <path-or-receipt-id>
+archive_manifest: <path-or-receipt-id>   # produced by sddk-archive, references release_receipt
 knowledge_graph_updated: bool
 lock_released: bool
 optional_distribution: not_requested | pending | completed | failed
 blockers: []
 ```
 
-The `release-report` is mandatory even on block.
+The `release-report` is mandatory even on block. The `archive-manifest` MUST
+reference the `release-receipt` so that the cycle closure is traceable back to
+the verified trunk SHA + tag.
 
 ## CLI Contract (sddk ledger)
 
@@ -94,5 +100,5 @@ A failed evaluate-gate or transition is a BLOCKER: report it in the envelope and
 - `prompts/sddk/git-contract.md` — git invariants (source of truth)
 - `prompts/sddk/HTML-REPORT.md` — HTML report format
 - `prompts/sddk/roadmap-template.md` — ROADMAP update format
-- `skills/sddk-archive/SKILL.md` — predecessor, hands off to release
+- `skills/sddk-archive/SKILL.md` — successor, closes the cycle via archive-manifest linked to release-receipt
 - `prompts/sddk/phases/release.md` — full agent prompt

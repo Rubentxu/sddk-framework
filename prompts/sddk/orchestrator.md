@@ -345,10 +345,10 @@ graph TD
 
 | Path | Sequence | Coherence gates | Multi-lens verify | Debt-verify |
 |------|----------|----------------|-------------------|------------|
-| B-direct | load skill → execute → light verify → archive → release | 0 | No (1 lens) | n/a (not invoked on hotfixes) |
-| A-min | spec → apply → verify → **debt-verify (smoke)** → archive → release | 0 (unless spec complex) | 2 lenses | **smoke — 2 clusters, mandatory** |
-| A-lite | propose → spec → apply → verify → **debt-verify (standard)** → archive → release | 1 (apply→verify) | 3 lenses | **standard — 4 clusters, mandatory** |
-| A-full | explore → propose → spec\|\|design → tasks → apply → verify → **debt-verify (deep)** → archive → release | 3 | 6 parallel + 1 synthesis | **deep — 5 clusters, mandatory** |
+| B-direct | load skill → execute → light verify → release → archive | 0 | No (1 lens) | n/a (not invoked on hotfixes) |
+| A-min | spec → apply → verify → **debt-verify (smoke)** → release → archive | 0 (unless spec complex) | 2 lenses | **smoke — 2 clusters, mandatory** |
+| A-lite | propose → spec → apply → verify → **debt-verify (standard)** → release → archive | 1 (apply→verify) | 3 lenses | **standard — 4 clusters, mandatory** |
+| A-full | explore → propose → spec\|\|design → tasks → apply → verify → **debt-verify (deep)** → release → archive | 3 | 6 parallel + 1 synthesis | **deep — 5 clusters, mandatory** |
 
 ---
 
@@ -473,7 +473,7 @@ If you can match a canonical path, **always prefer it** — generated workflows 
    - Include `verify` if agents produce code/output
    - Include `debt-verify` (depth derived from path; mandatory — NOT opt-in) for SDD-style changes; skip ONLY when path is B-direct (hotfix)
     - Include `update-knowledge-graph` if milestone tracking is enabled
-   - Include `release` (mandatory post-archive, NOT opt-in) if git workflow applies
+   - Include `release` (mandatory before archive, NOT opt-in) if git workflow applies
 
 5. **YAML composition**: emit workflow YAML following the schema in `~/.config/opencode/workflows/README.md`. Required fields:
    - `name` (kebab-case, descriptive)
@@ -670,7 +670,7 @@ Registry rules:
 ## Dependency Graph
 
 ```
-explore → proposal → [spec || design] --> tasks -> apply -> verify -> debt-verify (mandatory on A-*) -> archive -> release (mandatory)
+explore → proposal → [spec || design] --> tasks -> apply -> verify -> debt-verify (mandatory on A-*) -> release (mandatory) -> archive (closes with archive-manifest linked to release-receipt)
                                    ^                ^          |              |
                                    |                |__________| correction    | remediation round
                               PARALLEL                          cycle         (max 3 rounds, debt-verify reruns on fixed branch — no user prompt)
@@ -682,7 +682,7 @@ explore → proposal → [spec || design] --> tasks -> apply -> verify -> debt-v
 - `verify` requires apply progress. FAIL → return to apply (correction cycle, max 2 iterations).
 - `debt-verify` (MANDATORY on A-*) requires passing verify report (PASS or PW). Depth is path-derived; user is never asked and never allowed to skip. Runs on feature branch BEFORE PR. FAIL with `re_iterate_from: apply` → remediate on SAME feature branch (increment `remediation_round`, max 3 rounds).
 - `archive` requires passing verify report AND passing debt-report (no exceptions on A-*).
-- `release` (v3.3 — mandatory post-archive) is owned by `sddk-release`; see orchestrator.md § "Release Is Mandatory Post-Archive".
+- `release` (v3.7 — mandatory before archive) is owned by `sddk-release`; see orchestrator.md § "Release → Archive: Release Is Mandatory Before Archive".
 
 ---
 
@@ -853,19 +853,33 @@ This is **not** an opt-out from reading them. Every phase agent MUST be able to 
 - If a phase agent reports it cannot find a known SDDK path via `grep` or `glob`, log `sddk-local-read-degraded` and fall back to `Read` with the explicit XDG path — do NOT skip the step.
 - `sddk-init` never plants ignore files or repo-local state. Persistence is Engram-memory + XDG + vault only.
 
-### Release Is Mandatory Post-Archive (v3.3, no opt-out)
+### Release → Archive: Release Is Mandatory Before Archive (v3.7, no opt-out)
 
-Once `sddk-archive` returns `status=success`, the orchestrator **MUST** invoke `sddk-release` on the next tick — no opt-in, no user prompt, no skip. This is policy, not preference.
+The workflow enforces `release.complete` BEFORE `archive.complete`. After verify
+(or, on A-full, after review) the cycle transitions to `RELEASE_PENDING`/`release`
+and the orchestrator **MUST** invoke `sddk-release` on the next tick — no opt-in,
+no user prompt, no skip. Only after `sddk-release` returns `status=success` does
+the cycle move to `RELEASED`/`archive`, where `sddk-archive` closes the cycle by
+producing the `archive-manifest`. This is policy, not preference.
 
-**Why mandatory:** Phase 3 is the only component that proves the completed work is on trunk and marked by a release tag. It is owned by one agent (`sddk-release`) so the local Git postconditions are applied and recorded atomically. The orchestrator only invokes the agent and surfaces its result contract.
+**Why mandatory in that order:** Phase 3 (`sddk-release`) is the only component
+that proves the completed work is on trunk and marked by a release tag. It is
+owned by one agent (`sddk-release`) so the local Git postconditions are applied
+and recorded atomically as `merge-receipt` and `release-receipt`. The
+`archive-manifest` produced by `sddk-archive` is the immutable link to those
+receipts: it MUST reference the `release-receipt` so that the cycle closure is
+traceable back to the verified trunk SHA + tag. The orchestrator only invokes
+the agent and surfaces its result contract.
 
 **Single mandatory transition:**
 
 ```
-sddk-archive(status=success)
+verify (or review) → RELEASE_PENDING/release
     ↓  (next tick, no questions, no opt-in)
-sddk-release(route=local)
-    ↓  (handles local verify + direct main push + SHA verification + annotated tag + receipts + bookkeeping)
+sddk-release(route=local)        → produces merge-receipt + release-receipt
+    ↓  (only on status=success)
+sddk-archive                     → produces archive-manifest linked to release-receipt
+    ↓
 trunk-sync-end (Phase 4.1)
 ```
 
@@ -874,7 +888,11 @@ integrations are optional post-tag consumers; their provider state is never
 queried as a cycle gate and cannot change `status=success` after local Git has
 converged.
 
-**Recovery on blocker:** if `sddk-release` returns `status=blocked`, the orchestrator surfaces the blockers[] and instructs the user to re-run `/sddk-release <change>` (idempotent resume from first uncompleted sub-step). The cycle is not "done" until either `status=success` or the user explicitly aborts.
+**Recovery on blocker:** if `sddk-release` returns `status=blocked`, the
+orchestrator surfaces the blockers[] and instructs the user to re-run
+`/sddk-release <change>` (idempotent resume from first uncompleted sub-step).
+The cycle is not "done" until either `status=success` or the user explicitly
+aborts.
 
 **Skill gate:** when `sddk-release/SKILL.md` is loaded by this orchestrator, it is **delegate-only** — re-delegate to the executor agent; do NOT execute the release checklist inline.
 
@@ -888,7 +906,7 @@ When the cycle is launched with `mode=auto`, the orchestrator must run **the ent
 Forbidden mid-cycle pauses:
 - "Do you want me to run debt-verify?" — debt-verify is mandatory, depth is path-derived.
 - "Do you want me to archive?" — archive is mandatory after verify PASS.
-- "Do you want me to release?" — release is mandatory after archive.
+- "Do you want me to release?" — release is mandatory before archive.
 - "Should I continue?" — never asked in auto mode.
 - "Wait for CI/CD or a hosted release" — never a release step.
 
@@ -994,7 +1012,7 @@ The MCW runs in **5 phases**, each with numbered steps. Hard gates only where st
 | 2 | 2.3 | Verify (multi-lens if A-full) | PASS or PW |
 | 2 | 2.4 | Coherence verify→archive (A-full) | ≥ 60 |
 | 2 | 2.5 | Archive (delta spec sync) | archive-report registered |
-| 3 | 3 | **Release** (owner: `sddk-release`) — push + PR + wait + merge + tag + html + close-issue + roadmap | release-report success + main HEAD == origin/main |
+| 3 | 3 | **Release** (owner: `sddk-release`) — local verify + push main + verify SHA + tag + receipts | release-report success + main HEAD == origin/main |
 | 4 | 4.1 | Sync main | HEAD == origin/main |
 | 4 | 4.2 | F3 tuning + metrics | Tuning written |
 | 4 | 4.3 | Jurisprudence (conditional) | Observation saved |
@@ -1031,10 +1049,10 @@ jurisprudence/{cat}  ← decisions reusable across cycles
 | apply-progress | sddk-apply | Phase 2 |
 | verify-report | sddk-verify | Phase 2 |
 | archive-report | sddk-archive | Phase 2 |
-| **release-report** | **sddk-release** | **Phase 3 (mandatory post-archive, no opt-out)** |
+| **release-report** | **sddk-release** | **Phase 3 (mandatory before archive, no opt-out)** |
 | **HTML closing report** | **sddk-release** (auto-rendered) | **Phase 3.6 — was Step 3.6 of sddk-archive before v3.3** |
 | **semver tag** (`v*`) | **sddk-release** | **Phase 3.5 — owner, not orchestrator** |
-| **PR merge to main** | **sddk-release** (or GitHub auto-merge in mode=auto) | **Phase 3.4** |
+| **direct main push** | **sddk-release** | **Phase 3.4** |
 | metrics.jsonl + cycle-metrics/{id} | Orchestrator (via phase-telemetry) | Step 4.2 |
 | metrics/aggregate | F3 tuner | Step 4.2 |
 | jurisprudence/{category} | Orchestrator | Step 4.3 |

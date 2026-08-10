@@ -2,8 +2,8 @@
 
 use sddk_gateway::{
     CapabilityGateway, CapabilityPlanInput, CapabilityPolicy, Forge, GitExecutor,
-    LocalReleaseInput, MockForge, ReleasePlanInput, apply_local_release, apply_release,
-    plan_release, reconcile_pending,
+    LocalReleaseInput, LocalReleasePreconditions, MockForge, ReleasePlanInput, apply_local_release,
+    apply_release, plan_release, reconcile_pending,
 };
 use sddk_storage::{CapabilityStatus, ProjectRecord, Storage};
 
@@ -55,6 +55,10 @@ fn local_release_input(tag: &str) -> LocalReleaseInput {
         approve: true,
         timestamp: "2026-08-04T10:00:00Z".into(),
         actor: "release-test".into(),
+        preconditions: LocalReleasePreconditions {
+            verification_passed: true,
+            uat_passed: true,
+        },
     }
 }
 
@@ -182,6 +186,32 @@ fn local_release_pushes_an_existing_annotated_tag_missing_from_remote() {
 }
 
 #[test]
+fn local_release_rejects_dirty_or_non_trunk_checkouts() {
+    let (_directory, git) = local_git_repo();
+    let (_ledger, mut gateway) = gateway();
+    std::fs::write(git.root().join("dirty.txt"), "uncommitted").unwrap();
+
+    let dirty = apply_local_release(&mut gateway, &local_release_input("v1.0.0"), &git)
+        .unwrap_err()
+        .to_string();
+    assert!(dirty.contains("worktree must be clean"));
+
+    std::fs::remove_file(git.root().join("dirty.txt")).unwrap();
+    let mut missing_evidence = local_release_input("v1.0.0");
+    missing_evidence.preconditions.verification_passed = false;
+    let missing_evidence = apply_local_release(&mut gateway, &missing_evidence, &git)
+        .unwrap_err()
+        .to_string();
+    assert!(missing_evidence.contains("local verification evidence"));
+
+    git.create_branch("release-candidate").unwrap();
+    let non_trunk = apply_local_release(&mut gateway, &local_release_input("v1.0.0"), &git)
+        .unwrap_err()
+        .to_string();
+    assert!(non_trunk.contains("checkout must be main"));
+}
+
+#[test]
 fn interrupted_release_converges_without_duplicating_effects() {
     let (_directory, mut gateway) = gateway();
     let mut forge = MockForge::new();
@@ -258,7 +288,8 @@ fn reconcile_finalizes_interrupted_receipts_against_provider() {
     let present = begin(&mut gateway, "v9.9.9");
     let absent = begin(&mut gateway, "v0.0.1");
 
-    let reconciled = reconcile_pending(&mut gateway, &forge).unwrap();
+    let (_git_directory, git) = local_git_repo();
+    let reconciled = reconcile_pending(&mut gateway, &forge, &git).unwrap();
     assert_eq!(reconciled.len(), 2);
     let by_id = |id: &str| {
         reconciled
@@ -269,6 +300,72 @@ fn reconcile_finalizes_interrupted_receipts_against_provider() {
     assert_eq!(by_id(&present).status, CapabilityStatus::Succeeded);
     assert_eq!(by_id(&absent).status, CapabilityStatus::Failed);
 
-    let again = reconcile_pending(&mut gateway, &forge).unwrap();
+    let again = reconcile_pending(&mut gateway, &forge, &git).unwrap();
     assert!(again.is_empty());
+}
+
+#[test]
+fn reconcile_finalizes_started_local_receipts_after_remote_effects() {
+    let (_directory, git) = local_git_repo();
+    let (_ledger, mut gateway) = gateway();
+    let sha = git.head_sha().unwrap();
+    let input = local_release_input("v1.0.0");
+
+    let push = gateway
+        .begin_effect(&CapabilityPlanInput {
+            project_id: input.project_id.clone(),
+            cycle_id: None,
+            capability: "git.push".into(),
+            reason: "interrupted after remote push".into(),
+            program: "git".into(),
+            args: vec!["main".into(), sha.clone()],
+            env: Default::default(),
+            timeout_ms: 60_000,
+            output_max_bytes: 1_048_576,
+            approve: true,
+            timestamp: input.timestamp.clone(),
+            actor: input.actor.clone(),
+        })
+        .unwrap();
+    git.push_and_verify_branch("main").unwrap();
+
+    let tag = gateway
+        .begin_effect(&CapabilityPlanInput {
+            project_id: input.project_id,
+            cycle_id: None,
+            capability: "git.tag".into(),
+            reason: "interrupted after remote tag".into(),
+            program: "git".into(),
+            args: vec![input.tag.clone(), sha.clone()],
+            env: Default::default(),
+            timeout_ms: 60_000,
+            output_max_bytes: 1_048_576,
+            approve: true,
+            timestamp: input.timestamp,
+            actor: input.actor,
+        })
+        .unwrap();
+    git.create_annotated_tag(&input.tag, &sha, &input.tag_message)
+        .unwrap();
+    git.push_and_verify_annotated_tag(&input.tag, &sha).unwrap();
+
+    let forge = MockForge::new();
+    let reconciled = reconcile_pending(&mut gateway, &forge, &git).unwrap();
+    assert_eq!(reconciled.len(), 2);
+    assert_eq!(
+        reconciled
+            .iter()
+            .find(|receipt| receipt.receipt_id == push.receipt_id)
+            .unwrap()
+            .status,
+        CapabilityStatus::Succeeded
+    );
+    assert_eq!(
+        reconciled
+            .iter()
+            .find(|receipt| receipt.receipt_id == tag.receipt_id)
+            .unwrap()
+            .status,
+        CapabilityStatus::Succeeded
+    );
 }

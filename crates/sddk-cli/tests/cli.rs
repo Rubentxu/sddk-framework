@@ -2938,6 +2938,221 @@ fn cli_release_plan_defaults_to_the_local_git_route() {
 }
 
 #[test]
+fn cli_release_requires_explicit_route_for_legacy_forge_invocations() {
+    let fixture = CliFixture::new("release-route-migration");
+    let legacy = fixture.run(&[
+        "release",
+        "plan",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--repo",
+        "acme/repo",
+        "--tag",
+        "v1.0.0",
+    ]);
+
+    assert!(!legacy.status.success());
+    assert!(
+        String::from_utf8_lossy(&legacy.stderr)
+            .contains("legacy Forge invocations must pass --route forge")
+    );
+}
+
+#[test]
+fn cli_release_apply_denies_undeclared_release_agent() {
+    let fixture = CliFixture::new("release-permission-deny");
+    write(
+        fixture.root.join("workflow/workflow.yaml"),
+        CANONICAL_WORKFLOW,
+    );
+    write(
+        fixture.root.join("permissions.yaml"),
+        "agents:\n  sddk-apply:\n    phases: [build]\n    capabilities: [git.commit]\n",
+    );
+    let common = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+    ];
+    let adopted = fixture.run_adopt(
+        "apply",
+        &[
+            "--root",
+            fixture.root.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            "https://example.com/acme/repo.git",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+        ],
+    );
+    assert!(adopted.status.success());
+
+    let denied = run_with_root(
+        &fixture,
+        &["release", "apply", "--tag", "v1.0.0", "--approve"],
+        &common,
+    );
+    assert!(!denied.status.success());
+    assert!(String::from_utf8_lossy(&denied.stderr).contains("agent sddk-release is not declared"));
+}
+
+#[test]
+fn cli_release_apply_local_requires_cycle() {
+    // Regression test: finding 2 — `sddk release apply --route local` must
+    // require --cycle so the local release is tied to the release-pending
+    // cycle (finding 4). Without --cycle the CLI must refuse to run.
+    let fixture = CliFixture::new("release-cycle-required");
+    write(
+        fixture.root.join("workflow/workflow.yaml"),
+        CANONICAL_WORKFLOW,
+    );
+    write(
+        fixture.root.join("permissions.yaml"),
+        "agents:\n  sddk-release:\n    phases: [release]\n    capabilities: [git.push, git.tag, git.inspect]\n",
+    );
+    let common = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+    ];
+    let adopted = fixture.run_adopt(
+        "apply",
+        &[
+            "--root",
+            fixture.root.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            "https://example.com/acme/repo.git",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+        ],
+    );
+    assert!(adopted.status.success());
+
+    let denied = run_with_root(
+        &fixture,
+        &[
+            "release",
+            "apply",
+            "--route",
+            "local",
+            "--tag",
+            "v1.0.0",
+            "--approve",
+        ],
+        &common,
+    );
+    let stdout = String::from_utf8_lossy(&denied.stdout);
+    let stderr = String::from_utf8_lossy(&denied.stderr);
+    eprintln!(
+        "exit={:?}\nstdout: {stdout}\nstderr: {stderr}",
+        denied.status
+    );
+    assert!(
+        !denied.status.success(),
+        "release apply --route local must refuse without --cycle"
+    );
+    assert!(
+        stderr.contains("--cycle"),
+        "stderr must explain the missing --cycle requirement: {stderr}"
+    );
+}
+
+#[test]
+fn cli_release_apply_local_authorizes_git_inspect() {
+    // Regression test: finding 5 — `sddk release apply --route local` exercises
+    // git.inspect (read-only local preconditions) and the registry must allow
+    // sddk-release/release to use git.inspect. We assert that the registry
+    // accepts the new permission and that the CLI refuses when the registry
+    // does NOT include it.
+    let fixture = CliFixture::new("release-permission-inspect");
+    write(
+        fixture.root.join("workflow/workflow.yaml"),
+        CANONICAL_WORKFLOW,
+    );
+    // Registry without git.inspect: authorize_release must reject because the
+    // local route now includes git.inspect in the required capability set.
+    write(
+        fixture.root.join("permissions.yaml"),
+        "agents:\n  sddk-release:\n    phases: [release]\n    capabilities: [git.push, git.tag]\n",
+    );
+    let common = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+    ];
+    let adopted = fixture.run_adopt(
+        "apply",
+        &[
+            "--root",
+            fixture.root.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            "https://example.com/acme/repo.git",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+        ],
+    );
+    assert!(adopted.status.success());
+
+    let denied = run_with_root(
+        &fixture,
+        &[
+            "release",
+            "apply",
+            "--route",
+            "local",
+            "--tag",
+            "v1.0.0",
+            "--cycle",
+            "ignored",
+            "--approve",
+        ],
+        &common,
+    );
+    let stderr = String::from_utf8_lossy(&denied.stderr);
+    assert!(
+        !denied.status.success(),
+        "release apply --route local must refuse when the registry lacks git.inspect (stderr: {stderr})"
+    );
+    assert!(
+        stderr.contains("git.inspect") || stderr.contains("release permission denied"),
+        "stderr must mention the missing git.inspect capability: {stderr}"
+    );
+
+    // Sanity: a registry that includes git.inspect allows the policy to admit
+    // the capability. (The cycle precondition will fail because the cycle is
+    // not release-pending, but authorize_release must not be the gate.)
+    let policy: sddk_gateway::PermissionPolicy = sddk_gateway::PermissionPolicy::from_yaml(
+        "agents:\n  sddk-release:\n    phases: [release]\n    capabilities: [git.push, git.tag, git.inspect]\n",
+    )
+    .expect("registry parses");
+    let decision = policy.authorize("sddk-release", "release", "git.inspect");
+    assert!(
+        decision.allowed,
+        "sddk-release/release must be allowed git.inspect; reason: {}",
+        decision.reason
+    );
+}
+
+#[test]
 fn cli_vault_index_validate_search_and_export() {
     let fixture = CliFixture::new("vault");
     // Write canonical workflow so vault capability checks can load the policy.

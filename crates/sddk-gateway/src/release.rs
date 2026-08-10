@@ -102,6 +102,9 @@ pub enum ReleaseError {
     /// A local Git postcondition did not hold.
     #[error("release git error: {0}")]
     Git(#[from] GitError),
+    /// A required local release precondition is absent.
+    #[error("local release precondition failed: {0}")]
+    Precondition(String),
 }
 
 /// Inputs for a local trunk-based release without a forge dependency.
@@ -123,6 +126,17 @@ pub struct LocalReleaseInput {
     pub timestamp: String,
     /// Actor responsible for the release.
     pub actor: String,
+    /// Local workflow evidence required before publication.
+    pub preconditions: LocalReleasePreconditions,
+}
+
+/// Local evidence the caller verified from the declared workflow contract.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LocalReleasePreconditions {
+    /// Required local verification evidence is present and passing.
+    pub verification_passed: bool,
+    /// The configured local UAT gate is present and passing.
+    pub uat_passed: bool,
 }
 
 /// Outcome of a local trunk-based release.
@@ -171,6 +185,8 @@ pub fn apply_local_release(
 ) -> Result<LocalReleaseOutcome, ReleaseError> {
     let mut applied = Vec::new();
     let mut skipped = Vec::new();
+    reconcile_local_pending(gateway, git)?;
+    verify_local_preconditions(input, git)?;
     let head = git.head_sha()?;
 
     if git.remote_branch_sha(&input.branch)?.as_deref() == Some(head.as_str()) {
@@ -227,15 +243,68 @@ pub fn apply_local_release(
         }
     }
 
-    let converged = git.verify_head_matches_remote_branch(&input.branch)? == sha
-        && git.remote_annotated_tag_target(&input.tag)?.as_deref() == Some(sha.as_str());
+    // Post-conditions: the local release MUST not return Ok unless every
+    // required local effect is observable. If any of them is missing, the
+    // caller needs an explicit error so a retry can re-apply the effect; a
+    // silent `converged: false` would mask a broken trunk-based state.
+    let head_matches_remote = git.verify_head_matches_remote_branch(&input.branch)? == sha;
+    let tag_matches_remote =
+        git.remote_annotated_tag_target(&input.tag)?.as_deref() == Some(sha.as_str());
+    if !head_matches_remote {
+        return Err(ReleaseError::Precondition(format!(
+            "post-conditions failed: local HEAD does not match origin/{} after release",
+            input.branch
+        )));
+    }
+    if !tag_matches_remote {
+        return Err(ReleaseError::Precondition(format!(
+            "post-conditions failed: remote tag {} does not peel to {sha}",
+            input.tag
+        )));
+    }
     Ok(LocalReleaseOutcome {
         sha,
         tag: input.tag.clone(),
         applied,
         skipped,
-        converged,
+        converged: true,
     })
+}
+
+fn verify_local_preconditions(
+    input: &LocalReleaseInput,
+    git: &GitExecutor,
+) -> Result<(), ReleaseError> {
+    if input.branch != "main" {
+        return Err(ReleaseError::Precondition(format!(
+            "local releases require the declared trunk branch main, received {}",
+            input.branch
+        )));
+    }
+    let inspect = git.inspect()?;
+    if inspect.branch.as_deref() != Some(input.branch.as_str()) {
+        return Err(ReleaseError::Precondition(format!(
+            "checkout must be {}, found {}",
+            input.branch,
+            inspect.branch.as_deref().unwrap_or("detached HEAD")
+        )));
+    }
+    if inspect.dirty {
+        return Err(ReleaseError::Precondition(
+            "worktree must be clean before local release".into(),
+        ));
+    }
+    if !input.preconditions.verification_passed {
+        return Err(ReleaseError::Precondition(
+            "required local verification evidence is missing or failed".into(),
+        ));
+    }
+    if !input.preconditions.uat_passed {
+        return Err(ReleaseError::Precondition(
+            "configured local UAT evidence is missing or failed".into(),
+        ));
+    }
+    Ok(())
 }
 
 /// Applies a release plan idempotently against the forge.
@@ -443,23 +512,30 @@ fn run_local_step(
 
 /// Reconciles started receipts against provider reality.
 ///
-/// Receipts left in the started state by an interrupted run are finalized by
-/// querying the forge: a present effect finalizes as succeeded, an absent one
-/// as failed.
+/// Forge receipts (`pr.create`, `release.create`, `release.publish`) are
+/// finalized by querying the forge: a present effect finalizes as succeeded,
+/// an absent one as failed. Local receipts (`git.push`, `git.tag`) follow a
+/// stricter idempotency contract: a pre-effect crash MUST keep the receipt
+/// `Started` so a retry can apply the missing effect, and a post-effect crash
+/// MUST finalize as `Succeeded` because the local Git state already converged.
 pub fn reconcile_pending(
     gateway: &mut CapabilityGateway,
     forge: &dyn Forge,
+    git: &GitExecutor,
 ) -> Result<Vec<CapabilityReceipt>, ReleaseError> {
     let mut reconciled = Vec::new();
     for receipt in gateway.storage.list_all_capability_receipts()? {
         if receipt.status != CapabilityStatus::Started {
             continue;
         }
-        let argument = receipt
+        let arguments = receipt
             .request
             .get("arguments")
             .and_then(|args| args.as_array())
-            .and_then(|args| args.first())
+            .cloned()
+            .unwrap_or_default();
+        let argument = arguments
+            .first()
             .and_then(|value| value.as_str())
             .unwrap_or_default();
         let (status, result) = match receipt.capability.as_str() {
@@ -477,6 +553,12 @@ pub fn reconcile_pending(
                     (CapabilityStatus::Failed, json!({"present": false}))
                 }
             }
+            "git.push" | "git.tag" => match local_receipt_state(&receipt, git)? {
+                Some(state) => state,
+                // Pre-effect crash: keep the Started receipt so the next
+                // apply_local_release re-applies the missing effect.
+                None => continue,
+            },
             _ => continue,
         };
         let finalized = gateway.finish_effect(
@@ -488,4 +570,72 @@ pub fn reconcile_pending(
         reconciled.push(finalized);
     }
     Ok(reconciled)
+}
+
+fn reconcile_local_pending(
+    gateway: &mut CapabilityGateway,
+    git: &GitExecutor,
+) -> Result<Vec<CapabilityReceipt>, ReleaseError> {
+    let mut reconciled = Vec::new();
+    for receipt in gateway.storage.list_all_capability_receipts()? {
+        if receipt.status != CapabilityStatus::Started {
+            continue;
+        }
+        let Some((status, result)) = local_receipt_state(&receipt, git)? else {
+            // Pre-effect crash: keep the Started receipt so the next
+            // apply_local_release re-applies the missing effect.
+            continue;
+        };
+        let finalized = gateway.finish_effect(
+            &receipt.receipt_id,
+            status,
+            result,
+            receipt.started_at.as_str(),
+        )?;
+        reconciled.push(finalized);
+    }
+    Ok(reconciled)
+}
+
+/// Returns the canonical status of a local receipt when the effect is
+/// observable on the remote. A `None` return means the effect is absent
+/// (pre-effect crash): the caller MUST keep the receipt `Started` so a
+/// subsequent `apply_local_release` can re-apply the missing effect.
+fn local_receipt_state(
+    receipt: &CapabilityReceipt,
+    git: &GitExecutor,
+) -> Result<Option<(CapabilityStatus, serde_json::Value)>, ReleaseError> {
+    let arguments = receipt
+        .request
+        .get("arguments")
+        .and_then(|args| args.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let Some(target) = arguments.get(1).and_then(|value| value.as_str()) else {
+        return Ok(Some((
+            CapabilityStatus::Failed,
+            json!({"present": false, "reason": "missing expected SHA"}),
+        )));
+    };
+    let argument = arguments
+        .first()
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    let present = match receipt.capability.as_str() {
+        "git.push" => git.remote_branch_sha(argument)?.as_deref() == Some(target),
+        "git.tag" => git.remote_annotated_tag_target(argument)?.as_deref() == Some(target),
+        _ => return Ok(None),
+    };
+    if present {
+        // Post-effect crash: the local Git state already converged; finalize
+        // the Started receipt as Succeeded.
+        Ok(Some((
+            CapabilityStatus::Succeeded,
+            json!({"present": true, "sha": target}),
+        )))
+    } else {
+        // Pre-effect crash: keep the receipt Started so a retry can apply the
+        // effect. Finalizing as Failed here would make a retry unreachable.
+        Ok(None)
+    }
 }

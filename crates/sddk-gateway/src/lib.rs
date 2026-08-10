@@ -29,9 +29,9 @@ pub use git::{GitBranch, GitCommit, GitError, GitExecutor, GitInspect, GitTag};
 pub use permissions::{AgentPermissions, PermissionDecision, PermissionPolicy, PermissionsError};
 pub use policy::{CapabilityPolicy, Consequence, PolicyDecision, Risk};
 pub use release::{
-    LocalReleaseInput, LocalReleaseOutcome, ReleaseError, ReleaseOutcome, ReleasePlan,
-    ReleasePlanInput, ReleaseStep, apply_local_release, apply_release, plan_release,
-    reconcile_pending,
+    LocalReleaseInput, LocalReleaseOutcome, LocalReleasePreconditions, ReleaseError,
+    ReleaseOutcome, ReleasePlan, ReleasePlanInput, ReleaseStep, apply_local_release, apply_release,
+    plan_release, reconcile_pending,
 };
 pub use runner::{RunOutcome, RunSpec, RunnerError, run};
 pub use sddk_storage::CapabilityReceipt;
@@ -70,6 +70,7 @@ impl sddk_domain::SddkErrorCode for crate::release::ReleaseError {
             Self::Serialization(..) => "RELEASE_SERIALIZATION",
             Self::Storage(..) => "RELEASE_STORAGE",
             Self::Git(..) => "RELEASE_GIT",
+            Self::Precondition(..) => "RELEASE_PRECONDITION",
         }
     }
 
@@ -82,6 +83,7 @@ impl sddk_domain::SddkErrorCode for crate::release::ReleaseError {
             Self::Serialization(..) => "fix the release payload before retrying",
             Self::Storage(..) => "resolve the underlying storage error first",
             Self::Git(..) => "restore the local and remote Git postconditions before retrying",
+            Self::Precondition(..) => "satisfy the local release preconditions before retrying",
         }
     }
 }

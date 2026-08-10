@@ -441,10 +441,10 @@ graph TD
 
 | Path | Sequence | Coherence gates | Multi-lens verify | Debt-verify |
 |------|----------|----------------|-------------------|------------|
-| B-direct | load skill → execute → light verify → archive → release | 0 | No (1 lens) | n/a (not invoked on hotfixes) |
-| A-min | spec → apply → verify → **debt-verify (smoke)** → archive → release | 0 (unless spec complex) | 2 lenses | **smoke — 2 clusters, mandatory** |
-| A-lite | propose → spec → apply → verify → **debt-verify (standard)** → archive → release | 1 (apply→verify) | 3 lenses | **standard — 4 clusters, mandatory** |
-| A-full | explore → propose → spec\|\|design → tasks → apply → verify → **debt-verify (deep)** → archive → release | 3 | 6 parallel + 1 synthesis | **deep — 5 clusters, mandatory** |
+| B-direct | load skill → execute → light verify → release → archive | 0 | No (1 lens) | n/a (not invoked on hotfixes) |
+| A-min | spec → apply → verify → **debt-verify (smoke)** → release → archive | 0 (unless spec complex) | 2 lenses | **smoke — 2 clusters, mandatory** |
+| A-lite | propose → spec → apply → verify → **debt-verify (standard)** → release → archive | 1 (apply→verify) | 3 lenses | **standard — 4 clusters, mandatory** |
+| A-full | explore → propose → spec\|\|design → tasks → apply → verify → **debt-verify (deep)** → release → archive | 3 | 6 parallel + 1 synthesis | **deep — 5 clusters, mandatory** |
 
 ---
 
@@ -569,7 +569,7 @@ If you can match a canonical path, **always prefer it** — generated workflows 
    - Include `verify` if agents produce code/output
    - Include `debt-verify` (depth derived from path; mandatory — NOT opt-in) for SDD-style changes; skip ONLY when path is B-direct (hotfix)
     - Include `update-knowledge-graph` if milestone tracking is enabled
-   - Include `release` (mandatory post-archive, NOT opt-in) if git workflow applies
+   - Include `release` (mandatory before archive, NOT opt-in) if git workflow applies
 
 5. **YAML composition**: emit workflow YAML following the schema in `~/.config/opencode/workflows/README.md`. Required fields:
    - `name` (kebab-case, descriptive)
@@ -803,7 +803,7 @@ Registry rules:
 ## Dependency Graph
 
 ```
-explore → proposal → [spec || design] --> tasks -> apply -> verify -> debt-verify (mandatory on A-*) -> archive -> release (mandatory)
+explore → proposal → [spec || design] --> tasks -> apply -> verify -> debt-verify (mandatory on A-*) -> release (mandatory) -> archive (closes with archive-manifest linked to release-receipt)
                                    ^                ^          |              |
                                    |                |__________| correction    | remediation round
                               PARALLEL                          cycle         (max 3 rounds, debt-verify reruns on fixed branch — no user prompt)
@@ -815,7 +815,7 @@ explore → proposal → [spec || design] --> tasks -> apply -> verify -> debt-v
 - `verify` requires apply progress. FAIL → return to apply (correction cycle, max 2 iterations).
 - `debt-verify` (MANDATORY on A-*) requires passing verify report (PASS or PW). Depth is path-derived; user is never asked and never allowed to skip. Runs on feature branch BEFORE PR. FAIL with `re_iterate_from: apply` → remediate on SAME feature branch (increment `remediation_round`, max 3 rounds).
 - `archive` requires passing verify report AND passing debt-report (no exceptions on A-*).
-- `release` (v3.3 — mandatory post-archive) is owned by `sddk-release`; see orchestrator.md § "Release Is Mandatory Post-Archive".
+- `release` (v3.7 — mandatory before archive) is owned by `sddk-release`; see orchestrator.md § "Release → Archive: Release Is Mandatory Before Archive".
 
 ---
 
@@ -1000,25 +1000,44 @@ This is **not** an opt-out from reading them. Every phase agent MUST be able to 
 - If a phase agent reports it cannot find a known SDDK path via `grep` or `glob`, log `sddk-local-read-degraded` and fall back to `Read` with the explicit XDG path — do NOT skip the step.
 - `sddk-init` never plants ignore files or repo-local state. Persistence is Engram-memory + XDG + vault only.
 
-### Release Is Mandatory Post-Archive (v3.3, no opt-out)
+### Release → Archive: Release Is Mandatory Before Archive (v3.7, no opt-out)
 
-Once `sddk-archive` returns `status=success`, the orchestrator **MUST** invoke `sddk-release` on the next tick — no opt-in, no user prompt, no skip. This is policy, not preference.
+The workflow enforces `release.complete` BEFORE `archive.complete`. After verify
+(or, on A-full, after review) the cycle transitions to `RELEASE_PENDING`/`release`
+and the orchestrator **MUST** invoke `sddk-release` on the next tick — no opt-in,
+no user prompt, no skip. Only after `sddk-release` returns `status=success` does
+the cycle move to `RELEASED`/`archive`, where `sddk-archive` closes the cycle by
+producing the `archive-manifest`. This is policy, not preference.
 
-**Why mandatory:** historically Phase 3 was 8 inline sub-steps (`push-branch`, `create-pr`, `wait-approval`, `merge-to-main`, `semver-tag`, `html-closing-report`, `close-tracking-issue`, `update-roadmap`) delegated to the orchestrator, each with its own HITL / branch-protection gate. Whenever any of the 3 HITL gates was not closed, the chain silently aborted — feature branches rotted, semver tags were missed, ROADMAP drifted. As of v3.3 the entire Phase 3 is owned by one agent (`sddk-release`) that runs the Release Checklist end-to-end. The orchestrator's only job at this transition is to invoke the agent and surface its result contract.
+**Why mandatory in that order:** Phase 3 (`sddk-release`) is the only component
+that proves local verification evidence, the direct trunk publication, and the
+annotated tag all converge. It is owned by one agent (`sddk-release`) so the
+local Git postconditions are applied and recorded atomically as `merge-receipt`
+and `release-receipt`. The `archive-manifest` produced by `sddk-archive` is the
+immutable link to those receipts: it MUST reference the `release-receipt` so
+that the cycle closure is traceable back to the verified trunk SHA + tag. The
+orchestrator only invokes the agent and surfaces its result contract.
 
 **Single mandatory transition:**
 
 ```
-sddk-archive(status=success)
+verify (or review) → RELEASE_PENDING/release
     ↓  (next tick, no questions, no opt-in)
-sddk-release(mode=auto)
-    ↓  (handles push + PR + wait + merge + tag + html + close-issue + roadmap + trunk-sync)
+sddk-release(route=local)        → produces merge-receipt + release-receipt
+    ↓  (only on status=success)
+sddk-archive                     → produces archive-manifest linked to release-receipt
+    ↓
 trunk-sync-end (Phase 4.1)
 ```
 
-**Override (cycle start only):** per-cycle merge policy can be set in the launch plan (`launch_plan.merge_policy: auto|guided|strict`). If unset, `sddk-release` probes the repo's branch protection and locks the mode. **Mode locked at launch — never auto-degraded mid-cycle.** If `auto` is incompatible with the repo's protection, `sddk-release` returns `status=blocked` with a recovery command — it does NOT silently fall back to `guided`.
-
-**Recovery on blocker:** if `sddk-release` returns `status=blocked`, the orchestrator surfaces the blockers[] and instructs the user to re-run `/sddk-release <change>` (idempotent resume from first uncompleted sub-step). **The cycle is not "done" until `status=success`.** A user-initiated abort does NOT mark the cycle as done — it remains `status=blocked` with `abort_reason` recorded, and the feature branch stays unmerged. The next session MUST re-enter via `/sddk-release <change>` to resume. The orchestrator NEVER emits `status=success` or `next_recommended: "ready for next cycle"` without a successful release-report confirming `HEAD == origin/main` + semver tag pushed.
+**Recovery on blocker:** if `sddk-release` returns `status=blocked`, the
+orchestrator surfaces the blockers[] and instructs the user to re-run
+`/sddk-release <change>` (idempotent resume from the first unsettled local
+effect). **The cycle is not "done" until `status=success`.** The orchestrator
+NEVER emits `status=success` or `next_recommended: "ready for next cycle"`
+without a successful release-report confirming `HEAD == origin/main`, the
+annotated tag, and no pending `git.push` or `git.tag` receipts, AND without an
+archive-manifest linked to the release-receipt.
 
 **Skill gate:** when `sddk-release/SKILL.md` is loaded by this orchestrator, it is **delegate-only** — re-delegate to the executor agent; do NOT execute the release checklist inline.
 
@@ -1032,17 +1051,16 @@ When the cycle is launched with `mode=auto` (the default), the orchestrator must
 Forbidden mid-cycle pauses:
 - "Do you want me to run debt-verify?" — debt-verify is mandatory, depth is path-derived (reversibility override applies, but is not a user choice).
 - "Do you want me to archive?" — archive is mandatory after verify PASS.
-- "Do you want me to release?" — **release is mandatory after archive. The archive→release pair is atomic and CANNOT be interrupted by a user prompt in any mode.**
+- "Do you want me to release?" — **release is mandatory before archive. The release→archive pair is atomic and CANNOT be interrupted by a user prompt in any mode.**
 - "Should I continue?" — never asked in auto mode.
-- "Choose merge policy mid-cycle" — locked at launch.
 
 The **only** legitimate mid-cycle user interaction is `escalation_needed=true` from a phase agent — and even then, the orchestrator surfaces the question AFTER `status=blocked` is recorded, not before phase changes.
 
 ### Interactive Mode — Phase Checkpoints, NOT Between Archive and Release (v3.4)
 
-In interactive mode, the orchestrator pauses after each phase to ask "¿Continuamos?" — **except** between `archive` and `release`. Those two phases are **fused into an atomic unit**: once archive returns `status=success`, the orchestrator MUST invoke `sddk-release` on the next tick without asking.
+In interactive mode, the orchestrator pauses after each phase to ask "¿Continuamos?" — **except** between `release` and `archive`. Those two phases are **fused into an atomic unit**: once `sddk-release` returns `status=success`, the orchestrator MUST invoke `sddk-archive` on the next tick without asking.
 
-**Why:** a cycle that archives but doesn't release leaves the feature branch unmerged, the semver tag missing, and main out of sync. That is a silently broken trunk-based state — exactly the failure mode v3.3 was designed to prevent. Allowing a user to say "stop" between archive and release reintroduces the abort gap.
+**Why:** a cycle that releases but does not archive leaves the verified trunk SHA, the semver tag, and settled local receipts without an `archive-manifest` linking them. That is a silently broken trunk-based state. Allowing a user to stop between release and archive reintroduces the abort gap.
 
 **The only interactive checkpoint that produces a hard STOP is BEFORE `apply`** — once the user commits to `apply` (Phase 2.1), the cycle runs through to `trunk-sync-end` (Phase 4.1) without further stop points. The reasoning: after apply, there are already commits on a feature branch; leaving them unmerged is worse than completing the cycle.
 
@@ -1052,7 +1070,7 @@ In interactive mode, the orchestrator pauses after each phase to ask "¿Continua
 | apply (Phase 2.1 start) | **YES — last checkpoint** | Once commits exist, cycle must close |
 | verify | NO | Automatic gate |
 | debt-verify | NO | Automatic gate (reversibility override is automatic) |
-| archive | **NO — atomic handoff to release** | Branch is ready, delaying release risks drift |
+| release | **NO — atomic handoff to archive** | Local effects are settled, delaying archive risks drift |
 | release | NO | Runs the Release Checklist to completion or blocked |
 | trunk-sync-end | NO | Final gate, automatic |
 
@@ -1124,7 +1142,7 @@ The MCW runs in **5 phases**, each with numbered steps. Hard gates only where st
 | 2 | 2.3 | Verify (multi-lens if A-full) | PASS or PW |
 | 2 | 2.4 | Coherence verify→archive (A-full) | ≥ 60 |
 | 2 | 2.5 | Archive (delta spec sync) | archive-report registered |
-| 3 | 3 | **Release** (owner: `sddk-release`) — push + PR + wait + merge + tag + html + close-issue + roadmap | release-report success + main HEAD == origin/main |
+| 3 | 3 | **Release** (owner: `sddk-release`) — local verify + push main + verify SHA + tag + receipts | release-report success + main HEAD == origin/main |
 | 4 | 4.1 | Sync main | HEAD == origin/main |
 | 4 | 4.2 | F3 tuning + metrics | Tuning written |
 | 4 | 4.3 | Jurisprudence (conditional) | Observation saved |
@@ -1310,7 +1328,7 @@ If ANY of these is false, the result-contract status MUST be `blocked` with `nex
 
 This guard is absolute: there is no override, no user prompt that bypasses it, and no mode (auto/interactive) where it is relaxed.
 
-In interactive mode: stop after each **planning** phase (explore through tasks), ask before next. **After `apply` starts, no more pauses** — the cycle runs through verify → debt-verify → archive → release → trunk-sync-end without interruption. See "Interactive Mode — Phase Checkpoints" above for the full table. In auto mode: continue from Phase 1 through Phase 4.1 without any pause.
+In interactive mode: stop after each **planning** phase (explore through tasks), ask before next. **After `apply` starts, no more pauses** — the cycle runs through verify → debt-verify → release → archive → trunk-sync-end without interruption. See "Interactive Mode — Phase Checkpoints" above for the full table. In auto mode: continue from Phase 1 through Phase 4.1 without any pause.
 
 ---
 

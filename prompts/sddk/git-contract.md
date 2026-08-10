@@ -62,10 +62,12 @@ test "$(git ls-remote origin "refs/tags/$TAG^{}" | awk '{print $1}')" = "$SHA"
 The typed equivalent is:
 
 ```bash
-sddk release apply --route local --branch main --base main \
+sddk release apply --route local --branch main --base main --cycle "<cycle-id>" \
   --tag "v<major>.<minor>.<patch>" --title "<type>: <description>" --approve
 ```
 
+The local route reads the cycle's `verification-report`, `tests-pass`,
+`policy-compliant`, and `release-uat-approved` evidence before Git effects.
 `--route forge --repo owner/repo` remains available only for optional external
 integration. It must not read provider checks or become the authority for the
 main SHA or tag.

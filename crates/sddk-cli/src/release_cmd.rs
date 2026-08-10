@@ -5,8 +5,10 @@ use std::path::PathBuf;
 use clap::{Args, Subcommand, ValueEnum};
 use sddk_gateway::{
     CapabilityGateway, CapabilityPolicy, GitExecutor, GitHubForge, LocalReleaseInput,
-    LocalReleaseOutcome, ReleasePlanInput, apply_local_release, apply_release, plan_release,
+    LocalReleaseOutcome, LocalReleasePreconditions, PermissionPolicy, ReleasePlanInput,
+    apply_local_release, apply_release, plan_release,
 };
+use sddk_storage::GateOutcomeStatus;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -60,8 +62,8 @@ pub(crate) struct ReleaseArgs {
     #[command(flatten)]
     pub(crate) runtime: RuntimeArgs,
     /// Release authority. `local` never uses GitHub, CI/CD, or assets.
-    #[arg(long, value_enum, default_value_t = ReleaseRoute::Local)]
-    pub(crate) route: ReleaseRoute,
+    #[arg(long, value_enum)]
+    pub(crate) route: Option<ReleaseRoute>,
     /// GitHub repository as `owner/repo`, required only for `--route forge`.
     #[arg(long)]
     pub(crate) repo: Option<String>,
@@ -77,6 +79,9 @@ pub(crate) struct ReleaseArgs {
     /// Release tag.
     #[arg(long)]
     pub(crate) tag: String,
+    /// Release cycle providing local verification and UAT evidence.
+    #[arg(long)]
+    pub(crate) cycle: Option<String>,
     /// Release notes.
     #[arg(long, default_value = "")]
     pub(crate) notes: String,
@@ -280,20 +285,21 @@ struct ReleasePlanOutput {
 fn run_release_plan(args: ReleaseArgs, environment: &CliEnvironment) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<ReleasePlanOutput> {
-        if matches!(args.route, ReleaseRoute::Local) && args.branch != args.base {
-            anyhow::bail!("--route local requires --branch to equal --base (the trunk branch)");
+        let route = selected_route(&args)?;
+        if matches!(route, ReleaseRoute::Local) && (args.branch != "main" || args.base != "main") {
+            anyhow::bail!("--route local requires --branch main and --base main");
         }
         let context = RuntimeContext::open(&args.runtime, environment, false)?;
         let head = sddk_gateway::GitExecutor::new(context.root.clone())
             .inspect()?
             .head;
         Ok(ReleasePlanOutput {
-            route: args.route,
+            route,
             branch: args.branch.clone(),
             base: args.base.clone(),
             tag: args.tag.clone(),
             head,
-            steps: match args.route {
+            steps: match route {
                 ReleaseRoute::Local => vec![
                     "push_main",
                     "verify_main_sha",
@@ -309,11 +315,26 @@ fn run_release_plan(args: ReleaseArgs, environment: &CliEnvironment) -> CommandO
 
 fn run_release_apply(args: ReleaseArgs, environment: &CliEnvironment) -> CommandOutput {
     let format = args.format;
-    let result =
-        (|| -> anyhow::Result<(String, std::path::PathBuf, CapabilityGateway, String, String)> {
+    let route = match selected_route(&args) {
+        Ok(route) => route,
+        Err(error) => return render_result(Err(error), format, release_outcome_text),
+    };
+    let result = (|| -> anyhow::Result<(
+        String,
+        std::path::PathBuf,
+        CapabilityGateway,
+        String,
+        String,
+        Option<LocalReleasePreconditions>,
+    )> {
         let context = RuntimeContext::open(&args.runtime, environment, false)?;
         let project_id = context.identity.project_id.to_string();
         let root = context.root.clone();
+        let permissions = PermissionPolicy::from_file(root.join("permissions.yaml"))?;
+        authorize_release(&permissions, route)?;
+        let local_preconditions = matches!(route, ReleaseRoute::Local)
+            .then(|| local_release_preconditions(&context, &project_id, args.cycle.as_deref()))
+            .transpose()?;
         let policy = CapabilityPolicy::from_workflow(context.engine.workflow());
         let gateway = CapabilityGateway::new(policy, context.storage);
         let timestamp = args
@@ -326,32 +347,32 @@ fn run_release_apply(args: ReleaseArgs, environment: &CliEnvironment) -> Command
             .or_else(|| environment.sddk_actor.clone())
             .or_else(|| environment.user.clone())
             .unwrap_or_else(|| "sddk-cli".into());
-        Ok((project_id, root, gateway, timestamp, actor))
+        Ok((project_id, root, gateway, timestamp, actor, local_preconditions))
     })();
-    let (project_id, root, mut gateway, timestamp, actor) = match result {
+    let (project_id, root, mut gateway, timestamp, actor, local_preconditions) = match result {
         Ok(value) => value,
         Err(error) => return render_result(Err(error), format, release_outcome_text),
     };
 
-    match args.route {
+    match route {
         ReleaseRoute::Local => {
             let result = (|| -> anyhow::Result<LocalReleaseOutcome> {
-                if args.branch != args.base {
-                    anyhow::bail!(
-                        "--route local requires --branch to equal --base (the trunk branch)"
-                    );
+                if args.branch != "main" || args.base != "main" {
+                    anyhow::bail!("--route local requires --branch main and --base main");
                 }
                 Ok(apply_local_release(
                     &mut gateway,
                     &LocalReleaseInput {
                         project_id,
-                        cycle_id: None,
+                        cycle_id: args.cycle,
                         branch: args.branch,
                         tag: args.tag,
                         tag_message: args.title,
                         approve: args.approve,
                         timestamp,
                         actor,
+                        preconditions: local_preconditions
+                            .expect("local route preconditions were resolved"),
                     },
                     &GitExecutor::new(root),
                 )?)
@@ -384,6 +405,115 @@ fn run_release_apply(args: ReleaseArgs, environment: &CliEnvironment) -> Command
             render_result(result, format, release_outcome_text)
         }
     }
+}
+
+fn selected_route(args: &ReleaseArgs) -> anyhow::Result<ReleaseRoute> {
+    match args.route {
+        Some(route) => Ok(route),
+        None if args.repo.is_some() => anyhow::bail!(
+            "release route now defaults to local; legacy Forge invocations must pass --route forge"
+        ),
+        None => Ok(ReleaseRoute::Local),
+    }
+}
+
+fn authorize_release(policy: &PermissionPolicy, route: ReleaseRoute) -> anyhow::Result<()> {
+    // The local route reads the local preconditions through `git.inspect` and
+    // also applies `git.push` and `git.tag`. The forge route uses forge-only
+    // capabilities. The permission registry MUST list every capability that
+    // `apply_local_release` actually executes, otherwise the release would
+    // run with an unauthorized read.
+    let capabilities: &[&str] = match route {
+        ReleaseRoute::Local => &["git.inspect", "git.push", "git.tag"],
+        ReleaseRoute::Forge => &["pr.create", "pr.merge", "release.create"],
+    };
+    for capability in capabilities {
+        let decision = policy.authorize("sddk-release", "release", capability);
+        if !decision.allowed {
+            anyhow::bail!("release permission denied: {}", decision.reason);
+        }
+    }
+    Ok(())
+}
+
+fn local_release_preconditions(
+    context: &RuntimeContext,
+    project_id: &str,
+    cycle_id: Option<&str>,
+) -> anyhow::Result<LocalReleasePreconditions> {
+    let cycle_id = cycle_id.ok_or_else(|| {
+        anyhow::anyhow!("--cycle is required for --route local to verify local release evidence")
+    })?;
+    let cycle = context.storage.get_cycle(cycle_id)?;
+    let manifest = cycle.manifest;
+    if manifest.project_id != project_id
+        || manifest.status != sddk_domain::CycleStatus::ReleasePending
+        || manifest.phase != sddk_domain::Phase::Release
+    {
+        anyhow::bail!("cycle {cycle_id} is not the current release-pending cycle for this project");
+    }
+
+    // The release ties the cycle to the local trunk. The cycle MUST point at
+    // a branch that is an ancestor of the current local trunk HEAD, and the
+    // worktree MUST be on the trunk branch with a clean status. A cycle that
+    // points at a different branch fails clearly here instead of silently
+    // pushing the wrong commits.
+    let trunk_branch = manifest.branch.as_str();
+    if trunk_branch != "main" {
+        anyhow::bail!(
+            "cycle {cycle_id} points at branch {trunk_branch:?}; the local release route requires the cycle to point at the trunk branch main"
+        );
+    }
+    let git = sddk_gateway::GitExecutor::new(context.root.clone());
+    let inspect = git.inspect()?;
+    if inspect.branch.as_deref() != Some("main") {
+        anyhow::bail!(
+            "cycle {cycle_id} is tied to trunk main but the worktree is on {}; checkout main before running the local release",
+            inspect.branch.as_deref().unwrap_or("detached HEAD")
+        );
+    }
+    if inspect.dirty {
+        anyhow::bail!(
+            "cycle {cycle_id} cannot release from a dirty worktree; commit or stash the changes first"
+        );
+    }
+    if let Some(cycle_head) = manifest.head.as_deref() {
+        let local_head = git.head_sha()?;
+        if cycle_head != local_head && !is_ancestor(&git, cycle_head, &local_head)? {
+            anyhow::bail!(
+                "cycle {cycle_id} points at commit {cycle_head}, which is not an ancestor of the local trunk HEAD {local_head}; the cycle is on a different branch"
+            );
+        }
+    }
+
+    let gates = context.storage.list_gate_receipts(cycle_id)?;
+    let passed = |gate: &str| {
+        gates
+            .iter()
+            .any(|receipt| receipt.gate == gate && receipt.outcome == GateOutcomeStatus::Passed)
+    };
+    Ok(LocalReleasePreconditions {
+        verification_passed: manifest.artifacts.contains_key("verification-report")
+            && passed("tests-pass")
+            && passed("policy-compliant"),
+        uat_passed: passed("release-uat-approved"),
+    })
+}
+
+fn is_ancestor(
+    git: &sddk_gateway::GitExecutor,
+    ancestor: &str,
+    descendant: &str,
+) -> anyhow::Result<bool> {
+    let status = std::process::Command::new("git")
+        .arg("-C")
+        .arg(git.root())
+        .arg("merge-base")
+        .arg("--is-ancestor")
+        .arg(ancestor)
+        .arg(descendant)
+        .status()?;
+    Ok(status.success())
 }
 
 fn release_plan_text(output: &ReleasePlanOutput) -> String {

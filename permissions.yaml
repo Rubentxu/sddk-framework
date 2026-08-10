@@ -123,8 +123,14 @@ agents:
     phases: []
     capabilities: []
   sddk-release:
-    phases: []
-    capabilities: []
+    phases: ['release']
+    capabilities:
+      - git.inspect
+      - git.push
+      - git.tag
+      - pr.create
+      - pr.merge
+      - release.create
   sddk-spec:
     phases: []
     capabilities: []

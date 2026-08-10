@@ -58,7 +58,7 @@ while its local bookkeeping is incomplete.
 Use the local CLI route where possible:
 
 ```bash
-sddk release apply --route local --branch main --base main \
+sddk release apply --route local --branch main --base main --cycle "<cycle-id>" \
   --tag "v<major>.<minor>.<patch>" --title "<type>: <description>" --approve
 ```
 
@@ -87,14 +87,19 @@ returning.
 status: success | blocked
 route: local
 change: <name>
+cycle_id: <project_id>/<cycle_slug>
 main_sha: <full-sha>
 tag: v<major>.<minor>.<patch>
 merge_receipt: <path-or-receipt-id>
 release_receipt: <path-or-receipt-id>
+archive_manifest: <path-or-receipt-id>   # produced by sddk-archive, references release_receipt
 knowledge_graph_updated: bool
 lock_released: bool
 optional_distribution: not_requested | pending | completed | failed
 blockers: []
 ```
 
-Always persist this release report, including when blocked.
+Always persist this release report, including when blocked. The
+`archive-manifest` produced by the successor phase (`sddk-archive`) MUST
+reference the `release-receipt` so the cycle closure is traceable back to the
+verified trunk SHA + tag.
