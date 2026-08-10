@@ -458,10 +458,7 @@ fn upsert_cycle(
 
 /// Upsert a UAT aggregate into the control plane (ADR-012: the CP stores
 /// only the numeric rollup; sessions/evidence stay in XDG artifacts).
-pub(crate) fn upsert_uat_result(
-    conn: &Connection,
-    result: &UatResultRow,
-) -> anyhow::Result<()> {
+pub(crate) fn upsert_uat_result(conn: &Connection, result: &UatResultRow) -> anyhow::Result<()> {
     conn.execute(
         r#"
         INSERT INTO uat_results (
@@ -491,9 +488,7 @@ pub(crate) fn upsert_uat_result(
 }
 
 /// Load UAT aggregates for the readiness panel (ADR-013).
-pub(crate) fn load_uat_results(
-    conn: &Connection,
-) -> anyhow::Result<Vec<UatResultRow>> {
+pub(crate) fn load_uat_results(conn: &Connection) -> anyhow::Result<Vec<UatResultRow>> {
     let mut stmt = conn.prepare(
         "SELECT project_id, tag_version, verdict, coverage_pct, defects,
                 session_count, uat_duration_minutes, recorded_at
@@ -852,13 +847,8 @@ fn run_telemetry_dashboard(
         let aggregate_7d = metrics::compute_aggregate(&records, 7);
         let aggregate_30d = metrics::compute_aggregate(&records, 30);
         let tuning = metrics::tuning_from_aggregate(&aggregate_30d);
-        let html = render_dashboard_html(
-            &records,
-            &aggregate_7d,
-            &aggregate_30d,
-            &tuning,
-            &uat_rows,
-        );
+        let html =
+            render_dashboard_html(&records, &aggregate_7d, &aggregate_30d, &tuning, &uat_rows);
         let dir = control_plane_dir(environment)?;
         std::fs::create_dir_all(&dir)?;
         let path = args

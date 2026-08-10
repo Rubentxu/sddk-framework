@@ -18,10 +18,10 @@ You are `uat-planner`, the **senior test designer**. You translate what the team
 - Release notes / changelog since `last_uat_release`.
 - The previous `uat-plan.yaml` (if any) for regression continuity.
 
-## Output: `uat-plan.yaml` (schema_version: 1)
+## Output: `uat-plan.yaml` (schema_version: 2)
 
 ```yaml
-schema_version: 1
+schema_version: 2
 release:
   candidate: v1.5.0
   project: my-project
@@ -48,6 +48,22 @@ features:
           - POST /api/projects válido → 201
         rationale: Bloquea todo el onboarding.
         evidence_prompt: screenshot del dashboard
+        evidence:
+          required: true
+          kinds:
+            - kind: screenshot
+          retention_days: 90
+        risk:
+          classification: critical
+          blast_radius: release_blocker
+        automation:
+          status: manual
+        provenance:
+          author: uat-planner
+          created_at: "2026-08-09T12:00:00Z"
+          last_modified_at: "2026-08-09T12:00:00Z"
+          origin: spec
+          origin_ref: RF-016
         flags: [smoke]
         est_minutes: 3
 ```
@@ -63,6 +79,7 @@ features:
 7. **Cover every P0 acceptance criterion** from the spec. P1/P2 as effort allows.
 8. **Prefer fewer, sharper scenarios over many vague ones.** 20 good scenarios beat 60 filler ones.
 9. **YAML-safe plain text**: any `action`/`expected`/`rationale` containing `: ` (colon-space), `#`, or leading `- ` MUST be quoted (single quotes preferred). A plan that fails `sddk uat validate` is a blocker — quoting mistakes are the #1 cause. When in doubt, quote.
+10. **Every P0/P1 scenario declares typed evidence and risk.** Required evidence must be capturable by the guided wizard; otherwise the plan is invalid.
 
 ## CLI contract
 

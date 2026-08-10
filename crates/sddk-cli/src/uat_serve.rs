@@ -66,22 +66,24 @@ pub fn spawn(environment: Arc<crate::CliEnvironment>) -> std::io::Result<IngestS
     let shutdown_thread = Arc::clone(&shutdown);
     let handle = thread::Builder::new()
         .name("uat-ingest-server".into())
-        .spawn(move || loop {
-            if shutdown_thread.load(Ordering::SeqCst) {
-                break;
-            }
-            match listener.accept() {
-                Ok((stream, _)) => {
-                    let env = Arc::clone(&environment);
-                    handle_connection(stream, env);
-                }
-                Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                    // Short sleep = responsive shutdown + low latency.
-                    thread::sleep(Duration::from_millis(5));
-                }
-                Err(e) => {
-                    eprintln!("uat-ingest-server: accept error: {e}");
+        .spawn(move || {
+            loop {
+                if shutdown_thread.load(Ordering::SeqCst) {
                     break;
+                }
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        let env = Arc::clone(&environment);
+                        handle_connection(stream, env);
+                    }
+                    Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                        // Short sleep = responsive shutdown + low latency.
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(e) => {
+                        eprintln!("uat-ingest-server: accept error: {e}");
+                        break;
+                    }
                 }
             }
         })?;
@@ -236,7 +238,10 @@ fn handle_ingest(stream: &mut TcpStream, body: &[u8], environment: &crate::CliEn
     let session: UatSession = match serde_saphyr::from_str(body_str) {
         Ok(s) => s,
         Err(e) => {
-            let resp = format!(r#"{{"ok":false,"error":"invalid session: {}"}}"#, escape_json(&e.to_string()));
+            let resp = format!(
+                r#"{{"ok":false,"error":"invalid session: {}"}}"#,
+                escape_json(&e.to_string())
+            );
             let _ = write_response(stream, 400, "application/json", resp.as_bytes());
             return;
         }
@@ -251,29 +256,54 @@ fn handle_ingest(stream: &mut TcpStream, body: &[u8], environment: &crate::CliEn
                 verdict,
                 session.results.len(),
             );
-            write_response(stream, 200, "application/json", body.as_bytes());
+            let _ = write_response(stream, 200, "application/json", body.as_bytes());
         }
         Err(e) => {
             let msg = escape_json(&format!("{e}"));
             let body = format!(r#"{{"ok":false,"error":"{}"}}"#, msg);
-            write_response(stream, 422, "application/json", body.as_bytes());
+            let _ = write_response(stream, 422, "application/json", body.as_bytes());
         }
     }
 }
 
 fn compute_verdict(session: &UatSession) -> &'static str {
-    let failed = session.results.iter().filter(|r| matches!(r.status, sddk_domain::UatStatus::Fail)).count();
-    let blocked = session.results.iter().filter(|r| matches!(r.status, sddk_domain::UatStatus::Blocked)).count();
-    if failed == 0 && blocked == 0 { "READY" }
-    else if failed == 0 { "READY_WITH_RISKS" }
-    else { "NOT_READY" }
+    let failed = session
+        .results
+        .iter()
+        .filter(|r| matches!(r.status, sddk_domain::UatStatus::Fail))
+        .count();
+    let blocked = session
+        .results
+        .iter()
+        .filter(|r| matches!(r.status, sddk_domain::UatStatus::Blocked))
+        .count();
+    let not_run = session
+        .results
+        .iter()
+        .filter(|r| matches!(r.status, sddk_domain::UatStatus::NotRun))
+        .count();
+    if failed > 0 || not_run > 0 {
+        "NOT_READY"
+    } else if blocked > 0 {
+        "READY_WITH_RISKS"
+    } else {
+        "READY"
+    }
 }
 
 fn escape_json(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n").replace('\r', "")
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "")
 }
 
-fn write_response(stream: &mut TcpStream, status: u16, content_type: &str, body: &[u8]) -> std::io::Result<()> {
+fn write_response(
+    stream: &mut TcpStream,
+    status: u16,
+    content_type: &str,
+    body: &[u8],
+) -> std::io::Result<()> {
     let reason = match status {
         200 => "OK",
         204 => "No Content",
@@ -364,8 +394,14 @@ mod tests {
     /// Minimal blocking HTTP GET (no external dep needed).
     fn http_get(url: &str) -> String {
         let url = url.strip_prefix("http://").unwrap_or(url);
-        let (host_port, path) = url.split_once('/').map(|(h, p)| (h, format!("/{p}"))).unwrap_or((url, "/".to_string()));
-        let (host, port) = host_port.split_once(':').map(|(h, p)| (h, p.parse::<u16>().unwrap_or(80))).unwrap_or((host_port, 80));
+        let (host_port, path) = url
+            .split_once('/')
+            .map(|(h, p)| (h, format!("/{p}")))
+            .unwrap_or((url, "/".to_string()));
+        let (host, port) = host_port
+            .split_once(':')
+            .map(|(h, p)| (h, p.parse::<u16>().unwrap_or(80)))
+            .unwrap_or((host_port, 80));
         use std::io::{Read, Write};
         use std::net::TcpStream;
         let mut stream = TcpStream::connect((host, port)).expect("connect");
@@ -386,8 +422,14 @@ mod tests {
     /// Minimal blocking HTTP POST (small bodies, for tests).
     fn http_post(url: &str, content_type: &str, body: &[u8]) -> String {
         let url = url.strip_prefix("http://").unwrap_or(url);
-        let (host_port, path) = url.split_once('/').map(|(h, p)| (h, format!("/{p}"))).unwrap_or((url, "/".to_string()));
-        let (host, port) = host_port.split_once(':').map(|(h, p)| (h, p.parse::<u16>().unwrap_or(80))).unwrap_or((host_port, 80));
+        let (host_port, path) = url
+            .split_once('/')
+            .map(|(h, p)| (h, format!("/{p}")))
+            .unwrap_or((url, "/".to_string()));
+        let (host, port) = host_port
+            .split_once(':')
+            .map(|(h, p)| (h, p.parse::<u16>().unwrap_or(80)))
+            .unwrap_or((host_port, 80));
         use std::io::{Read, Write};
         use std::net::TcpStream;
         let mut stream = TcpStream::connect((host, port)).expect("connect");

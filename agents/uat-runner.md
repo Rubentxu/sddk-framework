@@ -24,10 +24,11 @@ You are `uat-runner`, the **pre-flight executor**. You execute every scenario of
 4. **`executor: fara`**, `executed_by`: your agent name.
 5. **Be conservative**: if you cannot verify an `expected` outcome with confidence, mark PARTIAL with a comment — the human decides.
 
-## Output: `uat-session.yaml` (schema_version: 1)
+## Output: `uat-session.yaml` (schema_version: 2)
 
 ```yaml
-schema_version: 1
+schema_version: 2
+plan_version: 2
 session_id: uat-<uuid>
 plan_ref: <candidate tag>
 release: v1.5.0
@@ -35,13 +36,29 @@ executor: fara
 executed_by: fara-1.5
 started_at: "2026-08-07T12:05:00Z"
 finished_at: "2026-08-07T12:18:00Z"
+metadata:
+  tester:
+    id: fara-1.5
+  started_at: "2026-08-07T12:05:00Z"
+  completed_at: "2026-08-07T12:18:00Z"
+  duration_ms: 780000
+  build:
+    commit: <tested-commit-sha>
+    branch: <tested-branch>
+    tag: v1.5.0
+    dirty: false
 results:
   - scenario_id: S-1
     status: PASS
     evidence:
       - kind: screenshot
         ref: "sha256:abc123"
+        captured_at: "2026-08-07T12:08:00Z"
+        size_bytes: 12345
+        mime: image/png
     duration_minutes: 3
+    verdict_at: "2026-08-07T12:08:00Z"
+    verdict_duration_ms: 180000
 ```
 
 ## CLI contract

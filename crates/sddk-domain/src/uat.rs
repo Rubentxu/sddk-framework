@@ -127,7 +127,9 @@ pub struct UatEvidenceSpec {
     #[serde(default = "default_retention_days")]
     pub retention_days: u32,
 }
-fn default_retention_days() -> u32 { 90 }
+fn default_retention_days() -> u32 {
+    90
+}
 
 /// One piece of deterministic test data (v2).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -171,12 +173,21 @@ pub struct UatTiming {
     pub timeout_min: u32,
 }
 
-fn default_window() -> String { "smoke".into() }
-fn default_timeout_min() -> u32 { 10 }
+fn default_window() -> String {
+    "smoke".into()
+}
+fn default_timeout_min() -> u32 {
+    10
+}
 
 impl Default for UatTiming {
     fn default() -> Self {
-        Self { window: default_window(), parallel_safe: false, order_hint: None, timeout_min: default_timeout_min() }
+        Self {
+            window: default_window(),
+            parallel_safe: false,
+            order_hint: None,
+            timeout_min: default_timeout_min(),
+        }
     }
 }
 
@@ -291,8 +302,11 @@ pub enum UatAssignee {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum UatStatus {
-    /// Scenario passed.
+    /// Scenario was not executed or lacks the evidence required by the plan.
     #[default]
+    #[serde(rename = "NOT_RUN")]
+    NotRun,
+    /// Scenario passed.
     Pass,
     /// Scenario failed (defect found).
     Fail,
@@ -626,6 +640,9 @@ pub struct UatReportSummary {
     pub blocked: u32,
     /// Partial count.
     pub partial: u32,
+    /// Scenarios that were not executed or could not be proven.
+    #[serde(default)]
+    pub not_run: u32,
     /// Coverage percentage (0..=100).
     pub coverage_pct: f64,
     /// Functional defects found.
@@ -725,12 +742,20 @@ pub struct ReleaseGateMap {
 
 impl Default for ReleaseGateMap {
     fn default() -> Self {
-        Self { major: ReleaseGateAction::Required, minor: ReleaseGateAction::Required, patch: ReleaseGateAction::Skip }
+        Self {
+            major: ReleaseGateAction::Required,
+            minor: ReleaseGateAction::Required,
+            patch: ReleaseGateAction::Skip,
+        }
     }
 }
 
-fn default_required() -> ReleaseGateAction { ReleaseGateAction::Required }
-fn default_skip() -> ReleaseGateAction { ReleaseGateAction::Skip }
+fn default_required() -> ReleaseGateAction {
+    ReleaseGateAction::Required
+}
+fn default_skip() -> ReleaseGateAction {
+    ReleaseGateAction::Skip
+}
 
 /// Which human roles are available to validate the UAT (controls the
 /// orchestrator's activation function).
@@ -746,10 +771,17 @@ pub struct HumanAvailability {
     pub architect: bool,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 impl Default for HumanAvailability {
-    fn default() -> Self { Self { developer: true, architect: true } }
+    fn default() -> Self {
+        Self {
+            developer: true,
+            architect: true,
+        }
+    }
 }
 
 /// Thresholds for the orchestrator's activation function (ADR-012): when is
@@ -769,12 +801,20 @@ pub struct ActivationThresholds {
     pub critical_domains: Vec<String>,
 }
 
-fn default_three() -> u32 { 3 }
-fn default_two_hundred() -> u32 { 200 }
+fn default_three() -> u32 {
+    3
+}
+fn default_two_hundred() -> u32 {
+    200
+}
 
 impl Default for ActivationThresholds {
     fn default() -> Self {
-        Self { min_features: 3, min_diff_lines: 200, critical_domains: Vec::new() }
+        Self {
+            min_features: 3,
+            min_diff_lines: 200,
+            critical_domains: Vec::new(),
+        }
     }
 }
 
@@ -808,14 +848,23 @@ pub fn release_type_from_diff(current: &str, previous: &str) -> Option<ReleaseTy
     let parse = |t: &str| -> Option<(u64, u64, u64)> {
         let s = t.trim_start_matches(|c: char| !c.is_ascii_digit());
         let mut parts = s.split('.');
-        Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
+        Some((
+            parts.next()?.parse().ok()?,
+            parts.next()?.parse().ok()?,
+            parts.next()?.parse().ok()?,
+        ))
     };
     let (cmaj, cmin, cpat) = parse(current)?;
     let (pmaj, pmin, ppat) = parse(previous)?;
-    if cmaj > pmaj { Some(ReleaseType::Major) }
-    else if cmin > pmin { Some(ReleaseType::Minor) }
-    else if cpat > ppat { Some(ReleaseType::Patch) }
-    else { None }
+    if cmaj > pmaj {
+        Some(ReleaseType::Major)
+    } else if cmin > pmin {
+        Some(ReleaseType::Minor)
+    } else if cpat > ppat {
+        Some(ReleaseType::Patch)
+    } else {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -858,9 +907,13 @@ pub fn migrate_plan_v1_to_v2(plan: &mut UatPlan) -> UatMigrationReport {
     if plan.schema_version >= 2 {
         return UatMigrationReport {
             action: UatMigrationAction::AlreadyV2,
-            from_version, to_version: plan.schema_version,
-            features_touched, scenarios_touched,
-            evidence_promoted, risk_promoted, timing_promoted,
+            from_version,
+            to_version: plan.schema_version,
+            features_touched,
+            scenarios_touched,
+            evidence_promoted,
+            risk_promoted,
+            timing_promoted,
         };
     }
 
@@ -873,11 +926,32 @@ pub fn migrate_plan_v1_to_v2(plan: &mut UatPlan) -> UatMigrationReport {
         }
         for scenario in &mut feature.scenarios {
             scenarios_touched += 1;
-            let timing_window = scenario.context.as_ref().and_then(|c| c.timing.as_ref()).map(|t| t.window.clone()).unwrap_or_else(|| "smoke".into());
-            let timing_timeout = scenario.context.as_ref().and_then(|c| c.timing.as_ref()).map(|t| t.timeout_min).unwrap_or_else(|| scenario.est_minutes.max(10));
-            let timing_parallel = scenario.context.as_ref().and_then(|c| c.timing.as_ref()).map(|t| t.parallel_safe).unwrap_or(false);
-            let timing_order = scenario.context.as_ref().and_then(|c| c.timing.as_ref()).and_then(|t| t.order_hint.clone());
-            let context = scenario.context.get_or_insert_with(UatScenarioContext::default);
+            let timing_window = scenario
+                .context
+                .as_ref()
+                .and_then(|c| c.timing.as_ref())
+                .map(|t| t.window.clone())
+                .unwrap_or_else(|| "smoke".into());
+            let timing_timeout = scenario
+                .context
+                .as_ref()
+                .and_then(|c| c.timing.as_ref())
+                .map(|t| t.timeout_min)
+                .unwrap_or_else(|| scenario.est_minutes.max(10));
+            let timing_parallel = scenario
+                .context
+                .as_ref()
+                .and_then(|c| c.timing.as_ref())
+                .map(|t| t.parallel_safe)
+                .unwrap_or(false);
+            let timing_order = scenario
+                .context
+                .as_ref()
+                .and_then(|c| c.timing.as_ref())
+                .and_then(|t| t.order_hint.clone());
+            let context = scenario
+                .context
+                .get_or_insert_with(UatScenarioContext::default);
             context.timing = Some(UatTiming {
                 window: timing_window,
                 parallel_safe: timing_parallel,
@@ -894,7 +968,10 @@ pub fn migrate_plan_v1_to_v2(plan: &mut UatPlan) -> UatMigrationReport {
                     required: true,
                     kinds: vec![UatEvidenceKindItem {
                         kind: UatEvidenceKind::Note,
-                        r#ref: None, match_mode: None, expected_value: None, min_bytes: None,
+                        r#ref: None,
+                        match_mode: None,
+                        expected_value: None,
+                        min_bytes: None,
                     }],
                     retention_days: 90,
                 });
@@ -903,18 +980,32 @@ pub fn migrate_plan_v1_to_v2(plan: &mut UatPlan) -> UatMigrationReport {
 
             if scenario.risk.is_none() {
                 let (classification, blast) = match scenario.priority {
-                    UatPriority::P0 => (UatRiskClassification::Critical, UatBlastRadius::ReleaseBlocker),
-                    UatPriority::P1 => (UatRiskClassification::High, UatBlastRadius::ReleaseBlocker),
-                    UatPriority::P2 => (UatRiskClassification::Medium, UatBlastRadius::FeatureBlocker),
+                    UatPriority::P0 => (
+                        UatRiskClassification::Critical,
+                        UatBlastRadius::ReleaseBlocker,
+                    ),
+                    UatPriority::P1 => {
+                        (UatRiskClassification::High, UatBlastRadius::ReleaseBlocker)
+                    }
+                    UatPriority::P2 => (
+                        UatRiskClassification::Medium,
+                        UatBlastRadius::FeatureBlocker,
+                    ),
                 };
-                scenario.risk = Some(UatRisk { classification, blast_radius: blast, mitigation: None });
+                scenario.risk = Some(UatRisk {
+                    classification,
+                    blast_radius: blast,
+                    mitigation: None,
+                });
                 risk_promoted += 1;
             }
 
             if scenario.automation.is_none() {
                 scenario.automation = Some(UatAutomation {
                     status: UatAutomationStatus::Manual,
-                    r#ref: None, ci_job: None, when: None,
+                    r#ref: None,
+                    ci_job: None,
+                    when: None,
                 });
             }
 
@@ -932,9 +1023,13 @@ pub fn migrate_plan_v1_to_v2(plan: &mut UatPlan) -> UatMigrationReport {
 
     UatMigrationReport {
         action: UatMigrationAction::Migrated,
-        from_version, to_version: 2,
-        features_touched, scenarios_touched,
-        evidence_promoted, risk_promoted, timing_promoted,
+        from_version,
+        to_version: 2,
+        features_touched,
+        scenarios_touched,
+        evidence_promoted,
+        risk_promoted,
+        timing_promoted,
     }
 }
 
@@ -969,7 +1064,12 @@ pub struct UatManifestEntry {
 impl UatManifest {
     pub const SCHEMA_VERSION: u32 = 1;
     pub fn new(project_id: impl Into<String>, generated_at: impl Into<String>) -> Self {
-        Self { schema_version: Self::SCHEMA_VERSION, project_id: project_id.into(), generated_at: generated_at.into(), entries: Vec::new() }
+        Self {
+            schema_version: Self::SCHEMA_VERSION,
+            project_id: project_id.into(),
+            generated_at: generated_at.into(),
+            entries: Vec::new(),
+        }
     }
     pub fn upsert(&mut self, entry: UatManifestEntry) {
         if let Some(slot) = self.entries.iter_mut().find(|e| e.sha256 == entry.sha256) {
@@ -980,7 +1080,9 @@ impl UatManifest {
     }
     pub fn lookup(&self, sha256_ref: &str) -> Option<&UatManifestEntry> {
         let key = sha256_ref.strip_prefix("sha256:").unwrap_or(sha256_ref);
-        self.entries.iter().find(|e| e.sha256 == key || e.sha256.strip_prefix("sha256:") == Some(key))
+        self.entries
+            .iter()
+            .find(|e| e.sha256 == key || e.sha256.strip_prefix("sha256:") == Some(key))
     }
 }
 
@@ -1012,8 +1114,15 @@ pub struct UatIntegrityReport {
 
 impl UatIntegrityReport {
     pub fn compute_verdict(findings: &[UatIntegrityFinding]) -> &'static str {
-        if findings.is_empty() { return "ok"; }
-        let has_fail = findings.iter().any(|f| matches!(f.status.as_str(), "missing" | "hash_mismatch" | "size_mismatch"));
+        if findings.is_empty() {
+            return "ok";
+        }
+        let has_fail = findings.iter().any(|f| {
+            matches!(
+                f.status.as_str(),
+                "missing" | "hash_mismatch" | "size_mismatch" | "value_mismatch"
+            )
+        });
         let has_partial = findings.iter().any(|f| f.status == "no_payload");
         match (has_fail, has_partial) {
             (true, _) => "fail",
@@ -1021,6 +1130,48 @@ impl UatIntegrityReport {
             (false, false) => "ok",
         }
     }
+}
+
+/// Return true when captured evidence satisfies every requirement declared by
+/// the scenario. Optional evidence never blocks a result.
+pub fn evidence_satisfies_spec(spec: Option<&UatEvidenceSpec>, evidence: &[UatEvidence]) -> bool {
+    let Some(spec) = spec else {
+        return true;
+    };
+    if !spec.required {
+        return true;
+    }
+    if evidence.is_empty() {
+        return false;
+    }
+    if spec.kinds.is_empty() {
+        return true;
+    }
+
+    spec.kinds.iter().all(|required| {
+        evidence.iter().any(|actual| {
+            if actual.kind != required.kind || actual.r#ref.trim().is_empty() {
+                return false;
+            }
+            if let Some(min_bytes) = required.min_bytes
+                && actual.size_bytes.unwrap_or(0) < min_bytes
+            {
+                return false;
+            }
+            let Some(expected) = required.expected_value.as_deref() else {
+                return true;
+            };
+            let Some(observed) = actual.observed_value.as_deref() else {
+                return false;
+            };
+            match required.match_mode.unwrap_or(UatExpectedCheck::ExactMatch) {
+                UatExpectedCheck::ExactMatch | UatExpectedCheck::ExitCode => observed == expected,
+                UatExpectedCheck::Contains => observed.contains(expected),
+                UatExpectedCheck::Regex => regex_lite_match(expected, observed).unwrap_or(false),
+                UatExpectedCheck::JsonPath => false,
+            }
+        })
+    })
 }
 
 /// Compute sha256 of a byte slice and return as `sha256:<lowercase-hex>`.
@@ -1037,17 +1188,26 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 
 fn sha2_digest(bytes: &[u8]) -> [u8; 32] {
     const K: [u32; 64] = [
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+        0xc67178f2,
     ];
     let mut h = [
-        0x6a09e667u32, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+        0x6a09e667u32,
+        0xbb67ae85,
+        0x3c6ef372,
+        0xa54ff53a,
+        0x510e527f,
+        0x9b05688c,
+        0x1f83d9ab,
+        0x5be0cd19,
     ];
     let bit_len = (bytes.len() as u64) * 8;
     let mut msg = bytes.to_vec();
@@ -1060,26 +1220,50 @@ fn sha2_digest(bytes: &[u8]) -> [u8; 32] {
     for chunk in msg.chunks(64) {
         let mut w = [0u32; 64];
         for i in 0..16 {
-            w[i] = u32::from_be_bytes([chunk[4 * i], chunk[4 * i + 1], chunk[4 * i + 2], chunk[4 * i + 3]]);
+            w[i] = u32::from_be_bytes([
+                chunk[4 * i],
+                chunk[4 * i + 1],
+                chunk[4 * i + 2],
+                chunk[4 * i + 3],
+            ]);
         }
         for i in 16..64 {
             let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
             let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
-            w[i] = w[i - 16].wrapping_add(s0).wrapping_add(w[i - 7]).wrapping_add(s1);
+            w[i] = w[i - 16]
+                .wrapping_add(s0)
+                .wrapping_add(w[i - 7])
+                .wrapping_add(s1);
         }
         let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut hh] = h;
         for i in 0..64 {
             let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
             let ch = (e & f) ^ ((!e) & g);
-            let t1 = hh.wrapping_add(s1).wrapping_add(ch).wrapping_add(K[i]).wrapping_add(w[i]);
+            let t1 = hh
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(K[i])
+                .wrapping_add(w[i]);
             let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
             let mj = (a & b) ^ (a & c) ^ (b & c);
             let t2 = s0.wrapping_add(mj);
-            hh = g; g = f; f = e; e = d.wrapping_add(t1); d = c; c = b; b = a; a = t1.wrapping_add(t2);
+            hh = g;
+            g = f;
+            f = e;
+            e = d.wrapping_add(t1);
+            d = c;
+            c = b;
+            b = a;
+            a = t1.wrapping_add(t2);
         }
-        h[0] = h[0].wrapping_add(a); h[1] = h[1].wrapping_add(b); h[2] = h[2].wrapping_add(c);
-        h[3] = h[3].wrapping_add(d); h[4] = h[4].wrapping_add(e); h[5] = h[5].wrapping_add(f);
-        h[6] = h[6].wrapping_add(g); h[7] = h[7].wrapping_add(hh);
+        h[0] = h[0].wrapping_add(a);
+        h[1] = h[1].wrapping_add(b);
+        h[2] = h[2].wrapping_add(c);
+        h[3] = h[3].wrapping_add(d);
+        h[4] = h[4].wrapping_add(e);
+        h[5] = h[5].wrapping_add(f);
+        h[6] = h[6].wrapping_add(g);
+        h[7] = h[7].wrapping_add(hh);
     }
     let mut out = [0u8; 32];
     for (i, word) in h.iter().enumerate() {
@@ -1113,17 +1297,27 @@ pub fn verify_evidence(
         UatEvidenceKind::Assertion | UatEvidenceKind::Metric => {
             if entry.observed_value.is_none() {
                 finding.status = "no_payload".into();
-                finding.message = Some(format!("{:?} evidence has no observed_value; cannot verify the run", entry.kind));
-            } else if let (Some(observed), Some(expected)) = (&entry.observed_value, &entry.expected_value) {
+                finding.message = Some(format!(
+                    "{:?} evidence has no observed_value; cannot verify the run",
+                    entry.kind
+                ));
+            } else if let (Some(observed), Some(expected)) =
+                (&entry.observed_value, &entry.expected_value)
+            {
                 let matches = match entry.match_mode.unwrap_or(UatExpectedCheck::ExactMatch) {
                     UatExpectedCheck::ExactMatch => observed == expected,
                     UatExpectedCheck::Contains => observed.contains(expected),
-                    UatExpectedCheck::Regex => matches!(regex_lite_match(expected, observed), Ok(true)),
+                    UatExpectedCheck::Regex => {
+                        matches!(regex_lite_match(expected, observed), Ok(true))
+                    }
                     _ => true,
                 };
                 if !matches {
                     finding.status = "value_mismatch".into();
-                    finding.message = Some(format!("observed {:?} did not match expected {:?} (mode {:?})", observed, expected, entry.match_mode));
+                    finding.message = Some(format!(
+                        "observed {:?} did not match expected {:?} (mode {:?})",
+                        observed, expected, entry.match_mode
+                    ));
                 }
             }
             return finding;
@@ -1136,7 +1330,10 @@ pub fn verify_evidence(
         let computed = sha256_hex(bytes);
         if computed != entry.r#ref {
             finding.status = "hash_mismatch".into();
-            finding.message = Some(format!("computed {} does not match recorded {}", computed, entry.r#ref));
+            finding.message = Some(format!(
+                "computed {} does not match recorded {}",
+                computed, entry.r#ref
+            ));
         } else if let Some(expected) = entry.size_bytes {
             if bytes.len() as u64 != expected {
                 finding.status = "size_mismatch".into();
@@ -1156,20 +1353,25 @@ pub fn verify_evidence(
             {
                 finding.status = "size_mismatch".into();
                 finding.observed_size_bytes = Some(m.size_bytes);
-                finding.message = Some(format!("manifest size {} != evidence size {}", m.size_bytes, expected));
+                finding.message = Some(format!(
+                    "manifest size {} != evidence size {}",
+                    m.size_bytes, expected
+                ));
                 return finding;
             }
             finding.expected_size_bytes = Some(m.size_bytes);
             let key = entry.r#ref.strip_prefix("sha256:").unwrap_or(&entry.r#ref);
             if m.sha256 != key && m.sha256 != entry.r#ref {
                 finding.status = "hash_mismatch".into();
-                finding.message = Some(format!("manifest {} != evidence {}", m.sha256, entry.r#ref));
+                finding.message =
+                    Some(format!("manifest {} != evidence {}", m.sha256, entry.r#ref));
             }
             finding
         }
         None => {
             finding.status = "no_payload".into();
-            finding.message = Some("no manifest entry and no embedded payload; cannot verify hash".into());
+            finding.message =
+                Some("no manifest entry and no embedded payload; cannot verify hash".into());
             finding
         }
     }
@@ -1215,20 +1417,52 @@ pub struct UatSuggestionsReport {
 fn count_populated_fields(scenario: &UatScenario) -> u32 {
     let mut n = 0u32;
     if let Some(ctx) = &scenario.context {
-        if ctx.user_story.is_some() { n += 1; }
-        if !ctx.preconditions.is_empty() { n += 1; }
-        if !ctx.test_data.is_empty() { n += 1; }
-        if ctx.workspace.is_some() { n += 1; }
-        if ctx.timing.is_some() { n += 1; }
-        if ctx.help.is_some() { n += 1; }
-        if ctx.failure_protocol.is_some() { n += 1; }
-        if !ctx.postconditions.is_empty() { n += 1; }
+        if ctx.user_story.is_some() {
+            n += 1;
+        }
+        if !ctx.preconditions.is_empty() {
+            n += 1;
+        }
+        if !ctx.test_data.is_empty() {
+            n += 1;
+        }
+        if ctx.workspace.is_some() {
+            n += 1;
+        }
+        if ctx.timing.is_some() {
+            n += 1;
+        }
+        if ctx.help.is_some() {
+            n += 1;
+        }
+        if ctx.failure_protocol.is_some() {
+            n += 1;
+        }
+        if !ctx.postconditions.is_empty() {
+            n += 1;
+        }
     }
-    if scenario.evidence.is_some() { n += 1; }
-    if scenario.risk.is_some() { n += 1; }
-    if scenario.automation.is_some() { n += 1; }
-    if scenario.provenance.is_some() { n += 1; }
-    if !scenario.rationale.as_deref().unwrap_or("").trim().is_empty() { n += 1; }
+    if scenario.evidence.is_some() {
+        n += 1;
+    }
+    if scenario.risk.is_some() {
+        n += 1;
+    }
+    if scenario.automation.is_some() {
+        n += 1;
+    }
+    if scenario.provenance.is_some() {
+        n += 1;
+    }
+    if !scenario
+        .rationale
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .is_empty()
+    {
+        n += 1;
+    }
     n
 }
 
@@ -1243,7 +1477,12 @@ pub fn suggest_scenario_context(plan: &UatPlan) -> UatSuggestionsReport {
             let sid = scenario.id.clone();
             let populated = count_populated_fields(scenario);
 
-            let has_user_story = scenario.context.as_ref().and_then(|c| c.user_story.as_ref()).map(|s| !s.trim().is_empty()).unwrap_or(false);
+            let has_user_story = scenario
+                .context
+                .as_ref()
+                .and_then(|c| c.user_story.as_ref())
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false);
             if !has_user_story {
                 out.push(UatContextSuggestion {
                     scenario_id: sid.clone(),
@@ -1254,13 +1493,25 @@ pub fn suggest_scenario_context(plan: &UatPlan) -> UatSuggestionsReport {
                 });
             }
 
-            let needs_bash = scenario.plain_steps.iter().any(|s| matches!(s.kind, Some(UatStepKind::Shell)));
-            let has_preconditions = scenario.context.as_ref().map(|c| !c.preconditions.is_empty()).unwrap_or(false);
+            let needs_bash = scenario
+                .plain_steps
+                .iter()
+                .any(|s| matches!(s.kind, Some(UatStepKind::Shell)));
+            let has_preconditions = scenario
+                .context
+                .as_ref()
+                .map(|c| !c.preconditions.is_empty())
+                .unwrap_or(false);
             if !has_preconditions && !scenario.plain_steps.is_empty() {
                 let mut preconditions: Vec<String> = Vec::new();
-                if needs_bash { preconditions.push("bash (or zsh) in PATH".into()); }
+                if needs_bash {
+                    preconditions.push("bash (or zsh) in PATH".into());
+                }
                 if !scenario.plain_steps.is_empty() {
-                    preconditions.push(format!("plan file {} present in cwd", plan.release.candidate));
+                    preconditions.push(format!(
+                        "plan file {} present in cwd",
+                        plan.release.candidate
+                    ));
                 }
                 if !preconditions.is_empty() {
                     out.push(UatContextSuggestion {
@@ -1268,14 +1519,23 @@ pub fn suggest_scenario_context(plan: &UatPlan) -> UatSuggestionsReport {
                         field: "context.preconditions".into(),
                         kind: "missing".into(),
                         reason: "implied by step count".into(),
-                        proposed: serde_json::to_value(preconditions).unwrap_or(serde_json::Value::Null),
+                        proposed: serde_json::to_value(preconditions)
+                            .unwrap_or(serde_json::Value::Null),
                     });
                 }
             }
 
-            let has_timing = scenario.context.as_ref().and_then(|c| c.timing.as_ref()).is_some();
+            let has_timing = scenario
+                .context
+                .as_ref()
+                .and_then(|c| c.timing.as_ref())
+                .is_some();
             if !has_timing {
-                let window = if scenario.flags.iter().any(|f| f == "smoke") { "smoke" } else { "regression" };
+                let window = if scenario.flags.iter().any(|f| f == "smoke") {
+                    "smoke"
+                } else {
+                    "regression"
+                };
                 let timeout_min = std::cmp::max(scenario.est_minutes.saturating_mul(2), 5);
                 out.push(UatContextSuggestion {
                     scenario_id: sid.clone(),
@@ -1286,7 +1546,11 @@ pub fn suggest_scenario_context(plan: &UatPlan) -> UatSuggestionsReport {
                 });
             }
 
-            let has_workspace = scenario.context.as_ref().and_then(|c| c.workspace.as_ref()).is_some();
+            let has_workspace = scenario
+                .context
+                .as_ref()
+                .and_then(|c| c.workspace.as_ref())
+                .is_some();
             if !has_workspace {
                 out.push(UatContextSuggestion {
                     scenario_id: sid.clone(),
@@ -1297,7 +1561,11 @@ pub fn suggest_scenario_context(plan: &UatPlan) -> UatSuggestionsReport {
                 });
             }
 
-            let has_help = scenario.context.as_ref().and_then(|c| c.help.as_ref()).is_some();
+            let has_help = scenario
+                .context
+                .as_ref()
+                .and_then(|c| c.help.as_ref())
+                .is_some();
             if !has_help {
                 out.push(UatContextSuggestion {
                     scenario_id: sid.clone(),
@@ -1308,7 +1576,11 @@ pub fn suggest_scenario_context(plan: &UatPlan) -> UatSuggestionsReport {
                 });
             }
 
-            let has_failure = scenario.context.as_ref().and_then(|c| c.failure_protocol.as_ref()).is_some();
+            let has_failure = scenario
+                .context
+                .as_ref()
+                .and_then(|c| c.failure_protocol.as_ref())
+                .is_some();
             if !has_failure {
                 out.push(UatContextSuggestion {
                     scenario_id: sid.clone(),
@@ -1319,8 +1591,16 @@ pub fn suggest_scenario_context(plan: &UatPlan) -> UatSuggestionsReport {
                 });
             }
 
-            let has_evidence = scenario.evidence.as_ref().map(|e| !e.kinds.is_empty()).unwrap_or(false);
-            let has_prompt = scenario.evidence_prompt.as_deref().map(|p| !p.trim().is_empty()).unwrap_or(false);
+            let has_evidence = scenario
+                .evidence
+                .as_ref()
+                .map(|e| !e.kinds.is_empty())
+                .unwrap_or(false);
+            let has_prompt = scenario
+                .evidence_prompt
+                .as_deref()
+                .map(|p| !p.trim().is_empty())
+                .unwrap_or(false);
             if !has_evidence && !has_prompt {
                 out.push(UatContextSuggestion {
                     scenario_id: sid.clone(),
@@ -1367,7 +1647,11 @@ pub fn suggest_scenario_context(plan: &UatPlan) -> UatSuggestionsReport {
             }
 
             let missing = out.len() as u32;
-            if missing == 0 { fully += 1; } else { partial += 1; }
+            if missing == 0 {
+                fully += 1;
+            } else {
+                partial += 1;
+            }
             total_suggestions += missing;
             scenarios.push(UatScenarioSuggestions {
                 scenario_id: scenario.id.clone(),
@@ -1396,7 +1680,9 @@ pub fn apply_suggestion(scenario: &mut UatScenario, suggestion: &UatContextSugge
             if let Some(s) = suggestion.proposed.as_str()
                 && !s.trim().is_empty()
             {
-                let ctx = scenario.context.get_or_insert_with(UatScenarioContext::default);
+                let ctx = scenario
+                    .context
+                    .get_or_insert_with(UatScenarioContext::default);
                 ctx.user_story = Some(s.to_string());
                 return true;
             }
@@ -1404,9 +1690,14 @@ pub fn apply_suggestion(scenario: &mut UatScenario, suggestion: &UatContextSugge
         }
         "context.preconditions" => {
             if let Some(arr) = suggestion.proposed.as_array() {
-                let preconditions: Vec<String> = arr.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+                let preconditions: Vec<String> = arr
+                    .iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect();
                 if !preconditions.is_empty() {
-                    let ctx = scenario.context.get_or_insert_with(UatScenarioContext::default);
+                    let ctx = scenario
+                        .context
+                        .get_or_insert_with(UatScenarioContext::default);
                     ctx.preconditions = preconditions;
                     return true;
                 }
@@ -1416,12 +1707,24 @@ pub fn apply_suggestion(scenario: &mut UatScenario, suggestion: &UatContextSugge
         "context.timing" => {
             if let Some(obj) = suggestion.proposed.as_object() {
                 let timing = UatTiming {
-                    window: obj.get("window").and_then(|v| v.as_str()).unwrap_or("smoke").into(),
-                    parallel_safe: obj.get("parallel_safe").and_then(|v| v.as_bool()).unwrap_or(false),
+                    window: obj
+                        .get("window")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("smoke")
+                        .into(),
+                    parallel_safe: obj
+                        .get("parallel_safe")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
                     order_hint: None,
-                    timeout_min: obj.get("timeout_min").and_then(|v| v.as_u64()).unwrap_or(10) as u32,
+                    timeout_min: obj
+                        .get("timeout_min")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(10) as u32,
                 };
-                let ctx = scenario.context.get_or_insert_with(UatScenarioContext::default);
+                let ctx = scenario
+                    .context
+                    .get_or_insert_with(UatScenarioContext::default);
                 ctx.timing = Some(timing);
                 return true;
             }
@@ -1434,7 +1737,9 @@ pub fn apply_suggestion(scenario: &mut UatScenario, suggestion: &UatContextSugge
                     cwd: obj.get("cwd").and_then(|v| v.as_str()).map(String::from),
                     ..Default::default()
                 };
-                let ctx = scenario.context.get_or_insert_with(UatScenarioContext::default);
+                let ctx = scenario
+                    .context
+                    .get_or_insert_with(UatScenarioContext::default);
                 ctx.workspace = Some(workspace);
                 return true;
             }
@@ -1443,11 +1748,29 @@ pub fn apply_suggestion(scenario: &mut UatScenario, suggestion: &UatContextSugge
         "context.help" => {
             if let Some(obj) = suggestion.proposed.as_object() {
                 let help = UatHelp {
-                    related_adrs: obj.get("related_adrs").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|s| s.as_str().map(String::from)).collect()).unwrap_or_default(),
-                    related_specs: obj.get("related_specs").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|s| s.as_str().map(String::from)).collect()).unwrap_or_default(),
+                    related_adrs: obj
+                        .get("related_adrs")
+                        .and_then(|v| v.as_array())
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|s| s.as_str().map(String::from))
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                    related_specs: obj
+                        .get("related_specs")
+                        .and_then(|v| v.as_array())
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|s| s.as_str().map(String::from))
+                                .collect()
+                        })
+                        .unwrap_or_default(),
                     ..Default::default()
                 };
-                let ctx = scenario.context.get_or_insert_with(UatScenarioContext::default);
+                let ctx = scenario
+                    .context
+                    .get_or_insert_with(UatScenarioContext::default);
                 ctx.help = Some(help);
                 return true;
             }
@@ -1455,55 +1778,101 @@ pub fn apply_suggestion(scenario: &mut UatScenario, suggestion: &UatContextSugge
         }
         "context.failure_protocol" => {
             if let Some(obj) = suggestion.proposed.as_object() {
-                let on_fail: Vec<String> = obj.get("on_fail").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|s| s.as_str().map(String::from)).collect()).unwrap_or_default();
-                let ctx = scenario.context.get_or_insert_with(UatScenarioContext::default);
-                ctx.failure_protocol = Some(UatFailureProtocol { on_fail, expected_defect_template: None });
+                let on_fail: Vec<String> = obj
+                    .get("on_fail")
+                    .and_then(|v| v.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|s| s.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let ctx = scenario
+                    .context
+                    .get_or_insert_with(UatScenarioContext::default);
+                ctx.failure_protocol = Some(UatFailureProtocol {
+                    on_fail,
+                    expected_defect_template: None,
+                });
                 return true;
             }
             false
         }
         "evidence" => {
             if let Some(obj) = suggestion.proposed.as_object() {
-                let kinds: Vec<UatEvidenceKindItem> = obj.get("kinds").and_then(|v| v.as_array()).map(|a| {
-                    a.iter().filter_map(|item| {
-                        let obj = item.as_object()?;
-                        let kind_str = obj.get("kind")?.as_str()?;
-                        let kind = match kind_str {
-                            "file" => UatEvidenceKind::File,
-                            "screenshot" => UatEvidenceKind::Screenshot,
-                            "command_output" => UatEvidenceKind::CommandOutput,
-                            "assertion" => UatEvidenceKind::Assertion,
-                            "metric" => UatEvidenceKind::Metric,
-                            _ => UatEvidenceKind::Note,
-                        };
-                        Some(UatEvidenceKindItem { kind, r#ref: None, match_mode: None, expected_value: None, min_bytes: None })
-                    }).collect()
-                }).unwrap_or_default();
-                scenario.evidence = Some(UatEvidenceSpec { required: true, kinds, retention_days: 90 });
+                let kinds: Vec<UatEvidenceKindItem> = obj
+                    .get("kinds")
+                    .and_then(|v| v.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|item| {
+                                let obj = item.as_object()?;
+                                let kind_str = obj.get("kind")?.as_str()?;
+                                let kind = match kind_str {
+                                    "file" => UatEvidenceKind::File,
+                                    "screenshot" => UatEvidenceKind::Screenshot,
+                                    "command_output" => UatEvidenceKind::CommandOutput,
+                                    "assertion" => UatEvidenceKind::Assertion,
+                                    "metric" => UatEvidenceKind::Metric,
+                                    _ => UatEvidenceKind::Note,
+                                };
+                                Some(UatEvidenceKindItem {
+                                    kind,
+                                    r#ref: None,
+                                    match_mode: None,
+                                    expected_value: None,
+                                    min_bytes: None,
+                                })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                scenario.evidence = Some(UatEvidenceSpec {
+                    required: true,
+                    kinds,
+                    retention_days: 90,
+                });
                 return true;
             }
             false
         }
         "risk" => {
             if let Some(obj) = suggestion.proposed.as_object() {
-                let classification = match obj.get("classification").and_then(|v| v.as_str()).unwrap_or("medium") {
+                let classification = match obj
+                    .get("classification")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("medium")
+                {
                     "critical" => UatRiskClassification::Critical,
                     "high" => UatRiskClassification::High,
                     _ => UatRiskClassification::Medium,
                 };
-                let blast_radius = match obj.get("blast_radius").and_then(|v| v.as_str()).unwrap_or("feature_blocker") {
+                let blast_radius = match obj
+                    .get("blast_radius")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("feature_blocker")
+                {
                     "release_blocker" => UatBlastRadius::ReleaseBlocker,
                     "advisory" => UatBlastRadius::Advisory,
                     _ => UatBlastRadius::FeatureBlocker,
                 };
-                scenario.risk = Some(UatRisk { classification, blast_radius, mitigation: None });
+                scenario.risk = Some(UatRisk {
+                    classification,
+                    blast_radius,
+                    mitigation: None,
+                });
                 return true;
             }
             false
         }
         "automation" => {
-            if let Some(obj) = suggestion.proposed.as_object() {
-                scenario.automation = Some(UatAutomation { status: UatAutomationStatus::Manual, r#ref: None, ci_job: None, when: None });
+            if suggestion.proposed.is_object() {
+                scenario.automation = Some(UatAutomation {
+                    status: UatAutomationStatus::Manual,
+                    r#ref: None,
+                    ci_job: None,
+                    when: None,
+                });
                 return true;
             }
             false
@@ -1511,11 +1880,18 @@ pub fn apply_suggestion(scenario: &mut UatScenario, suggestion: &UatContextSugge
         "provenance" => {
             if let Some(obj) = suggestion.proposed.as_object() {
                 scenario.provenance = Some(UatProvenance {
-                    author: obj.get("author").and_then(|v| v.as_str()).unwrap_or("uat-planner").into(),
+                    author: obj
+                        .get("author")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("uat-planner")
+                        .into(),
                     created_at: plan_gen_at_static(),
                     last_modified_at: plan_gen_at_static(),
                     origin: UatOrigin::Spec,
-                    origin_ref: obj.get("origin_ref").and_then(|v| v.as_str()).map(String::from),
+                    origin_ref: obj
+                        .get("origin_ref")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
                 });
                 return true;
             }
@@ -1525,7 +1901,9 @@ pub fn apply_suggestion(scenario: &mut UatScenario, suggestion: &UatContextSugge
     }
 }
 
-fn plan_gen_at_static() -> String { "2026-08-07T00:00:00Z".into() }
+fn plan_gen_at_static() -> String {
+    "2026-08-07T00:00:00Z".into()
+}
 
 pub fn apply_all_suggestions(plan: &mut UatPlan, report: &UatSuggestionsReport) -> u32 {
     let mut applied = 0u32;
@@ -1533,9 +1911,13 @@ pub fn apply_all_suggestions(plan: &mut UatPlan, report: &UatSuggestionsReport) 
         let target_id = &scenario_report.scenario_id;
         for feature in &mut plan.features {
             for scenario in &mut feature.scenarios {
-                if &scenario.id != target_id { continue; }
+                if &scenario.id != target_id {
+                    continue;
+                }
                 for suggestion in &scenario_report.suggestions {
-                    if apply_suggestion(scenario, suggestion) { applied += 1; }
+                    if apply_suggestion(scenario, suggestion) {
+                        applied += 1;
+                    }
                 }
             }
         }
@@ -1557,6 +1939,8 @@ pub struct UatScenarioHistory {
     pub runs_passing: u32,
     pub runs_failing: u32,
     pub runs_blocked: u32,
+    #[serde(default)]
+    pub runs_not_run: u32,
     pub success_rate: f64,
     pub flakiness_score: f64,
     pub first_run: Option<UatRunRef>,
@@ -1608,22 +1992,32 @@ impl UatHistoryReport {
 fn compute_trend(runs: &[&str]) -> &'static str {
     let weight = |s: &&str| -> f64 {
         match s.to_ascii_uppercase().as_str() {
-            "PASS" => 1.0, "PARTIAL" => 0.5, _ => 0.0,
+            "PASS" => 1.0,
+            "PARTIAL" => 0.5,
+            _ => 0.0,
         }
     };
-    if runs.len() < 4 { return "stable"; }
+    if runs.len() < 4 {
+        return "stable";
+    }
     let recent = &runs[runs.len() - 3..];
     let prior = &runs[runs.len() - 6..runs.len() - 3];
     let recent_avg: f64 = recent.iter().map(weight).sum::<f64>() / recent.len() as f64;
     let prior_avg: f64 = prior.iter().map(weight).sum::<f64>() / prior.len() as f64;
     let delta = recent_avg - prior_avg;
-    if delta > 0.2 { "improving" }
-    else if delta < -0.2 { "degrading" }
-    else { "stable" }
+    if delta > 0.2 {
+        "improving"
+    } else if delta < -0.2 {
+        "degrading"
+    } else {
+        "stable"
+    }
 }
 
 fn p95(durations: &[u64]) -> Option<u64> {
-    if durations.is_empty() { return None; }
+    if durations.is_empty() {
+        return None;
+    }
     let mut sorted = durations.to_vec();
     sorted.sort_unstable();
     let idx = ((sorted.len() as f64 * 0.95).ceil() as usize).saturating_sub(1);
@@ -1636,11 +2030,16 @@ pub fn aggregate_history(
     release: &str,
     generated_at: &str,
 ) -> UatHistoryReport {
-    let mut runs_by_scenario: std::collections::BTreeMap<String, Vec<(&UatScenarioResult, &UatSession)>> =
-        std::collections::BTreeMap::new();
+    let mut runs_by_scenario: std::collections::BTreeMap<
+        String,
+        Vec<(&UatScenarioResult, &UatSession)>,
+    > = std::collections::BTreeMap::new();
     for session in sessions {
         for result in &session.results {
-            runs_by_scenario.entry(result.scenario_id.clone()).or_default().push((result, session));
+            runs_by_scenario
+                .entry(result.scenario_id.clone())
+                .or_default()
+                .push((result, session));
         }
     }
 
@@ -1649,11 +2048,15 @@ pub fn aggregate_history(
 
     for feature in &plan.features {
         for scenario in &feature.scenarios {
-            let runs = runs_by_scenario.get(&scenario.id).cloned().unwrap_or_default();
+            let runs = runs_by_scenario
+                .get(&scenario.id)
+                .cloned()
+                .unwrap_or_default();
             let runs_total = runs.len() as u32;
             let mut runs_passing = 0u32;
             let mut runs_failing = 0u32;
             let mut runs_blocked = 0u32;
+            let mut runs_not_run = 0u32;
             let mut statuses_for_trend: Vec<&str> = Vec::new();
             let mut defect_ids: Vec<String> = Vec::new();
             let mut durations: Vec<u64> = Vec::new();
@@ -1662,6 +2065,7 @@ pub fn aggregate_history(
 
             for (i, (result, session)) in runs.iter().enumerate() {
                 let status = match result.status {
+                    UatStatus::NotRun => "NOT_RUN",
                     UatStatus::Pass => "PASS",
                     UatStatus::Fail => "FAIL",
                     UatStatus::Blocked => "BLOCKED",
@@ -1669,8 +2073,12 @@ pub fn aggregate_history(
                 };
                 statuses_for_trend.push(status);
                 match result.status {
+                    UatStatus::NotRun => runs_not_run += 1,
                     UatStatus::Pass => runs_passing += 1,
-                    UatStatus::Fail => { runs_failing += 1; defects_total += 1; }
+                    UatStatus::Fail => {
+                        runs_failing += 1;
+                        defects_total += 1;
+                    }
                     UatStatus::Blocked => runs_blocked += 1,
                     UatStatus::Partial => {}
                 }
@@ -1684,9 +2092,21 @@ pub fn aggregate_history(
                 } else if result.duration_minutes > 0 {
                     durations.push(result.duration_minutes as u64 * 60_000);
                 }
-                let commit = session.metadata.as_ref().and_then(|m| m.build.as_ref()).and_then(|b| b.commit.clone());
-                let tester_id = session.metadata.as_ref().and_then(|m| m.tester.as_ref()).map(|t| t.id.clone());
-                let at = result.verdict_at.clone().or_else(|| session.finished_at.clone()).unwrap_or_else(|| session.started_at.clone());
+                let commit = session
+                    .metadata
+                    .as_ref()
+                    .and_then(|m| m.build.as_ref())
+                    .and_then(|b| b.commit.clone());
+                let tester_id = session
+                    .metadata
+                    .as_ref()
+                    .and_then(|m| m.tester.as_ref())
+                    .map(|t| t.id.clone());
+                let at = result
+                    .verdict_at
+                    .clone()
+                    .or_else(|| session.finished_at.clone())
+                    .unwrap_or_else(|| session.started_at.clone());
                 let run_ref = UatRunRef {
                     session_id: session.session_id.clone(),
                     at,
@@ -1694,15 +2114,27 @@ pub fn aggregate_history(
                     commit,
                     tester_id,
                 };
-                if i == 0 { first_run = Some(run_ref.clone()); }
+                if i == 0 {
+                    first_run = Some(run_ref.clone());
+                }
                 last_run = Some(run_ref);
             }
 
-            let success_rate = if runs_total > 0 { runs_passing as f64 / runs_total as f64 } else { 0.0 };
-            let flakiness_score = if runs_total > 0 { 1.0 - success_rate } else { 0.0 };
+            let success_rate = if runs_total > 0 {
+                runs_passing as f64 / runs_total as f64
+            } else {
+                0.0
+            };
+            let flakiness_score = if runs_total > 0 {
+                1.0 - success_rate
+            } else {
+                0.0
+            };
             let avg_duration_ms = if !durations.is_empty() {
                 Some(durations.iter().sum::<u64>() / durations.len() as u64)
-            } else { None };
+            } else {
+                None
+            };
             let p95_duration_ms = p95(&durations);
             let trend = compute_trend(&statuses_for_trend);
 
@@ -1710,10 +2142,18 @@ pub fn aggregate_history(
                 scenario_id: scenario.id.clone(),
                 feature_id: feature.id.clone(),
                 scenario_title: scenario.title.clone(),
-                runs_total, runs_passing, runs_failing, runs_blocked,
-                success_rate, flakiness_score,
-                first_run, last_run, defect_ids,
-                avg_duration_ms, p95_duration_ms,
+                runs_total,
+                runs_passing,
+                runs_failing,
+                runs_blocked,
+                runs_not_run,
+                success_rate,
+                flakiness_score,
+                first_run,
+                last_run,
+                defect_ids,
+                avg_duration_ms,
+                p95_duration_ms,
                 trend: trend.to_string(),
             });
         }
@@ -1722,12 +2162,21 @@ pub fn aggregate_history(
     let mut features = Vec::new();
     for feature in &plan.features {
         let total = feature.scenarios.len() as u32;
-        let passing = scenarios.iter().filter(|s| s.feature_id == feature.id && s.runs_passing > 0).count() as u32;
-        let coverage_pct = if total > 0 { 100.0 * passing as f64 / total as f64 } else { 0.0 };
+        let passing = scenarios
+            .iter()
+            .filter(|s| s.feature_id == feature.id && s.runs_passing > 0)
+            .count() as u32;
+        let coverage_pct = if total > 0 {
+            100.0 * passing as f64 / total as f64
+        } else {
+            0.0
+        };
         features.push(UatFeatureHistory {
             feature_id: feature.id.clone(),
             feature_name: feature.name.clone(),
-            coverage_pct, scenarios_total: total, scenarios_passing: passing,
+            coverage_pct,
+            scenarios_total: total,
+            scenarios_passing: passing,
         });
     }
 
@@ -1750,9 +2199,18 @@ mod config_tests {
     #[test]
     fn default_policy_blocks_major_minor_skips_patch() {
         let config = UatConfig::default();
-        assert_eq!(evaluate_release_gate(&config, ReleaseType::Major), ReleaseGateAction::Required);
-        assert_eq!(evaluate_release_gate(&config, ReleaseType::Minor), ReleaseGateAction::Required);
-        assert_eq!(evaluate_release_gate(&config, ReleaseType::Patch), ReleaseGateAction::Skip);
+        assert_eq!(
+            evaluate_release_gate(&config, ReleaseType::Major),
+            ReleaseGateAction::Required
+        );
+        assert_eq!(
+            evaluate_release_gate(&config, ReleaseType::Minor),
+            ReleaseGateAction::Required
+        );
+        assert_eq!(
+            evaluate_release_gate(&config, ReleaseType::Patch),
+            ReleaseGateAction::Skip
+        );
     }
 
     #[test]
@@ -1764,17 +2222,86 @@ mod config_tests {
             patch = "required"
         "#;
         let config: UatConfig = toml::from_str(toml).unwrap();
-        assert_eq!(evaluate_release_gate(&config, ReleaseType::Major), ReleaseGateAction::Skip);
-        assert_eq!(evaluate_release_gate(&config, ReleaseType::Minor), ReleaseGateAction::Advisory);
-        assert_eq!(evaluate_release_gate(&config, ReleaseType::Patch), ReleaseGateAction::Required);
+        assert_eq!(
+            evaluate_release_gate(&config, ReleaseType::Major),
+            ReleaseGateAction::Skip
+        );
+        assert_eq!(
+            evaluate_release_gate(&config, ReleaseType::Minor),
+            ReleaseGateAction::Advisory
+        );
+        assert_eq!(
+            evaluate_release_gate(&config, ReleaseType::Patch),
+            ReleaseGateAction::Required
+        );
     }
 
     #[test]
     fn release_type_from_diff_basic() {
-        assert_eq!(release_type_from_diff("v1.5.2", "v1.4.0"), Some(ReleaseType::Minor));
-        assert_eq!(release_type_from_diff("v2.0.0", "v1.9.9"), Some(ReleaseType::Major));
-        assert_eq!(release_type_from_diff("v1.5.2", "v1.5.1"), Some(ReleaseType::Patch));
+        assert_eq!(
+            release_type_from_diff("v1.5.2", "v1.4.0"),
+            Some(ReleaseType::Minor)
+        );
+        assert_eq!(
+            release_type_from_diff("v2.0.0", "v1.9.9"),
+            Some(ReleaseType::Major)
+        );
+        assert_eq!(
+            release_type_from_diff("v1.5.2", "v1.5.1"),
+            Some(ReleaseType::Patch)
+        );
         assert_eq!(release_type_from_diff("v1.5.2", "v1.5.2"), None);
         assert_eq!(release_type_from_diff("not-a-tag", "v1.0.0"), None);
+    }
+
+    #[test]
+    fn value_mismatch_fails_integrity() {
+        let finding = UatIntegrityFinding {
+            scenario_id: "S-1".into(),
+            sha256: "sha256:test".into(),
+            kind: UatEvidenceKind::Assertion,
+            status: "value_mismatch".into(),
+            expected_size_bytes: None,
+            observed_size_bytes: None,
+            message: None,
+        };
+        assert_eq!(UatIntegrityReport::compute_verdict(&[finding]), "fail");
+    }
+
+    #[test]
+    fn required_evidence_must_match_declared_kinds_and_values() {
+        let spec = UatEvidenceSpec {
+            required: true,
+            kinds: vec![UatEvidenceKindItem {
+                kind: UatEvidenceKind::Assertion,
+                r#ref: None,
+                match_mode: Some(UatExpectedCheck::ExactMatch),
+                expected_value: Some("200".into()),
+                min_bytes: None,
+            }],
+            retention_days: 90,
+        };
+        let mismatched = UatEvidence {
+            kind: UatEvidenceKind::Assertion,
+            r#ref: "sha256:test".into(),
+            note: None,
+            captured_at: None,
+            size_bytes: None,
+            mime: None,
+            path: None,
+            observed_value: Some("500".into()),
+            expected_value: Some("200".into()),
+            match_mode: Some(UatExpectedCheck::ExactMatch),
+        };
+        assert!(!evidence_satisfies_spec(Some(&spec), &[]));
+        assert!(!evidence_satisfies_spec(Some(&spec), &[mismatched]));
+    }
+
+    #[test]
+    fn not_run_has_stable_wire_value() {
+        assert_eq!(
+            serde_json::to_string(&UatStatus::NotRun).unwrap(),
+            "\"NOT_RUN\""
+        );
     }
 }

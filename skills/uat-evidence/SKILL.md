@@ -21,7 +21,7 @@ Evidence is what makes a PASS/FAIL defensible. Every verdict should be backed by
 ```
 uat-planner          →  uat-plan.yaml            (script)
 uat-guide            →  uat-plan.yaml enriched   (junior-friendly)
-uat open             →  browser opens guided     (no server)
+uat open             →  local guided server      (same-origin ingest)
 [ tester executes ]  →  verdicts + evidence      (one scenario per screen)
 Finalizar y exportar →  uat-session-<rel>.json   (canonical UatSession)
 uat ingest           →  CP uat_results + ledger
@@ -36,7 +36,8 @@ The tester (junior or architect) follows the `plain_steps` written by `uat-guide
 The JSON produced by the dashboard's "Finalizar y exportar reporte" button MUST match the `UatSession` schema in `crates/sddk-domain/src/uat.rs`:
 
 ```yaml
-schema_version: 1
+schema_version: 2
+plan_version: 2
 session_id: uat-<uuid>
 plan_ref: <release candidate>
 release: v1.5.0
@@ -44,14 +45,22 @@ executor: human                # NEVER written by an agent
 executed_by: <tester name>
 started_at: 2026-08-07T13:00:00Z
 finished_at: 2026-08-07T13:14:00Z
+metadata:
+  tester: { id: T-0001, display: <tester name> }
+  completed_at: 2026-08-07T13:14:00Z
+  duration_ms: 840000
+  build: { commit: <tested commit>, branch: <branch>, tag: v1.5.0, dirty: false }
 results:
   - scenario_id: S-1
-    status: PASS | FAIL | BLOCKED | PARTIAL
+    status: NOT_RUN | PASS | FAIL | BLOCKED | PARTIAL
     comment: <free text>
     evidence:
-      - kind: screenshot | log | note
+      - kind: file | screenshot | command_output | assertion | metric | note
         ref: "sha256:<hash>"
         note: <optional>
+        captured_at: 2026-08-07T13:03:00Z
+        size_bytes: <bytes>
+        mime: image/png
     duration_minutes: <int>
 ```
 
@@ -86,6 +95,7 @@ Output per finding: scenario_id, status, feature, priority, assignee, session_id
 2. The payload itself is stored in XDG artifacts (`~/.local/share/sddk/projects/<id>/uat/`), never in the project repo (ADR-0011).
 3. The session file only carries the reference — it stays small and diffable.
 4. Agents MUST NOT fabricate `executor: human` sessions.
+5. Missing scenarios are exported as `NOT_RUN`; absence is never interpreted as PASS.
 
 ## Browser capabilities used
 

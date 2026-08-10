@@ -14,7 +14,7 @@ metadata:
 
 ## Purpose
 
-Generate the self-contained UAT dashboard (ADR-013) from a canonical `uat-plan.yaml`. The renderer is deterministic: same YAML → same HTML, zero external URLs, opens via `file://`.
+Generate the self-contained UAT dashboard (ADR-013) from a canonical `uat-plan.yaml`. Rendering is deterministic. The guided view is served from a loopback-only same-origin server so it can ingest the exported session; other views remain standalone HTML.
 
 ## Commands
 
@@ -22,8 +22,8 @@ Generate the self-contained UAT dashboard (ADR-013) from a canonical `uat-plan.y
 # Render the dashboard (writes HTML, opens nothing).
 sddk uat dashboard --plan uat-plan.yaml --view guided --output uat-guided.html
 
-# Render AND open the dashboard in the system browser. No server: the
-# HTML is fully self-contained (CSS+JS inlined) and opened via file://.
+# Render AND open the dashboard in the system browser. Guided mode starts a
+# loopback-only server for same-origin ingest and stays alive until Ctrl+C.
 sddk uat open --plan uat-plan.yaml --view guided
 sddk uat open --release v1.5.0           # auto-resolves uat-plan-v1.5.0.yaml
 sddk uat open --release v1.5.0 --browser firefox   # override launcher
@@ -67,7 +67,8 @@ assets/uat-dashboard/
 - The plan is the single source of truth; the dashboard is derived, never edited by hand.
 - `flags` are semantic (smoke/warning/optional/data-verify) — the template decides the style. Never put style in the YAML.
 - Validate first: `sddk uat validate --file <plan>` — a failing plan must not render.
-- Evidence pasted in the browser (Ctrl+V) is stored in localStorage and exported as session JSON; `sddk uat ingest` accepts it.
+- Evidence pasted in the browser (Ctrl+V) is stored in localStorage and exported as session JSON; guided mode posts it to the local ingest endpoint.
+- Finalization exports every scenario. Unvalued scenarios use `NOT_RUN`, never an implicit PASS.
 
 ## References
 

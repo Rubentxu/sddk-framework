@@ -102,7 +102,16 @@ const UAT = (() => {
     const results = [];
     for (const id of scenarioOrder) {
       const v = verdicts[id];
-      if (!v || !v.status) continue;
+      if (!v || !v.status) {
+        results.push({
+          scenario_id: id,
+          status: "NOT_RUN",
+          comment: "Scenario not evaluated",
+          evidence: [],
+          duration_minutes: 0,
+        });
+        continue;
+      }
       const result = {
         scenario_id: id,
         status: v.status,
@@ -243,7 +252,7 @@ const UAT = (() => {
     const session = loadSession(release) || { schema_version: 2, release, results: [] };
     let r = (session.results || []).find(r => r.scenario_id === scenarioId);
     if (!r) {
-      r = { scenario_id: scenarioId, status: "PASS", evidence: [] };
+      r = { scenario_id: scenarioId, status: "NOT_RUN", evidence: [] };
       (session.results || (session.results = [])).push(r);
     }
     if (!r.evidence) r.evidence = [];
@@ -256,7 +265,7 @@ const UAT = (() => {
     const session = loadSession(release) || { release, results: [] };
     let entry = (session.results || []).find(r => r.scenario_id === scenarioId);
     if (!entry) {
-      entry = { scenario_id: scenarioId, status: "PASS", evidence: [] };
+      entry = { scenario_id: scenarioId, status: "NOT_RUN", evidence: [] };
       (session.results || (session.results = [])).push(entry);
     }
     if (!entry.evidence) entry.evidence = [];
