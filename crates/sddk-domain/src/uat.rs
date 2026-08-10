@@ -327,6 +327,8 @@ pub enum UatExecutor {
     Fara,
     /// Mixed human + agent execution.
     Mixed,
+    /// Executed by the local auto-runner (`uat run`) from `automation.ref`.
+    Automated,
 }
 
 /// Closed vocabulary for the global release verdict.

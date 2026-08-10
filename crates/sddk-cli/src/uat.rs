@@ -57,6 +57,9 @@ pub(crate) enum UatCommand {
     BuildManifest(UatBuildManifestArgs),
     ScenarioContext(UatScenarioContextArgs),
     History(UatHistoryArgs),
+    /// Execute a scripted/automated scenario via its `automation.ref` and
+    /// emit a baseline `uat-session.yaml` for the ingest/report pipeline.
+    Run(UatRunArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -385,6 +388,25 @@ pub(crate) struct UatHistoryArgs {
     pub(crate) format: OutputFormat,
 }
 
+#[derive(Debug, Clone, Args)]
+pub(crate) struct UatRunArgs {
+    /// Plan YAML containing the scenario.
+    #[arg(long)]
+    pub(crate) plan: PathBuf,
+    /// Scenario id to execute, e.g. `S-01`.
+    #[arg(long)]
+    pub(crate) scenario: String,
+    /// Wall-clock timeout in milliseconds (default: 60000).
+    #[arg(long, default_value_t = 60_000)]
+    pub(crate) timeout_ms: u64,
+    /// Output session YAML path (default: `uat-session-<scenario>.yaml`).
+    #[arg(long)]
+    pub(crate) output: Option<PathBuf>,
+    /// Output format for the run summary.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
+}
+
 pub(crate) fn run_uat(command: UatCommand, environment: &crate::CliEnvironment) -> CommandOutput {
     match command {
         UatCommand::Plan(args) => run_uat_plan(args, environment),
@@ -403,6 +425,7 @@ pub(crate) fn run_uat(command: UatCommand, environment: &crate::CliEnvironment) 
         UatCommand::BuildManifest(args) => run_uat_build_manifest(args, environment),
         UatCommand::ScenarioContext(args) => run_uat_scenario_context(args),
         UatCommand::History(args) => run_uat_history(args),
+        UatCommand::Run(args) => run_uat_run(args),
     }
 }
 
@@ -2310,5 +2333,398 @@ fn run_uat_history(args: UatHistoryArgs) -> CommandOutput {
             stderr: String::new(),
             status: 1,
         },
+    }
+}
+
+/// Execute a scripted/automated scenario via its `automation.ref`.
+///
+/// The `ref` is parsed as a typed argv spec (never through a shell):
+/// whitespace-split into program + args. `automation.status` must be
+/// `scripted` or `automated`; `manual` scenarios are rejected. The outcome
+/// maps `exit 0 → PASS`, non-zero → FAIL, timeout/kill → BLOCKED, and a
+/// baseline `uat-session.yaml` is emitted so the standard
+/// ingest/report/history pipeline can consume the run.
+fn run_uat_run(args: UatRunArgs) -> CommandOutput {
+    let result = (|| -> anyhow::Result<(UatSession, PathBuf)> {
+        let plan_raw = std::fs::read_to_string(&args.plan)
+            .map_err(|e| anyhow::anyhow!("cannot read plan {}: {e}", args.plan.display()))?;
+        let plan: UatPlan = serde_saphyr::from_str(&plan_raw)
+            .map_err(|e| anyhow::anyhow!("invalid plan {}: {e}", args.plan.display()))?;
+        let scenario = plan
+            .features
+            .iter()
+            .flat_map(|f| f.scenarios.iter().map(move |s| (f, s)))
+            .find(|(_, s)| s.id == args.scenario)
+            .map(|(_, s)| s)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "scenario {} not found in plan {}",
+                    args.scenario,
+                    args.plan.display()
+                )
+            })?;
+        let automation = scenario.automation.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "scenario {} has no automation block; mark it `automation: {{status: scripted, ref: ...}}` to run it",
+                scenario.id
+            )
+        })?;
+        if automation.status == sddk_domain::UatAutomationStatus::Manual {
+            anyhow::bail!(
+                "scenario {} is manual: no automated run possible",
+                scenario.id
+            );
+        }
+        let ref_str = automation.r#ref.as_deref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "scenario {} automation.status={} but automation.ref is empty",
+                scenario.id,
+                uat_automation_status_str(automation.status)
+            )
+        })?;
+
+        // Typed argv split — first token is the program, rest are args.
+        let tokens: Vec<String> = ref_str.split_whitespace().map(str::to_owned).collect();
+        let (program, argv) = tokens
+            .split_first()
+            .ok_or_else(|| anyhow::anyhow!("scenario {} automation.ref is empty", scenario.id))?;
+        let spec = sddk_gateway::RunSpec {
+            program: program.clone(),
+            args: argv.to_vec(),
+            env: Default::default(),
+            timeout_ms: args.timeout_ms,
+            output_max_bytes: 1_048_576,
+        };
+        let started = std::time::Instant::now();
+        let outcome = sddk_gateway::run(&spec).map_err(|e| {
+            anyhow::anyhow!(
+                "scenario {} failed to spawn `{}`: {e}",
+                scenario.id,
+                program
+            )
+        })?;
+        let duration_ms = started.elapsed().as_millis() as u64;
+
+        let (status, failure_reason, comment) = if outcome.timed_out {
+            (
+                sddk_domain::UatStatus::Blocked,
+                Some(format!("timeout after {}ms", args.timeout_ms)),
+                format!("blocked: `{ref_str}` timed out after {}ms", args.timeout_ms),
+            )
+        } else if outcome.exit_status == Some(0) {
+            (
+                sddk_domain::UatStatus::Pass,
+                None,
+                format!("pass: `{ref_str}` exited 0 in {duration_ms}ms"),
+            )
+        } else {
+            (
+                sddk_domain::UatStatus::Fail,
+                Some(
+                    outcome
+                        .stderr
+                        .trim()
+                        .lines()
+                        .take(20)
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                ),
+                format!(
+                    "fail: `{ref_str}` exited {:?} in {duration_ms}ms",
+                    outcome.exit_status
+                ),
+            )
+        };
+
+        // Evidence payload = stdout+stderr captured; sha256-pinned (integrity).
+        let evidence_payload = format!(
+            "scenario: {}\nref: {}\n--- stdout ---\n{}\n--- stderr ---\n{}\n",
+            scenario.id, ref_str, outcome.stdout, outcome.stderr
+        );
+        let evidence = vec![sddk_domain::UatEvidence {
+            kind: sddk_domain::UatEvidenceKind::CommandOutput,
+            r#ref: sha256_hex(evidence_payload.as_bytes()),
+            note: Some(comment.clone()),
+            captured_at: Some(now_rfc3339()),
+            size_bytes: Some(evidence_payload.len() as u64),
+            mime: Some("text/plain".into()),
+            path: None,
+            observed_value: Some(outcome.stdout.trim().chars().take(2000).collect()),
+            expected_value: Some("exit 0".into()),
+            match_mode: None,
+        }];
+
+        let now = now_rfc3339();
+        let session_id = format!("auto-{}-{}", scenario.id, now.replace([':', '-'], ""));
+        let session = UatSession {
+            schema_version: sddk_domain::LATEST_SESSION_SCHEMA_VERSION,
+            session_id: session_id.clone(),
+            plan_ref: args.plan.display().to_string(),
+            release: plan.release.candidate.clone(),
+            executor: sddk_domain::UatExecutor::Automated,
+            executed_by: Some("auto-runner".into()),
+            started_at: now.clone(),
+            finished_at: Some(now.clone()),
+            results: vec![sddk_domain::UatScenarioResult {
+                scenario_id: scenario.id.clone(),
+                status,
+                comment: Some(comment),
+                evidence,
+                duration_minutes: 0,
+                verdict_at: Some(now.clone()),
+                verdict_duration_ms: Some(duration_ms),
+                tester_notes: None,
+                observed: Some(outcome.stdout.trim().chars().take(2000).collect()),
+                failure_reason,
+                linked_defect: None,
+                repro_command: Some(ref_str.to_owned()),
+            }],
+            metadata: None,
+            plan_version: Some(plan.schema_version),
+        };
+
+        let output_path = args.output.unwrap_or_else(|| {
+            let name = format!(
+                "uat-session-{}.yaml",
+                scenario.id.to_lowercase().replace('.', "-")
+            );
+            args.plan
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(name)
+        });
+        if let Some(parent) = output_path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
+        }
+        let yaml = serde_saphyr::to_string(&session)
+            .map_err(|e| anyhow::anyhow!("session serialization failed: {e}"))?;
+        std::fs::write(&output_path, yaml)?;
+        Ok((session, output_path))
+    })();
+
+    match result {
+        Ok((session, output_path)) => {
+            let stdout = if matches!(args.format, OutputFormat::Json) {
+                let exit_code = match session.results[0].status {
+                    sddk_domain::UatStatus::Pass => 0,
+                    sddk_domain::UatStatus::Blocked => 124, // timeout convention
+                    _ => 1,
+                };
+                serde_json::json!({
+                    "scenario": session.results[0].scenario_id,
+                    "status": uat_status_str(session.results[0].status),
+                    "exit": exit_code,
+                    "duration_ms": session.results[0].verdict_duration_ms,
+                    "session_id": session.session_id,
+                    "session_path": output_path.display().to_string(),
+                    "executor": "automated",
+                })
+                .to_string()
+                    + "\n"
+            } else {
+                format!(
+                    "uat run: scenario {} → {} ({}ms)\n  session: {}\n  re-run: sddk uat ingest --session {} --release {}\n",
+                    session.results[0].scenario_id,
+                    uat_status_str(session.results[0].status),
+                    session.results[0].verdict_duration_ms.unwrap_or_default(),
+                    output_path.display(),
+                    output_path.display(),
+                    session.release,
+                )
+            };
+            CommandOutput {
+                stdout,
+                stderr: String::new(),
+                status: 0,
+            }
+        }
+        Err(e) => CommandOutput {
+            stdout: format!("uat run: error: {e}\n"),
+            stderr: String::new(),
+            status: 1,
+        },
+    }
+}
+
+fn uat_automation_status_str(status: sddk_domain::UatAutomationStatus) -> &'static str {
+    match status {
+        sddk_domain::UatAutomationStatus::Manual => "manual",
+        sddk_domain::UatAutomationStatus::Scripted => "scripted",
+        sddk_domain::UatAutomationStatus::Automated => "automated",
+    }
+}
+
+fn uat_status_str(status: sddk_domain::UatStatus) -> &'static str {
+    match status {
+        sddk_domain::UatStatus::NotRun => "NOT_RUN",
+        sddk_domain::UatStatus::Pass => "PASS",
+        sddk_domain::UatStatus::Fail => "FAIL",
+        sddk_domain::UatStatus::Blocked => "BLOCKED",
+        sddk_domain::UatStatus::Partial => "PARTIAL",
+    }
+}
+
+#[cfg(test)]
+mod uat_run_tests {
+    use super::*;
+
+    fn write_plan(dir: &std::path::Path, automation: &str) -> PathBuf {
+        let path = dir.join("uat-plan.yaml");
+        // Indent every line of the automation block under `automation:` (8 cols).
+        let automation_block = automation
+            .lines()
+            .map(|l| {
+                if l.trim().is_empty() {
+                    l.to_owned()
+                } else {
+                    format!("        {l}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let yaml = format!(
+            r#"
+schema_version: 2
+release: {{ candidate: v2.1.0 }}
+generated_by: test
+generated_at: "2026-08-10T00:00:00Z"
+features:
+  - id: F-1
+    name: Feature
+    scenarios:
+      - id: S-1
+        title: Scripted scenario
+        automation:
+{automation_block}
+"#
+        );
+        std::fs::write(&path, yaml).unwrap();
+        path
+    }
+
+    fn run_args(plan: &Path, scenario: &str) -> UatRunArgs {
+        UatRunArgs {
+            plan: plan.to_path_buf(),
+            scenario: scenario.into(),
+            timeout_ms: 10_000,
+            output: None,
+            format: OutputFormat::Text,
+        }
+    }
+
+    fn read_session(path: &Path) -> UatSession {
+        let raw = std::fs::read_to_string(path).unwrap();
+        serde_saphyr::from_str(&raw).unwrap()
+    }
+
+    #[test]
+    fn scripted_pass_emits_baseline_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan = write_plan(dir.path(), "  status: scripted\n  ref: echo hello-world");
+        let out = run_uat_run(run_args(&plan, "S-1"));
+        assert_eq!(out.status, 0, "stderr: {}", out.stderr);
+        assert!(out.stdout.contains("PASS"), "stdout: {}", out.stdout);
+        let session_path = dir.path().join("uat-session-s-1.yaml");
+        let session = read_session(&session_path);
+        assert_eq!(session.results.len(), 1);
+        let result = &session.results[0];
+        assert_eq!(result.status, sddk_domain::UatStatus::Pass);
+        assert_eq!(result.repro_command.as_deref(), Some("echo hello-world"));
+        assert!(result.verdict_duration_ms.is_some());
+        assert_eq!(session.executor, sddk_domain::UatExecutor::Automated);
+        assert_eq!(session.executed_by.as_deref(), Some("auto-runner"));
+        assert_eq!(session.release, "v2.1.0");
+        // Evidence is sha256-pinned so integrity verify accepts it.
+        assert!(result.evidence[0].r#ref.starts_with("sha256:"));
+    }
+
+    #[test]
+    fn failing_script_maps_to_fail_with_stderr() {
+        let dir = tempfile::tempdir().unwrap();
+        // A real script file exercises the typed argv path (no shell quoting).
+        let script = dir.path().join("fail.sh");
+        std::fs::write(&script, "#!/bin/sh\necho 'boom reason' >&2\nexit 3\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let plan = write_plan(
+            dir.path(),
+            &format!("  status: scripted\n  ref: {}", script.display()),
+        );
+        let out = run_uat_run(run_args(&plan, "S-1"));
+        assert_eq!(out.status, 0, "command should succeed, only scenario fails");
+        assert!(out.stdout.contains("FAIL"), "stdout: {}", out.stdout);
+        let session = read_session(&dir.path().join("uat-session-s-1.yaml"));
+        assert_eq!(session.results[0].status, sddk_domain::UatStatus::Fail);
+        assert_eq!(
+            session.results[0].failure_reason.as_deref(),
+            Some("boom reason")
+        );
+        // Evidence payload carries the captured stderr hash.
+        assert!(session.results[0].evidence[0].r#ref.starts_with("sha256:"));
+    }
+
+    #[test]
+    fn manual_scenario_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan = write_plan(dir.path(), "  status: manual");
+        let out = run_uat_run(run_args(&plan, "S-1"));
+        assert_eq!(out.status, 1);
+        assert!(out.stdout.contains("manual"), "stdout: {}", out.stdout);
+    }
+
+    #[test]
+    fn missing_automation_block_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan = write_plan(dir.path(), "  status: scripted");
+        let out = run_uat_run(run_args(&plan, "S-1"));
+        assert_eq!(out.status, 1);
+        assert!(
+            out.stdout.contains("automation.ref"),
+            "stdout: {}",
+            out.stdout
+        );
+    }
+
+    #[test]
+    fn unknown_scenario_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan = write_plan(dir.path(), "  status: scripted\n  ref: echo hi");
+        let out = run_uat_run(run_args(&plan, "S-99"));
+        assert_eq!(out.status, 1);
+        assert!(out.stdout.contains("not found"), "stdout: {}", out.stdout);
+    }
+
+    #[test]
+    fn timeout_maps_to_blocked() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan = write_plan(dir.path(), "  status: scripted\n  ref: sleep 30");
+        let mut args = run_args(&plan, "S-1");
+        args.timeout_ms = 50;
+        let out = run_uat_run(args);
+        assert_eq!(out.status, 0);
+        assert!(out.stdout.contains("BLOCKED"), "stdout: {}", out.stdout);
+        let session = read_session(&dir.path().join("uat-session-s-1.yaml"));
+        assert_eq!(session.results[0].status, sddk_domain::UatStatus::Blocked);
+    }
+
+    #[test]
+    fn spawn_failure_is_reported() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan = write_plan(
+            dir.path(),
+            "  status: automated\n  ref: sddk-no-such-binary-xyz",
+        );
+        let out = run_uat_run(run_args(&plan, "S-1"));
+        assert_eq!(out.status, 1);
+        assert!(
+            out.stdout.contains("failed to spawn"),
+            "stdout: {}",
+            out.stdout
+        );
     }
 }
