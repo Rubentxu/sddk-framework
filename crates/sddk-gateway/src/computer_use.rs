@@ -104,7 +104,7 @@ pub fn run_computer_use(
 
     let harness = harness_path
         .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("assets/uat-driver/computer_use.mjs"));
+        .unwrap_or_else(|| crate::resolve_uat_driver("computer_use.mjs"));
 
     std::fs::create_dir_all(&spec.output_dir).map_err(|source| ComputerUseError::Io {
         path: spec.output_dir.display().to_string(),

@@ -3246,7 +3246,19 @@ fn run_uat_run(args: UatRunArgs) -> CommandOutput {
                     trace: bundle_spec.playwright_trace,
                     console: bundle_spec.console,
                     network: bundle_spec.network,
-                    dom: bundle_spec.accessibility || bundle_spec.geometry,
+                    // DOM snapshot necesario cuando los oracles (eje 3) o el
+                    // spec (eje 2) lo piden: text/dom/geometry/accessibility.
+                    dom: bundle_spec.accessibility
+                        || bundle_spec.geometry
+                        || scenario.oracles.iter().any(|o| {
+                            matches!(
+                                o.kind,
+                                sddk_domain::UatOracleKind::Text
+                                    | sddk_domain::UatOracleKind::Dom
+                                    | sddk_domain::UatOracleKind::Geometry
+                                    | sddk_domain::UatOracleKind::Accessibility
+                            )
+                        }),
                     geometry: geometry_file,
                     output_dir: output_dir.clone(),
                     timeout_ms: args.timeout_ms,

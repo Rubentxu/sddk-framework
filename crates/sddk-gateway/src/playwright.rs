@@ -105,10 +105,6 @@ pub enum PlaywrightError {
     },
 }
 
-/// Runner script bundled with the framework (asset, not agent-generated).
-/// Injected at call time by the caller (DIP: the gateway does not resolve
-/// framework assets; the caller provides the driver path).
-const DEFAULT_DRIVER: &str = "assets/uat-driver/driver.mjs";
 
 /// Environment allowlist for browser runs. The typed runner clears the
 /// environment (`env_clear`); Playwright needs `PATH` (node + browser
@@ -139,7 +135,7 @@ pub fn run_playwright(
 
     let driver = driver_path
         .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from(DEFAULT_DRIVER));
+        .unwrap_or_else(|| crate::resolve_uat_driver("driver.mjs"));
 
     // Prepare the evidence dir (idempotent).
     std::fs::create_dir_all(&spec.output_dir).map_err(|source| PlaywrightError::Io {

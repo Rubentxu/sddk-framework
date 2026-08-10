@@ -53,6 +53,46 @@ pub use semantic::{SemanticOracleError, SemanticOracleOutcome, SemanticOracleSpe
 pub use sddk_storage::CapabilityReceipt;
 pub use uat_policy::{UatPolicyError, authorize_uat, capability_name, default_risk};
 
+/// Resolves a UAT driver/harness asset (driver.mjs, computer_use.mjs,
+/// assess.mjs) from the active framework bundle, falling back to the current
+/// directory. The bundle path mirrors the CLI's `resolve_assets_dir`:
+/// `$SDDK_DATA_DIR/framework/current/assets/uat-driver/<name>`.
+pub fn resolve_uat_driver(name: &str) -> std::path::PathBuf {
+    // 1. Framework bundle runtime (installed releases / dev update sync).
+    if let Some(data_dir) = std::env::var_os("SDDK_DATA_DIR") {
+        let candidate = std::path::PathBuf::from(&data_dir)
+            .join("framework/current/assets/uat-driver")
+            .join(name);
+        if candidate.is_file() {
+            return candidate;
+        }
+    }
+    if let Some(xdg) = std::env::var_os("XDG_DATA_HOME") {
+        let candidate = std::path::PathBuf::from(&xdg)
+            .join("sddk/framework/current/assets/uat-driver")
+            .join(name);
+        if candidate.is_file() {
+            return candidate;
+        }
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        let candidate = std::path::PathBuf::from(&home)
+            .join(".local/share/sddk/framework/current/assets/uat-driver")
+            .join(name);
+        if candidate.is_file() {
+            return candidate;
+        }
+    }
+    // 2. Repository checkout (dogfooding / tests).
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let candidate = cwd.join("assets/uat-driver").join(name);
+    if candidate.is_file() {
+        return candidate;
+    }
+    // 3. Relative default (caller context).
+    std::path::PathBuf::from("assets/uat-driver").join(name)
+}
+
 use serde_json::Value;
 
 impl sddk_domain::SddkErrorCode for GatewayError {

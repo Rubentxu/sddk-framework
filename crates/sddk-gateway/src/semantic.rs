@@ -99,7 +99,7 @@ pub fn run_semantic_oracle(
 
     let harness = harness_path
         .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("assets/uat-driver/assess.mjs"));
+        .unwrap_or_else(|| crate::resolve_uat_driver("assess.mjs"));
 
     std::fs::create_dir_all(&spec.output_dir).map_err(|source| SemanticOracleError::Io {
         path: spec.output_dir.display().to_string(),
