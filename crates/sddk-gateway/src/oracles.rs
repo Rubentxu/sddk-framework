@@ -188,33 +188,37 @@ fn evaluate_text<F>(
 where
     F: Fn(UatOracleVerdict, Option<String>) -> UatOracleAssessment,
 {
-    let artifact = artifact_of_kind(bundle, spec.kind, UatEvidenceKind::Dom)?;
-    let html = read_text(artifact, spec.kind)?;
+    // Text oracle: busca en dom.html si existe; si el executor fue cli/script
+    // (command_output), busca en la salida capturada. Esto permite oracles
+    // `text` sobre runs no-browser (dogfooding del propio framework).
+    let artifact = artifact_of_kind(bundle, spec.kind, UatEvidenceKind::Dom)
+        .or_else(|_| artifact_of_kind(bundle, spec.kind, UatEvidenceKind::CommandOutput))?;
+    let haystack = read_text(artifact, spec.kind)?;
     let expect = spec.expect.clone().unwrap_or(Value::Null);
     let contains = expect.get("contains").and_then(Value::as_str);
     let regex = expect.get("regex").and_then(Value::as_str);
 
     if let Some(needle) = contains {
-        if html.contains(needle) {
+        if haystack.contains(needle) {
             Ok(assessment(
                 UatOracleVerdict::Pass,
-                Some(format!("dom contains {needle:?}")),
+                Some(format!("output contains {needle:?}")),
             ))
         } else {
             Ok(assessment(
                 UatOracleVerdict::Fail,
-                Some(format!("dom does not contain {needle:?}")),
+                Some(format!("output does not contain {needle:?}")),
             ))
         }
     } else if let Some(pattern) = regex {
-        match regex_lite_search(pattern, &html) {
+        match regex_lite_search(pattern, &haystack) {
             Ok(true) => Ok(assessment(
                 UatOracleVerdict::Pass,
-                Some(format!("dom matches regex {pattern:?}")),
+                Some(format!("output matches regex {pattern:?}")),
             )),
             Ok(false) => Ok(assessment(
                 UatOracleVerdict::Fail,
-                Some(format!("dom does not match regex {pattern:?}")),
+                Some(format!("output does not match regex {pattern:?}")),
             )),
             Err(message) => Err(OracleError::BadExpect {
                 kind: spec.kind,
@@ -685,6 +689,7 @@ mod tests {
                     "dom" => UatEvidenceKind::Dom,
                     "network" => UatEvidenceKind::Network,
                     "http" => UatEvidenceKind::Http,
+                    "command_output" => UatEvidenceKind::CommandOutput,
                     "geometry" => UatEvidenceKind::Geometry,
                     "aria" => UatEvidenceKind::Aria,
                     _ => UatEvidenceKind::File,
@@ -749,6 +754,27 @@ mod tests {
             "dom.html",
             "dom",
             b"<html><body><h1>Hello UAT</h1></body></html>",
+        )]);
+        let run = OracleRunContext::default();
+        let assessment = evaluate_deterministic(&spec, &bundle, &run).unwrap();
+        assert_eq!(assessment.verdict, UatOracleVerdict::Pass);
+    }
+
+    #[test]
+    fn text_falls_back_to_command_output_for_cli_runs() {
+        // Dogfooding: un run cli no produce dom.html; el oracle text debe
+        // buscar en la salida capturada (command_output).
+        let spec = UatOracleSpec {
+            kind: UatOracleKind::Text,
+            expect: Some(serde_json::json!({"contains": "uat validate: OK"})),
+            rubric: vec![],
+            severity: None,
+            blocking: true,
+        };
+        let bundle = bundle_with_files(&[(
+            "output.log",
+            "command_output",
+            b"uat validate: OK\n",
         )]);
         let run = OracleRunContext::default();
         let assessment = evaluate_deterministic(&spec, &bundle, &run).unwrap();
