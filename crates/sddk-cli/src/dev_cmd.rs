@@ -569,18 +569,22 @@ struct LinkReport {
     prompts_linked: usize,
     workflows_linked: usize,
     stale_replaced: usize,
+    /// Entries removed from the editor because they no longer exist in the
+    /// framework source (deprecated/renamed surfaces).
+    pruned: usize,
     errors: Vec<String>,
 }
 
 fn link_text(report: &LinkReport) -> String {
     format!(
-        "editor: {}\nagents: {}\nskills: {}\nprompts: {}\nworkflows: {}\nstale_replaced: {}\nerrors: {}\n",
+        "editor: {}\nagents: {}\nskills: {}\nprompts: {}\nworkflows: {}\nstale_replaced: {}\npruned: {}\nerrors: {}\n",
         report.editor,
         report.agents_linked,
         report.skills_linked,
         report.prompts_linked,
         report.workflows_linked,
         report.stale_replaced,
+        report.pruned,
         report.errors.len()
     )
 }
@@ -589,7 +593,25 @@ fn link_text(report: &LinkReport) -> String {
 fn link_file(source: &Path, target: &Path, stale_replaced: &mut usize) -> std::io::Result<()> {
     if let Ok(metadata) = std::fs::symlink_metadata(target) {
         if metadata.file_type().is_symlink() {
-            // Already a link: refresh the target.
+            // Already a link: only recreate when it points somewhere else
+            // (hash-free check: compare canonical target).
+            if let Ok(current) = std::fs::read_link(target) {
+                let source_abs = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
+                let current_abs = if current.is_absolute() {
+                    current
+                } else {
+                    target
+                        .parent()
+                        .unwrap_or_else(|| Path::new("/"))
+                        .join(current)
+                };
+                let current_abs = std::fs::canonicalize(&current_abs)
+                    .unwrap_or(current_abs);
+                if current_abs == source_abs {
+                    // Correct target already: leave it (idempotent).
+                    return Ok(());
+                }
+            }
             std::fs::remove_file(target)?;
         } else {
             // Stale copy: back it up.
@@ -616,6 +638,97 @@ fn link_file(source: &Path, target: &Path, stale_replaced: &mut usize) -> std::i
     Ok(())
 }
 
+/// Prune editor entries that the framework used to manage but no longer
+/// ships: broken symlinks, `.sddk-stale` backups left by previous links, and
+/// namespaced entries (sddk-*/sdd-*/gentle-*) absent from the source tree.
+/// Entries NOT namespaced by the framework (e.g. arch-stack skills) are
+/// never touched — they belong to other systems.
+fn prune_editor(root: &Path, editor_dir: &Path) -> usize {
+    let framework_namespace = |name: &std::ffi::OsStr| {
+        let name = name.to_string_lossy();
+        name.starts_with("sddk-")
+            || name.starts_with("sdd-")
+            || name.starts_with("gentle-")
+            || name == "orchestrator.md"
+    };
+    let mut pruned = 0usize;
+    let mut prune_entry = |path: &Path, source: &Path, name: &std::ffi::OsStr| -> bool {
+        let is_framework_entry = framework_namespace(name);
+        let exists_in_source = source.join(name).exists();
+        let is_broken_link = path
+            .symlink_metadata()
+            .map(|m| m.file_type().is_symlink() && !path.exists())
+            .unwrap_or(false);
+        let is_stale_backup = name
+            .to_string_lossy()
+            .ends_with(".sddk-stale");
+        let should_remove = is_broken_link
+            || is_stale_backup
+            || (is_framework_entry && !exists_in_source);
+        if should_remove {
+            let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_dir_all(path);
+            pruned += 1;
+        }
+        should_remove
+    };
+
+    // Agents: symlinks or markdown files in <editor>/agents.
+    let source_agents = root.join("agents");
+    let target_agents = editor_dir.join("agents");
+    if let Ok(entries) = std::fs::read_dir(&target_agents) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let is_md = entry.path().extension().and_then(|e| e.to_str()) == Some("md");
+            if is_md {
+                prune_entry(&entry.path(), &source_agents, &name);
+            }
+        }
+    }
+    // Skills: directories or top-level markdown in <editor>/skills.
+    let source_skills = root.join("skills");
+    let target_skills = editor_dir.join("skills");
+    if let Ok(entries) = std::fs::read_dir(&target_skills) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let path = entry.path();
+            let is_skill = entry.file_type().map(|t| t.is_dir()).unwrap_or(false)
+                || path.extension().and_then(|e| e.to_str()) == Some("md");
+            if is_skill {
+                prune_entry(&path, &source_skills, &name);
+            }
+        }
+    }
+    // Prompts: canonical SDDK tree mirrors source.
+    let source_prompts = root.join("prompts/sddk");
+    let target_prompts = editor_dir.join("prompts/sddk");
+    if let Ok(entries) = std::fs::read_dir(&target_prompts) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let is_md = entry.path().extension().and_then(|e| e.to_str()) == Some("md");
+            if is_md {
+                prune_entry(&entry.path(), &source_prompts, &name);
+            }
+        }
+    }
+    // Workflows: yaml files in <editor>/workflows.
+    let source_workflows = root.join("prompts/sddk/workflows");
+    let target_workflows = editor_dir.join("workflows");
+    if let Ok(entries) = std::fs::read_dir(&target_workflows) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let path = entry.path();
+            let ext = path.extension().and_then(|e| e.to_str()).map(str::to_owned);
+            let is_workflow_entry = matches!(ext.as_deref(), Some("yaml") | Some("yml"));
+            let is_stale_backup = name.to_string_lossy().ends_with(".sddk-stale");
+            if is_workflow_entry || is_stale_backup {
+                prune_entry(&path, &source_workflows, &name);
+            }
+        }
+    }
+    pruned
+}
+
 /// Link one editor directory: agents, skills, prompts, workflows.
 fn link_editor(root: &Path, editor_dir: &Path) -> LinkReport {
     let mut report = LinkReport {
@@ -625,6 +738,7 @@ fn link_editor(root: &Path, editor_dir: &Path) -> LinkReport {
         prompts_linked: 0,
         workflows_linked: 0,
         stale_replaced: 0,
+        pruned: 0,
         errors: Vec::new(),
     };
     let mut stale = 0usize;
@@ -705,6 +819,10 @@ fn link_editor(root: &Path, editor_dir: &Path) -> LinkReport {
     }
 
     report.stale_replaced = stale;
+    // Reconcile: remove editor entries that the framework no longer ships
+    // (deprecated surfaces, broken links, stale backups) — while never
+    // touching entries namespaced by other systems (arch-stack, books...).
+    report.pruned = prune_editor(root, editor_dir);
     report
 }
 
@@ -1146,6 +1264,24 @@ fn register_opencode_agents(root: &Path, opencode_json: &Path) -> anyhow::Result
         agents.insert(name, entry);
         registered += 1;
     }
+    // Prune orphaned registrations: framework-namespaced agents that no
+    // longer exist in the source tree (renamed/removed surfaces). Entries
+    // from other systems are left untouched.
+    let source_agent_names: std::collections::HashSet<String> = framework_agent_names(root)
+        .into_iter()
+        .collect();
+    let orphans: Vec<String> = agents
+        .keys()
+        .filter(|name| {
+            let name = name.as_str();
+            (name.starts_with("sddk-") || name.starts_with("sdd-") || name.starts_with("gentle-"))
+                && !source_agent_names.contains(name)
+        })
+        .cloned()
+        .collect();
+    for orphan in orphans {
+        agents.remove(&orphan);
+    }
     let serialized = serde_json::to_string_pretty(&config)?;
     std::fs::write(opencode_json, serialized)?;
     Ok(registered)
@@ -1440,4 +1576,84 @@ fn download_to(url: &str, destination: &Path) -> anyhow::Result<()> {
 fn sha256_hex(path: &Path) -> anyhow::Result<String> {
     let bytes = std::fs::read(path)?;
     Ok(format!("{:x}", Sha256::digest(&bytes)))
+}
+
+#[cfg(test)]
+mod reconciliation_tests {
+    use super::*;
+
+    fn temp_tree(tag: &str) -> std::path::PathBuf {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("sddk-link-{tag}-{}-{n}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn prune_removes_framework_deprecated_but_keeps_foreign() {
+        let root = temp_tree("root");
+        let editor = temp_tree("editor");
+        // Framework source: one agent + one skill.
+        std::fs::create_dir_all(root.join("agents")).unwrap();
+        std::fs::write(root.join("agents/orchestrator.md"), "---\nname: orchestrator\n---\n").unwrap();
+        std::fs::create_dir_all(root.join("skills")).unwrap();
+        std::fs::create_dir_all(root.join("skills/sddk-apply")).unwrap();
+        std::fs::write(root.join("skills/sddk-apply/SKILL.md"), "# apply\n").unwrap();
+
+        // Editor state: broken framework link, orphan namespaced skill,
+        // stale backup, and a foreign (arch-stack) skill that must survive.
+        std::fs::create_dir_all(editor.join("agents")).unwrap();
+        std::fs::create_dir_all(editor.join("skills")).unwrap();
+        std::fs::create_dir_all(editor.join("workflows")).unwrap();
+        std::os::unix::fs::symlink("/nonexistent/sddk-deprecated.md", editor.join("agents/sddk-deprecated.md")).unwrap();
+        std::fs::create_dir_all(editor.join("skills/sddk-continue-options")).unwrap();
+        std::fs::write(editor.join("skills/sddk-continue-options/SKILL.md"), "# orphan\n").unwrap();
+        std::fs::write(editor.join("workflows/sddk-a-full.sddk-stale"), "stale\n").unwrap();
+        std::fs::create_dir_all(editor.join("skills/architecture-discovery")).unwrap();
+        std::fs::write(editor.join("skills/architecture-discovery/SKILL.md"), "# foreign\n").unwrap();
+
+        let pruned = prune_editor(&root, &editor);
+        // 1 broken agent + 1 orphan skill + 1 stale workflow = 3.
+        assert_eq!(pruned, 3);
+        assert!(!editor.join("agents/sddk-deprecated.md").exists());
+        assert!(!editor.join("skills/sddk-continue-options").exists());
+        assert!(!editor.join("workflows/sddk-a-full.sddk-stale").exists());
+        // Foreign surface untouched.
+        assert!(editor.join("skills/architecture-discovery/SKILL.md").exists());
+
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&editor).ok();
+    }
+
+    #[test]
+    fn link_file_is_idempotent_when_target_matches() {
+        let dir = temp_tree("link");
+        let source = dir.join("source.md");
+        let target = dir.join("target.md");
+        std::fs::write(&source, "content").unwrap();
+        let mut stale = 0usize;
+        link_file(&source, &target, &mut stale).unwrap();
+        let mtime1 = std::fs::metadata(&target).unwrap().modified().unwrap();
+        link_file(&source, &target, &mut stale).unwrap();
+        let mtime2 = std::fs::metadata(&target).unwrap().modified().unwrap();
+        assert_eq!(mtime1, mtime2, "correct symlink must not be recreated");
+        assert_eq!(stale, 0);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn link_file_replaces_stale_copy_with_backup() {
+        let dir = temp_tree("stale");
+        let source = dir.join("source.md");
+        let target = dir.join("target.md");
+        std::fs::write(&source, "new").unwrap();
+        std::fs::write(&target, "old copy").unwrap();
+        let mut stale = 0usize;
+        link_file(&source, &target, &mut stale).unwrap();
+        assert_eq!(stale, 1);
+        assert!(dir.join("target.sddk-stale").exists());
+        assert!(std::fs::symlink_metadata(&target).unwrap().file_type().is_symlink());
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
