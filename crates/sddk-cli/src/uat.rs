@@ -2648,8 +2648,23 @@ fn run_uat_run(args: UatRunArgs) -> CommandOutput {
                     })?;
                     (executor.kind, url.to_owned())
                 }
+                sddk_domain::UatExecutorKind::ComputerUse => {
+                    let url = executor.url.as_deref().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "scenario {} executor kind=computer_use but url is empty",
+                            scenario.id
+                        )
+                    })?;
+                    let goal = executor.goal.as_deref().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "scenario {} executor kind=computer_use but goal is empty",
+                            scenario.id
+                        )
+                    })?;
+                    (executor.kind, format!("{url} :: {goal}"))
+                }
                 other => anyhow::bail!(
-                    "scenario {} executor kind={} is not runnable by `uat run` yet; use cli|script|playwright (computer_use arrives in F8)",
+                    "scenario {} executor kind={} is not runnable by `uat run` yet; use cli|script|playwright|computer_use",
                     scenario.id,
                     uat_executor_kind_str(other)
                 ),
@@ -2861,6 +2876,65 @@ fn run_uat_run(args: UatRunArgs) -> CommandOutput {
                 let run_ctx = sddk_gateway::OracleRunContext {
                     exit_status: Some(0),
                     final_url: outcome.final_url.clone(),
+                };
+                (status, comment, None, bundle, run_ctx)
+            }
+            sddk_domain::UatExecutorKind::ComputerUse => {
+                // url :: goal compuesto en el match de la spec.
+                let (url, goal) = ref_str.split_once(" :: ").ok_or_else(|| {
+                    anyhow::anyhow!("scenario {} computer_use ref malformed", scenario.id)
+                })?;
+                let output_dir = std::env::temp_dir().join(format!(
+                    "sddk-uat-cu-{}-{}",
+                    scenario.id.replace('.', "-"),
+                    std::process::id()
+                ));
+                let cu_spec = sddk_gateway::ComputerUseSpec {
+                    url: url.to_owned(),
+                    goal: goal.to_owned(),
+                    max_steps: 10,
+                    fara_url: std::env::var("FARA_URL")
+                        .unwrap_or_else(|_| "http://127.0.0.1:8082".into()),
+                    output_dir: output_dir.clone(),
+                    timeout_ms: args.timeout_ms,
+                };
+                let outcome = sddk_gateway::run_computer_use(&cu_spec, None, None).map_err(|e| {
+                    anyhow::anyhow!("scenario {} computer_use run failed: {e}", scenario.id)
+                })?;
+                let (status, comment) = if outcome.done {
+                    (
+                        sddk_domain::UatStatus::Pass,
+                        format!(
+                            "pass: agent declared done in {} step(s) (title {:?})",
+                            outcome.steps_taken, outcome.page_title
+                        ),
+                    )
+                } else {
+                    (
+                        sddk_domain::UatStatus::Blocked,
+                        format!(
+                            "blocked: agent did not finish in {} step(s) — review trajectory",
+                            outcome.steps_taken
+                        ),
+                    )
+                };
+                let mut collector = sddk_gateway::EvidenceCollector::new(
+                    sddk_gateway::EvidenceContext {
+                        executor: "computer_use".into(),
+                        browser: Some("chromium".into()),
+                        git_sha: None,
+                        app_version: Some(plan.release.candidate.clone()),
+                        model: Some("fara-9b".into()),
+                        ..Default::default()
+                    },
+                );
+                collector.collect_dir(&output_dir);
+                let bundle = collector
+                    .build()
+                    .map_err(|e| anyhow::anyhow!("evidence collection failed: {e}"))?;
+                let run_ctx = sddk_gateway::OracleRunContext {
+                    exit_status: Some(0),
+                    final_url: None,
                 };
                 (status, comment, None, bundle, run_ctx)
             }

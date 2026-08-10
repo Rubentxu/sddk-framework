@@ -9,6 +9,7 @@
 #![warn(missing_docs)]
 
 mod artifact_store;
+mod computer_use;
 mod evidence;
 mod filesystem;
 mod forge;
@@ -23,6 +24,7 @@ mod runner;
 mod uat_policy;
 
 pub use artifact_store::{ArtifactMeta, ArtifactStore, ArtifactStoreError};
+pub use computer_use::{ComputerUseError, ComputerUseOutcome, ComputerUseSpec, run_computer_use};
 pub use evidence::{
     EvidenceCollector, EvidenceCollectorError, EvidenceContext, EvidenceFile,
 };
