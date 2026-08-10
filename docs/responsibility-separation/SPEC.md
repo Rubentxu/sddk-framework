@@ -37,14 +37,14 @@ Separar en tres roles incompatibles el estado actual donde `/var/home/rubentxu/.
 │   └── current -> 1.3.0                # versión activa (shims)
 ├── projects/                           # estado por proyecto (ya existe)
 │   └── <project_id>/
-│       ├── vault/
+│       ├── knowledge-profile.json      # ruta canónica + preferencia Engram
 │       ├── artifacts/                  # CAS por SHA-256
 │       ├── cycle-artifacts/            # NUEVO: artefactos de ciclo {cycle_id}/
 │       ├── generated/                  # NUEVO: docs generados (inventory, workflow)
-│       ├── openspec/                   # NUEVO: estado del modo openspec
 │       └── workspaces/<wid>/adoption.json
 ├── control-plane/                      # ADR-0009: store central de telemetría
-└── knowledge/                          # ~/.sddk-knowledge/{project}/ (fuera de SDDK_DATA_DIR)
+
+~/.sddk-knowledge/<project_id>/         # conocimiento canónico, fuera de SDDK_DATA_DIR
 ```
 
 ## 4. Resolución de versión (modelo asdf)
@@ -118,8 +118,7 @@ Sin `.sddk-versions` → resolución cae a `current` (el proyecto funciona igual
 | Adopción | `workflow/workflow.yaml` plantado | nada; receipt en XDG |
 | Artefactos de ciclo | `sddk/{change}/...` | `projects/<id>/cycle-artifacts/{cycle_id}/` |
 | Docs generados | `docs/generated/` | `projects/<id>/generated/` (o `--in-repo`) |
-| Estado openspec | `openspec/` | `projects/<id>/openspec/` |
-| Knowledge vault | — (ya XDG) | `~/.sddk-knowledge/{project}/` (sin cambios) |
+| Knowledge vault | derivado del basename | `~/.sddk-knowledge/<project_id>/`, resuelto por `sddk knowledge path` |
 
 **Única excepción**: `.sddk-versions` en la raíz del repo del proyecto — config declarativa del proyecto (como `package.json`/`go.mod`/`.tool-versions`), escrita solo por el desarrollador, nunca por el framework.
 
@@ -182,6 +181,6 @@ Implementación: crate `dirs` en `sddk-engine/src/paths.rs`. Orden de resolució
 ## 12. Referencias
 
 - `crates/sddk-engine/src/paths.rs` (`resolve_xdg_paths`), `crates/sddk-cli/src/lib.rs` (`plant_workflow_manifest`, `WORKFLOW_MANIFEST`), `crates/sddk-cli/src/cycle.rs` (`load_workflow` fallback embebido), `crates/sddk-cli/src/dev_cmd.rs` (`run_dev_update`, `link_editor`, dual symlink/copy).
-- `skills/_shared/persistence-contract.md`, `skills/_shared/openspec-convention.md`, `agents/sdd-kernel-*.md`.
+- `skills/_shared/persistence-contract.md`, `skills/knowledge-graph/SKILL.md`, `agents/sddk-*.md`.
 - ADR-0006 (paths XDG), ADR-0001 (local-first), ADR-0009/0010 (control plane), ADR-0011 (este milestone).
 - Roadmap RS-2026-08 (R1-R9); Backlog épica E12 (SDDK-1201..1208).

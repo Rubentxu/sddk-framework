@@ -6,10 +6,10 @@
 
 | Type | Count |
 | --- | ---: |
-| Agents | 67 |
-| Skills | 90 |
+| Agents | 60 |
+| Skills | 83 |
 
-## Agents (67)
+## Agents (60)
 
 - `agents/analytics-judge.md`
 - `agents/analytics-reporter.md`
@@ -37,35 +37,24 @@
 - `agents/debt-duplication-cluster.md`
 - `agents/debt-overeng-cluster.md`
 - `agents/debt-smells-cluster.md`
-- `agents/gentle-orchestrator.md`
 - `agents/impeccable-primary.md`
 - `agents/jd-fix-agent.md`
 - `agents/jd-judge-a.md`
 - `agents/jd-judge-b.md`
 - `agents/orchestrator.md`
-- `agents/sdd-apply.md`
-- `agents/sdd-archive.md`
-- `agents/sdd-design.md`
-- `agents/sdd-explore.md`
-- `agents/sdd-init.md`
-- `agents/sdd-kernel-apply.md`
-- `agents/sdd-kernel-archive.md`
-- `agents/sdd-kernel-coherence.md`
-- `agents/sdd-kernel-design.md`
-- `agents/sdd-kernel-explore.md`
-- `agents/sdd-kernel-init.md`
-- `agents/sdd-kernel-propose.md`
-- `agents/sdd-kernel-release.md`
-- `agents/sdd-kernel-spec.md`
-- `agents/sdd-kernel-tasks.md`
-- `agents/sdd-kernel-verify.md`
-- `agents/sdd-onboard.md`
-- `agents/sdd-propose.md`
-- `agents/sdd-spec.md`
-- `agents/sdd-tasks.md`
-- `agents/sdd-verify.md`
 - `agents/sddk-adopt.md`
+- `agents/sddk-apply.md`
+- `agents/sddk-archive.md`
+- `agents/sddk-coherence.md`
 - `agents/sddk-debt-verify.md`
+- `agents/sddk-design.md`
+- `agents/sddk-explore.md`
+- `agents/sddk-init.md`
+- `agents/sddk-propose.md`
+- `agents/sddk-release.md`
+- `agents/sddk-spec.md`
+- `agents/sddk-tasks.md`
+- `agents/sddk-verify.md`
 - `agents/studio-analyzer.md`
 - `agents/studio-block.md`
 - `agents/studio-component.md`
@@ -77,9 +66,13 @@
 - `agents/studio-token.md`
 - `agents/studio-validator.md`
 - `agents/test-pyramid-builder.md`
+- `agents/uat-guide.md`
+- `agents/uat-planner.md`
+- `agents/uat-reporter.md`
+- `agents/uat-runner.md`
 - `agents/ui-auditor.md`
 
-## Skills (90)
+## Skills (83)
 
 - `skills/_shared/SKILL.md`
 - `skills/accessibility-reviewer/SKILL.md`
@@ -125,7 +118,6 @@
 - `skills/judgment-day/SKILL.md`
 - `skills/knowledge-graph/SKILL.md`
 - `skills/layout-geometry-audit/SKILL.md`
-- `skills/logseq-vault/SKILL.md`
 - `skills/minimax-mcp/SKILL.md`
 - `skills/pedagogical-reviewer/SKILL.md`
 - `skills/playwright-cli/SKILL.md`
@@ -137,16 +129,6 @@
 - `skills/research-knowledge-curator/SKILL.md`
 - `skills/research-strategist/SKILL.md`
 - `skills/rust-patterns/SKILL.md`
-- `skills/sdd-apply/SKILL.md`
-- `skills/sdd-archive/SKILL.md`
-- `skills/sdd-design/SKILL.md`
-- `skills/sdd-explore/SKILL.md`
-- `skills/sdd-init/SKILL.md`
-- `skills/sdd-onboard/SKILL.md`
-- `skills/sdd-propose/SKILL.md`
-- `skills/sdd-spec/SKILL.md`
-- `skills/sdd-tasks/SKILL.md`
-- `skills/sdd-verify/SKILL.md`
 - `skills/sddk-apply/SKILL.md`
 - `skills/sddk-archive/SKILL.md`
 - `skills/sddk-debt-verify/SKILL.md`
@@ -167,6 +149,10 @@
 - `skills/source-researcher/SKILL.md`
 - `skills/technical-reviewer/SKILL.md`
 - `skills/test-pyramid/SKILL.md`
+- `skills/uat-dashboard/SKILL.md`
+- `skills/uat-evidence/SKILL.md`
+- `skills/uat-guided-mode/SKILL.md`
+- `skills/uat-traceability/SKILL.md`
 - `skills/ui-audit-protocol/SKILL.md`
 - `skills/version-drift-detector/SKILL.md`
 - `skills/work-unit-commits/SKILL.md`

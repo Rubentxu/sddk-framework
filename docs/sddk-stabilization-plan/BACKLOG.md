@@ -420,7 +420,7 @@
 **Milestone:** RS-2026-08
 
 - Artefactos de ciclo (proposal, spec, tasks, verify-report, release-report) en `~/.local/share/sddk/projects/<id>/cycle-artifacts/{cycle_id}/`.
-- Actualizar `persistence-contract.md`, `openspec-convention.md` y `sdd-kernel-*.md` con los nuevos paths.
+- Actualizar `persistence-contract.md`, `knowledge-graph/SKILL.md` y `sddk-*.md` con los nuevos paths.
 
 **Criterio:** un ciclo completo no deja ficheros bajo el working tree del proyecto.
 

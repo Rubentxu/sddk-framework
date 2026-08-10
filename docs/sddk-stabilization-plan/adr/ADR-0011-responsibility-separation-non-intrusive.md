@@ -15,9 +15,9 @@
 Además, el framework escribe artefactos **dentro de los repos git de los proyectos** que lo usan:
 
 - `workflow/workflow.yaml` plantado por `adopt apply` (`plant_workflow_manifest`).
-- `sddk/{change}/...` artefactos de ciclo (proposal, spec, tasks, verify-report, release-report) — modo openspec/hybrid.
+- `sddk/{change}/...` artefactos de ciclo (proposal, spec, tasks, verify-report, release-report) del flujo legado.
 - `docs/generated/inventory.md` + `workflow.md` — `sddk generate docs`.
-- `openspec/` bootstrap (config.yaml, specs/, changes/).
+- Directorios de bootstrap y cambios del flujo file-backed legado.
 
 El usuario impone dos decisiones: separar los tres roles en directorios distintos **y** garantizar **cero intrusión del framework en los repos git de los proyectos** — todo el estado del framework vive en directorios de usuario (XDG), siguiendo la filosofía ya aplicada a vault/artifacts/ledger/cache/receipt y al knowledge vault (`~/.sddk-knowledge/{project}/`).
 
@@ -42,10 +42,9 @@ El framework **nunca escribe dentro de un repositorio git de un proyecto**. Todo
 | Receipts de adopción | XDG (correcto) | se mantiene |
 | Vault / artifacts CAS / ledger / cache | XDG (correcto) | se mantiene |
 | Knowledge vault | `~/.sddk-knowledge/{project}/` (correcto) | se mantiene |
-| Artefactos de ciclo | `sddk/{change}/...` en el repo (modo openspec) | **XDG**: `~/.local/share/sddk/projects/<project_id>/cycle-artifacts/{cycle_id}/...` (o el CAS por hash) |
+| Artefactos de ciclo | `sddk/{change}/...` en el repo | **XDG**: `~/.local/share/sddk/projects/<project_id>/cycle-artifacts/{cycle_id}/...` (o el CAS por hash) |
 | workflow.yaml | plantado en el repo por `adopt apply` | **no se planta**: siempre se resuelve del manifest embebido o del bundle runtime |
 | docs generados | `docs/generated/` en el repo | solo en el repo de desarrollo (dogfooding explícito); en proyectos, `sddk generate` escribe a XDG o se omite |
-| Estado del modo openspec | `openspec/` en el repo | XDG: `~/.local/share/sddk/projects/<project_id>/openspec/` |
 
 Regla de oro: **el único artefacto del framework legible/visible en el working tree de un proyecto es el código que el propio proyecto aporta**. Cualquier fichero creado por SDDK vive bajo `~/.local/share/sddk`, `~/.local/state/sddk`, `~/.cache/sddk` o `~/.sddk-knowledge`.
 
@@ -58,8 +57,8 @@ Regla de oro: **el único artefacto del framework legible/visible en el working 
 
 ### 4. Cambios requeridos en prompts/skills
 
-- `skills/_shared/persistence-contract.md` y `openspec-convention.md`: los paths de artefactos pasan de `sddk/{change}/...` y `openspec/...` a rutas XDG del proyecto adoptado.
-- `sddk-adopt.md` y `sdd-kernel-*.md`: actualizar los paths de artefactos y la instrucción "no escribir en el repo".
+- `skills/_shared/persistence-contract.md` y `skills/knowledge-graph/SKILL.md`: los paths de artefactos pasan de rutas repo-locales a XDG y al vault canónico.
+- `sddk-adopt.md` y `sddk-*.md`: actualizar los paths de artefactos y la instrucción "no escribir en el repo".
 - `dev link`: los symlinks del editor apuntan al **bundle runtime** (`~/.local/share/sddk/framework/`), no al repo de desarrollo.
 
 ### 5. Limpieza del estado existente
@@ -197,5 +196,5 @@ asdf: los plugins viven en `$ASDF_DATA_DIR/plugins/`, no en el repo del proyecto
 - Backlog: épica E12 (SDDK-1201..1208) en `docs/sddk-stabilization-plan/BACKLOG.md`.
 - PRD: RF-018 (no intrusión), RNF-008 (versionado de bundles), RNF-009 (portabilidad de paths).
 - `crates/sddk-cli/src/lib.rs` (`plant_workflow_manifest`, `WORKFLOW_MANIFEST`), `crates/sddk-cli/src/cycle.rs` (`load_workflow` fallback embebido), `crates/sddk-cli/src/dev_cmd.rs` (`run_dev_update` checkout vs bundle, `link_editor`), `crates/sddk-engine/src/paths.rs` (`resolve_xdg_paths`).
-- `skills/_shared/persistence-contract.md`, `skills/_shared/openspec-convention.md`, `agents/sdd-kernel-*.md`.
+- `skills/_shared/persistence-contract.md`, `skills/knowledge-graph/SKILL.md`, `agents/sddk-*.md`.
 - ADR-0006 (paths XDG), ADR-0001 (local-first).

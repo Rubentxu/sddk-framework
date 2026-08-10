@@ -23,6 +23,7 @@
 | 6 | `CLOSED` |
 | 7 | `ABANDONED` |
 | 8 | `RECOVERING` |
+| 9 | `UAT_WAITING` |
 
 ## Phases
 
@@ -34,9 +35,10 @@
 | 4 | `plan` |
 | 5 | `build` |
 | 6 | `verify` |
-| 7 | `review` |
-| 8 | `release` |
-| 9 | `archive` |
+| 7 | `uat` |
+| 8 | `review` |
+| 9 | `release` |
+| 10 | `archive` |
 
 ## Paths
 
@@ -65,8 +67,10 @@
 | `phase.verify.complete.a-min` | `A-min` | `OPEN/verify` | `RELEASE_PENDING/release` | `artifact:verification-report`<br>`gate:tests-pass`<br>`gate:policy-compliant` | `verification-report` | `REMEDIATING/verify` |
 | `phase.verify.complete.a-lite` | `A-lite` | `OPEN/verify` | `RELEASE_PENDING/release` | `artifact:verification-report`<br>`gate:tests-pass`<br>`gate:policy-compliant` | `verification-report` | `REMEDIATING/verify` |
 | `phase.verify.remediate` | `A-min`<br>`A-lite`<br>`A-full` | `REMEDIATING/verify` | `OPEN/verify` | `gate:remediation-complete` | — | — |
+| `phase.verify.uat.sync` | `A-full` | `OPEN/verify` | `UAT_WAITING/uat` | `gate:uat-activated` | `uat-plan` | `OPEN/verify` |
+| `phase.uat.complete` | `A-full` | `UAT_WAITING/uat` | `OPEN/review` | `artifact:uat-report`<br>`gate:uat-verdict` | `uat-report` | `REMEDIATING/verify` |
 | `phase.review.complete` | `A-full` | `OPEN/review` | `RELEASE_PENDING/release` | `artifact:review-report`<br>`gate:review-approved` | `review-report` | — |
-| `release.complete` | — | `RELEASE_PENDING/release` | `RELEASED/archive` | `artifact:merge-receipt`<br>`artifact:release-receipt`<br>`gate:no-pending-effects` | `merge-receipt`<br>`release-receipt` | — |
+| `release.complete` | — | `RELEASE_PENDING/release` | `RELEASED/archive` | `artifact:merge-receipt`<br>`artifact:release-receipt`<br>`gate:no-pending-effects`<br>`gate:release-uat-approved` | `merge-receipt`<br>`release-receipt` | — |
 | `archive.complete` | — | `RELEASED/archive` | `CLOSED/archive` | `artifact:archive-manifest`<br>`gate:ledger-valid`<br>`gate:vault-index-current` | `archive-manifest` | — |
 | `cycle.block` | — | `OPEN/*` | `BLOCKED/*` | `gate:block-condition-met` | — | — |
 | `cycle.unblock` | — | `BLOCKED/*` | `OPEN/*` | `gate:unblock-condition-met` | — | — |
@@ -85,6 +89,8 @@
 | `release-receipt` | `forge-provider` | — | yes | yes | Receipt confirming release artifacts |
 | `review-report` | `reviewer` | `release-manager` | yes | no | Review approval report |
 | `specification` | `agent` | `designer` | yes | no | Requirements specification document |
+| `uat-plan` | `agent` | `uat-runner`<br>`human` | no | no | UAT acceptance plan (YAML canonical, ADR-012) |
+| `uat-report` | `agent` | `human`<br>`release` | no | no | UAT aggregated report with verdict (ADR-012) |
 | `verification-report` | `verifier` | `reviewer` | yes | no | Report documenting verification results |
 
 ## Gates
@@ -99,10 +105,13 @@
 | `no-pending-effects` | `binary` | No pending external effects |
 | `plan-executable` | `binary` | Implementation plan is executable |
 | `policy-compliant` | `binary` | Implementation complies with policies |
+| `release-uat-approved` | `binary` | Release UAT gate passed for the configured release type (ADR-012) |
 | `remediation-complete` | `binary` | Remediation addressed failures |
 | `requirements-testable` | `binary` | Requirements are testable |
 | `review-approved` | `binary` | Review approved the work |
 | `tests-pass` | `binary` | All tests pass |
+| `uat-activated` | `binary` | Orchestrator decided to run UAT (activation function, ADR-012) |
+| `uat-verdict` | `binary` | UAT report has a human verdict (release gate per config, ADR-012) |
 | `unblock-condition-met` | `binary` | Unblock condition is satisfied |
 | `vault-index-current` | `binary` | Vault index is current |
 
@@ -127,6 +136,10 @@ stateDiagram-v2
     OPEN_verify --> RELEASE_PENDING_release: phase.verify.complete.a-lite
     OPEN_verify --> REMEDIATING_verify: phase.verify.complete.a-lite (failure)
     REMEDIATING_verify --> OPEN_verify: phase.verify.remediate
+    OPEN_verify --> UAT_WAITING_uat: phase.verify.uat.sync
+    OPEN_verify --> OPEN_verify: phase.verify.uat.sync (failure)
+    UAT_WAITING_uat --> OPEN_review: phase.uat.complete
+    UAT_WAITING_uat --> REMEDIATING_verify: phase.uat.complete (failure)
     OPEN_review --> RELEASE_PENDING_release: phase.review.complete
     RELEASE_PENDING_release --> RELEASED_archive: release.complete
     RELEASED_archive --> CLOSED_archive: archive.complete

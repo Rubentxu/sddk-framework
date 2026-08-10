@@ -5,7 +5,7 @@
 
 ## Contexto
 
-SDDK necesita modularidad para Git, testing, arquitectura, forge, release, OpenSpec y otras capacidades, sin volver a concentrar toda la lógica en un orquestador monolítico.
+SDDK necesita modularidad para Git, testing, arquitectura, forge, release, gestión de especificaciones y otras capacidades, sin volver a concentrar toda la lógica en un orquestador monolítico.
 
 ## Decisión
 

@@ -34,16 +34,16 @@ GHOST_PATTERNS=(
 
 SDDK_CORE_FILES=(
   "$SDDK_ROOT/agents/orchestrator.md"
-  "$SDDK_ROOT/agents/sdd-kernel-release.md"
+  "$SDDK_ROOT/agents/sddk-release.md"
   "$SDDK_ROOT/agents/sddk-debt-verify.md"
-  "$SDDK_ROOT/agents/sdd-kernel-apply.md"
-  "$SDDK_ROOT/prompts/sdd-kernel/orchestrator.md"
-  "$SDDK_ROOT/prompts/sdd-kernel/mcw.md"
-  "$SDDK_ROOT/prompts/sdd-kernel/git-contract.md"
-  "$SDDK_ROOT/prompts/sdd-kernel/phase-contracts.md"
-  "$SDDK_ROOT/prompts/sdd-kernel/phases/apply.md"
-  "$SDDK_ROOT/prompts/sdd-kernel/phases/release.md"
-  "$SDDK_ROOT/prompts/sdd-kernel/phases/debt-verify.md"
+  "$SDDK_ROOT/agents/sddk-apply.md"
+  "$SDDK_ROOT/prompts/sddk/orchestrator.md"
+  "$SDDK_ROOT/prompts/sddk/mcw.md"
+  "$SDDK_ROOT/prompts/sddk/git-contract.md"
+  "$SDDK_ROOT/prompts/sddk/phase-contracts.md"
+  "$SDDK_ROOT/prompts/sddk/phases/apply.md"
+  "$SDDK_ROOT/prompts/sddk/phases/release.md"
+  "$SDDK_ROOT/prompts/sddk/phases/debt-verify.md"
   "$SDDK_ROOT/skills/sddk-release/SKILL.md"
   "$SDDK_ROOT/skills/sddk-debt-verify/SKILL.md"
 )
@@ -74,9 +74,9 @@ done
 banner "REGRESSION 2: Release has correct step order (request-merge -> wait-MERGED -> verify-SHA)"
 
 RELEASE_FILES=(
-  "$SDDK_ROOT/agents/sdd-kernel-release.md"
+  "$SDDK_ROOT/agents/sddk-release.md"
   "$SDDK_ROOT/skills/sddk-release/SKILL.md"
-  "$SDDK_ROOT/prompts/sdd-kernel/phases/release.md"
+  "$SDDK_ROOT/prompts/sddk/phases/release.md"
 )
 
 for file in "${RELEASE_FILES[@]}"; do
@@ -117,7 +117,7 @@ done
 
 banner "REGRESSION 3: Consolidation gate uses --no-merged, not branch --list"
 
-MCW_FILE="$SDDK_ROOT/prompts/sdd-kernel/mcw.md"
+MCW_FILE="$SDDK_ROOT/prompts/sddk/mcw.md"
 if [ -f "$MCW_FILE" ]; then
   if grep -qE "git branch -r --list.*origin/feat" "$MCW_FILE" 2>/dev/null; then
     inc_fail "mcw.md: uses legacy git branch --list (should be --no-merged)"
@@ -137,12 +137,12 @@ banner "REGRESSION 4: Debt-verify is mandatory on A-*, disabled on B-direct, no 
 DEBT_FILES=(
   "$SDDK_ROOT/agents/sddk-debt-verify.md"
   "$SDDK_ROOT/skills/sddk-debt-verify/SKILL.md"
-  "$SDDK_ROOT/prompts/sdd-kernel/phases/debt-verify.md"
-  "$SDDK_ROOT/prompts/sdd-kernel/phase-contracts.md"
-  "$SDDK_ROOT/prompts/sdd-kernel/git-contract.md"
-  "$SDDK_ROOT/prompts/sdd-kernel/mcw.md"
+  "$SDDK_ROOT/prompts/sddk/phases/debt-verify.md"
+  "$SDDK_ROOT/prompts/sddk/phase-contracts.md"
+  "$SDDK_ROOT/prompts/sddk/git-contract.md"
+  "$SDDK_ROOT/prompts/sddk/mcw.md"
   "$SDDK_ROOT/agents/orchestrator.md"
-  "$SDDK_ROOT/prompts/sdd-kernel/orchestrator.md"
+  "$SDDK_ROOT/prompts/sddk/orchestrator.md"
 )
 
 for file in "${DEBT_FILES[@]}"; do
@@ -183,7 +183,7 @@ banner "REGRESSION 5: Adoption guard uses proper Bash (no quoted tilde, no liter
 
 ORCHESTRATOR_FILES=(
   "$SDDK_ROOT/agents/orchestrator.md"
-  "$SDDK_ROOT/prompts/sdd-kernel/orchestrator.md"
+  "$SDDK_ROOT/prompts/sddk/orchestrator.md"
 )
 
 for file in "${ORCHESTRATOR_FILES[@]}"; do
@@ -205,10 +205,10 @@ for file in "${ORCHESTRATOR_FILES[@]}"; do
       inc_fail "$fname: missing adoption.json marker check"
     fi
 
-    if printf '%s\n' "$GUARD_BASH" | grep -qE 'VAULT=.*HOME.*PROJECT'; then
-      inc_pass "$fname: proper Bash variable expansion for vault"
+    if printf '%s\n' "$GUARD_BASH" | grep -qE 'VAULT=.*HOME.*PROJECT|VAULT_PATH=.*sddk knowledge path'; then
+      inc_pass "$fname: canonical vault resolution"
     else
-      inc_fail "$fname: missing proper Bash vault path expansion"
+      inc_fail "$fname: missing canonical vault resolution"
     fi
   fi
 done
@@ -262,8 +262,8 @@ for file in "${RELEASE_FILES[@]}"; do
   fi
 done
 
-if grep -q 'PR_NUM=$(gh pr list.*--state all' "$SDDK_ROOT/prompts/sdd-kernel/phases/release.md" \
-  && [ "$(grep -c 'PR_NUM=$(gh pr list.*--state all' "$SDDK_ROOT/prompts/sdd-kernel/phases/release.md")" -ge 2 ]; then
+if grep -q 'PR_NUM=$(gh pr list.*--state all' "$SDDK_ROOT/prompts/sddk/phases/release.md" \
+  && [ "$(grep -c 'PR_NUM=$(gh pr list.*--state all' "$SDDK_ROOT/prompts/sddk/phases/release.md")" -ge 2 ]; then
   inc_pass "Release resolves PR_NUM both before and after PR creation"
 else
   inc_fail "Release may leave PR_NUM empty after creating a PR"
@@ -277,37 +277,37 @@ else
   inc_fail "Consolidation gate is not deterministically blocking"
 fi
 
-if grep -q 'release-lock.*fails.*BLOCK' "$SDDK_ROOT/agents/sdd-kernel-release.md" \
+if grep -q 'release-lock.*fails.*BLOCK' "$SDDK_ROOT/agents/sddk-release.md" \
   && grep -q 'release-lock.*BLOCK' "$SDDK_ROOT/skills/sddk-release/SKILL.md"; then
   inc_pass "Release-lock failure is blocking in agent and skill"
 else
   inc_fail "Release-lock failure policy is inconsistent"
 fi
 
-if grep -q 'ready_for_release: true' "$SDDK_ROOT/agents/sdd-kernel-archive.md" \
-  && grep -q 'next_recommended: /sddk-release' "$SDDK_ROOT/agents/sdd-kernel-archive.md"; then
+if grep -q 'ready_for_release: true' "$SDDK_ROOT/agents/sddk-archive.md" \
+  && grep -q 'next_recommended: /sddk-release' "$SDDK_ROOT/agents/sddk-archive.md"; then
   inc_pass "Archive hands off to mandatory release instead of closing the cycle"
 else
   inc_fail "Archive still claims the cycle is complete before release"
 fi
 
-if ! grep -qE 'semver-cli|python -c.*semver|origin/main\.\.HEAD' "$SDDK_ROOT/prompts/sdd-kernel/phases/release.md" \
-  && grep -q 'git tag --points-at "$MERGE_SHA"' "$SDDK_ROOT/prompts/sdd-kernel/phases/release.md" \
-  && grep -q 'COMMIT_TEXT=$(gh pr view "$PR_NUM" --json commits' "$SDDK_ROOT/prompts/sdd-kernel/phases/release.md"; then
+if ! grep -qE 'semver-cli|python -c.*semver|origin/main\.\.HEAD' "$SDDK_ROOT/prompts/sddk/phases/release.md" \
+  && grep -q 'git tag --points-at "$MERGE_SHA"' "$SDDK_ROOT/prompts/sddk/phases/release.md" \
+  && grep -q 'COMMIT_TEXT=$(gh pr view "$PR_NUM" --json commits' "$SDDK_ROOT/prompts/sddk/phases/release.md"; then
   inc_pass "Semver is dependency-free, PR-based, and idempotent on MERGE_SHA"
 else
   inc_fail "Semver calculation is not dependency-free and idempotent"
 fi
 
-COMMIT_TEXT_LINE=$(grep -n -m1 'COMMIT_TEXT=$(gh pr view "$PR_NUM" --json commits' "$SDDK_ROOT/prompts/sdd-kernel/phases/release.md" | cut -d: -f1 || true)
-TAG_REUSE_LINE=$(grep -n -m1 'TAG=$(git tag --points-at "$MERGE_SHA"' "$SDDK_ROOT/prompts/sdd-kernel/phases/release.md" | cut -d: -f1 || true)
+COMMIT_TEXT_LINE=$(grep -n -m1 'COMMIT_TEXT=$(gh pr view "$PR_NUM" --json commits' "$SDDK_ROOT/prompts/sddk/phases/release.md" | cut -d: -f1 || true)
+TAG_REUSE_LINE=$(grep -n -m1 'TAG=$(git tag --points-at "$MERGE_SHA"' "$SDDK_ROOT/prompts/sddk/phases/release.md" | cut -d: -f1 || true)
 if [ -n "$COMMIT_TEXT_LINE" ] && [ -n "$TAG_REUSE_LINE" ] && [ "$COMMIT_TEXT_LINE" -lt "$TAG_REUSE_LINE" ]; then
   inc_pass "BUMP_TYPE is computed even when an existing tag is reused"
 else
   inc_fail "Semver retry can leave BUMP_TYPE uninitialized"
 fi
 
-if grep -q 'A deliberately skipped report has no file gate' "$SDDK_ROOT/prompts/sdd-kernel/phases/release.md"; then
+if grep -q 'A deliberately skipped report has no file gate' "$SDDK_ROOT/prompts/sddk/phases/release.md"; then
   inc_pass "Conditional HTML skip does not trigger an impossible file gate"
 else
   inc_fail "Conditional HTML skip is contradicted by an unconditional gate"
@@ -326,21 +326,21 @@ if [ -z "$(git --git-dir="$ORIGIN" tag --list v0.0.1)" ]; then
   git -C "$WORK" push origin v0.0.1 >/dev/null
 fi
 if [ "$(git --git-dir="$ORIGIN" tag --list v0.0.1)" = "v0.0.1" ] \
-  && grep -q '^git push origin "$TAG"$' "$SDDK_ROOT/prompts/sdd-kernel/phases/release.md"; then
+  && grep -q '^git push origin "$TAG"$' "$SDDK_ROOT/prompts/sddk/phases/release.md"; then
   inc_pass "Release retry pushes a locally-created tag that is missing remotely"
 else
   inc_fail "Release retry can strand a local-only semver tag"
 fi
 
-if ! grep -q 'docs/ROADMAP.md' "$SDDK_ROOT/prompts/sdd-kernel/mcw.md" \
-  && grep -q 'Step 3.8.*Update Knowledge Graph' "$SDDK_ROOT/prompts/sdd-kernel/mcw.md" \
-  && grep -q 'Step 3.9.*Release Serialization Lock' "$SDDK_ROOT/prompts/sdd-kernel/mcw.md"; then
+if ! grep -q 'docs/ROADMAP.md' "$SDDK_ROOT/prompts/sddk/mcw.md" \
+  && grep -q 'Step 3.8.*Update Knowledge Graph' "$SDDK_ROOT/prompts/sddk/mcw.md" \
+  && grep -q 'Step 3.9.*Release Serialization Lock' "$SDDK_ROOT/prompts/sddk/mcw.md"; then
   inc_pass "MCW uses the external knowledge graph and explicit lock release"
 else
   inc_fail "MCW still conflicts with the vault-only knowledge contract"
 fi
 
-if ! grep -qE 'required CI.*incompatible|reviewers>0 or required CI|Repo has no branch protection with required reviewers/CI' "$SDDK_ROOT/prompts/sdd-kernel/phases/release.md" "$SDDK_ROOT/agents/sdd-kernel-release.md" "$SDDK_ROOT/skills/sddk-release/SKILL.md"; then
+if ! grep -qE 'required CI.*incompatible|reviewers>0 or required CI|Repo has no branch protection with required reviewers/CI' "$SDDK_ROOT/prompts/sddk/phases/release.md" "$SDDK_ROOT/agents/sddk-release.md" "$SDDK_ROOT/skills/sddk-release/SKILL.md"; then
   inc_pass "Required status checks remain compatible with auto-merge"
 else
   inc_fail "Release policy still treats required status checks as auto-merge blockers"
