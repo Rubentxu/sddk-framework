@@ -158,6 +158,9 @@ function render() {
     ? `<p class="scenario-rationale" style="--i:2"><strong>Por qué importa.</strong>${escapeHtml(scenario.rationale)}</p>`
     : "";
   const steps = (scenario.plain_steps || []).map((step, i) => UatRender.stepBlock(step, i)).join("");
+  // Form DSL (v3): si el escenario declara `form`, el wizard renderiza el
+  // formulario determinista en lugar de los plain_steps.
+  const formSteps = scenario.form ? UatRender.formList(scenario.form, 0) : "";
   const flags = (scenario.flags || []).map(f => `<span class="badge badge-flag">${escapeHtml(f)}</span>`).join("");
 
   document.getElementById('wizard').innerHTML = `
@@ -177,7 +180,7 @@ function render() {
     ${rationale}
     ${UatRender.preflightChecklist(scenario)}
 
-    <ol class="scenario-steps" style="--i:4">${steps}</ol>
+    <ol class="scenario-steps" style="--i:4">${formSteps || steps}</ol>
 
     ${UatRender.evidenceCaptureUI(scenario, current)}
 

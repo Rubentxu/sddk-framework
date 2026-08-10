@@ -856,6 +856,248 @@ pub struct UatStep {
     pub vs_expected_check: Option<UatExpectedCheck>,
 }
 
+// ---------------------------------------------------------------------------
+// UAT Form DSL (ADR-015, REQ-RF-025) — vocabulario cerrado para el Guided
+// Runner v3. Los agentes generan ESTA spec (nunca HTML/JS); el renderer
+// determinista la compila. Todo valor fuera de los enums es rechazado por
+// `uat validate`.
+// ---------------------------------------------------------------------------
+
+/// Input humano que el wizard debe recolectar (vocabulario cerrado).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatFormInputKind {
+    Confirm,
+    YesNo,
+    PassFail,
+    SingleChoice,
+    MultiChoice,
+    Text,
+    Textarea,
+    Number,
+    Rating,
+    Date,
+    Duration,
+    Select,
+    Checkbox,
+    Checklist,
+    BlindObservation,
+}
+
+/// Evidencia que el runner captura/adjunta (vocabulario cerrado).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatFormEvidenceKind {
+    Screenshot,
+    Video,
+    File,
+    Annotation,
+    BrowserTrace,
+    Console,
+    Network,
+    Log,
+    Url,
+    Clipboard,
+}
+
+/// Validación automática (oracle) disponible en un check del formulario.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatFormOracleKind {
+    Http,
+    Json,
+    Text,
+    Dom,
+    Aria,
+    Geometry,
+    VisualDiff,
+    VisualAi,
+    Accessibility,
+    Performance,
+    Cli,
+    Database,
+    CustomScript,
+}
+
+/// Elemento informativo del formulario (no requiere input).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatFormInfoKind {
+    Instruction,
+    Warning,
+    ExpectedResult,
+    Tip,
+    Reference,
+    Image,
+    Code,
+    Link,
+    Example,
+}
+
+/// Control de flujo del wizard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatFormFlowKind {
+    Next,
+    Previous,
+    Skip,
+    Block,
+    Retry,
+    Branch,
+    Repeat,
+    Goto,
+    Stop,
+}
+
+/// Visibilidad de un check (blind checks: expected oculto — REQ-RF-026).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatFormVisibility {
+    #[default]
+    Visible,
+    Hidden,
+    Blind,
+}
+
+/// Check del formulario: un punto de validación con reglas (REQ-RF-025).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatFormCheck {
+    /// Qué recoge el check.
+    pub kind: UatFormInputKind,
+    /// Pregunta/instrucción mostrada al humano.
+    pub prompt: String,
+    /// Oracle automático opcional (máquina pre-verifica).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oracle: Option<UatFormOracleKind>,
+    /// Visibilidad del expected (blind check cuando `blind`).
+    #[serde(default)]
+    pub visibility: UatFormVisibility,
+    /// Si el check es obligatorio.
+    #[serde(default = "default_true")]
+    pub required: bool,
+    /// Si un fail del check bloquea el escenario.
+    #[serde(default = "default_true")]
+    pub blocking: bool,
+    /// Confidence mínima para aceptar el oracle automático (0..1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence_requirement: Option<f64>,
+    /// Evidencia exigida (screenshot obligatorio, etc.).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub evidence_requirement: Vec<UatFormEvidenceKind>,
+    /// Condición para obligar comentario: `always|on_fail|never`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment_required_when: Option<String>,
+    /// Opciones para single_choice / multi_choice / select / checklist.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<String>,
+    /// Expected (oculto si visibility=blind).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected: Option<String>,
+}
+
+/// Un elemento del formulario: check, informativo o flujo.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatFormItem {
+    /// Tipo de elemento.
+    pub kind: UatFormElementKind,
+    /// Check cuando kind == Check.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check: Option<UatFormCheck>,
+    /// Texto para informativos / instrucciones.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Flujo cuando kind == Flow.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flow: Option<UatFormFlowKind>,
+    /// Destino de branch/goto (id de item).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+}
+
+/// Clasificador del elemento de formulario.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatFormElementKind {
+    Check,
+    Info,
+    Flow,
+}
+
+/// Spec Form DSL de un escenario (ADR-015): pasos → items de formulario.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatFormSpec {
+    /// Version del DSL (1).
+    #[serde(default = "default_dsl_version")]
+    pub dsl_version: u32,
+    /// Items del formulario en orden de render.
+    #[serde(default)]
+    pub items: Vec<UatFormItem>,
+}
+
+fn default_dsl_version() -> u32 {
+    1
+}
+
+/// Valida que todos los valores de la spec pertenezcan al vocabulario
+/// cerrado (REQ-RF-025). Devuelve lista de errores estables; vacío = válida.
+pub fn validate_form_dsl(spec: &UatFormSpec) -> Vec<String> {
+    let mut errors = Vec::new();
+    for (i, item) in spec.items.iter().enumerate() {
+        match item.kind {
+            UatFormElementKind::Check => match &item.check {
+                None => errors.push(format!("item[{i}]: kind=check sin `check` block")),
+                Some(check) => {
+                    if check.comment_required_when.as_deref().is_some_and(|v| {
+                        !matches!(v, "always" | "on_fail" | "never")
+                    }) {
+                        errors.push(format!(
+                            "item[{i}]: comment_required_when={:?} no está en {{always,on_fail,never}}",
+                            check.comment_required_when
+                        ));
+                    }
+                    if check.confidence_requirement.is_some_and(|c| !(0.0..=1.0).contains(&c)) {
+                        errors.push(format!(
+                            "item[{i}]: confidence_requirement={:?} fuera de [0,1]",
+                            check.confidence_requirement
+                        ));
+                    }
+                    if matches!(
+                        check.kind,
+                        UatFormInputKind::SingleChoice
+                            | UatFormInputKind::MultiChoice
+                            | UatFormInputKind::Select
+                            | UatFormInputKind::Checklist
+                    ) && check.options.is_empty()
+                    {
+                        errors.push(format!(
+                            "item[{i}]: check {:?} necesita `options` no vacío",
+                            check.kind
+                        ));
+                    }
+                }
+            },
+            UatFormElementKind::Info => {
+                if item.text.is_none() {
+                    errors.push(format!("item[{i}]: kind=info sin `text`"));
+                }
+            }
+            UatFormElementKind::Flow => {
+                if item.flow.is_none() {
+                    errors.push(format!("item[{i}]: kind=flow sin `flow`"));
+                }
+            }
+        }
+    }
+    errors
+}
+
+fn default_true() -> bool {
+    true
+}
+
 /// One acceptance scenario of a feature.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -917,6 +1159,10 @@ pub struct UatScenario {
     /// Estado de aceptación (v3). `ACCEPTED != PASSED` (REQ-RF-023).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acceptance: Option<UatAcceptanceStatus>,
+    /// Form DSL (v3, ADR-015/REQ-RF-025): spec declarativa del Guided
+    /// Runner. Opcional — los escenarios v2 siguen usando plain_steps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form: Option<UatFormSpec>,
 }
 
 /// One feature under test, grouping its scenarios.
@@ -1303,9 +1549,6 @@ pub struct HumanAvailability {
     pub architect: bool,
 }
 
-fn default_true() -> bool {
-    true
-}
 
 impl Default for HumanAvailability {
     fn default() -> Self {
@@ -3162,6 +3405,86 @@ features:
         };
         assert_eq!(assessment.verdict, UatOracleVerdict::Pass);
         assert_eq!(assessment.confidence, 1.0);
+    }
+
+    #[test]
+    fn form_dsl_valid_spec_passes_validation() {
+        let spec: UatFormSpec = serde_saphyr::from_str(
+            r#"
+dsl_version: 1
+items:
+  - kind: info
+    text: "Bienvenido"
+  - kind: check
+    check:
+      kind: blind_observation
+      prompt: "¿Qué ves en la pantalla?"
+      visibility: blind
+      blocking: true
+      evidence_requirement: [screenshot]
+      options: ["Un formulario", "Un error", "Nada"]
+  - kind: check
+    check:
+      kind: rating
+      prompt: "Calidad visual"
+      required: true
+      options: ["1", "2", "3", "4", "5"]
+  - kind: flow
+    flow: stop
+"#,
+        )
+        .unwrap();
+        assert!(validate_form_dsl(&spec).is_empty());
+    }
+
+    #[test]
+    fn form_dsl_rejects_out_of_vocabulary() {
+        // comment_required_when fuera del vocabulario -> error estable.
+        let spec: UatFormSpec = serde_saphyr::from_str(
+            r#"
+dsl_version: 1
+items:
+  - kind: check
+    check:
+      kind: yes_no
+      prompt: "¿OK?"
+      comment_required_when: "sometimes"
+"#,
+        )
+        .unwrap();
+        let errors = validate_form_dsl(&spec);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("comment_required_when"));
+    }
+
+    #[test]
+    fn form_dsl_choice_without_options_is_rejected() {
+        let spec: UatFormSpec = serde_saphyr::from_str(
+            r#"
+dsl_version: 1
+items:
+  - kind: check
+    check:
+      kind: single_choice
+      prompt: "¿Cuál?"
+"#,
+        )
+        .unwrap();
+        let errors = validate_form_dsl(&spec);
+        assert!(!errors.is_empty());
+        assert!(errors[0].contains("options"));
+    }
+
+    #[test]
+    fn form_dsl_rejects_unknown_kind() {
+        // `kind: magic` no está en el enum -> serde falla.
+        let raw = r#"
+dsl_version: 1
+items:
+  - kind: magic
+"#;
+        let result: Result<UatFormSpec, _> = serde_saphyr::from_str(raw);
+        assert!(result.is_err());
     }
 
     fn review_plan(acceptance: Option<UatAcceptanceStatus>) -> UatPlan {

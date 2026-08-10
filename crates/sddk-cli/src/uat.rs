@@ -575,8 +575,23 @@ fn run_uat_validate(args: UatValidateArgs) -> CommandOutput {
             anyhow::bail!("plan must have at least one feature with one scenario");
         }
         // Round-trip through the typed model to enforce the closed vocabularies.
-        let _plan: UatPlan = serde_saphyr::from_str(&raw)
+        let plan: UatPlan = serde_saphyr::from_str(&raw)
             .map_err(|e| anyhow::anyhow!("schema validation failed: {e}"))?;
+        // Form DSL (ADR-015/REQ-RF-025): validar el vocabulario cerrado de
+        // todos los `form` specs declarados en el plan.
+        let mut dsl_errors: Vec<String> = Vec::new();
+        for feature in &plan.features {
+            for scenario in &feature.scenarios {
+                if let Some(form) = &scenario.form {
+                    for error in sddk_domain::validate_form_dsl(form) {
+                        dsl_errors.push(format!("{}: {}", scenario.id, error));
+                    }
+                }
+            }
+        }
+        if !dsl_errors.is_empty() {
+            anyhow::bail!("form DSL validation failed:\n  {}", dsl_errors.join("\n  "));
+        }
         Ok(())
     })();
     render_result(result, format, |()| "uat validate: OK\n".into())

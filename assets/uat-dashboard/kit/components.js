@@ -148,6 +148,62 @@ const UatRender = (() => {
     return `<li class="scenario-step step-${kind}" style="--i:${i}">${header}${body}<p class="step-expected"><strong>Esperado</strong>${expected}</p></li>`;
   }
 
+  // --- Form DSL (ADR-015 / REQ-RF-025) ---
+  // Render determinista de items del formulario: checks (incl. blind checks
+  // con expected oculto), informativos y flujo. Los agentes generan la spec;
+  // este compilador dibuja. Nunca HTML arbitrario de agentes.
+
+  function checkControl(check) {
+    const name = "check-" + Math.random().toString(36).slice(2, 8);
+    const opts = (check.options || []).map((o, i) =>
+      `<label class="form-option"><input type="radio" name="${name}" value="${escapeHtml(o)}" data-blind="${check.visibility === "blind" ? "1" : ""}"><span>${escapeHtml(o)}</span></label>`
+    ).join("");
+    const rating = (check.kind === "rating" && !opts)
+      ? `<div class="form-rating">${[1,2,3,4,5].map(n => `<label class="form-rating-star"><input type="radio" name="${name}" value="${n}"><span>${n}</span></label>`).join("")}</div>`
+      : "";
+    const text = (check.kind === "text" || check.kind === "textarea")
+      ? `<textarea class="form-text" name="${name}" rows="${check.kind === "textarea" ? 3 : 1}" placeholder="Tu respuesta…"></textarea>`
+      : "";
+    const num = (check.kind === "number")
+      ? `<input class="form-text" type="number" name="${name}">`
+      : "";
+    const yesNo = (check.kind === "yes_no" || check.kind === "confirm" || check.kind === "pass_fail")
+      ? `<div class="form-yesno">${["Sí", "No"].map(v => `<label class="form-option"><input type="radio" name="${name}" value="${v}"><span>${v}</span></label>`).join("")}</div>`
+      : "";
+    const blindNote = (check.visibility === "blind")
+      ? `<p class="form-blind-note">🔒 Respuesta blind: el expected está oculto hasta validar</p>`
+      : "";
+    const expected = (check.expected && check.visibility !== "blind")
+      ? `<p class="step-expected"><strong>Esperado</strong>${escapeHtml(check.expected)}</p>`
+      : "";
+    const required = check.required ? `<span class="form-required" title="Obligatorio">*</span>` : "";
+    return `${opts}${rating}${text}${num}${yesNo}${blindNote}${expected}${required}`;
+  }
+
+  function formItemBlock(item, i) {
+    const kind = (item.kind || "info").toLowerCase();
+    if (kind === "info") {
+      return `<li class="scenario-step step-info form-item form-info" style="--i:${i}"><p class="step-prose form-info-text">${escapeHtml(item.text || "")}</p></li>`;
+    }
+    if (kind === "flow") {
+      const flow = (item.flow || "next").toLowerCase();
+      return `<li class="scenario-step step-flow form-item" style="--i:${i}"><span class="badge badge-flag">flow: ${escapeHtml(flow)}</span>${item.target ? `<code class="form-flow-target">→ ${escapeHtml(item.target)}</code>` : ""}</li>`;
+    }
+    const check = item.check || {};
+    const prompt = escapeHtml(check.prompt || "");
+    const oracle = check.oracle ? `<span class="badge badge-flag">oracle: ${escapeHtml(check.oracle)}</span>` : "";
+    return `<li class="scenario-step step-check form-item" style="--i:${i}">
+      <div class="step-head"><span class="step-num">${i + 1}</span><span class="step-kind step-kind-check">check · ${escapeHtml(check.kind || "confirm")}</span>${oracle}</div>
+      <p class="step-prose form-prompt">${prompt}</p>
+      <div class="form-controls">${checkControl(check)}</div>
+    </li>`;
+  }
+
+  function formList(form, startIndex) {
+    if (!form || !form.items || !form.items.length) return "";
+    return form.items.map((item, i) => formItemBlock(item, startIndex + i)).join("");
+  }
+
   function evidenceChips(evidence) {
     if (!evidence || !evidence.length) return "";
     return evidence.map((e, i) => {
@@ -211,6 +267,7 @@ const UatRender = (() => {
   return {
     pill, matrix, traceability, kpis,
     userStoryBanner, preflightChecklist, contextBar, stepBlock,
+    formList, formItemBlock,
     evidenceChips, evidenceCaptureUI, failureProtocolPanel, teardownChecklist,
     escapeHtml,
   };
