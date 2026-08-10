@@ -9,16 +9,21 @@
 #![warn(missing_docs)]
 
 mod artifact_store;
+mod evidence;
 mod filesystem;
 mod forge;
 mod gateway;
 mod git;
 mod permissions;
+mod playwright;
 mod policy;
 mod release;
 mod runner;
 
 pub use artifact_store::{ArtifactMeta, ArtifactStore, ArtifactStoreError};
+pub use evidence::{
+    EvidenceCollector, EvidenceCollectorError, EvidenceContext, EvidenceFile,
+};
 pub use filesystem::{FsError, ScopedFs};
 pub use forge::{
     CheckState, Forge, ForgeError, GitHubForge, MergeReceipt, MockForge, PrReceipt, PrRequest,
@@ -27,6 +32,7 @@ pub use forge::{
 pub use gateway::{CapabilityGateway, CapabilityPlan, CapabilityPlanInput, GatewayError};
 pub use git::{GitBranch, GitCommit, GitError, GitExecutor, GitInspect, GitTag};
 pub use permissions::{AgentPermissions, PermissionDecision, PermissionPolicy, PermissionsError};
+pub use playwright::{PlaywrightError, PlaywrightOutcome, PlaywrightSpec, run_playwright};
 pub use policy::{CapabilityPolicy, Consequence, PolicyDecision, Risk};
 pub use release::{
     LocalReleaseInput, LocalReleaseOutcome, LocalReleasePreconditions, ReleaseError,

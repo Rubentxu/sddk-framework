@@ -88,8 +88,10 @@ pub enum UatOrigin {
     Regression,
 }
 
-/// Closed vocabulary for evidence kinds (v2).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// Closed vocabulary for evidence kinds (v2, extendido en v3 con tipos de
+/// captura del control plane: trace, console, network, dom, aria, geometry,
+/// video, trajectory).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UatEvidenceKind {
     File,
@@ -97,6 +99,22 @@ pub enum UatEvidenceKind {
     CommandOutput,
     Assertion,
     Metric,
+    /// Playwright trace archive.
+    Trace,
+    /// Captured console messages (JSON).
+    Console,
+    /// Captured network activity (JSON).
+    Network,
+    /// DOM snapshot (HTML).
+    Dom,
+    /// ARIA accessibility snapshot (JSON).
+    Aria,
+    /// Bounding-box geometry of selectors (JSON).
+    Geometry,
+    /// Video recording (webm).
+    Video,
+    /// Computer-use trajectory (JSON).
+    Trajectory,
     #[default]
     Note,
 }
@@ -361,6 +379,68 @@ pub struct UatEvidenceBundleSpec {
     /// Computer-use trajectory (Fara observe→think→act).
     #[serde(default)]
     pub trajectory: bool,
+}
+
+/// A captured evidence artifact inside a bundle. Content-addressable:
+/// `sha256:<hex>` de los bytes del payload (ADR-014 §2.3).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatEvidenceArtifact {
+    pub kind: UatEvidenceKind,
+    /// `sha256:<hex>` del payload — verificable contra el fichero referenciado.
+    pub r#ref: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mime: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// Environment snapshot for a bundle: qué ejecutó y contra qué versión.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatEvidenceEnvironment {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_sha: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub viewport: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub os: Option<String>,
+}
+
+/// Execution metadata for a bundle: quién ejecutó y con qué prompt/modelo.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatEvidenceExecution {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub executor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_hash: Option<String>,
+}
+
+/// Evidence bundle (v3, eje 2 — resultado). Todo artefacto es
+/// content-addressable; `environment` + `execution` hacen la ejecución
+/// reproducible y auditable (ADR-014 §2.3).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatEvidenceBundle {
+    #[serde(default)]
+    pub artifacts: Vec<UatEvidenceArtifact>,
+    #[serde(default)]
+    pub environment: UatEvidenceEnvironment,
+    #[serde(default)]
+    pub execution: UatEvidenceExecution,
 }
 
 /// Oracle kinds (v3, eje 3). Deterministas miden sin IA; semánticos evalúan
