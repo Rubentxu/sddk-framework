@@ -67,6 +67,10 @@ pub(crate) enum UatCommand {
     /// Evaluate semantic oracles (visual_ai / llm_rubric) of a scenario
     /// against its captured evidence using a local VLM/LLM (Fara).
     Assess(UatAssessArgs),
+    /// Execute all automatable scenarios of a plan in sequence and
+    /// aggregate the resulting sessions into a report. Manual scenarios
+    /// are skipped with a note.
+    Batch(UatBatchArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -396,6 +400,28 @@ pub(crate) struct UatHistoryArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+pub(crate) struct UatBatchArgs {
+    /// Plan YAML containing the scenarios.
+    #[arg(long)]
+    pub(crate) plan: PathBuf,
+    /// Wall-clock timeout per scenario in milliseconds (default: 60000).
+    #[arg(long, default_value_t = 60_000)]
+    pub(crate) timeout_ms: u64,
+    /// Explicit human approval for executor capabilities (ADR-0005).
+    #[arg(long)]
+    pub(crate) approve: bool,
+    /// Output directory for sessions (default: next to the plan).
+    #[arg(long)]
+    pub(crate) output_dir: Option<PathBuf>,
+    /// Output report YAML path (default: `uat-report-<release>.yaml`).
+    #[arg(long)]
+    pub(crate) report: Option<PathBuf>,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
+}
+
+#[derive(Debug, Clone, Args)]
 pub(crate) struct UatAssessArgs {
     /// Plan YAML containing the scenario.
     #[arg(long)]
@@ -480,6 +506,7 @@ pub(crate) fn run_uat(command: UatCommand, environment: &crate::CliEnvironment) 
         UatCommand::Run(args) => run_uat_run(args),
         UatCommand::Review(args) => run_uat_review(args),
         UatCommand::Assess(args) => run_uat_assess(args),
+        UatCommand::Batch(args) => run_uat_batch(args),
     }
 }
 
@@ -2559,6 +2586,150 @@ fn run_uat_history(args: UatHistoryArgs) -> CommandOutput {
 /// maps `exit 0 → PASS`, non-zero → FAIL, timeout/kill → BLOCKED, and a
 /// baseline `uat-session.yaml` is emitted so the standard
 /// ingest/report/history pipeline can consume the run.
+fn run_uat_batch(args: UatBatchArgs) -> CommandOutput {
+    let format = args.format;
+    let result = (|| -> anyhow::Result<String> {
+        let plan_raw = std::fs::read_to_string(&args.plan)
+            .map_err(|e| anyhow::anyhow!("cannot read plan {}: {e}", args.plan.display()))?;
+        let plan: UatPlan = serde_saphyr::from_str(&plan_raw)
+            .map_err(|e| anyhow::anyhow!("invalid plan {}: {e}", args.plan.display()))?;
+
+        let output_dir = args.output_dir.clone().unwrap_or_else(|| {
+            args.plan
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .to_path_buf()
+        });
+        std::fs::create_dir_all(&output_dir)?;
+
+        // Escenarios ejecutables: excluye human/manual.
+        let scenarios: Vec<&sddk_domain::UatScenario> = plan
+            .features
+            .iter()
+            .flat_map(|f| f.scenarios.iter())
+            .filter(|s| {
+                let manual = s
+                    .executor
+                    .as_ref()
+                    .map(|e| e.kind == sddk_domain::UatExecutorKind::Human)
+                    .unwrap_or_else(|| {
+                        s.automation
+                            .as_ref()
+                            .map(|a| a.status == sddk_domain::UatAutomationStatus::Manual)
+                            .unwrap_or(false)
+                    });
+                !manual
+            })
+            .collect();
+
+        let mut session_paths: Vec<PathBuf> = Vec::new();
+        let mut results: Vec<(String, String, Option<String>)> = Vec::new();
+        for scenario in &scenarios {
+            let output_path = output_dir.join(format!(
+                "uat-session-{}.yaml",
+                scenario.id.to_lowercase().replace('.', "-")
+            ));
+            let run_args = UatRunArgs {
+                plan: args.plan.clone(),
+                scenario: scenario.id.clone(),
+                timeout_ms: args.timeout_ms,
+                approve: args.approve,
+                output: Some(output_path.clone()),
+                format: OutputFormat::Json,
+            };
+            let out = run_uat_run(run_args);
+            // El JSON del run incluye status + session_path.
+            let (status, reason) = parse_run_json(&out.stdout);
+            results.push((scenario.id.clone(), status.clone(), reason));
+            if status != "error" && output_path.is_file() {
+                session_paths.push(output_path);
+            }
+        }
+
+        // Agregar report si hay sessions.
+        let mut report_summary = String::new();
+        if !session_paths.is_empty() {
+            let sessions: Vec<UatSession> = session_paths
+                .iter()
+                .map(|p| {
+                    let raw = std::fs::read_to_string(p)?;
+                    serde_saphyr::from_str(&raw)
+                        .map_err(|e| anyhow::anyhow!("invalid session {}: {e}", p.display()))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            let report = aggregate_report(&plan, &sessions);
+            let report_path = args.report.clone().unwrap_or_else(|| {
+                output_dir.join(format!("uat-report-{}.yaml", plan.release.candidate))
+            });
+            let yaml = serde_saphyr::to_string(&report)
+                .map_err(|e| anyhow::anyhow!("report serialization failed: {e}"))?;
+            std::fs::write(&report_path, yaml)?;
+            report_summary = format!(
+                "\nreport: {} ({} scenarios, {:.0}% coverage, {:?})\n",
+                report_path.display(),
+                report.summary.total_scenarios,
+                report.summary.coverage_pct,
+                report.verdict,
+            );
+        }
+
+        if matches!(format, OutputFormat::Json) {
+            return serde_json::to_string_pretty(&serde_json::json!({
+                "plan": args.plan.display().to_string(),
+                "scenarios_run": results.len(),
+                "results": results.iter().map(|(id, status, reason)| {
+                    serde_json::json!({"scenario": id, "status": status, "reason": reason})
+                }).collect::<Vec<_>>(),
+            }))
+            .map_err(|e| anyhow::anyhow!("json serialization failed: {e}"));
+        }
+
+        let mut lines = vec![format!(
+            "uat batch: {} — {} scenarios ejecutables\n",
+            plan.release.candidate,
+            results.len()
+        )];
+        for (id, status, reason) in &results {
+            lines.push(format!(
+                "  {id}: {status}{}",
+                reason.as_deref().map(|r| format!(" ({r})")).unwrap_or_default()
+            ));
+        }
+        if results.is_empty() {
+            lines.push("  (ningún escenario automatizable — revisar executor/human)\n".into());
+        }
+        lines.push(report_summary);
+        Ok(lines.join("\n"))
+    })();
+    match result {
+        Ok(out) => CommandOutput {
+            stdout: out,
+            stderr: String::new(),
+            status: 0,
+        },
+        Err(e) => crate::failure_envelope(&e),
+    }
+}
+
+/// Extrae status + reason del JSON emitido por `uat run`.
+fn parse_run_json(stdout: &str) -> (String, Option<String>) {
+    let trimmed = stdout.trim();
+    if !trimmed.starts_with('{') {
+        return ("error".into(), Some(trimmed.chars().take(200).collect()));
+    }
+    let value: serde_json::Value = serde_json::from_str(trimmed).unwrap_or(serde_json::Value::Null);
+    let status = value
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("error")
+        .to_owned();
+    let reason = value
+        .get("reason")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned);
+    (status, reason)
+}
+
 fn run_uat_assess(args: UatAssessArgs) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<String> {
@@ -3342,6 +3513,7 @@ fn run_uat_run(args: UatRunArgs) -> CommandOutput {
                         .iter()
                         .map(|a| format!("{:?}", a.verdict))
                         .collect::<Vec<_>>(),
+                    "reason": session.results[0].failure_reason,
                 })
                 .to_string()
                     + "\n"
