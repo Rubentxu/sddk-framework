@@ -185,7 +185,7 @@ pub(crate) struct InstallReceipt {
 
 pub(crate) fn run_dev(command: DevCommand, environment: &CliEnvironment) -> CommandOutput {
     match command {
-        DevCommand::Doctor(args) => run_dev_doctor(args),
+        DevCommand::Doctor(args) => run_dev_doctor(args, environment),
         DevCommand::Check(args) => run_dev_check(args),
         DevCommand::Install(args) => run_dev_install(args),
         DevCommand::Verify(args) => run_dev_verify(args),
@@ -210,7 +210,7 @@ struct DoctorCheck {
     present: bool,
 }
 
-fn run_dev_doctor(args: DoctorArgs) -> CommandOutput {
+fn run_dev_doctor(args: DoctorArgs, environment: &CliEnvironment) -> CommandOutput {
     let format = args.format;
     let mut checks = Vec::new();
     for tool in ["cargo", "rustc", "git", "gh"] {
@@ -240,6 +240,31 @@ fn run_dev_doctor(args: DoctorArgs) -> CommandOutput {
                 tool: format!("{label}.{}", check.name),
                 present: check.status == "PASS",
             });
+        }
+    }
+    // Runtime assets integrity: the CLI resolves dashboard kit + UAT drivers
+    // from the active framework bundle (ADR-013). A dev update without asset
+    // sync leaves stale/missing assets that break `uat dashboard` and
+    // `uat run --executor playwright|computer_use` at runtime.
+    if let Ok(framework_root) = resolve_active_framework_root(environment) {
+        let assets = framework_root.join("assets");
+        let driver_ok = assets
+            .join("uat-driver/driver.mjs")
+            .is_file()
+            && assets.join("uat-driver/computer_use.mjs").is_file()
+            && assets.join("uat-driver/assess.mjs").is_file();
+        let kit_ok = assets.join("uat-dashboard/kit/components.js").is_file()
+            && assets.join("uat-dashboard/views/guided.html").is_file();
+        checks.push(DoctorCheck {
+            tool: "assets.uat-driver".into(),
+            present: driver_ok,
+        });
+        checks.push(DoctorCheck {
+            tool: "assets.uat-dashboard-kit".into(),
+            present: kit_ok,
+        });
+        if !driver_ok || !kit_ok {
+            framework_warnings += 1;
         }
     }
     let result = Ok::<_, anyhow::Error>(DoctorOutput {
@@ -697,6 +722,34 @@ fn walk_dir(dir: &Path) -> Vec<PathBuf> {
         }
     }
     files
+}
+
+/// Copy the framework assets tree (kit, drivers, themes) from `source` into
+/// `target`, preserving relative paths. Returns the number of files copied.
+fn sync_assets(source: &Path, target: &Path) -> anyhow::Result<usize> {
+    let mut copied = 0usize;
+    std::fs::create_dir_all(target)?;
+    for entry in walk_dir(source) {
+        let relative = entry
+            .strip_prefix(source)
+            .unwrap_or(entry.as_path())
+            .to_path_buf();
+        let destination = target.join(&relative);
+        if let Some(parent) = destination.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        // Only overwrite when content differs (idempotent, avoids touching
+        // mtimes on every dev update).
+        let needs_copy = match (std::fs::read(&entry), std::fs::read(&destination)) {
+            (Ok(src), Ok(dst)) => src != dst,
+            _ => true,
+        };
+        if needs_copy {
+            std::fs::copy(&entry, &destination)?;
+        }
+        copied += 1;
+    }
+    Ok(copied)
 }
 
 fn run_dev_link(args: LinkArgs, environment: &CliEnvironment) -> CommandOutput {
@@ -1177,7 +1230,7 @@ fn run_dev_update(args: UpdateArgs, environment: &CliEnvironment) -> CommandOutp
         if args.root.join(".git").is_dir() {
             // Developer checkout: pull, re-link, rebuild.
             let root = std::fs::canonicalize(&args.root)?;
-            output.push_str(&update_checkout(&root)?);
+            output.push_str(&update_checkout(&root, environment)?);
             // Re-link the requested editors from this checkout (dogfooding).
             re_link_editors(&root, args.editor, &mut output);
             return Ok(output);
@@ -1238,7 +1291,7 @@ fn re_link_editors(root: &Path, editor: LinkEditor, output: &mut String) {
 }
 
 /// Update a developer checkout (git work tree): pull, re-link, rebuild.
-fn update_checkout(root: &Path) -> anyhow::Result<String> {
+fn update_checkout(root: &Path, environment: &CliEnvironment) -> anyhow::Result<String> {
     let mut output = String::new();
     let pull = std::process::Command::new("git")
         .args(["pull", "--ff-only"])
@@ -1253,6 +1306,33 @@ fn update_checkout(root: &Path) -> anyhow::Result<String> {
         },
         String::from_utf8_lossy(&pull.stderr).trim()
     ));
+
+    // Sync runtime assets (uat-dashboard kit, uat-driver harnesses) from the
+    // checkout into the active framework bundle. The CLI resolves assets
+    // from the bundle (`resolve_assets_dir`), so without this step
+    // `uat dashboard`/`uat run --executor playwright` would use stale or
+    // missing assets after a dev update (ADR-013/014 regression guard).
+    let assets_source = root.join("assets");
+    if assets_source.is_dir() {
+        let framework = framework_dir(environment)?;
+        let current = framework.join("current");
+        let target = if let Ok(target) = std::fs::read_link(&current) {
+            if target.is_absolute() {
+                target
+            } else {
+                framework.join(target)
+            }
+        } else {
+            current
+        };
+        let assets_target = target.join("assets");
+        match sync_assets(&assets_source, &assets_target) {
+            Ok(copied) => output.push_str(&format!("assets: {copied} file(s) synced to {}\n", assets_target.display())),
+            Err(e) => output.push_str(&format!("assets: sync failed: {e}\n")),
+        }
+    } else {
+        output.push_str("assets: no assets/ dir in checkout (skipped)\n");
+    }
 
     let build = std::process::Command::new("cargo")
         .args(["build", "--release", "-p", "sddk-cli"])
