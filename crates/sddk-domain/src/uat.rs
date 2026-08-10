@@ -546,6 +546,171 @@ pub struct UatReviewPolicy {
     pub sampling: f64,
 }
 
+/// Por qué un scenario entra en la Human Review Queue (REQ-RF-022).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatReviewReason {
+    /// Obligatorio por política: P0, review Always, o trigger crítico.
+    Required,
+    /// Seleccionado por muestreo estadístico (sampling 1-5%).
+    Sampled,
+    /// Conflicto entre oracles (machine PASS vs FAIL en paralelo).
+    OracleConflict,
+    /// Confidence de la máquina por debajo del umbral de confianza.
+    LowAiConfidence,
+}
+
+/// Item de la Human Review Queue: escenario + motivo + veredicto machine.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatReviewItem {
+    /// Scenario id (matches plan).
+    pub scenario_id: String,
+    /// Motivo de entrada en la cola.
+    pub reason: UatReviewReason,
+    /// Veredicto machine (PASS/FAIL/Uncertain del report).
+    #[serde(default)]
+    pub machine_verdict: UatOracleVerdict,
+    /// Confidence de la máquina (0..1).
+    #[serde(default)]
+    pub machine_confidence: f64,
+}
+
+/// Desacuerdo humano vs máquina (REQ-RF-022): se persiste como dataset de
+/// aprendizaje local para estimar falsos positivos/negativos de la IA.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatDisagreement {
+    /// Scenario id.
+    pub scenario_id: String,
+    /// Veredicto machine original.
+    pub machine_verdict: UatOracleVerdict,
+    /// Confidence de la máquina.
+    pub machine_confidence: f64,
+    /// Veredicto humano (Accepted/Rejected).
+    pub human_verdict: UatAcceptanceStatus,
+    /// Categoría del desacuerdo (usability, bug, spec_drift, false_positive,
+    /// false_negative, other).
+    pub reason_category: String,
+    /// Explicación del humano.
+    pub explanation: String,
+    /// Referencias de evidencia (sha256).
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    /// RFC 3339 timestamp.
+    pub recorded_at: String,
+}
+
+/// Construye la Human Review Queue desde el plan + el report agregado.
+///
+/// Reglas (REQ-RF-022):
+/// 1. `Required`: P0, review Always, trigger BusinessCriticalityHigh.
+/// 2. `OracleConflict`: assessments con Fail y Pass para el mismo scenario.
+/// 3. `LowAiConfidence`: mejor confidence < 0.7 en los assessments.
+/// 4. `Sampled`: muestra determinista (hash scenario+seed) de los
+///    machine-PASS que quedan, proporcional a `sampling` (default 0.02).
+///
+/// El muestreo es determinista dado `seed` — reproducible entre runs.
+pub fn build_review_queue(
+    plan: &UatPlan,
+    report: &UatReport,
+    sampling: f64,
+    seed: &str,
+) -> Vec<UatReviewItem> {
+    use std::collections::HashSet;
+
+    let sampling = if sampling.is_finite() && (0.0..=1.0).contains(&sampling) {
+        sampling
+    } else {
+        0.02
+    };
+    let mut items: Vec<UatReviewItem> = Vec::new();
+    let mut sampled_ids: HashSet<String> = HashSet::new();
+
+    // Rollup por scenario del report.
+    let mut rollup: std::collections::HashMap<&str, &UatScenarioRollup> =
+        std::collections::HashMap::new();
+    for feature in &report.features {
+        for scenario in &feature.scenarios {
+            rollup.insert(&scenario.scenario_id, scenario);
+        }
+    }
+
+    for feature in &plan.features {
+        for scenario in &feature.scenarios {
+            let required = scenario.priority == UatPriority::P0
+                || scenario
+                    .review
+                    .as_ref()
+                    .map(|r| {
+                        r.kind == UatReviewPolicyKind::Always
+                            || r.require_human_when
+                                .contains(&UatReviewTrigger::BusinessCriticalityHigh)
+                    })
+                    .unwrap_or(false);
+            let roll = rollup.get(scenario.id.as_str());
+            // Oracle conflict / low confidence desde los assessments.
+            let (conflict, low_conf) = roll
+                .and_then(|r| r.oracle_verdicts.as_ref())
+                .map(|assessments| {
+                    let has_pass = assessments
+                        .iter()
+                        .any(|a| a.verdict == UatOracleVerdict::Pass);
+                    let has_fail = assessments
+                        .iter()
+                        .any(|a| a.verdict == UatOracleVerdict::Fail);
+                    let best_conf = assessments
+                        .iter()
+                        .map(|a| a.confidence)
+                        .fold(0.0_f64, f64::max);
+                    (has_pass && has_fail, best_conf < 0.7)
+                })
+                .unwrap_or((false, false));
+
+            if required {
+                items.push(UatReviewItem {
+                    scenario_id: scenario.id.clone(),
+                    reason: UatReviewReason::Required,
+                    machine_verdict: UatOracleVerdict::Pass,
+                    machine_confidence: 1.0,
+                });
+            } else if conflict {
+                items.push(UatReviewItem {
+                    scenario_id: scenario.id.clone(),
+                    reason: UatReviewReason::OracleConflict,
+                    machine_verdict: UatOracleVerdict::Conflicting,
+                    machine_confidence: 0.0,
+                });
+            } else if low_conf {
+                items.push(UatReviewItem {
+                    scenario_id: scenario.id.clone(),
+                    reason: UatReviewReason::LowAiConfidence,
+                    machine_verdict: UatOracleVerdict::Uncertain,
+                    machine_confidence: 0.5,
+                });
+            } else if !sampled_ids.contains(&scenario.id) {
+                // Muestreo determinista: hash(scenario + seed) % 100 < pct.
+                let digest = sha256_hex(format!("{}::{seed}", scenario.id).as_bytes());
+                let bucket = digest
+                    .chars()
+                    .take(8)
+                    .fold(0u64, |acc, c| acc.wrapping_mul(16) + c.to_digit(16).unwrap_or(0) as u64);
+                let pct = (sampling * 100.0).round() as u64;
+                if bucket % 100 < pct {
+                    items.push(UatReviewItem {
+                        scenario_id: scenario.id.clone(),
+                        reason: UatReviewReason::Sampled,
+                        machine_verdict: UatOracleVerdict::Pass,
+                        machine_confidence: 1.0,
+                    });
+                    sampled_ids.insert(scenario.id.clone());
+                }
+            }
+        }
+    }
+    items
+}
+
 /// Testability report (REQ-RF-021): qué tan automatizable es un scenario.
 /// Advisory — el humano/plan decide el executor final, nunca el agente.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1043,6 +1208,10 @@ pub struct UatScenarioRollup {
     /// policy que lo pide). Deriva del plan en el agregador.
     #[serde(default)]
     pub acceptance_required: bool,
+    /// Oracle assessments agregados (v3, eje 3) — para el análisis de
+    /// conflictos y confidence en la Human Review Queue (REQ-RF-022).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oracle_verdicts: Option<Vec<UatOracleAssessment>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -2993,5 +3162,143 @@ features:
         };
         assert_eq!(assessment.verdict, UatOracleVerdict::Pass);
         assert_eq!(assessment.confidence, 1.0);
+    }
+
+    fn review_plan(acceptance: Option<UatAcceptanceStatus>) -> UatPlan {
+        serde_saphyr::from_str(&format!(
+            r#"
+schema_version: 3
+release: {{ candidate: v1.7.0 }}
+generated_by: test
+generated_at: "2026-08-10T00:00:00Z"
+features:
+  - id: F-01
+    name: Feature
+    scenarios:
+      - id: S-P0
+        title: Critical
+        priority: P0
+        assignee: developer
+        executor: {{ kind: cli, command: "echo ok" }}
+        acceptance: {acc}
+      - id: S-1
+        title: Normal one
+        assignee: developer
+        executor: {{ kind: cli, command: "echo ok" }}
+      - id: S-2
+        title: Normal two
+        assignee: developer
+        executor: {{ kind: cli, command: "echo ok" }}
+      - id: S-3
+        title: Normal three
+        assignee: developer
+        executor: {{ kind: cli, command: "echo ok" }}
+"#,
+            acc = acceptance
+                .map(|a| serde_json::to_string(&a).unwrap())
+                .unwrap_or_else(|| "null".into())
+        ))
+        .unwrap()
+    }
+
+    fn review_report(plan: &UatPlan) -> UatReport {
+        UatReport {
+            schema_version: 3,
+            release: plan.release.candidate.clone(),
+            plan_ref: plan.release.candidate.clone(),
+            sessions: vec!["s1".into()],
+            summary: UatReportSummary {
+                total_scenarios: 4,
+                passed: 4,
+                failed: 0,
+                blocked: 0,
+                partial: 0,
+                not_run: 0,
+                coverage_pct: 100.0,
+                defects: 0,
+                ux_issues: 0,
+                uat_duration_minutes: 0,
+            },
+            features: vec![UatFeatureRollup {
+                id: "F-01".into(),
+                name: "Feature".into(),
+                coverage_pct: 100.0,
+                scenarios: vec![
+                    UatScenarioRollup {
+                        scenario_id: "S-P0".into(),
+                        status: UatStatus::Pass,
+                        executor: None,
+                        acceptance: Some(UatAcceptanceStatus::Pending),
+                        acceptance_required: true,
+                        oracle_verdicts: None,
+                    },
+                    UatScenarioRollup {
+                        scenario_id: "S-1".into(),
+                        status: UatStatus::Pass,
+                        executor: None,
+                        acceptance: None,
+                        acceptance_required: false,
+                        oracle_verdicts: None,
+                    },
+                    UatScenarioRollup {
+                        scenario_id: "S-2".into(),
+                        status: UatStatus::Pass,
+                        executor: None,
+                        acceptance: None,
+                        acceptance_required: false,
+                        oracle_verdicts: None,
+                    },
+                    UatScenarioRollup {
+                        scenario_id: "S-3".into(),
+                        status: UatStatus::Pass,
+                        executor: None,
+                        acceptance: None,
+                        acceptance_required: false,
+                        oracle_verdicts: None,
+                    },
+                ],
+            }],
+            verdict: UatVerdict::Ready,
+            not_ready_blockers: vec![],
+            acceptance_blockers: vec![],
+        }
+    }
+
+    #[test]
+    fn review_queue_always_includes_p0() {
+        let plan = review_plan(None);
+        let report = review_report(&plan);
+        let queue = build_review_queue(&plan, &report, 0.0, "seed");
+        assert!(queue
+            .iter()
+            .any(|i| i.scenario_id == "S-P0" && i.reason == UatReviewReason::Required));
+    }
+
+    #[test]
+    fn review_queue_sampling_is_deterministic() {
+        let plan = review_plan(None);
+        let report = review_report(&plan);
+        let a = build_review_queue(&plan, &report, 0.5, "seed-x");
+        let b = build_review_queue(&plan, &report, 0.5, "seed-x");
+        assert_eq!(a, b, "same seed must produce the same queue");
+        // sampling 0 -> only P0 (required).
+        let none = build_review_queue(&plan, &report, 0.0, "seed-x");
+        assert_eq!(none.len(), 1);
+        assert_eq!(none[0].scenario_id, "S-P0");
+    }
+
+    #[test]
+    fn review_queue_sampling_scales_with_fraction() {
+        let plan = review_plan(None);
+        let report = review_report(&plan);
+        let low = build_review_queue(&plan, &report, 0.0, "seed");
+        let high = build_review_queue(&plan, &report, 1.0, "seed");
+        // sampling 1.0 -> todos los no-required entran.
+        let sampled = high
+            .iter()
+            .filter(|i| i.reason == UatReviewReason::Sampled)
+            .count();
+        assert_eq!(sampled, 3);
+        assert!(low.len() <= high.len());
     }
 }

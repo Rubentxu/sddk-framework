@@ -60,6 +60,10 @@ pub(crate) enum UatCommand {
     /// Execute a scripted/automated scenario via its `automation.ref` and
     /// emit a baseline `uat-session.yaml` for the ingest/report pipeline.
     Run(UatRunArgs),
+    /// Build the Human Review Queue (REQ-RF-022) from a plan + report:
+    /// required (P0/policy), oracle conflicts, low confidence, and the
+    /// deterministic sample of machine-PASS scenarios.
+    Review(UatReviewArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -389,6 +393,25 @@ pub(crate) struct UatHistoryArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+pub(crate) struct UatReviewArgs {
+    /// Plan YAML.
+    #[arg(long)]
+    pub(crate) plan: PathBuf,
+    /// Report YAML (aggregated sessions).
+    #[arg(long)]
+    pub(crate) report: PathBuf,
+    /// Sampling fraction 0..1 (default: from review policy or 0.02).
+    #[arg(long)]
+    pub(crate) sampling: Option<f64>,
+    /// Deterministic sampling seed (default: plan release tag).
+    #[arg(long)]
+    pub(crate) seed: Option<String>,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
+}
+
+#[derive(Debug, Clone, Args)]
 pub(crate) struct UatRunArgs {
     /// Plan YAML containing the scenario.
     #[arg(long)]
@@ -429,6 +452,7 @@ pub(crate) fn run_uat(command: UatCommand, environment: &crate::CliEnvironment) 
         UatCommand::ScenarioContext(args) => run_uat_scenario_context(args),
         UatCommand::History(args) => run_uat_history(args),
         UatCommand::Run(args) => run_uat_run(args),
+        UatCommand::Review(args) => run_uat_review(args),
     }
 }
 
@@ -1340,6 +1364,9 @@ fn aggregate_report(plan: &UatPlan, sessions: &[UatSession]) -> UatReport {
             Option<sddk_domain::UatExecutor>,
         ),
     > = std::collections::HashMap::new();
+    // Oracle assessments por scenario (última session gana).
+    let mut scenario_oracles: std::collections::HashMap<String, Vec<sddk_domain::UatOracleAssessment>> =
+        std::collections::HashMap::new();
     let mut total_minutes = 0u32;
     let mut defects = 0u32;
     let mut ux_issues = 0u32;
@@ -1356,6 +1383,9 @@ fn aggregate_report(plan: &UatPlan, sessions: &[UatSession]) -> UatReport {
         for result in &session.results {
             // Last writer wins per scenario.
             scenario_status.insert(result.scenario_id.clone(), (result, Some(session.executor)));
+            if !result.oracle_assessments.is_empty() {
+                scenario_oracles.insert(result.scenario_id.clone(), result.oracle_assessments.clone());
+            }
             if result.status == sddk_domain::UatStatus::Fail {
                 defects += 1;
             }
@@ -1479,6 +1509,7 @@ fn aggregate_report(plan: &UatPlan, sessions: &[UatSession]) -> UatReport {
                 executor,
                 acceptance,
                 acceptance_required,
+                oracle_verdicts: scenario_oracles.get(&scenario.id).cloned(),
             });
         }
         let feat_total = feature.scenarios.len() as u32;
@@ -2501,6 +2532,80 @@ fn run_uat_history(args: UatHistoryArgs) -> CommandOutput {
 /// maps `exit 0 → PASS`, non-zero → FAIL, timeout/kill → BLOCKED, and a
 /// baseline `uat-session.yaml` is emitted so the standard
 /// ingest/report/history pipeline can consume the run.
+fn run_uat_review(args: UatReviewArgs) -> CommandOutput {
+    let format = args.format;
+    let result = (|| -> anyhow::Result<String> {
+        let plan_raw = std::fs::read_to_string(&args.plan)
+            .map_err(|e| anyhow::anyhow!("cannot read plan {}: {e}", args.plan.display()))?;
+        let plan: UatPlan = serde_saphyr::from_str(&plan_raw)
+            .map_err(|e| anyhow::anyhow!("invalid plan {}: {e}", args.plan.display()))?;
+        let report_raw = std::fs::read_to_string(&args.report)
+            .map_err(|e| anyhow::anyhow!("cannot read report {}: {e}", args.report.display()))?;
+        let report: UatReport = serde_saphyr::from_str(&report_raw)
+            .map_err(|e| anyhow::anyhow!("invalid report {}: {e}", args.report.display()))?;
+
+        // Sampling: arg > policy del plan (primer feature con review) > 0.02.
+        let sampling = args.sampling.unwrap_or_else(|| {
+            plan.features
+                .iter()
+                .flat_map(|f| f.scenarios.iter().filter_map(|s| s.review.as_ref()))
+                .map(|r| r.sampling)
+                .find(|s| *s > 0.0)
+                .unwrap_or(0.02)
+        });
+        let seed = args
+            .seed
+            .clone()
+            .unwrap_or_else(|| plan.release.candidate.clone());
+
+        let queue = sddk_domain::build_review_queue(&plan, &report, sampling, &seed);
+        if matches!(format, OutputFormat::Json) {
+            return serde_json::to_string_pretty(&serde_json::json!({
+                "release": plan.release.candidate,
+                "sampling": sampling,
+                "seed": seed,
+                "queue_size": queue.len(),
+                "queue": queue,
+            }))
+            .map_err(|e| anyhow::anyhow!("json serialization failed: {e}"));
+        }
+
+        if queue.is_empty() {
+            return Ok(format!(
+                "uat review: release {} — queue vacía (0 items)\n",
+                plan.release.candidate
+            ));
+        }
+        let mut lines = vec![format!(
+            "uat review: release {} — {} items en la Human Review Queue (sampling {:.2}, seed {seed})\n",
+            plan.release.candidate,
+            queue.len(),
+            sampling
+        )];
+        for (i, item) in queue.iter().enumerate() {
+            lines.push(format!(
+                "  {:>2}. {} [{}] machine={:?} conf={:.2}",
+                i + 1,
+                item.scenario_id,
+                uat_review_reason_str(item.reason),
+                item.machine_verdict,
+                item.machine_confidence
+            ));
+        }
+        Ok(lines.join("\n"))
+    })();
+    render_result(result, format, |t| t.to_string())
+}
+
+fn uat_review_reason_str(reason: sddk_domain::UatReviewReason) -> &'static str {
+    match reason {
+        sddk_domain::UatReviewReason::Required => "required",
+        sddk_domain::UatReviewReason::Sampled => "sampled",
+        sddk_domain::UatReviewReason::OracleConflict => "oracle-conflict",
+        sddk_domain::UatReviewReason::LowAiConfidence => "low-confidence",
+    }
+}
+
 fn run_uat_run(args: UatRunArgs) -> CommandOutput {
     let result = (|| -> anyhow::Result<(UatSession, PathBuf)> {
         let plan_raw = std::fs::read_to_string(&args.plan)
@@ -2872,7 +2977,7 @@ fn run_uat_run(args: UatRunArgs) -> CommandOutput {
         let session = UatSession {
             schema_version: sddk_domain::LATEST_SESSION_SCHEMA_VERSION,
             session_id: session_id.clone(),
-            plan_ref: args.plan.display().to_string(),
+            plan_ref: plan.release.candidate.clone(),
             release: plan.release.candidate.clone(),
             executor: sddk_domain::UatExecutor::Automated,
             executed_by: Some("auto-runner".into()),
