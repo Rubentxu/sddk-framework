@@ -975,6 +975,10 @@ pub struct UatReport {
     /// Scenarios blocking a READY verdict (with reasons).
     #[serde(default)]
     pub not_ready_blockers: Vec<String>,
+    /// Scenarios que requieren aceptación humana y no la tienen (v3,
+    /// REQ-RF-023). Vacío = no hay acceptance pendiente.
+    #[serde(default)]
+    pub acceptance_blockers: Vec<String>,
 }
 
 /// Numeric rollup of a report.
@@ -1031,6 +1035,14 @@ pub struct UatScenarioRollup {
     /// Executor that produced this status (last writer wins).
     #[serde(default)]
     pub executor: Option<UatExecutor>,
+    /// Acceptance status (v3, REQ-RF-023: PASSED != ACCEPTED). `None`
+    /// significa que el escenario no requiere aceptación humana.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acceptance: Option<UatAcceptanceStatus>,
+    /// Si el escenario exige aceptación humana para liberar (P0 o review
+    /// policy que lo pide). Deriva del plan en el agregador.
+    #[serde(default)]
+    pub acceptance_required: bool,
 }
 
 // ---------------------------------------------------------------------------

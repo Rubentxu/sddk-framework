@@ -1235,6 +1235,15 @@ fn validate_release_report(report: &UatReport, tag: &str) -> anyhow::Result<()> 
             report.verdict
         );
     }
+    // Acceptance pendiente (v3, REQ-RF-023): PASSED != ACCEPTED. El gate
+    // no libera si hay escenarios machine-PASS sin aceptación humana.
+    if !report.acceptance_blockers.is_empty() {
+        anyhow::bail!(
+            "UAT report for {tag} has {} scenario(s) pending human acceptance: {}",
+            report.acceptance_blockers.len(),
+            report.acceptance_blockers.join("; ")
+        );
+    }
     Ok(())
 }
 
@@ -1364,6 +1373,7 @@ fn aggregate_report(plan: &UatPlan, sessions: &[UatSession]) -> UatReport {
     let mut not_run = 0u32;
     let mut covered = 0u32;
     let mut not_ready_blockers = Vec::new();
+    let mut acceptance_blockers = Vec::new();
 
     let mut features = Vec::new();
     for feature in &plan.features {
@@ -1421,10 +1431,54 @@ fn aggregate_report(plan: &UatPlan, sessions: &[UatSession]) -> UatReport {
                     covered += 1;
                 }
             }
+            // Acceptance (v3, REQ-RF-023): PASSED != ACCEPTED.
+            // Requiere aceptación humana quien: (a) es P0, (b) su review
+            // policy lo exige (Always, o RiskBased con trigger
+            // BusinessCriticalityHigh), o (c) tiene sampling > 0 y status
+            // machine PASS sin veredicto humano.
+            // La acceptance (REQ-RF-023) es una decisión humana que vive en
+            // el plan (`scenario.acceptance`): el auto-runner y los oracles
+            // nunca aceptan. Si el plan no la marca, queda Pending cuando el
+            // escenario la requiere.
+            let acceptance_required = scenario.priority == sddk_domain::UatPriority::P0
+                || scenario
+                    .review
+                    .as_ref()
+                    .map(|r| {
+                        r.kind == sddk_domain::UatReviewPolicyKind::Always
+                            || r.require_human_when
+                                .contains(&sddk_domain::UatReviewTrigger::BusinessCriticalityHigh)
+                            || r.sampling > 0.0
+                    })
+                    .unwrap_or(false);
+            let acceptance = if acceptance_required {
+                Some(
+                    scenario
+                        .acceptance
+                        .unwrap_or(sddk_domain::UatAcceptanceStatus::Pending),
+                )
+            } else {
+                None
+            };
+            if acceptance_required
+                && matches!(status, sddk_domain::UatStatus::Pass | sddk_domain::UatStatus::Partial)
+                && !matches!(
+                    acceptance,
+                    Some(sddk_domain::UatAcceptanceStatus::Accepted)
+                )
+            {
+                acceptance_blockers.push(format!(
+                    "{} (machine {} pero sin acceptance humana)",
+                    scenario.id,
+                    uat_status_str(status)
+                ));
+            }
             sc_rollups.push(UatScenarioRollup {
                 scenario_id: scenario.id.clone(),
                 status,
                 executor,
+                acceptance,
+                acceptance_required,
             });
         }
         let feat_total = feature.scenarios.len() as u32;
@@ -1483,6 +1537,7 @@ fn aggregate_report(plan: &UatPlan, sessions: &[UatSession]) -> UatReport {
         features,
         verdict,
         not_ready_blockers,
+        acceptance_blockers,
     }
 }
 
@@ -1709,6 +1764,105 @@ results:
         assert_eq!(report.summary.coverage_pct, 50.0);
         assert_eq!(report.not_ready_blockers.len(), 1);
         assert!(report.not_ready_blockers[0].contains("S-2"));
+    }
+
+    #[test]
+    fn p0_machine_pass_without_acceptance_blocks_report() {
+        let plan: UatPlan = serde_saphyr::from_str(
+            r#"
+schema_version: 3
+release: { candidate: v1.7.0 }
+generated_by: uat-planner
+generated_at: "2026-08-10T00:00:00Z"
+features:
+  - id: F-01
+    name: Pago
+    scenarios:
+      - id: S-1
+        title: Cobro correcto
+        priority: P0
+        assignee: developer
+        executor:
+          kind: cli
+          command: "echo ok"
+"#,
+        )
+        .unwrap();
+
+        let session: UatSession = serde_saphyr::from_str(
+            r#"
+schema_version: 3
+session_id: uat-auto-1
+plan_ref: v1.7.0
+release: v1.7.0
+started_at: "2026-08-10T00:00:00Z"
+results:
+  - scenario_id: S-1
+    status: PASS
+"#,
+        )
+        .unwrap();
+
+        let report = aggregate_report(&plan, &[session]);
+        // PASS machine sin acceptance humana → blocker de acceptance.
+        assert_eq!(report.verdict, UatVerdict::Ready);
+        assert!(!report.acceptance_blockers.is_empty());
+        assert!(report.acceptance_blockers[0].contains("S-1"));
+        assert_eq!(
+            report.features[0].scenarios[0].acceptance,
+            Some(sddk_domain::UatAcceptanceStatus::Pending)
+        );
+        assert!(report.features[0].scenarios[0].acceptance_required);
+        // El gate lo rechaza.
+        let err = validate_release_report(&report, "v1.7.0").unwrap_err();
+        assert!(err.to_string().contains("acceptance"));
+    }
+
+    #[test]
+    fn p0_plan_accepted_clears_acceptance_blocker() {
+        let plan: UatPlan = serde_saphyr::from_str(
+            r#"
+schema_version: 3
+release: { candidate: v1.7.0 }
+generated_by: uat-planner
+generated_at: "2026-08-10T00:00:00Z"
+features:
+  - id: F-01
+    name: Pago
+    scenarios:
+      - id: S-1
+        title: Cobro correcto
+        priority: P0
+        assignee: developer
+        acceptance: accepted
+        executor:
+          kind: cli
+          command: "echo ok"
+"#,
+        )
+        .unwrap();
+
+        let session: UatSession = serde_saphyr::from_str(
+            r#"
+schema_version: 3
+session_id: uat-auto-1
+plan_ref: v1.7.0
+release: v1.7.0
+started_at: "2026-08-10T00:00:00Z"
+results:
+  - scenario_id: S-1
+    status: PASS
+"#,
+        )
+        .unwrap();
+
+        let report = aggregate_report(&plan, &[session]);
+        assert!(report.acceptance_blockers.is_empty());
+        assert_eq!(
+            report.features[0].scenarios[0].acceptance,
+            Some(sddk_domain::UatAcceptanceStatus::Accepted)
+        );
+        assert!(validate_release_report(&report, "v1.7.0").is_ok());
     }
 
     #[test]
