@@ -399,6 +399,9 @@ pub(crate) struct UatRunArgs {
     /// Wall-clock timeout in milliseconds (default: 60000).
     #[arg(long, default_value_t = 60_000)]
     pub(crate) timeout_ms: u64,
+    /// Explicit human approval for the executor capability (ADR-0005).
+    #[arg(long)]
+    pub(crate) approve: bool,
     /// Output session YAML path (default: `uat-session-<scenario>.yaml`).
     #[arg(long)]
     pub(crate) output: Option<PathBuf>,
@@ -2419,6 +2422,32 @@ fn run_uat_run(args: UatRunArgs) -> CommandOutput {
 
         let started = std::time::Instant::now();
 
+        // --- Policy gate (ADR-0005 default-deny): el executor debe estar
+        // declarado en workflow/workflow.yaml (o llevar --approve explícito).
+        let workflow_path = std::path::Path::new(crate::WORKFLOW_MANIFEST);
+        if workflow_path.is_file() {
+            let workflow_raw = std::fs::read_to_string(workflow_path).map_err(|e| {
+                anyhow::anyhow!(
+                    "cannot read workflow {}: {e}",
+                    workflow_path.display()
+                )
+            })?;
+            let workflow: sddk_domain::WorkflowManifest = serde_saphyr::from_str(&workflow_raw)
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "invalid workflow {}: {e}",
+                        workflow_path.display()
+                    )
+                })?;
+            let policy = sddk_gateway::CapabilityPolicy::from_workflow(&workflow);
+            sddk_gateway::authorize_uat(executor_kind, &policy, args.approve).map_err(|e| {
+                anyhow::anyhow!(
+                    "scenario {} blocked by policy: {e}",
+                    scenario.id
+                )
+            })?;
+        }
+
         // --- Dispatch por kind de executor (ADR-014, eje 1) ---
         // Cli|Script → runner tipado (sin shell). Playwright → driver
         // browser (sensor/actuador) que escribe el directorio de evidencia.
@@ -2878,6 +2907,7 @@ features:
             plan: plan.to_path_buf(),
             scenario: scenario.into(),
             timeout_ms: 10_000,
+            approve: false,
             output: None,
             format: OutputFormat::Text,
         }

@@ -651,6 +651,18 @@ forge:
     vault.export:
       risk: low
       consequence: creates
+    uat.browser:
+      risk: medium
+      consequence: creates
+    uat.network:
+      risk: medium
+      consequence: read
+    uat.script:
+      risk: high
+      consequence: creates
+    uat.agent:
+      risk: high
+      consequence: creates
 
 storage:
   xdg: true

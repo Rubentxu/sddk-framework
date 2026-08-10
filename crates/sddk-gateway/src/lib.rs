@@ -20,6 +20,7 @@ mod playwright;
 mod policy;
 mod release;
 mod runner;
+mod uat_policy;
 
 pub use artifact_store::{ArtifactMeta, ArtifactStore, ArtifactStoreError};
 pub use evidence::{
@@ -46,6 +47,7 @@ pub use release::{
 };
 pub use runner::{RunOutcome, RunSpec, RunnerError, run};
 pub use sddk_storage::CapabilityReceipt;
+pub use uat_policy::{UatPolicyError, authorize_uat, capability_name, default_risk};
 
 use serde_json::Value;
 
