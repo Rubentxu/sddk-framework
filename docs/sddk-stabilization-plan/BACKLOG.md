@@ -590,3 +590,51 @@
 - Dogfooding: UAT v3 validando una release real del framework; release v1.7.0.
 
 **Criterio:** el gate no se abre con machine PASS solo; `uat-skipped` sigue auditable (RNF-010).
+
+### SDDK-1310 UAT Form DSL + Schema Validator + Wizard Compiler (REQ-RF-024/025)
+
+**Prioridad:** P0
+**Milestone:** UAT-2026-08-v3 (F12)
+
+- `UatStep v3` (instruction/expected/observation/check/evidence/branch), `UatCheck`, `UatCheckpoint`, `UatCompletionPolicy` en el dominio.
+- Vocabulario cerrado del DSL (inputs/evidence/oracles/informativos/flujo) validado por schema — specs fuera del vocabulario rechazadas por `uat validate`.
+- `Wizard Compiler` + `UI Renderer` deterministas en el kit: los agentes generan YAML validado, el renderer produce componentes UI conocidos. **Los agentes NUNCA generan HTML/JS** (ADR-015).
+
+**Criterio:** misma spec → mismo HTML (hash); spec fuera del DSL rechazada con error estable; ningún HTML del agente entra en el documento.
+
+### SDDK-1311 Guided Runner UX — wizard, blind checks, ratings, checkpoints, diagnostics (REQ-RF-026/027)
+
+**Prioridad:** P0
+**Milestone:** UAT-2026-08-v3 (F13)
+
+- Runner como app de primera clase: inbox "My Validations" (requires-attention / in-progress / blocked).
+- Wizard por paso con branching dinámico (on pass/fail/blocked → goto), checks con identidad visual (determinista ✓ verde, IA ◉ azul con confidence, humano ○ pendiente).
+- Blind checks (expected oculto) + observaciones guiadas + ratings 1-5 con `require_comment_below`.
+- Evidence gates: `Continue` bloqueado sin evidencia requerida.
+- AI diagnostics en FAIL: evidencia ya recolectada + causa probable + categoría + defecto sugerido.
+- Human checkpoints: resumen máquina (checks, Fara assessment, anomalías) + approve/reject.
+- Actual Result como concepto de dominio autocompletado por agentes (nunca pedir al humano re-introducir lo observable por máquina).
+
+**Criterio:** un tester ejecuta un scenario completo sin ver HTML/YAML; blind check sin sesgo; FAIL produce defecto casi terminado.
+
+### SDDK-1312 Modos Designer/Runner/Reviewer + sign-off inmutable + staleness (REQ-RF-028)
+
+**Prioridad:** P1
+**Milestone:** UAT-2026-08-v3 (F13)
+
+- Tres modos: Designer (requirements/scenarios/coverage/form editor/testability), Runner (wizard/evidence/observation), Reviewer (evidence/AI assessment/disagreements/defects/RELEASE ACCEPTANCE).
+- Sign-off inmutable: `UatAcceptanceRecord` con decision, actor, timestamp, `plan_version` sha256, `evidence_snapshot` sha256, `outstanding_findings[]`, justification — válido aunque cambien los tests.
+- Staleness: diff de textos/roles de oracles DOM/ARIA marca UAT afectados al cambiar la UI.
+
+**Criterio:** el Reviewer firma un release con snapshot inmutable; el cambio posterior de un label marca los UAT afectados como stale.
+
+### SDDK-1313 Pipeline de agentes: UX Form + Form Quality + Test Discovery
+
+**Prioridad:** P2
+**Milestone:** UAT-2026-08-v3 (F14)
+
+- UX Form Agent: transforma criterio semántico → interacción óptima (blind observation + machine check + human confirmation).
+- Form Quality Agent: anti-patrones de test smells (arXiv:2308.01386): instrucción ambigua, expected ausente, pregunta de lo observable por máquina, leading question, check duplicado, criterio subjetivo sin escala, failure sin evidencia, step demasiado grande, sin recovery path, prerequisito oculto.
+- Test Discovery Agent: Fara + Playwright exploran la app real → Actual Application Model → Guided UAT generado del flujo real (no inventado).
+
+**Criterio:** un requisito + app corriendo produce un wizard UAT descubierto de la UI real, con procedencia (agente/modelo/based_on/confidence/human_reviewed).

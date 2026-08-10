@@ -283,6 +283,9 @@ La consolidación exige: cambios versionados, CI obligatoria, criterios del back
 | F9 — Dashboard: review-queue + evidence-viewer + report ampliado | feature | F6+F7 | pending |
 | F10 — Workflow gates + REQ/ADR updates + migración dogfood | feature | F7+F9 | pending |
 | F11 — Release v1.7.0 + dogfood del ciclo completo | ops | F10 | pending |
+| F12 — Guided Runner: UAT Form DSL + renderer determinista (ADR-015, REQ-RF-024/025) | feature | F1+F9 | pending |
+| F13 — Runner UX (inbox/wizard/blind checks/ratings/diagnostics/checkpoints) + Designer/Reviewer + sign-off inmutable (REQ-RF-026/027/028) | feature | F12+F6+F7 | pending |
+| F14 — UX Form Agent + Form Quality Agent + Test Discovery Agent | feature | F5+F8+F12 | pending |
 
 **Criterios de salida:**
 - `automation.status` eliminado del schema canónico; migrador v2→v3 automático; renderer acepta v1/v2/v3
@@ -293,8 +296,9 @@ La consolidación exige: cambios versionados, CI obligatoria, criterios del back
 - PASSED != ACCEPTED en el dominio; gate exige acceptance (REQ-RF-023)
 - Human Review Queue renderiza en el dashboard; disagreement dataset capturado
 - Event log reconstruible ("¿por qué se aceptó este release?")
+- **Guided UAT Runner**: agentes generan spec declarativa validada, renderer determinista produce wizard (REQ-RF-024); Form DSL con vocabulario cerrado (REQ-RF-025); blind checks + ratings anti-Next-Next-Next (REQ-RF-026); checkpoints + AI diagnostics en FAIL + Actual Result de dominio (REQ-RF-027); tres modos Designer/Runner/Reviewer + sign-off inmutable (REQ-RF-028)
 - 250+ tests workspace verde, clippy -D warnings, lint 0/0, 4 suites shell verdes
 - Dogfooding: UAT v3 validando una release real del framework
 
-**REQs nuevos:** [[REQ-RF-021]] (testability), [[REQ-RF-022]] (sampling + disagreement), [[REQ-RF-023]] (PASSED != ACCEPTED) — propuestos en el vault.
+**REQs nuevos:** [[REQ-RF-021]] (testability), [[REQ-RF-022]] (sampling + disagreement), [[REQ-RF-023]] (PASSED != ACCEPTED), [[REQ-RF-024]] (Guided Runner declarativo), [[REQ-RF-025]] (Form DSL), [[REQ-RF-026]] (blind checks + ratings), [[REQ-RF-027]] (checkpoints + diagnostics), [[REQ-RF-028]] (3 modos + sign-off) — propuestos en el vault.
 

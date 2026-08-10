@@ -318,7 +318,15 @@ phase.uat.complete: requires uat-report + uat-verdict
 | **F10** | Workflow gates + REQ/ADR updates + migración dogfood | `release-uat-approved` v3, ledger events, docs | F7+F9 |
 | **F11** | Release v1.7.0 + dogfood del ciclo completo | UAT v3 usado contra el propio framework | F10 |
 
-**Estimación:** F0-F3 core (schema+executors+oracles) ≈ 60% del valor; F6-F7 (governance) ≈ 25%; F8-F9 (Fara CUA + dashboard) ≈ 15%.
+### Fases F12-F14 — Guided UAT Runner (ADR-015, `docs/uat/GUIDED-UAT-DESIGN.md`)
+
+| Fase | Work unit | Entregable | Depende |
+|---|---|---|---|
+| **F12** | UAT Form DSL (domain) + Schema Validator + Wizard Compiler + renderer determinista | `UatStep v3` (instruction/expected/observation/check/evidence/branch), `UatCheck`, `UatCheckpoint`, `UatCompletionPolicy`, validación DSL, componentes UI del kit | F1, F9 |
+| **F13** | Runner UX: inbox, wizard por paso, blind checks, ratings, evidence gates, AI diagnostics, checkpoints + modos Designer/Reviewer + sign-off inmutable + staleness | Guided Runner como app de primera clase; RELEASE ACCEPTANCE wizard; `UatAcceptanceRecord` con snapshot | F12, F6, F7 |
+| **F14** | UX Form Agent + Form Quality Agent + Test Discovery Agent | Pipeline completo: criterio semántico → interacción óptima; anti-patrones (arXiv:2308.01386); descubrimiento desde la app real (Fara+Playwright) | F5, F8, F12 |
+
+**Estimación:** F0-F3 core (schema+executors+oracles) ≈ 45% del valor; F6-F7 (governance) ≈ 20%; F12-F13 (Guided Runner) ≈ 25%; F8-F9 (Fara CUA + dashboard) ≈ 10%.
 
 ---
 
