@@ -119,9 +119,17 @@ async function run() {
   }
 
   let pageTitle = null;
+  let httpStatus = null;
+  let httpUrl = null;
+  let httpContentType = null;
   try {
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout });
+    const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout });
     pageTitle = await page.title();
+    if (response) {
+      httpStatus = response.status();
+      httpUrl = response.url();
+      httpContentType = response.headers()["content-type"] ?? null;
+    }
   } catch (err) {
     await browser.close();
     fail(`navigation failed: ${err.message}`);
@@ -208,6 +216,22 @@ async function run() {
     fs.writeFileSync(
       path.join(output, "network.json"),
       JSON.stringify(networkFailures, null, 2),
+    );
+  }
+
+  // HTTP response snapshot (status oracle).
+  if (httpStatus !== null) {
+    fs.writeFileSync(
+      path.join(output, "http.json"),
+      JSON.stringify(
+        {
+          status: httpStatus,
+          url: httpUrl,
+          content_type: httpContentType,
+        },
+        null,
+        2,
+      ),
     );
   }
 

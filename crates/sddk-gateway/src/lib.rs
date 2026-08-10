@@ -14,6 +14,7 @@ mod filesystem;
 mod forge;
 mod gateway;
 mod git;
+mod oracles;
 mod permissions;
 mod playwright;
 mod policy;
@@ -31,6 +32,10 @@ pub use forge::{
 };
 pub use gateway::{CapabilityGateway, CapabilityPlan, CapabilityPlanInput, GatewayError};
 pub use git::{GitBranch, GitCommit, GitError, GitExecutor, GitInspect, GitTag};
+pub use oracles::{
+    OracleError, OracleRunContext, aggregate_verdict, evaluate_deterministic,
+    validate_json_schema,
+};
 pub use permissions::{AgentPermissions, PermissionDecision, PermissionPolicy, PermissionsError};
 pub use playwright::{PlaywrightError, PlaywrightOutcome, PlaywrightSpec, run_playwright};
 pub use policy::{CapabilityPolicy, Consequence, PolicyDecision, Risk};

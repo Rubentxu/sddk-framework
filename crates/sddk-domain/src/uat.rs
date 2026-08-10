@@ -103,8 +103,10 @@ pub enum UatEvidenceKind {
     Trace,
     /// Captured console messages (JSON).
     Console,
-    /// Captured network activity (JSON).
+    /// Captured network failures (JSON array).
     Network,
+    /// HTTP response snapshot of the main navigation (status/url/headers).
+    Http,
     /// DOM snapshot (HTML).
     Dom,
     /// ARIA accessibility snapshot (JSON).

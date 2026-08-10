@@ -157,6 +157,8 @@ impl EvidenceCollector {
             (Video, "video.webm", "video/webm"),
             (Trajectory, "trajectory.json", "application/json"),
             (CommandOutput, "output.log", "text/plain"),
+            // HTTP response snapshot (status oracle).
+            (Http, "http.json", "application/json"),
         ];
         for (kind, name, mime) in candidates {
             let path = dir.join(name);
