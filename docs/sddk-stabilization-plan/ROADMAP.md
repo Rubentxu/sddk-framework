@@ -262,3 +262,39 @@ La consolidación exige: cambios versionados, CI obligatoria, criterios del back
 - `resolve_xdg_paths` resuelve sin `HOME` (Windows) vía `dirs`; `cargo test` verde en linux + darwin ✅ (test `falls_back_to_platform_dirs_without_home`)
 - 0 regresiones (`cargo test` + `act -j required`) ✅
 
+---
+
+## Milestone UAT-2026-08-v3 — Human-Governed AI Quality Control Plane (post-v1.6.1)
+
+**Estado:** PLANIFICADO (2026-08-10) — ADR-014 propuesto; plan `docs/uat/PLAN-uat-v3-quality-control-plane.md` aprobado por el usuario
+**Objetivo:** reorientar el UAT de "framework UAT con automatizaciones" a una plataforma de Human-Governed AI Quality / TestOps: executor/evidence/oracles/review separados, PASSED != ACCEPTED, review risk-based con sampling, Human Review Queue, disagreement dataset, event log inmutable y exploratory missions con Fara CUA.
+
+| Work item | Tipo | Depende de | Estado |
+|-----------|------|-----------|--------|
+| F0 — ADR-014 + diseño schema v3 | docs | — | **planned** (ADR escrito, status proposed) |
+| F1 — Domain: schema v3 + migrador v2→v3 | feature | F0 | pending |
+| F2 — Gateway: PlaywrightExecutor + EvidenceCollector | feature | F1 | pending |
+| F3 — Oracles deterministas (exit_code/http/text/json_schema/dom/geometry/a11y/visual_diff) | feature | F2 | pending |
+| F4 — CLI: `uat assess` + `uat run --executor playwright` | feature | F2+F3 | pending |
+| F5 — Testability agent + CLI `uat testability` (REQ-RF-021) | feature | F1 | pending |
+| F6 — Review policy engine + sampling + CLI `uat review` (REQ-RF-022) | feature | F3+F5 | pending |
+| F7 — Disagreement dataset + ValidationSession + event log (REQ-RF-023) | feature | F6 | pending |
+| F8 — ComputerUseExecutor (Fara CUA) + exploratory `uat mission` | feature | F2+F7 | pending |
+| F9 — Dashboard: review-queue + evidence-viewer + report ampliado | feature | F6+F7 | pending |
+| F10 — Workflow gates + REQ/ADR updates + migración dogfood | feature | F7+F9 | pending |
+| F11 — Release v1.7.0 + dogfood del ciclo completo | ops | F10 | pending |
+
+**Criterios de salida:**
+- `automation.status` eliminado del schema canónico; migrador v2→v3 automático; renderer acepta v1/v2/v3
+- `uat run --executor playwright|cli|script|computer_use` produce EvidenceBundle content-addressable
+- Oracles deterministas evaluables por CLI sin IA (`uat assess`)
+- `uat testability` recomienda executor/oracles por scenario
+- Review policy risk_based + sampling funciona; `uat review` muestra queue con evidencia
+- PASSED != ACCEPTED en el dominio; gate exige acceptance (REQ-RF-023)
+- Human Review Queue renderiza en el dashboard; disagreement dataset capturado
+- Event log reconstruible ("¿por qué se aceptó este release?")
+- 250+ tests workspace verde, clippy -D warnings, lint 0/0, 4 suites shell verdes
+- Dogfooding: UAT v3 validando una release real del framework
+
+**REQs nuevos:** [[REQ-RF-021]] (testability), [[REQ-RF-022]] (sampling + disagreement), [[REQ-RF-023]] (PASSED != ACCEPTED) — propuestos en el vault.
+

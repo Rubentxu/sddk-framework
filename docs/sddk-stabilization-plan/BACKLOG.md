@@ -1,6 +1,6 @@
 # Backlog técnico — SDDK v3.6
 
-**Estado auditado:** 2026-08-04 (v3.6 completo); 2026-08-07 añadida épica E11 (CP-2026-08, planificada)
+**Estado auditado:** 2026-08-04 (v3.6 completo); 2026-08-07 añadida épica E11 (CP-2026-08, planificada); 2026-08-10 añadida épica E13 (UAT v3, planificada)
 **Baseline:** `v0.14.0`
 **Informe:** [`CURRENT-STATE-AUDIT.md`](CURRENT-STATE-AUDIT.md)
 
@@ -486,3 +486,107 @@
 - Tests de `paths.rs` con caso fallback `dirs`.
 
 **Criterio:** `resolve_xdg_paths` no depende de `HOME` en SO donde no existe (Windows); tests pasan con y sin overrides; `cargo test` verde en linux + darwin.
+
+## ÉPICA E13 — Human-Governed AI Quality Control Plane (UAT-2026-08-v3)
+
+**Estado:** PLANIFICADA (2026-08-10) — ADR-014 propuesto; plan `docs/uat/PLAN-uat-v3-quality-control-plane.md` aprobado
+**Objetivo:** reorientar el UAT de "framework con automatizaciones" a una plataforma de Human-Governed AI Quality / TestOps. Desacoplar executor/evidence/oracles/review policy, separar PASSED de ACCEPTED, review risk-based con sampling, Human Review Queue, disagreement dataset, event log inmutable, exploratory missions con Fara CUA.
+
+### SDDK-1301 Schema v3 del plan (executor/evidence/oracles/review)
+
+**Prioridad:** P0
+**Milestone:** UAT-2026-08-v3
+
+- `UatScenarioV3` con 4 ejes independientes: `executor` (cli/api/script/playwright/computer_use/human), `evidence` (bundle: screenshots, trace, console, network, accessibility, geometry, trajectory), `oracles[]` (exit_code/http/text/json_schema/dom/geometry/accessibility/visual_diff/visual_ai/llm_rubric/human), `review` (risk_based: require_human_when + sampling).
+- Estados separados: `UatStatus` (execution result) + `UatAssessment` (SUPPORTED_PASS/FAIL/UNCERTAIN/CONFLICTING + confidence) + `UatHumanDecision` (PENDING/APPROVED/REJECTED/WAIVED) + `UatAcceptanceStatus` (ACCEPTED/REJECTED/CONDITIONAL/PENDING).
+- Migrador `migrate_plan_v2_to_v3` (patrón v1→v2): `automation.status` → executor + review heurística.
+- `LATEST_PLAN_SCHEMA_VERSION = 3`; validación y renderer aceptan v1/v2/v3.
+
+**Criterio:** un plan v2 migra a v3 sin pérdida; `uat validate` acepta las 3 versiones; PASSED != ACCEPTED en el dominio (REQ-RF-023).
+
+### SDDK-1302 PlaywrightExecutor + EvidenceCollector en gateway
+
+**Prioridad:** P0
+**Milestone:** UAT-2026-08-v3
+
+- `PlaywrightExecutor`: wrapper sobre CLI `playwright` — navega, actúa, captura trace/screenshots/console/network/geometry/axe. Sensor + actuador, NUNCA juez.
+- `EvidenceCollector`: normaliza salidas de cualquier executor a `UatEvidenceBundle` content-addressable (sha256) con `environment` (git_sha, app_version, browser, viewport, os) y `execution` (executor, model, model_hash, prompt_hash).
+- `ComputerUseExecutor`: adaptador HTTP a Fara (llama.cpp `:8082`, patrón `cua-test-orchestrator`) — goal → trajectory → screenshots (F8).
+
+**Criterio:** `uat run --executor playwright` produce un EvidenceBundle con trace + screenshots + console + a11y; cada artefacto con sha256 verificable.
+
+### SDDK-1303 Oracles deterministas
+
+**Prioridad:** P0
+**Milestone:** UAT-2026-08-v3
+
+- `oracles.rs` en gateway: exit_code, http, text, json_schema, dom, geometry, accessibility (axe), visual_diff (`toHaveScreenshot`) — sin IA, testables.
+- Cada oracle emite `UatOracleAssessment {verdict, confidence, details}`.
+- `uat assess --session FILE` corre oracles sobre la evidencia → machine assessments.
+
+**Criterio:** cada oracle determinista tiene tests; `uat assess` evalúa un bundle sin red ni IA.
+
+### SDDK-1304 Testability Agent (REQ-RF-021)
+
+**Prioridad:** P1
+**Milestone:** UAT-2026-08-v3
+
+- Agente `uat-testability`: analiza cada scenario → `UatTestabilityReport` (deterministic, browser_automatable, agentic_automatable, requires_human_judgement, recommended_executor, recommended_oracles[], human_review.recommended, reasons).
+- CLI `uat testability --plan FILE`. Recomendación advisory, nunca vinculante.
+
+**Criterio:** para un scenario determinista recomienda cli/script sin review; para uno estético recomienda humano.
+
+### SDDK-1305 Review policy + sampling + review queue (REQ-RF-022)
+
+**Prioridad:** P1
+**Milestone:** UAT-2026-08-v3
+
+- `UatReviewPolicy` risk_based: `require_human_when` (business_criticality, ai_confidence, oracle_conflict, first_execution, visual_change, historical_failure_rate) + `sampling` (1-5%).
+- CLI `uat review --queue`: pendientes con evidencia; `uat accept --scenario --decision approved|rejected|waived`.
+- `UatDisagreement` capturado en cada machine/human conflict → dataset local.
+
+**Criterio:** con sampling 0.02 y 1000 PASS confiados, ~20 aparecen en la queue; cada REJECT humano contra PASS máquina crea un disagreement.
+
+### SDDK-1306 ValidationSession + event log inmutable (REQ-RF-023)
+
+**Prioridad:** P1
+**Milestone:** UAT-2026-08-v3
+
+- `UatValidationSession` (Launch): release, commit, env, plan, n ejecuciones, n reviews.
+- Event log: `uat.session`/`uat.verdict` existentes + nuevos eventos (ExecutionCompleted, OracleEvaluated, HumanReviewCompleted, AcceptanceGranted/Revoked, ReleaseGateEvaluated) como frames en el ledger (ADR-003).
+- CLI `uat event log --release X` reconstruible: requirement → scenario → execution → evidence → assessment → decision → acceptance → gate.
+
+**Criterio:** "¿por qué se aceptó este release?" es respondible con la cadena reconstruible desde el ledger.
+
+### SDDK-1307 Exploratory missions con Fara CUA
+
+**Prioridad:** P2
+**Milestone:** UAT-2026-08-v3
+
+- `UatMission`: goal, budget (actions/time), output (findings, screenshots, trajectory).
+- `uat mission --plan FILE --goal "..."` ejecuta con ComputerUseExecutor (Fara).
+- Hallazgos como findings, no como verdicts de scenario.
+
+**Criterio:** una misión exploratoria con Fara produce findings + trajectory con screenshots sha256 (requiere server Fara).
+
+### SDDK-1308 Dashboard: Human Review Queue + evidence viewer
+
+**Prioridad:** P1
+**Milestone:** UAT-2026-08-v3
+
+- Nueva view `review-queue.html`: tarjetas con machine assessment + confidence + evidencia + Approve/Reject/Needs-work.
+- Nueva view `evidence-viewer.html`: trace, screenshots, console/network/a11y por execution.
+- `report.html` ampliado: verdict + confidence + disagreements.
+
+**Criterio:** HTML sin URLs externas, determinista, abrible vía `file://` (ADR-010/013).
+
+### SDDK-1309 Gates de release v3 + docs
+
+**Prioridad:** P1
+**Milestone:** UAT-2026-08-v3
+
+- `release-uat-approved` exige acceptance != PENDING para scenarios con review requerida (REQ-RF-023).
+- REQ-RF-019/020 ampliados; ADR-014 a accepted tras dogfood.
+- Dogfooding: UAT v3 validando una release real del framework; release v1.7.0.
+
+**Criterio:** el gate no se abre con machine PASS solo; `uat-skipped` sigue auditable (RNF-010).
