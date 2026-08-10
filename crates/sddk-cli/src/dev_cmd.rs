@@ -27,8 +27,38 @@ pub(crate) enum DevCommand {
     Link(LinkArgs),
     /// Select the active framework bundle version (asdf-style `use`).
     Use(UseArgs),
+    /// Generate or verify MANIFEST.sha256 — per-file content hashes of the
+    /// framework surfaces (agents, skills, prompts, workflows, assets).
+    Manifest(ManifestArgs),
     /// Update the framework: pull, re-link, rebuild, verify.
     Update(UpdateArgs),
+}
+
+/// Framework surfaces covered by the manifest (agents, skills, prompts,
+/// workflows, assets). Relative to the framework root.
+const MANIFEST_SURFACES: [&str; 5] = [
+    "agents",
+    "skills",
+    "prompts/sddk",
+    "prompts/sddk/workflows",
+    "assets",
+];
+
+/// Manifest file name, written at the framework root (and shipped in the
+/// release bundle).
+pub(crate) const MANIFEST_FILE: &str = "MANIFEST.sha256";
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ManifestArgs {
+    /// Framework root to scan (default: current directory).
+    #[arg(long)]
+    pub(crate) root: Option<PathBuf>,
+    /// Verify an existing manifest instead of generating one.
+    #[arg(long)]
+    pub(crate) verify: bool,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -193,6 +223,7 @@ pub(crate) fn run_dev(command: DevCommand, environment: &CliEnvironment) -> Comm
         DevCommand::Link(args) => run_dev_link(args, environment),
         DevCommand::Use(args) => run_dev_use(args, environment),
         DevCommand::Update(args) => run_dev_update(args, environment),
+        DevCommand::Manifest(args) => run_dev_manifest(args),
     }
 }
 
@@ -264,6 +295,23 @@ fn run_dev_doctor(args: DoctorArgs, environment: &CliEnvironment) -> CommandOutp
             present: kit_ok,
         });
         if !driver_ok || !kit_ok {
+            framework_warnings += 1;
+        }
+        // Content integrity: verify the active framework root against its
+        // MANIFEST.sha256 (per-file hashes of agents/skills/prompts/
+        // workflows/assets — the same manifest shipped with the release).
+        // A missing manifest is informational (pre-manifest bundles), not a
+        // failure; a present-but-mismatched manifest is a real problem.
+        let manifest_status = verify_manifest(&framework_root);
+        let (manifest_present, manifest_ok) = match &manifest_status {
+            Ok(mismatches) => (true, mismatches.is_empty()),
+            Err(_) => (false, true),
+        };
+        checks.push(DoctorCheck {
+            tool: "content.manifest".into(),
+            present: manifest_ok,
+        });
+        if manifest_present && !manifest_ok {
             framework_warnings += 1;
         }
     }
@@ -870,6 +918,114 @@ fn sync_assets(source: &Path, target: &Path) -> anyhow::Result<usize> {
     Ok(copied)
 }
 
+/// Collect every managed file of the framework (surfaces in
+/// `MANIFEST_SURFACES`) as `(relative_path, sha256_hex)`.
+fn manifest_entries(root: &Path) -> anyhow::Result<Vec<(String, String)>> {
+    let mut entries = Vec::new();
+    for surface in MANIFEST_SURFACES {
+        let dir = root.join(surface);
+        if !dir.is_dir() {
+            continue;
+        }
+        for file in walk_dir(&dir) {
+            if !file.is_file() {
+                continue;
+            }
+            let relative = file
+                .strip_prefix(root)
+                .unwrap_or(file.as_path())
+                .to_string_lossy()
+                .replace('\\', "/");
+            let digest = sha256_hex(&file)?;
+            entries.push((relative, digest));
+        }
+    }
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(entries)
+}
+
+/// Serialize manifest entries as `sha256  relative-path` lines (sha256sum
+/// compatible, one entry per line).
+fn manifest_lines(entries: &[(String, String)]) -> String {
+    entries
+        .iter()
+        .map(|(path, digest)| format!("{digest}  {path}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n"
+}
+
+/// Generate MANIFEST.sha256 at the framework root. Returns the number of
+/// hashed files.
+fn write_manifest(root: &Path) -> anyhow::Result<usize> {
+    let entries = manifest_entries(root)?;
+    let content = manifest_lines(&entries);
+    let target = root.join(MANIFEST_FILE);
+    atomic_write(&target, content.as_bytes())?;
+    Ok(entries.len())
+}
+
+/// Verify a framework root against its MANIFEST.sha256. Returns the list of
+/// mismatches (empty = intact). A missing manifest is reported as a single
+/// entry.
+pub(crate) fn verify_manifest(root: &Path) -> anyhow::Result<Vec<String>> {
+    let manifest_path = root.join(MANIFEST_FILE);
+    let raw = std::fs::read_to_string(&manifest_path)?;
+    let mut mismatches = Vec::new();
+    for line in raw.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let (expected, relative) = line
+            .split_once("  ")
+            .ok_or_else(|| anyhow::anyhow!("malformed manifest line: {line}"))?;
+        let file = root.join(relative);
+        if !file.is_file() {
+            mismatches.push(format!("{relative}: missing"));
+            continue;
+        }
+        let actual = sha256_hex(&file)?;
+        if actual != expected {
+            mismatches.push(format!("{relative}: hash mismatch"));
+        }
+    }
+    Ok(mismatches)
+}
+
+/// Run the `dev manifest` subcommand.
+fn run_dev_manifest(args: ManifestArgs) -> CommandOutput {
+    let format = args.format;
+    let result = (|| -> anyhow::Result<String> {
+        let root = args
+            .root
+            .clone()
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+        if args.verify {
+            let mismatches = verify_manifest(&root)?;
+            if mismatches.is_empty() {
+                return Ok(format!(
+                    "manifest OK: {} verified against {}",
+                    root.display(),
+                    root.join(MANIFEST_FILE).display()
+                ));
+            }
+            anyhow::bail!(
+                "manifest verification FAILED ({}):\n  {}",
+                mismatches.len(),
+                mismatches.join("\n  ")
+            );
+        }
+        let count = write_manifest(&root)?;
+        Ok(format!(
+            "manifest written: {} ({} files hashed)",
+            root.join(MANIFEST_FILE).display(),
+            count
+        ))
+    })();
+    render_result(result, format, |t| t.clone())
+}
+
 fn run_dev_link(args: LinkArgs, environment: &CliEnvironment) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<Vec<LinkReport>> {
@@ -1466,8 +1622,41 @@ fn update_checkout(root: &Path, environment: &CliEnvironment) -> anyhow::Result<
             Ok(copied) => output.push_str(&format!("assets: {copied} file(s) synced to {}\n", assets_target.display())),
             Err(e) => output.push_str(&format!("assets: sync failed: {e}\n")),
         }
+        // Manifest: regenerate for the runtime root (and checkout root when
+        // it differs) so doctor can verify content hashes per version. The
+        // manifest lives at the FRAMEWORK root, not inside assets/.
+        let manifest_root = if target == root {
+            root.to_path_buf()
+        } else {
+            // Best effort: write into both roots so either can be audited.
+            let _ = write_manifest(&target);
+            root.to_path_buf()
+        };
+        match write_manifest(&manifest_root) {
+            Ok(n) => output.push_str(&format!(
+                "manifest: {} files hashed at {}\n",
+                n,
+                manifest_root.join(MANIFEST_FILE).display()
+            )),
+            Err(e) => output.push_str(&format!("manifest: failed: {e}\n")),
+        }
+        if target != root && target.join(MANIFEST_FILE).is_file() {
+            output.push_str(&format!(
+                "manifest: also at {}\n",
+                target.join(MANIFEST_FILE).display()
+            ));
+        }
     } else {
         output.push_str("assets: no assets/ dir in checkout (skipped)\n");
+        // Manifest may still exist for the checkout root.
+        match write_manifest(root) {
+            Ok(n) => output.push_str(&format!(
+                "manifest: {} files hashed at {}\n",
+                n,
+                root.join(MANIFEST_FILE).display()
+            )),
+            Err(e) => output.push_str(&format!("manifest: failed: {e}\n")),
+        }
     }
 
     let build = std::process::Command::new("cargo")
@@ -1655,5 +1844,62 @@ mod reconciliation_tests {
         assert!(dir.join("target.sddk-stale").exists());
         assert!(std::fs::symlink_metadata(&target).unwrap().file_type().is_symlink());
         std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+#[cfg(test)]
+mod manifest_tests {
+    use super::*;
+
+    fn temp_root(tag: &str) -> std::path::PathBuf {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("sddk-manifest-{tag}-{}-{n}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn manifest_generates_and_verifies() {
+        let root = temp_root("gen");
+        std::fs::create_dir_all(root.join("agents")).unwrap();
+        std::fs::write(root.join("agents/a.md"), "content-a").unwrap();
+        std::fs::create_dir_all(root.join("skills/sddk-x")).unwrap();
+        std::fs::write(root.join("skills/sddk-x/SKILL.md"), "content-x").unwrap();
+
+        let count = write_manifest(&root).unwrap();
+        assert_eq!(count, 2);
+        assert!(root.join(MANIFEST_FILE).is_file());
+        let mismatches = verify_manifest(&root).unwrap();
+        assert!(mismatches.is_empty(), "intact tree must verify: {mismatches:?}");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn manifest_detects_tampering() {
+        let root = temp_root("tamper");
+        std::fs::create_dir_all(root.join("agents")).unwrap();
+        std::fs::write(root.join("agents/a.md"), "content-a").unwrap();
+        write_manifest(&root).unwrap();
+        // Tamper after manifest generation.
+        std::fs::write(root.join("agents/a.md"), "content-TAMPERED").unwrap();
+        let mismatches = verify_manifest(&root).unwrap();
+        assert_eq!(mismatches.len(), 1);
+        assert!(mismatches[0].contains("agents/a.md"));
+        assert!(mismatches[0].contains("hash mismatch"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn manifest_detects_missing_file() {
+        let root = temp_root("missing");
+        std::fs::create_dir_all(root.join("agents")).unwrap();
+        std::fs::write(root.join("agents/a.md"), "content-a").unwrap();
+        write_manifest(&root).unwrap();
+        std::fs::remove_file(root.join("agents/a.md")).unwrap();
+        let mismatches = verify_manifest(&root).unwrap();
+        assert_eq!(mismatches.len(), 1);
+        assert!(mismatches[0].contains("missing"));
+        std::fs::remove_dir_all(&root).ok();
     }
 }

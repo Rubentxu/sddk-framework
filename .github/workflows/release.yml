@@ -104,7 +104,11 @@ jobs:
       - name: Bundle framework (agents/skills/prompts/assets)
         run: |
           mkdir -p bundle
-          tar czf bundle/sddk-framework.tar.gz agents skills prompts/sddk assets
+          # Per-file content manifest (agents/skills/prompts/workflows/assets)
+          # so consumers can verify the exact release contents by hash.
+          find agents skills prompts/sddk assets -type f -print0 | \
+            sort -z | xargs -0 sha256sum > MANIFEST.sha256
+          tar czf bundle/sddk-framework.tar.gz agents skills prompts/sddk assets MANIFEST.sha256
           (cd bundle && sha256sum sddk-framework.tar.gz > sddk-framework.tar.gz.sha256)
           ls -la bundle/
 
