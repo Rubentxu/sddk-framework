@@ -240,6 +240,253 @@ pub struct UatAutomation {
     pub when: Option<String>,
 }
 
+// ---------------------------------------------------------------------------
+// UAT v3 — Human-Governed AI Quality Control Plane (ADR-014)
+//
+// Un scenario v3 declara CUATRO EJES independientes en vez del campo único
+// `automation.status` (v2). Dominio puro: solo modelos y reglas de negocio;
+// las implementaciones de executors/oracles viven en `sddk-gateway`
+// (adaptadores de puertos definidos aquí) — arquitectura hexagonal.
+// ---------------------------------------------------------------------------
+
+/// Execution result of a scenario (v3). `PASSED != ACCEPTED` (REQ-RF-023):
+/// este estado solo describe qué pasó en la ejecución, nunca la aceptación.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum UatExecutionResult {
+    #[default]
+    Passed,
+    Failed,
+    Blocked,
+    Error,
+    Skipped,
+}
+
+/// Machine assessment of the evidence against the oracles (v3).
+/// El veredicto de la máquina NUNCA equivale a aceptación.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatMachineAssessment {
+    #[default]
+    SupportedPass,
+    SupportedFail,
+    Uncertain,
+    Conflicting,
+}
+
+/// Human decision on a scenario (v3). Única fuente de aceptación de negocio.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatHumanDecision {
+    #[default]
+    Pending,
+    Approved,
+    Rejected,
+    Waived,
+}
+
+/// Final acceptance status of a scenario (v3). `ACCEPTED != PASSED`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatAcceptanceStatus {
+    #[default]
+    Pending,
+    Accepted,
+    Rejected,
+    Conditional,
+}
+
+/// Who executes a scenario (v3, eje 1). El executor produce evidencia y
+/// NUNCA decide el veredicto global (regla dura ADR-014 §3.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatExecutorKind {
+    /// Local command line (runner tipado, sin shell — SDDK-601).
+    Cli,
+    /// HTTP/API interaction.
+    Api,
+    /// Script file (automation.ref v2 migra aquí).
+    Script,
+    /// Browser automation (Playwright) — sensor + actuador, nunca juez.
+    Playwright,
+    /// Computer-use agent (Fara) — observe→think→act con trajectory.
+    ComputerUse,
+    /// Human via the guided wizard / matrix view.
+    Human,
+}
+
+/// Executor specification (v3, eje 1). Puertos: la implementación efectiva
+/// de cada kind es un adaptador en `sddk-gateway` (DIP).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatExecutorSpec {
+    pub kind: UatExecutorKind,
+    /// Command line (cli/script): typed argv, first token = program.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    /// Target URL (api/playwright/computer_use).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// Goal for agentic executors (computer_use) — semantic journey.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<String>,
+    /// Model identifier (computer_use).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Wall-clock timeout in milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
+}
+
+/// Evidence to capture for a scenario (v3, eje 2). Cada artefacto del bundle
+/// es content-addressable (sha256); `trace > video` como evidencia primaria.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatEvidenceBundleSpec {
+    #[serde(default)]
+    pub screenshots: bool,
+    #[serde(default)]
+    pub playwright_trace: bool,
+    #[serde(default)]
+    pub console: bool,
+    /// Capture network — `failures_only` si no se declara explícito.
+    #[serde(default)]
+    pub network: bool,
+    #[serde(default)]
+    pub accessibility: bool,
+    #[serde(default)]
+    pub geometry: bool,
+    #[serde(default)]
+    pub video: bool,
+    /// Computer-use trajectory (Fara observe→think→act).
+    #[serde(default)]
+    pub trajectory: bool,
+}
+
+/// Oracle kinds (v3, eje 3). Deterministas miden sin IA; semánticos evalúan
+/// preliminarmente con confidence; `human` es la única autoridad de
+/// aceptación. (Open/closed: añadir un kind es extensión, no modificación.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatOracleKind {
+    ExitCode,
+    Http,
+    Text,
+    JsonSchema,
+    Dom,
+    Geometry,
+    Accessibility,
+    VisualDiff,
+    VisualAi,
+    LlmRubric,
+    Human,
+}
+
+/// Oracle verdict — resultado de evaluar la evidencia contra un criterio.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatOracleVerdict {
+    #[default]
+    Pass,
+    Fail,
+    Uncertain,
+    Conflicting,
+}
+
+/// Oracle specification (v3, eje 3).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatOracleSpec {
+    pub kind: UatOracleKind,
+    /// Criterio estructurado (json schema, expect body, selector DOM, ...).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expect: Option<serde_json::Value>,
+    /// Rúbrica para oracles semánticos (visual_ai / llm_rubric).
+    #[serde(default)]
+    pub rubric: Vec<String>,
+    /// Severity para accessibility (WCAG level / axe severity).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub severity: Option<String>,
+    /// Si es bloqueante para la aceptación.
+    #[serde(default = "default_true")]
+    pub blocking: bool,
+}
+
+/// Oracle assessment — resultado de evaluar un oracle contra la evidencia.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatOracleAssessment {
+    pub oracle: UatOracleSpec,
+    pub verdict: UatOracleVerdict,
+    /// Confianza 0..1 (1 para oracles deterministas).
+    #[serde(default)]
+    pub confidence: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<String>,
+}
+
+/// Review policy kinds (v3, eje 4).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatReviewPolicyKind {
+    /// Todo escenario pasa por humano.
+    Always,
+    /// Ninguno (solo oracles deterministas).
+    Never,
+    #[default]
+    /// Reglas `require_human_when` + sampling.
+    RiskBased,
+}
+
+/// Trigger que obliga a revisión humana (v3, review policy).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatReviewTrigger {
+    BusinessCriticalityHigh,
+    LowAiConfidence,
+    OracleConflict,
+    FirstExecution,
+    SignificantVisualChange,
+    HighHistoricalFailureRate,
+}
+
+/// Review policy (v3, eje 4): cuándo interviene el humano. El humano no
+/// revisa un porcentaje fijo — risk-based + sampling empírico (REQ-RF-022).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatReviewPolicy {
+    #[serde(default)]
+    pub kind: UatReviewPolicyKind,
+    #[serde(default)]
+    pub require_human_when: Vec<UatReviewTrigger>,
+    /// Fracción aleatoria 0..1 de machine-PASS que el humano también revisa.
+    #[serde(default)]
+    pub sampling: f64,
+}
+
+/// Testability report (REQ-RF-021): qué tan automatizable es un scenario.
+/// Advisory — el humano/plan decide el executor final, nunca el agente.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatTestabilityReport {
+    #[serde(default)]
+    pub deterministic: f64,
+    #[serde(default)]
+    pub browser_automatable: f64,
+    #[serde(default)]
+    pub agentic_automatable: f64,
+    #[serde(default)]
+    pub requires_human_judgement: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recommended_executor: Option<UatExecutorKind>,
+    #[serde(default)]
+    pub recommended_oracles: Vec<UatOracleKind>,
+    #[serde(default)]
+    pub human_review_recommended: bool,
+    #[serde(default)]
+    pub reasons: Vec<String>,
+}
+
 /// Provenance for a scenario (v2).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -407,6 +654,22 @@ pub struct UatScenario {
     pub automation: Option<UatAutomation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provenance: Option<UatProvenance>,
+    // --- UAT v3 (ADR-014) — campos opcionales, aditivos sobre v2 ---
+    /// Eje 1: quién ejecuta (v3). Sustituye a `automation` en planes v3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub executor: Option<UatExecutorSpec>,
+    /// Eje 2: qué evidencia capturar (v3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_bundle: Option<UatEvidenceBundleSpec>,
+    /// Eje 3: oracles que juzgan la evidencia (v3). Vacío en v2.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub oracles: Vec<UatOracleSpec>,
+    /// Eje 4: política de revisión humana (v3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<UatReviewPolicy>,
+    /// Estado de aceptación (v3). `ACCEPTED != PASSED` (REQ-RF-023).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acceptance: Option<UatAcceptanceStatus>,
 }
 
 /// One feature under test, grouping its scenarios.
@@ -879,9 +1142,13 @@ pub fn release_type_from_diff(current: &str, previous: &str) -> Option<ReleaseTy
 pub enum UatMigrationAction {
     AlreadyV2,
     Migrated,
+    /// Plan ya estaba en v3 (idempotente).
+    AlreadyV3,
+    /// Migrado v1/v2 → v3.
+    MigratedToV3,
 }
 
-/// Result of migrating a plan from v1 to v2.
+/// Result of migrating a plan between schema versions.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct UatMigrationReport {
@@ -893,9 +1160,18 @@ pub struct UatMigrationReport {
     pub evidence_promoted: u32,
     pub risk_promoted: u32,
     pub timing_promoted: u32,
+    /// Escenarios con 4 ejes v3 completos (ADR-014) tras la migración.
+    #[serde(default)]
+    pub scenarios_v3: u32,
+    /// Escenarios con oracles deterministas asignados (v3).
+    #[serde(default)]
+    pub oracles_assigned: u32,
+    /// Escenarios con review policy asignada (v3).
+    #[serde(default)]
+    pub reviews_assigned: u32,
 }
 
-pub const LATEST_PLAN_SCHEMA_VERSION: u32 = 2;
+pub const LATEST_PLAN_SCHEMA_VERSION: u32 = 3;
 
 /// Migrate a `UatPlan` from v1 to v2 in an additive, idempotent way.
 pub fn migrate_plan_v1_to_v2(plan: &mut UatPlan) -> UatMigrationReport {
@@ -916,6 +1192,9 @@ pub fn migrate_plan_v1_to_v2(plan: &mut UatPlan) -> UatMigrationReport {
             evidence_promoted,
             risk_promoted,
             timing_promoted,
+            scenarios_v3: 0,
+            oracles_assigned: 0,
+            reviews_assigned: 0,
         };
     }
 
@@ -1032,6 +1311,144 @@ pub fn migrate_plan_v1_to_v2(plan: &mut UatPlan) -> UatMigrationReport {
         evidence_promoted,
         risk_promoted,
         timing_promoted,
+        scenarios_v3: 0,
+        oracles_assigned: 0,
+        reviews_assigned: 0,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// UAT v3 — migración v2 → v3 (ADR-014)
+// ---------------------------------------------------------------------------
+
+/// Migrate a `UatPlan` to v3 in an additive, idempotent way.
+///
+/// v3 desacopla `automation.status` en cuatro ejes por scenario:
+/// `executor` (eje 1), `evidence_bundle` (eje 2), `oracles[]` (eje 3) y
+/// `review` (eje 4), más `acceptance` (REQ-RF-023). La migración es
+/// heurística y conservadora:
+/// - `automation.status: scripted|automated` con `ref` → executor
+///   `cli|script` + oracle determinista `exit_code`.
+/// - `automation.status: manual` o sin automation → executor `human` +
+///   review policy que exige humano.
+/// - Prioridad P0/P1 eleva la review policy a risk-based con trigger de
+///   criticidad de negocio.
+pub fn migrate_plan_v2_to_v3(plan: &mut UatPlan) -> UatMigrationReport {
+    let from_version = plan.schema_version;
+    let mut features_touched = 0u32;
+    let mut scenarios_touched = 0u32;
+    let mut scenarios_v3 = 0u32;
+    let mut oracles_assigned = 0u32;
+    let mut reviews_assigned = 0u32;
+
+    if plan.schema_version >= 3 {
+        return UatMigrationReport {
+            action: UatMigrationAction::AlreadyV3,
+            from_version,
+            to_version: plan.schema_version,
+            features_touched: 0,
+            scenarios_touched: 0,
+            evidence_promoted: 0,
+            risk_promoted: 0,
+            timing_promoted: 0,
+            scenarios_v3,
+            oracles_assigned,
+            reviews_assigned,
+        };
+    }
+
+    plan.schema_version = 3;
+
+    for feature in &mut plan.features {
+        features_touched += 1;
+        for scenario in &mut feature.scenarios {
+            scenarios_touched += 1;
+
+            // Eje 1 — executor desde automation (si existe).
+            let automation = scenario.automation.take();
+            let executor = match &automation {
+                Some(a) if a.status == UatAutomationStatus::Scripted => UatExecutorSpec {
+                    kind: UatExecutorKind::Script,
+                    command: a.r#ref.clone(),
+                    url: None,
+                    goal: None,
+                    model: None,
+                    timeout_ms: None,
+                },
+                Some(a) if a.status == UatAutomationStatus::Automated => UatExecutorSpec {
+                    kind: UatExecutorKind::Cli,
+                    command: a.r#ref.clone(),
+                    url: None,
+                    goal: None,
+                    model: None,
+                    timeout_ms: None,
+                },
+                _ => UatExecutorSpec {
+                    kind: UatExecutorKind::Human,
+                    command: None,
+                    url: None,
+                    goal: None,
+                    model: None,
+                    timeout_ms: None,
+                },
+            };
+            scenario.executor = Some(executor);
+            scenarios_v3 += 1;
+
+            // Eje 3 — oracle determinista para executors no humanos.
+            let automated = matches!(
+                scenario.executor.as_ref().map(|e| e.kind),
+                Some(UatExecutorKind::Cli | UatExecutorKind::Script)
+            );
+            if automated && scenario.oracles.is_empty() {
+                scenario.oracles.push(UatOracleSpec {
+                    kind: UatOracleKind::ExitCode,
+                    expect: Some(serde_json::json!({ "code": 0 })),
+                    rubric: Vec::new(),
+                    severity: None,
+                    blocking: true,
+                });
+                oracles_assigned += 1;
+            }
+
+            // Eje 4 — review policy según riesgo.
+            if scenario.review.is_none() {
+                let critical = matches!(scenario.priority, UatPriority::P0);
+                scenario.review = Some(UatReviewPolicy {
+                    kind: if automated && !critical {
+                        UatReviewPolicyKind::Never
+                    } else {
+                        UatReviewPolicyKind::RiskBased
+                    },
+                    require_human_when: if critical {
+                        vec![UatReviewTrigger::BusinessCriticalityHigh]
+                    } else {
+                        Vec::new()
+                    },
+                    sampling: if critical { 0.02 } else { 0.0 },
+                });
+                reviews_assigned += 1;
+            }
+
+            // Aceptación inicial pendiente (REQ-RF-023).
+            if scenario.acceptance.is_none() {
+                scenario.acceptance = Some(UatAcceptanceStatus::Pending);
+            }
+        }
+    }
+
+    UatMigrationReport {
+        action: UatMigrationAction::MigratedToV3,
+        from_version,
+        to_version: 3,
+        features_touched,
+        scenarios_touched,
+        evidence_promoted: 0,
+        risk_promoted: 0,
+        timing_promoted: 0,
+        scenarios_v3,
+        oracles_assigned,
+        reviews_assigned,
     }
 }
 
@@ -2305,5 +2722,178 @@ mod config_tests {
             serde_json::to_string(&UatStatus::NotRun).unwrap(),
             "\"NOT_RUN\""
         );
+    }
+}
+
+#[cfg(test)]
+mod uat_v3_tests {
+    use super::*;
+
+    fn v2_plan() -> UatPlan {
+        serde_saphyr::from_str(
+            r#"
+schema_version: 2
+release: { candidate: v2.1.0 }
+generated_by: test
+generated_at: "2026-08-10T00:00:00Z"
+features:
+  - id: F-1
+    name: Feature
+    priority: P0
+    scenarios:
+      - id: S-1
+        title: Scripted
+        priority: P0
+        automation:
+          status: scripted
+          ref: ./scripts/s1.sh
+      - id: S-2
+        title: Manual
+        priority: P2
+        automation:
+          status: manual
+"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn migrate_v2_to_v3_sets_four_axes() {
+        let mut plan = v2_plan();
+        let report = migrate_plan_v2_to_v3(&mut plan);
+        assert_eq!(report.action, UatMigrationAction::MigratedToV3);
+        assert_eq!(report.from_version, 2);
+        assert_eq!(report.to_version, 3);
+        assert_eq!(plan.schema_version, 3);
+        assert_eq!(report.scenarios_touched, 2);
+        assert_eq!(report.scenarios_v3, 2);
+        assert_eq!(report.oracles_assigned, 1);
+        assert_eq!(report.reviews_assigned, 2);
+
+        let s1 = &plan.features[0].scenarios[0];
+        // Eje 1: scripted → executor script con ref como command.
+        let executor = s1.executor.as_ref().unwrap();
+        assert_eq!(executor.kind, UatExecutorKind::Script);
+        assert_eq!(executor.command.as_deref(), Some("./scripts/s1.sh"));
+        // Eje 3: oracle exit_code determinista.
+        assert_eq!(s1.oracles.len(), 1);
+        assert_eq!(s1.oracles[0].kind, UatOracleKind::ExitCode);
+        assert!(s1.oracles[0].blocking);
+        // Eje 4: P0 → risk_based con trigger de criticidad.
+        let review = s1.review.as_ref().unwrap();
+        assert_eq!(review.kind, UatReviewPolicyKind::RiskBased);
+        assert!(
+            review
+                .require_human_when
+                .contains(&UatReviewTrigger::BusinessCriticalityHigh)
+        );
+        // Aceptación pendiente inicial.
+        assert_eq!(s1.acceptance, Some(UatAcceptanceStatus::Pending));
+    }
+
+    #[test]
+    fn migrate_manual_scenario_uses_human_executor() {
+        let mut plan = v2_plan();
+        migrate_plan_v2_to_v3(&mut plan);
+        let s2 = &plan.features[0].scenarios[1];
+        assert_eq!(s2.executor.as_ref().unwrap().kind, UatExecutorKind::Human);
+        assert!(s2.oracles.is_empty());
+        assert_eq!(
+            s2.review.as_ref().unwrap().kind,
+            UatReviewPolicyKind::RiskBased
+        );
+    }
+
+    #[test]
+    fn migrate_v2_to_v3_is_idempotent() {
+        let mut plan = v2_plan();
+        let first = migrate_plan_v2_to_v3(&mut plan);
+        assert_eq!(first.action, UatMigrationAction::MigratedToV3);
+        let second = migrate_plan_v2_to_v3(&mut plan);
+        assert_eq!(second.action, UatMigrationAction::AlreadyV3);
+        // Idempotencia: no duplica oracles ni cambia executor.
+        let s1 = &plan.features[0].scenarios[0];
+        assert_eq!(s1.oracles.len(), 1);
+        assert_eq!(s1.executor.as_ref().unwrap().kind, UatExecutorKind::Script);
+    }
+
+    #[test]
+    fn v2_plan_still_parses_with_v3_fields_absent() {
+        // Un plan v2 sin campos v3 debe seguir parseando (OCP: extensión aditiva).
+        let plan: UatPlan = serde_saphyr::from_str(
+            r#"
+schema_version: 2
+release: { candidate: v2.1.0 }
+generated_by: test
+generated_at: "2026-08-10T00:00:00Z"
+features:
+  - id: F-1
+    name: Feature
+    scenarios:
+      - id: S-1
+        title: Plain
+"#,
+        )
+        .unwrap();
+        let s = &plan.features[0].scenarios[0];
+        assert!(s.executor.is_none());
+        assert!(s.evidence_bundle.is_none());
+        assert!(s.oracles.is_empty());
+        assert!(s.review.is_none());
+        assert!(s.acceptance.is_none());
+        assert_eq!(plan.schema_version, 2);
+    }
+
+    #[test]
+    fn v3_round_trip_preserves_four_axes() {
+        let mut plan = v2_plan();
+        migrate_plan_v2_to_v3(&mut plan);
+        let yaml = serde_saphyr::to_string(&plan).unwrap();
+        let reparsed: UatPlan = serde_saphyr::from_str(&yaml).unwrap();
+        assert_eq!(reparsed.schema_version, 3);
+        let s = &reparsed.features[0].scenarios[0];
+        assert_eq!(s.executor.as_ref().unwrap().kind, UatExecutorKind::Script);
+        assert_eq!(s.oracles[0].kind, UatOracleKind::ExitCode);
+        assert!(s.review.is_some());
+    }
+
+    #[test]
+    fn execution_result_differs_from_acceptance() {
+        // REQ-RF-023: PASSED != ACCEPTED — el dominio los modela separados.
+        let passed = UatExecutionResult::Passed;
+        let assessment = UatMachineAssessment::SupportedPass;
+        let decision = UatHumanDecision::Pending;
+        let acceptance = UatAcceptanceStatus::Pending;
+        assert_eq!(passed, UatExecutionResult::Passed);
+        assert_eq!(assessment, UatMachineAssessment::SupportedPass);
+        assert_eq!(decision, UatHumanDecision::Pending);
+        assert_eq!(acceptance, UatAcceptanceStatus::Pending);
+        // Wire values estables.
+        assert_eq!(
+            serde_json::to_string(&UatExecutionResult::Failed).unwrap(),
+            "\"FAILED\""
+        );
+        assert_eq!(
+            serde_json::to_string(&UatHumanDecision::Waived).unwrap(),
+            "\"waived\""
+        );
+    }
+
+    #[test]
+    fn oracle_assessment_carries_confidence_and_details() {
+        let assessment = UatOracleAssessment {
+            oracle: UatOracleSpec {
+                kind: UatOracleKind::Http,
+                expect: Some(serde_json::json!({ "status": 200 })),
+                rubric: vec![],
+                severity: None,
+                blocking: true,
+            },
+            verdict: UatOracleVerdict::Pass,
+            confidence: 1.0,
+            details: Some("GET /health → 200".into()),
+        };
+        assert_eq!(assessment.verdict, UatOracleVerdict::Pass);
+        assert_eq!(assessment.confidence, 1.0);
     }
 }

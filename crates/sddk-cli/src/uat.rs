@@ -2363,31 +2363,56 @@ fn run_uat_run(args: UatRunArgs) -> CommandOutput {
                     args.plan.display()
                 )
             })?;
-        let automation = scenario.automation.as_ref().ok_or_else(|| {
-            anyhow::anyhow!(
-                "scenario {} has no automation block; mark it `automation: {{status: scripted, ref: ...}}` to run it",
-                scenario.id
+        // Fuente de la spec de ejecución: eje v3 `executor` (ADR-014) o
+        // `automation` v2 heredado. El runner tipado es el mismo para ambos.
+        let (_executor_kind, ref_str) = if let Some(executor) = scenario.executor.as_ref() {
+            match executor.kind {
+                sddk_domain::UatExecutorKind::Cli | sddk_domain::UatExecutorKind::Script => {
+                    let command = executor.command.as_deref().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "scenario {} executor kind={} but command is empty",
+                            scenario.id,
+                            uat_executor_kind_str(executor.kind)
+                        )
+                    })?;
+                    (executor.kind, command.to_owned())
+                }
+                other => anyhow::bail!(
+                    "scenario {} executor kind={} is not runnable by `uat run` yet; use cli|script (playwright/computer_use arrive in F2/F8)",
+                    scenario.id,
+                    uat_executor_kind_str(other)
+                ),
+            }
+        } else {
+            let automation = scenario.automation.as_ref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "scenario {} has no executor (v3) nor automation block (v2); mark it `automation: {{status: scripted, ref: ...}}` or `executor: {{kind: cli, command: ...}}` to run it",
+                    scenario.id
+                )
+            })?;
+            if automation.status == sddk_domain::UatAutomationStatus::Manual {
+                anyhow::bail!(
+                    "scenario {} is manual: no automated run possible",
+                    scenario.id
+                );
+            }
+            (
+                sddk_domain::UatExecutorKind::Cli,
+                automation.r#ref.clone().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "scenario {} automation.status={} but automation.ref is empty",
+                        scenario.id,
+                        uat_automation_status_str(automation.status)
+                    )
+                })?,
             )
-        })?;
-        if automation.status == sddk_domain::UatAutomationStatus::Manual {
-            anyhow::bail!(
-                "scenario {} is manual: no automated run possible",
-                scenario.id
-            );
-        }
-        let ref_str = automation.r#ref.as_deref().ok_or_else(|| {
-            anyhow::anyhow!(
-                "scenario {} automation.status={} but automation.ref is empty",
-                scenario.id,
-                uat_automation_status_str(automation.status)
-            )
-        })?;
+        };
 
         // Typed argv split — first token is the program, rest are args.
         let tokens: Vec<String> = ref_str.split_whitespace().map(str::to_owned).collect();
         let (program, argv) = tokens
             .split_first()
-            .ok_or_else(|| anyhow::anyhow!("scenario {} automation.ref is empty", scenario.id))?;
+            .ok_or_else(|| anyhow::anyhow!("scenario {} executor command is empty", scenario.id))?;
         let spec = sddk_gateway::RunSpec {
             program: program.clone(),
             args: argv.to_vec(),
@@ -2556,6 +2581,17 @@ fn uat_automation_status_str(status: sddk_domain::UatAutomationStatus) -> &'stat
     }
 }
 
+fn uat_executor_kind_str(kind: sddk_domain::UatExecutorKind) -> &'static str {
+    match kind {
+        sddk_domain::UatExecutorKind::Cli => "cli",
+        sddk_domain::UatExecutorKind::Api => "api",
+        sddk_domain::UatExecutorKind::Script => "script",
+        sddk_domain::UatExecutorKind::Playwright => "playwright",
+        sddk_domain::UatExecutorKind::ComputerUse => "computer_use",
+        sddk_domain::UatExecutorKind::Human => "human",
+    }
+}
+
 fn uat_status_str(status: sddk_domain::UatStatus) -> &'static str {
     match status {
         sddk_domain::UatStatus::NotRun => "NOT_RUN",
@@ -2684,10 +2720,47 @@ features:
         let out = run_uat_run(run_args(&plan, "S-1"));
         assert_eq!(out.status, 1);
         assert!(
-            out.stdout.contains("automation.ref"),
+            out.stdout.contains("automation.ref") || out.stdout.contains("no executor"),
             "stdout: {}",
             out.stdout
         );
+    }
+
+    #[test]
+    fn v3_executor_cli_runs_and_passes() {
+        // Eje v3 (ADR-014): executor cli con command — sin automation v2.
+        let dir = tempfile::tempdir().unwrap();
+        let plan = dir.path().join("uat-plan.yaml");
+        let yaml = r#"
+schema_version: 3
+release: { candidate: v2.1.0 }
+generated_by: test
+generated_at: "2026-08-10T00:00:00Z"
+features:
+  - id: F-1
+    name: Feature
+    scenarios:
+      - id: S-1
+        title: V3 cli
+        executor:
+          kind: cli
+          command: echo hello-v3
+        oracles:
+          - kind: exit_code
+            expect: { code: 0 }
+        acceptance: pending
+"#;
+        std::fs::write(&plan, yaml).unwrap();
+        let out = run_uat_run(run_args(&plan, "S-1"));
+        assert_eq!(out.status, 0, "stderr: {}", out.stderr);
+        assert!(out.stdout.contains("PASS"), "stdout: {}", out.stdout);
+        let session = read_session(&dir.path().join("uat-session-s-1.yaml"));
+        assert_eq!(session.results[0].status, sddk_domain::UatStatus::Pass);
+        assert_eq!(
+            session.results[0].repro_command.as_deref(),
+            Some("echo hello-v3")
+        );
+        assert_eq!(session.executor, sddk_domain::UatExecutor::Automated);
     }
 
     #[test]
