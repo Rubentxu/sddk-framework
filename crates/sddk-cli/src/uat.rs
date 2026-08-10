@@ -64,6 +64,9 @@ pub(crate) enum UatCommand {
     /// required (P0/policy), oracle conflicts, low confidence, and the
     /// deterministic sample of machine-PASS scenarios.
     Review(UatReviewArgs),
+    /// Evaluate semantic oracles (visual_ai / llm_rubric) of a scenario
+    /// against its captured evidence using a local VLM/LLM (Fara).
+    Assess(UatAssessArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -393,6 +396,29 @@ pub(crate) struct UatHistoryArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+pub(crate) struct UatAssessArgs {
+    /// Plan YAML containing the scenario.
+    #[arg(long)]
+    pub(crate) plan: PathBuf,
+    /// Scenario id, e.g. `S-01`.
+    #[arg(long)]
+    pub(crate) scenario: String,
+    /// Session YAML with the captured evidence (default:
+    /// `uat-session-<scenario>.yaml` next to the plan).
+    #[arg(long)]
+    pub(crate) session: Option<PathBuf>,
+    /// Fara/llama.cpp base URL (default: $FARA_URL or localhost:8082).
+    #[arg(long)]
+    pub(crate) fara_url: Option<String>,
+    /// Explicit human approval for the uat.agent capability (ADR-0005).
+    #[arg(long)]
+    pub(crate) approve: bool,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
+}
+
+#[derive(Debug, Clone, Args)]
 pub(crate) struct UatReviewArgs {
     /// Plan YAML.
     #[arg(long)]
@@ -453,6 +479,7 @@ pub(crate) fn run_uat(command: UatCommand, environment: &crate::CliEnvironment) 
         UatCommand::History(args) => run_uat_history(args),
         UatCommand::Run(args) => run_uat_run(args),
         UatCommand::Review(args) => run_uat_review(args),
+        UatCommand::Assess(args) => run_uat_assess(args),
     }
 }
 
@@ -2532,6 +2559,195 @@ fn run_uat_history(args: UatHistoryArgs) -> CommandOutput {
 /// maps `exit 0 → PASS`, non-zero → FAIL, timeout/kill → BLOCKED, and a
 /// baseline `uat-session.yaml` is emitted so the standard
 /// ingest/report/history pipeline can consume the run.
+fn run_uat_assess(args: UatAssessArgs) -> CommandOutput {
+    let format = args.format;
+    let result = (|| -> anyhow::Result<String> {
+        // Policy gate (ADR-0005): VLM local = uat.agent (high).
+        let workflow_path = std::path::Path::new(crate::WORKFLOW_MANIFEST);
+        if workflow_path.is_file() {
+            let workflow_raw = std::fs::read_to_string(workflow_path)?;
+            let workflow: sddk_domain::WorkflowManifest =
+                serde_saphyr::from_str(&workflow_raw)?;
+            let policy = sddk_gateway::CapabilityPolicy::from_workflow(&workflow);
+            sddk_gateway::authorize_uat(
+                sddk_domain::UatExecutorKind::ComputerUse,
+                &policy,
+                args.approve,
+            )
+            .map_err(|e| anyhow::anyhow!("uat assess blocked by policy: {e}"))?;
+        }
+
+        let plan_raw = std::fs::read_to_string(&args.plan)
+            .map_err(|e| anyhow::anyhow!("cannot read plan {}: {e}", args.plan.display()))?;
+        let plan: UatPlan = serde_saphyr::from_str(&plan_raw)
+            .map_err(|e| anyhow::anyhow!("invalid plan {}: {e}", args.plan.display()))?;
+        let scenario = plan
+            .features
+            .iter()
+            .flat_map(|f| f.scenarios.iter().map(move |s| (f, s)))
+            .find(|(_, s)| s.id == args.scenario)
+            .map(|(_, s)| s)
+            .ok_or_else(|| anyhow::anyhow!("scenario {} not found", args.scenario))?;
+
+        // Session con la evidencia capturada.
+        let session_path = args.session.clone().unwrap_or_else(|| {
+            let name = format!(
+                "uat-session-{}.yaml",
+                scenario.id.to_lowercase().replace('.', "-")
+            );
+            args.plan
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(name)
+        });
+        let session_raw = std::fs::read_to_string(&session_path)
+            .map_err(|e| anyhow::anyhow!("cannot read session {}: {e}", session_path.display()))?;
+        let session: UatSession = serde_saphyr::from_str(&session_raw)
+            .map_err(|e| anyhow::anyhow!("invalid session {}: {e}", session_path.display()))?;
+        let result = session
+            .results
+            .iter()
+            .find(|r| r.scenario_id == scenario.id)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "session {} has no result for scenario {}",
+                    session_path.display(),
+                    scenario.id
+                )
+            })?;
+
+        let fara_url = args
+            .fara_url
+            .clone()
+            .or_else(|| std::env::var("FARA_URL").ok())
+            .unwrap_or_else(|| "http://127.0.0.1:8082".into());
+
+        // Rubric temporal a partir del spec del oracle.
+        let rubric_dir = std::env::temp_dir().join(format!(
+            "sddk-uat-rubric-{}-{}",
+            scenario.id.replace('.', "-"),
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&rubric_dir)?;
+
+        let mut assessments = Vec::new();
+        let semantic_kinds = [
+            sddk_domain::UatOracleKind::VisualAi,
+            sddk_domain::UatOracleKind::LlmRubric,
+        ];
+        for oracle in scenario.oracles.iter().filter(|o| semantic_kinds.contains(&o.kind)) {
+            // Localizar la evidencia: screenshot para visual_ai, dom para llm_rubric.
+            let (kind_flag, evidence) = match oracle.kind {
+                sddk_domain::UatOracleKind::VisualAi => {
+                    let shot = result.evidence.iter().find(|e| {
+                        e.kind == sddk_domain::UatEvidenceKind::Screenshot
+                            || e.path.as_deref().is_some_and(|p| p.ends_with("screenshot.png"))
+                    });
+                    match shot.and_then(|e| e.path.clone()) {
+                        Some(p) => (sddk_domain::UatOracleKind::VisualAi, p),
+                        None => {
+                            assessments.push((
+                                oracle.kind,
+                                sddk_domain::UatOracleVerdict::Uncertain,
+                                0.0,
+                                Some("no screenshot evidence captured".into()),
+                            ));
+                            continue;
+                        }
+                    }
+                }
+                _ => {
+                    let dom = result.evidence.iter().find(|e| {
+                        e.kind == sddk_domain::UatEvidenceKind::Dom
+                            || e.path.as_deref().is_some_and(|p| p.ends_with("dom.html"))
+                    });
+                    match dom.and_then(|e| e.path.clone()) {
+                        Some(p) => (sddk_domain::UatOracleKind::LlmRubric, p),
+                        None => {
+                            assessments.push((
+                                oracle.kind,
+                                sddk_domain::UatOracleVerdict::Uncertain,
+                                0.0,
+                                Some("no dom evidence captured".into()),
+                            ));
+                            continue;
+                        }
+                    }
+                }
+            };
+            let rubric_path = rubric_dir.join(format!("rubric-{:?}.json", oracle.kind));
+            std::fs::write(&rubric_path, serde_json::to_string(&oracle.rubric)?)?;
+            let out_dir = rubric_dir.join(format!("assess-{:?}", oracle.kind));
+            let spec = sddk_gateway::SemanticOracleSpec {
+                kind: kind_flag,
+                evidence_path: PathBuf::from(evidence),
+                rubric_path,
+                fara_url: fara_url.clone(),
+                output_dir: out_dir.clone(),
+                timeout_ms: 90_000,
+            };
+            match sddk_gateway::run_semantic_oracle(&spec, None, None) {
+                Ok(outcome) => assessments.push((
+                    oracle.kind,
+                    outcome.assessment.verdict,
+                    outcome.assessment.confidence,
+                    outcome.assessment.details,
+                )),
+                Err(e) => assessments.push((
+                    oracle.kind,
+                    sddk_domain::UatOracleVerdict::Uncertain,
+                    0.0,
+                    Some(format!("assess failed: {e}")),
+                )),
+            }
+        }
+
+        if matches!(format, OutputFormat::Json) {
+            return serde_json::to_string_pretty(&serde_json::json!({
+                "scenario": scenario.id,
+                "semantic_oracles": assessments.iter().map(|(kind, verdict, conf, details)| {
+                    serde_json::json!({
+                        "kind": format!("{kind:?}").to_lowercase(),
+                        "verdict": format!("{verdict:?}").to_lowercase(),
+                        "confidence": conf,
+                        "details": details,
+                    })
+                }).collect::<Vec<_>>(),
+            }))
+            .map_err(|e| anyhow::anyhow!("json serialization failed: {e}"));
+        }
+
+        if assessments.is_empty() {
+            return Ok(format!(
+                "uat assess: scenario {} — sin oracles semánticos (visual_ai/llm_rubric) en el plan\n",
+                scenario.id
+            ));
+        }
+        let mut lines = vec![format!(
+            "uat assess: scenario {} — oracles semánticos (Fara {fara_url})\n",
+            scenario.id
+        )];
+        for (kind, verdict, conf, details) in &assessments {
+            lines.push(format!(
+                "  {:?}: {:?} (conf {:.2}) — {}",
+                kind,
+                verdict,
+                conf,
+                details.as_deref().unwrap_or("")
+            ));
+        }
+        Ok(lines.join("\n"))
+    })();
+    match result {
+        Ok(out) => CommandOutput {
+            stdout: out,
+            stderr: String::new(),
+            status: 0,
+        },
+        Err(e) => crate::failure_envelope(&e),
+    }
+}
+
 fn run_uat_review(args: UatReviewArgs) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<String> {
@@ -2594,7 +2810,14 @@ fn run_uat_review(args: UatReviewArgs) -> CommandOutput {
         }
         Ok(lines.join("\n"))
     })();
-    render_result(result, format, |t| t.to_string())
+    match result {
+        Ok(out) => CommandOutput {
+            stdout: out,
+            stderr: String::new(),
+            status: 0,
+        },
+        Err(e) => crate::failure_envelope(&e),
+    }
 }
 
 fn uat_review_reason_str(reason: sddk_domain::UatReviewReason) -> &'static str {

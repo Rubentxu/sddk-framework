@@ -21,6 +21,7 @@ mod playwright;
 mod policy;
 mod release;
 mod runner;
+mod semantic;
 mod uat_policy;
 
 pub use artifact_store::{ArtifactMeta, ArtifactStore, ArtifactStoreError};
@@ -48,6 +49,7 @@ pub use release::{
     plan_release, reconcile_pending,
 };
 pub use runner::{RunOutcome, RunSpec, RunnerError, run};
+pub use semantic::{SemanticOracleError, SemanticOracleOutcome, SemanticOracleSpec, run_semantic_oracle};
 pub use sddk_storage::CapabilityReceipt;
 pub use uat_policy::{UatPolicyError, authorize_uat, capability_name, default_risk};
 
