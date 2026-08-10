@@ -3,12 +3,12 @@ name: knowledge-graph
 description: >
   Protocol for reading and writing the SDDK knowledge graph vault. Used by all SDDK phase agents
   to create, update, and query nodes (milestones, ADRs, requirements, cycles, incidences, terms).
-  The vault lives in the USER HOME at `~/.sddk-knowledge/{project}/`, OUTSIDE each project repo. One vault per project, separated by project name. NOT committed to the project repo.
+  The vault is outside each project repo and is resolved only through the SDDK CLI.
   Follows OKF + Obsidian Properties conventions. Wikilinks [[like-this]] create the graph.
 license: MIT
 metadata:
   author: gentleman-programming
-  version: "2.0"
+  version: "3.0"
   okf_version: "0.2"
 ---
 
@@ -18,42 +18,35 @@ You have access to the SDDK knowledge graph vault as the **single source of trut
 
 ## Vault Location
 
-```
-~/.sddk-knowledge/{project}/
-```
-
-### How `{project}` is derived
-
-The project name is the **basename of the repository root directory**. Always derived the same way by all agents:
+Resolve the vault path using:
 
 ```bash
-PROJECT=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
-VAULT="$HOME/.sddk-knowledge/$PROJECT"
+sddk knowledge path --root .
 ```
 
-This is the single source of truth. No config files, no env vars, no guesses. If the repo root directory is `/home/user/code/my-awesome-app`, then `{project}` = `my-awesome-app` and the vault is `~/.sddk-knowledge/my-awesome-app/`.
+This prints the canonical vault for the stable `project_id`. Also run
+`sddk knowledge status --root . --scope . --format json` to obtain the profile
+and optional Engram setting.
 
-**If the project directory is renamed:**
-```bash
-# The old vault stays under the old name. To reconnect:
-mv ~/.sddk-knowledge/old-name ~/.sddk-knowledge/new-name
-# Now the vault matches the new directory basename.
-```
+**CRITICAL**: never derive the vault or project identity from a checkout name,
+repository basename, or hard-coded home path. A rename or worktree must resolve
+to the same project identity through the CLI.
 
-**CRITICAL**: The vault is per-project. Each project has its own vault at `~/.sddk-knowledge/{project}/`. It is NOT in the project repo — it lives in `$HOME`, separate from the code. The project repo has ZERO documentation files.
-
-The **template** for the vault lives in the **SDDK framework repo** (`~/Proyectos/agentesIA/sddk-framework/knowledge-template/`). The first time `sddk-adopt` runs in a project, it copies the template into `~/.sddk-knowledge/{project}/`.
+The vault is outside the adopted workspace. Existing product documentation in
+the workspace is read-only evidence, not knowledge authority. `sddk adopt
+apply` initializes the configured vault from the runtime bundle without
+planting files in the workspace.
 
 ## Node Types
 
 | Type | Directory | Naming | Created by |
 |------|-----------|--------|------------|
-| `milestone` | `milestones/` | `M-NNN-{slug}.md` | Orchestrator (Step 0.2) |
-| `active_lock` | `milestones/` | `_active.md` | Orchestrator (Step 0.2) + Release (release-lock) |
-| `adr` | `adrs/` | `ADR-NNN-{slug}.md` | sddk-spec / sddk-design (Step 1.4) |
-| `requirement` | `specs/{domain}/` | `REQ-{Slug}.md` | sddk-spec (Step 1.4) |
-| `cycle` | `cycles/` | `CYC-{date}-{slug}.md` | sdd-kernel-archive (Step 2.5) |
-| `incidence` | `incidences/` | `INC-NNN-{slug}.md` | sdd-kernel-release (update-knowledge-graph) |
+| `milestone` | `milestones/` | `M-NNN-{slug}.md` | Orchestrator |
+| `active_lock` | `milestones/` | `_active.md` | Orchestrator + Release |
+| `adr` | `adrs/` | `ADR-NNN-{slug}.md` | sddk-spec / sddk-design |
+| `requirement` | `specs/{domain}/` | `REQ-{Slug}.md` | sddk-spec |
+| `cycle` | `cycles/` | `CYC-{date}-{slug}.md` | sddk-archive |
+| `incidence` | `incidences/` | `INC-NNN-{slug}.md` | sddk-release |
 | `term` | `terms/` | `TERM-{Slug}.md` | sddk-explore / sddk-spec |
 
 ## Properties Convention (OKF + Obsidian)
@@ -75,30 +68,32 @@ All properties use **`snake_case`** (Obsidian Dataview compatibility). Property 
 
 ## Read Rules
 
-### Rule 1: Read from vault, never from external sources
+### Rule 1: Read from vault using `sddk knowledge path`
 
 ```bash
-# CORRECT — read from vault
-cat ~/.sddk-knowledge/{project}/adrs/ADR-003-jwt-auth.md
+# CORRECT — resolve path first
+VAULT=$(sddk knowledge path --root .)
+cat "$VAULT/adrs/ADR-003-jwt-auth.md"
 
-# WRONG — vault doesn't live in $HOME anymore
-cat ~/.sddk-knowledge/{project}/adrs/ADR-003.md
+# Never reconstruct this path from the checkout directory name.
 ```
 
 ### Rule 2: Use grep for queries
 
 ```bash
+VAULT=$(sddk knowledge path --root .)
+
 # All accepted ADRs
-grep -l "status: accepted" ~/.sddk-knowledge/{project}/adrs/*.md
+grep -l "status: accepted" "$VAULT/adrs"/*.md
 
 # All requirements in auth domain
-ls ~/.sddk-knowledge/{project}/specs/auth/REQ-*.md
+ls "$VAULT/specs/auth/REQ-*.md"
 
 # What ADRs affect auth?
-grep -l "affects_domains:.*auth" ~/.sddk-knowledge/{project}/adrs/*.md
+grep -l "affects_domains:.*auth" "$VAULT/adrs"/*.md
 
 # Is a cycle active?
-cat ~/.sddk-knowledge/{project}/milestones/_active.md
+cat "$VAULT/milestones/_active.md"
 ```
 
 ### Rule 3: Follow wikilinks for navigation
@@ -112,8 +107,9 @@ When you see `[[ADR-003-jwt-auth]]` in a node, open that file to continue the tr
 Before creating any node, read the corresponding template from the SDDK framework:
 
 ```bash
-# Template source (in the SDDK framework, NOT in the project repo)
-cat ~/Proyectos/agentesIA/sddk-framework/knowledge-template/templates/{type}.md
+# Templates are installed into the resolved vault by adoption.
+VAULT=$(sddk knowledge path --root . --scope .)
+cat "$VAULT/templates/{type}.md"
 ```
 
 Fill in the placeholders. Do not invent properties not in the template.
@@ -147,10 +143,9 @@ Every node that evolves (ADR, Requirement, Milestone) has a `## Changelog` secti
 
 ### Rule 5: Log to _log.md after every write
 
-After creating or updating ANY node, append an entry to `~/.sddk-knowledge/{project}/_log.md`:
-
 ```bash
-echo "- $(date -Iseconds) | {action} | {what} | [[{node}]]" >> ~/.sddk-knowledge/{project}/_log.md
+VAULT=$(sddk knowledge path --root .)
+echo "- $(date -Iseconds) | {action} | {what} | [[{node}]]" >> "$VAULT/_log.md"
 ```
 
 The `_log.md` file is append-only and lives in the vault (not in the project repo).
@@ -165,10 +160,11 @@ Every node has `stale_after`. When you update a node, push `stale_after` forward
 
 ## Serialization Lock Protocol
 
-### Acquiring the lock (orchestrator, Step 0.2)
+### Acquiring the lock
 
 ```bash
-LOCK_FILE="~/.sddk-knowledge/{project}/milestones/_active.md"
+VAULT=$(sddk knowledge path --root .)
+LOCK_FILE="$VAULT/milestones/_active.md"
 
 # Check if locked
 if grep -q "LOCKED" "$LOCK_FILE" 2>/dev/null; then
@@ -196,10 +192,11 @@ acquired: $(date +%Y-%m-%d)
 EOF
 ```
 
-### Releasing the lock (release agent, release-lock step)
+### Releasing the lock
 
 ```bash
-LOCK_FILE="~/.sddk-knowledge/{project}/milestones/_active.md"
+VAULT=$(sddk knowledge path --root .)
+LOCK_FILE="$VAULT/milestones/_active.md"
 
 # Release — reset to available state
 cat > "$LOCK_FILE" << EOF
@@ -217,32 +214,20 @@ EOF
 
 ## Vault Initialization
 
-If `~/.sddk-knowledge/{project}/` doesn't exist when the orchestrator needs it (Step 0.2), it means `sddk-adopt` was never run. Either:
-
-1. Delegate to `sddk-adopt` (the adoption agent) which creates the full vault + plants SDDK working artifacts.
-2. For a quick test-only setup, copy the template from the SDDK framework:
-
-```bash
-# The vault template lives in the SDDK framework (source of truth)
-cp -r ~/Proyectos/agentesIA/sddk-framework/knowledge-template/ ~/.sddk-knowledge/{project}/
-sed -i "s/{PROJECT_NAME}/$(basename "$(pwd)")/" ~/.sddk-knowledge/{project}/_index.md
-```
-
-**Production path is option 1 (sddk-adopt).** Option 2 is only for ad-hoc tests.
-
-## Versioning
-
-The vault lives in `$HOME`, not in the project repo. It is NOT committed to git (the project repo contains only product code). The vault is backed up by the user's home directory or dotfiles management.
+If `sddk knowledge status --root . --scope . --format json` reports that the
+profile or vault is absent, run `sddk adopt apply --root . --scope .`. Do not
+copy templates manually and do not create fallback state in the workspace.
 
 ## Compact Rules
 
-- Vault lives at `~/.sddk-knowledge/{project}/` — IN the user `$HOME`, NEVER inside the project repo
-- Template source lives in the SDDK framework: `~/Proyectos/agentesIA/sddk-framework/knowledge-template/`
+- Resolve the vault with `sddk knowledge path --root . --scope .`
+- Resolve the profile with `sddk knowledge status --root . --scope . --format json`
+- Never derive `project_id` or vault paths from directory names
 - Properties use `snake_case`; values use wikilinks `[[]]`
 - Every node has `type`, `title`, `slug`, `status`, `created`, `stale_after`
 - Changelog is append-only (bi-temporal)
-- Log every write to `~/.sddk-knowledge/{project}/_log.md`
-- Serialization lock = `~/.sddk-knowledge/{project}/milestones/_active.md`
-- The vault lives in `$HOME`, separate from the project repo
-- Read templates from `~/Proyectos/agentesIA/sddk-framework/knowledge-template/templates/` before creating nodes
-- For adoption, delegate to `sddk-adopt` — it creates the vault AND plants SDDK working artifacts
+- Log every write to `$VAULT/_log.md`
+- Serialization lock is `$VAULT/milestones/_active.md`
+- The vault is separate from the adopted workspace
+- Read templates from `$VAULT/templates/` before creating nodes
+- Adoption creates XDG operational state and the vault, never workspace files

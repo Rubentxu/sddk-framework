@@ -25,7 +25,10 @@ fn plan_is_write_free_and_reports_identity_paths_and_hash() {
         sddk_domain::IdentitySource::Remote
     );
     assert!(plan.receipt.configuration_hash.starts_with("sha256:"));
-    assert_eq!(plan.receipt.paths.vault, path_text(&plan.paths.vault));
+    assert_eq!(
+        plan.receipt.paths.vault,
+        path_text(&plan.knowledge.vault_path)
+    );
     assert_eq!(plan.receipt.paths.ledger, path_text(&plan.paths.ledger));
 }
 
@@ -193,6 +196,7 @@ struct Fixture {
     data: PathBuf,
     state: PathBuf,
     cache: PathBuf,
+    home: PathBuf,
 }
 
 impl Fixture {
@@ -203,6 +207,7 @@ impl Fixture {
             data: directory.path().join("xdg-data"),
             state: directory.path().join("xdg-state"),
             cache: directory.path().join("xdg-cache"),
+            home: directory.path().join("home"),
             _directory: directory,
         }
     }
@@ -219,7 +224,7 @@ impl Fixture {
                 .to_string_lossy()
                 .into_owned(),
             xdg: XdgEnvironment {
-                home: None,
+                home: Some(self.home.clone()),
                 data_home: Some(self.data.clone()),
                 sddk_data_dir: None,
                 state_home: Some(self.state.clone()),

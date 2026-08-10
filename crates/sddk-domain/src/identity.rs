@@ -5,6 +5,7 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::path::PathBuf;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -93,6 +94,24 @@ pub struct ResolvedProjectIdentity {
     pub identity_source: IdentitySource,
     /// Canonical UUID used by fallback identity, when applicable.
     pub fallback_seed: Option<String>,
+}
+
+/// Knowledge profile persisted at adoption time.
+///
+/// This is the single source of truth for the canonical knowledge vault path.
+/// The vault path is selected at adoption time and stored here so it remains
+/// stable even if the checkout is renamed or moved.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct KnowledgeProfile {
+    /// Stable project identifier derived from remote URL or fallback seed.
+    pub project_id: ProjectId,
+    /// Human-readable project name (basename of the adopted checkout root).
+    pub project_name: String,
+    /// Canonical knowledge vault path under `$HOME/.sddk-knowledge/`.
+    pub vault_path: PathBuf,
+    /// Whether optional Engram memory integration is enabled.
+    pub engram_enabled: bool,
 }
 
 impl fmt::Display for ProjectId {

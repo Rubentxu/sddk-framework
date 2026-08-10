@@ -120,7 +120,7 @@ agents:
   orchestrator:
     phases: [explore, specify, design, plan, build, verify, review, release, archive]
     capabilities: [git.inspect, git.create_branch, git.commit, git.tag, git.push, pr.create, release.create]
-  sdd-kernel-apply:
+  sddk-apply:
     phases: [build, verify]
     capabilities: [git.inspect, git.commit]
 "#;
@@ -144,11 +144,11 @@ agents:
     #[test]
     fn denies_unknown_phase_and_capability() {
         let policy = PermissionPolicy::from_yaml(REGISTRY).unwrap();
-        let phase = policy.authorize("sdd-kernel-apply", "release", "git.commit");
+        let phase = policy.authorize("sddk-apply", "release", "git.commit");
         assert!(!phase.allowed);
         assert!(phase.reason.contains("phase release"));
 
-        let capability = policy.authorize("sdd-kernel-apply", "build", "pr.merge");
+        let capability = policy.authorize("sddk-apply", "build", "pr.merge");
         assert!(!capability.allowed);
         assert!(capability.reason.contains("pr.merge"));
     }

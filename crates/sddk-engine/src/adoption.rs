@@ -14,7 +14,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::{AdoptionPaths, PathResolutionError, XdgEnvironment, resolve_xdg_paths};
+use crate::{
+    AdoptionPaths, PathResolutionError, XdgEnvironment, knowledge_vault_path, resolve_xdg_paths,
+};
 
 /// Current adoption receipt schema.
 pub const ADOPTION_SCHEMA_VERSION: i32 = 2;
@@ -58,6 +60,8 @@ pub struct AdoptionPlan {
     pub canonical_workspace_path: PathBuf,
     /// Resolved XDG paths.
     pub paths: AdoptionPaths,
+    /// Canonical external knowledge profile.
+    pub knowledge: sddk_domain::KnowledgeProfile,
     /// Receipt that will be written if the plan is applied.
     pub receipt: AdoptionReceipt,
 }
@@ -147,7 +151,17 @@ pub fn plan_adoption(input: AdoptionPlanInput) -> Result<AdoptionPlan, AdoptionE
     let canonical_workspace_path = path_string(&input.canonical_workspace_path)?;
     let workspace_id = stable_workspace_id(&identity.project_id, &canonical_workspace_path);
     let paths = resolve_xdg_paths(&input.xdg, identity.project_id.as_str(), &workspace_id)?;
-    let storage_paths = paths.to_storage_paths()?;
+    let knowledge = sddk_domain::KnowledgeProfile {
+        project_id: identity.project_id.clone(),
+        project_name: input.display_name.clone(),
+        vault_path: knowledge_vault_path(
+            &input.xdg,
+            identity.project_id.as_str(),
+            &input.display_name,
+        )?,
+        engram_enabled: false,
+    };
+    let storage_paths = paths.to_storage_paths(&knowledge.vault_path)?;
     let mut receipt = AdoptionReceipt {
         schema_version: ADOPTION_SCHEMA_VERSION,
         sddk_version: input.sddk_version,
@@ -171,6 +185,7 @@ pub fn plan_adoption(input: AdoptionPlanInput) -> Result<AdoptionPlan, AdoptionE
         workspace_id,
         canonical_workspace_path: input.canonical_workspace_path,
         paths,
+        knowledge,
         receipt,
     })
 }
@@ -212,7 +227,10 @@ pub fn adoption_status(plan: &AdoptionPlan) -> Result<AdoptionStatus, AdoptionEr
 pub fn apply_adoption(plan: &AdoptionPlan) -> Result<AdoptionStatus, AdoptionError> {
     let status = adoption_status(plan)?;
     match status.status {
-        AdoptionStatusKind::Complete => return Ok(status),
+        AdoptionStatusKind::Complete => {
+            converge(plan)?;
+            return require_complete(adoption_status(plan)?);
+        }
         AdoptionStatusKind::Conflict | AdoptionStatusKind::Corrupt => {
             return Err(unsafe_status(status));
         }
@@ -228,7 +246,10 @@ pub fn apply_adoption(plan: &AdoptionPlan) -> Result<AdoptionStatus, AdoptionErr
 pub fn repair_adoption(plan: &AdoptionPlan) -> Result<AdoptionStatus, AdoptionError> {
     let status = adoption_status(plan)?;
     match status.status {
-        AdoptionStatusKind::Complete => return Ok(status),
+        AdoptionStatusKind::Complete => {
+            converge(plan)?;
+            return require_complete(adoption_status(plan)?);
+        }
         AdoptionStatusKind::Absent => return Err(AdoptionError::NothingToRepair),
         AdoptionStatusKind::Conflict | AdoptionStatusKind::Corrupt => {
             return Err(unsafe_status(status));
@@ -245,7 +266,7 @@ pub fn read_adoption_receipt(path: impl AsRef<Path>) -> Result<AdoptionReceipt, 
 }
 
 fn converge(plan: &AdoptionPlan) -> Result<(), AdoptionError> {
-    fs::create_dir_all(&plan.paths.vault)?;
+    fs::create_dir_all(&plan.knowledge.vault_path)?;
     fs::create_dir_all(&plan.paths.artifacts)?;
     fs::create_dir_all(&plan.paths.cache)?;
     let mut storage = Storage::open(&plan.paths.ledger)?;
@@ -253,6 +274,32 @@ fn converge(plan: &AdoptionPlan) -> Result<(), AdoptionError> {
     if !plan.paths.receipt.exists() {
         write_receipt_atomically(&plan.paths.receipt, &plan.receipt)?;
     }
+    write_knowledge_profile(plan)?;
+    Ok(())
+}
+
+/// Writes the knowledge profile to `$XDG_DATA_HOME/sddk/projects/{project_id}/knowledge-profile.json`.
+fn write_knowledge_profile(plan: &AdoptionPlan) -> Result<(), AdoptionError> {
+    if plan.paths.knowledge_profile.exists() {
+        let existing: sddk_domain::KnowledgeProfile =
+            serde_json::from_slice(&fs::read(&plan.paths.knowledge_profile)?)?;
+        if existing.project_id != plan.knowledge.project_id
+            || existing.vault_path != plan.knowledge.vault_path
+        {
+            return Err(AdoptionError::InvalidInput(
+                "knowledge profile conflicts with the adoption plan".into(),
+            ));
+        }
+        return Ok(());
+    }
+    let parent = plan.paths.knowledge_profile.parent().ok_or_else(|| {
+        AdoptionError::InvalidInput("knowledge profile has no parent directory".into())
+    })?;
+    fs::create_dir_all(parent)?;
+    fs::write(
+        &plan.paths.knowledge_profile,
+        serde_json::to_vec_pretty(&plan.knowledge)?,
+    )?;
     Ok(())
 }
 
@@ -405,6 +452,10 @@ fn configuration_hash(receipt: &AdoptionReceipt) -> Result<String, AdoptionError
 }
 
 fn same_configuration(left: &AdoptionReceipt, right: &AdoptionReceipt) -> bool {
+    exact_configuration(left, right) || legacy_xdg_vault_configuration(left, right)
+}
+
+fn exact_configuration(left: &AdoptionReceipt, right: &AdoptionReceipt) -> bool {
     left.schema_version == right.schema_version
         && left.sddk_version == right.sddk_version
         && left.runtime_version == right.runtime_version
@@ -418,6 +469,33 @@ fn same_configuration(left: &AdoptionReceipt, right: &AdoptionReceipt) -> bool {
         && left.fallback_seed == right.fallback_seed
         && left.configuration_hash == right.configuration_hash
         && left.paths == right.paths
+}
+
+fn legacy_xdg_vault_configuration(left: &AdoptionReceipt, right: &AdoptionReceipt) -> bool {
+    let Some(project_data) = Path::new(&right.paths.artifacts).parent() else {
+        return false;
+    };
+    let Some(legacy_vault) = project_data.join("vault").to_str().map(str::to_owned) else {
+        return false;
+    };
+    left.schema_version == right.schema_version
+        && left.sddk_version == right.sddk_version
+        && left.runtime_version == right.runtime_version
+        && left.project_id == right.project_id
+        && left.workspace_id == right.workspace_id
+        && left.display_name == right.display_name
+        && left.canonical_workspace_path == right.canonical_workspace_path
+        && left.identity_source == right.identity_source
+        && left.remote_url == right.remote_url
+        && left.scope == right.scope
+        && left.fallback_seed == right.fallback_seed
+        && left.paths.vault == legacy_vault
+        && left.paths.artifacts == right.paths.artifacts
+        && left.paths.cycle_artifacts == right.paths.cycle_artifacts
+        && left.paths.generated == right.paths.generated
+        && left.paths.ledger == right.paths.ledger
+        && left.paths.cache == right.paths.cache
+        && left.paths.receipt == right.paths.receipt
 }
 
 fn validate_plan_input(input: &AdoptionPlanInput) -> Result<(), AdoptionError> {
@@ -545,5 +623,51 @@ impl LedgerInspection {
             invalid: Some((AdoptionStatusKind::Corrupt, detail)),
             ..Self::default()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn existing_xdg_vault_receipt_gains_profile_without_rewrite() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("repo");
+        fs::create_dir_all(&root).unwrap();
+        let plan = plan_adoption(AdoptionPlanInput {
+            remote_url: Some("https://example.com/acme/repo.git".into()),
+            scope: ".".into(),
+            fallback_seed: None,
+            canonical_workspace_path: root,
+            display_name: "repo".into(),
+            xdg: XdgEnvironment {
+                home: Some(directory.path().join("home")),
+                data_home: Some(directory.path().join("data")),
+                state_home: Some(directory.path().join("state")),
+                cache_home: Some(directory.path().join("cache")),
+                ..XdgEnvironment::default()
+            },
+            sddk_version: "3.6".into(),
+            runtime_version: "1.5.3".into(),
+            timestamp: "2026-08-10T00:00:00Z".into(),
+            actor: "test".into(),
+        })
+        .unwrap();
+        apply_adoption(&plan).unwrap();
+
+        let mut legacy = plan.receipt.clone();
+        legacy.paths.vault = path_string(&plan.paths.project_data.join("vault")).unwrap();
+        legacy.configuration_hash = configuration_hash(&legacy).unwrap();
+        let legacy_bytes = serde_json::to_vec_pretty(&legacy).unwrap();
+        fs::write(&plan.paths.receipt, &legacy_bytes).unwrap();
+        fs::remove_file(&plan.paths.knowledge_profile).unwrap();
+
+        assert_eq!(
+            apply_adoption(&plan).unwrap().status,
+            AdoptionStatusKind::Complete
+        );
+        assert!(plan.paths.knowledge_profile.is_file());
+        assert_eq!(fs::read(&plan.paths.receipt).unwrap(), legacy_bytes);
     }
 }

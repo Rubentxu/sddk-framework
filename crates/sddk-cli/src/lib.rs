@@ -12,6 +12,7 @@ mod dev_cmd;
 mod docs;
 mod git_cmd;
 mod inventory;
+mod knowledge_cmd;
 mod ledger;
 mod lint;
 mod metrics;
@@ -35,6 +36,7 @@ use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 pub(crate) use cycle::{CycleCommand, RuntimeArgs, RuntimeContext};
 use dev_cmd::DevCommand;
 use git_cmd::GitCommand;
+use knowledge_cmd::KnowledgeCommand;
 use metrics::MetricsCommand;
 use pack_cmd::PackCommand;
 use permission::PermissionCommand;
@@ -149,6 +151,11 @@ enum Command {
     Vault {
         #[command(subcommand)]
         command: VaultCommand,
+    },
+    /// Resolve the canonical knowledge vault path and profile.
+    Knowledge {
+        #[command(subcommand)]
+        command: KnowledgeCommand,
     },
     /// Developer tooling: doctor, gates, and atomic install/verify.
     Dev {
@@ -472,6 +479,7 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         Command::AgentResult { command } => result_cmd::run_agent_result(command, environment),
         Command::Release { command } => release_cmd::run_release(command, environment),
         Command::Vault { command } => vault_cmd::run_vault(command, environment),
+        Command::Knowledge { command } => knowledge_cmd::run_knowledge(command, environment),
         Command::Dev { command } => dev_cmd::run_dev(command, environment),
         Command::Pack { command } => pack_cmd::run_pack(command),
         Command::Metrics { command } => metrics::run_metrics(command, environment),
@@ -934,13 +942,17 @@ fn run_adopt(command: AdoptCommand, environment: &CliEnvironment) -> CommandOutp
     let result = (|| -> anyhow::Result<AdoptionCommandResult> {
         let plan = prepare_adoption_plan(args, operation, environment)?;
         Ok(match operation {
-            AdoptionOperation::Plan => AdoptionCommandResult::Plan(plan),
+            AdoptionOperation::Plan => AdoptionCommandResult::Plan(Box::new(plan)),
             AdoptionOperation::Apply => {
                 let status = apply_adoption(&plan)?;
-                AdoptionCommandResult::Status(status)
+                AdoptionCommandResult::Status(Box::new(status))
             }
-            AdoptionOperation::Status => AdoptionCommandResult::Status(adoption_status(&plan)?),
-            AdoptionOperation::Repair => AdoptionCommandResult::Status(repair_adoption(&plan)?),
+            AdoptionOperation::Status => {
+                AdoptionCommandResult::Status(Box::new(adoption_status(&plan)?))
+            }
+            AdoptionOperation::Repair => {
+                AdoptionCommandResult::Status(Box::new(repair_adoption(&plan)?))
+            }
         })
     })();
     match result {
@@ -967,8 +979,8 @@ fn run_adopt(command: AdoptCommand, environment: &CliEnvironment) -> CommandOutp
 #[derive(Serialize)]
 #[serde(untagged)]
 enum AdoptionCommandResult {
-    Plan(AdoptionPlan),
-    Status(AdoptionStatus),
+    Plan(Box<AdoptionPlan>),
+    Status(Box<AdoptionStatus>),
 }
 
 fn prepare_adoption_plan(
@@ -1027,10 +1039,14 @@ fn find_persisted_fallback_seed(
     root: &Path,
     scope: &str,
 ) -> anyhow::Result<Option<String>> {
-    let data_home = match (&environment.data_home, &environment.home) {
-        (Some(data), _) => data.clone(),
-        (None, Some(home)) => home.join(".local/share"),
-        (None, None) => return Ok(None),
+    let data_home = match (
+        &environment.sddk_data_dir,
+        &environment.data_home,
+        &environment.home,
+    ) {
+        (Some(data), _, _) | (None, Some(data), _) => data.clone(),
+        (None, None, Some(home)) => home.join(".local/share"),
+        (None, None, None) => return Ok(None),
     };
     if !data_home.is_absolute() {
         anyhow::bail!("XDG_DATA_HOME must be absolute: {data_home:?}");
@@ -1115,7 +1131,7 @@ fn adoption_result_text(result: &AdoptionCommandResult) -> String {
             plan.receipt.project_id,
             plan.receipt.workspace_id,
             plan.receipt.configuration_hash,
-            plan.paths.vault.display(),
+            plan.knowledge.vault_path.display(),
             plan.paths.artifacts.display(),
             plan.paths.ledger.display(),
             plan.paths.cache.display(),

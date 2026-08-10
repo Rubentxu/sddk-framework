@@ -26,8 +26,10 @@ pub struct XdgEnvironment {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct AdoptionPaths {
-    /// Project-shared knowledge vault directory.
-    pub vault: PathBuf,
+    /// Project-scoped XDG data directory.
+    pub project_data: PathBuf,
+    /// Persisted knowledge profile.
+    pub knowledge_profile: PathBuf,
     /// Project-shared artifact directory.
     pub artifacts: PathBuf,
     /// Project-shared cycle artifact directory.
@@ -44,9 +46,12 @@ pub struct AdoptionPaths {
 
 impl AdoptionPaths {
     /// Converts paths to the receipt wire representation after UTF-8 validation.
-    pub fn to_storage_paths(&self) -> Result<AdoptionStoragePaths, PathResolutionError> {
+    pub fn to_storage_paths(
+        &self,
+        knowledge_vault: &Path,
+    ) -> Result<AdoptionStoragePaths, PathResolutionError> {
         Ok(AdoptionStoragePaths {
-            vault: path_string(&self.vault)?,
+            vault: path_string(knowledge_vault)?,
             artifacts: path_string(&self.artifacts)?,
             cycle_artifacts: path_string(&self.cycle_artifacts)?,
             generated: path_string(&self.generated)?,
@@ -117,7 +122,8 @@ pub fn resolve_xdg_paths(
     let project_data = data_home.join("sddk/projects").join(project_id);
     let project_state = state_home.join("sddk/projects").join(project_id);
     Ok(AdoptionPaths {
-        vault: project_data.join("vault"),
+        knowledge_profile: project_data.join("knowledge-profile.json"),
+        project_data: project_data.clone(),
         artifacts: project_data.join("artifacts"),
         cycle_artifacts: project_data.join("cycle-artifacts"),
         generated: project_data.join("generated"),
@@ -188,8 +194,8 @@ mod tests {
         };
         let paths = resolve_xdg_paths(&environment, "p-project", "w-workspace").unwrap();
         assert_eq!(
-            paths.vault,
-            Path::new("/xdg/data/sddk/projects/p-project/vault")
+            paths.project_data,
+            Path::new("/xdg/data/sddk/projects/p-project")
         );
         assert_eq!(
             paths.ledger,
@@ -213,8 +219,8 @@ mod tests {
         };
         let paths = resolve_xdg_paths(&environment, "p-project", "w-workspace").unwrap();
         assert_eq!(
-            paths.vault,
-            Path::new("/sddk-root/sddk/projects/p-project/vault")
+            paths.project_data,
+            Path::new("/sddk-root/sddk/projects/p-project")
         );
         assert_eq!(
             paths.receipt,
@@ -246,11 +252,11 @@ mod tests {
         // fall back to `dirs` platform directories instead of failing.
         let environment = XdgEnvironment::default();
         let paths = resolve_xdg_paths(&environment, "p-project", "w-workspace").unwrap();
-        assert!(paths.vault.is_absolute());
+        assert!(paths.project_data.is_absolute());
         assert!(paths.artifacts.is_absolute());
         assert!(paths.ledger.is_absolute());
         assert!(paths.cache.is_absolute());
-        assert!(paths.vault.ends_with("sddk/projects/p-project/vault"));
+        assert!(paths.project_data.ends_with("sddk/projects/p-project"));
         assert!(
             paths
                 .ledger
@@ -293,7 +299,7 @@ pub fn uat_config_path(
 ) -> Result<PathBuf, PathResolutionError> {
     ProjectId::new(project_id).map_err(|_| unsafe_identity(project_id))?;
     let paths = resolve_xdg_paths(environment, project_id, "default")?;
-    Ok(paths.vault.parent().unwrap_or(std::path::Path::new(".")).join(project_id).join("uat.toml"))
+    Ok(paths.project_data.join("uat.toml"))
 }
 
 /// Resolve the XDG base directory for a project's UAT state.
@@ -303,7 +309,45 @@ pub fn uat_storage_root(
 ) -> Result<PathBuf, PathResolutionError> {
     ProjectId::new(project_id).map_err(|_| unsafe_identity(project_id))?;
     let paths = resolve_xdg_paths(environment, project_id, "default")?;
-    Ok(paths.vault.parent().unwrap_or(std::path::Path::new(".")).join(project_id).join("uat"))
+    Ok(paths.project_data.join("uat"))
+}
+
+/// Resolves the XDG profile path for one stable project identity.
+pub fn knowledge_profile_path(
+    environment: &XdgEnvironment,
+    project_id: &str,
+) -> Result<PathBuf, PathResolutionError> {
+    Ok(resolve_xdg_paths(environment, project_id, "default")?.knowledge_profile)
+}
+
+/// Resolves the external canonical knowledge vault for a project name.
+pub fn knowledge_vault_path(
+    environment: &XdgEnvironment,
+    project_id: &str,
+    project_name: &str,
+) -> Result<PathBuf, PathResolutionError> {
+    ProjectId::new(project_id).map_err(|_| unsafe_identity(project_id))?;
+    if project_name.is_empty()
+        || project_name == "."
+        || project_name == ".."
+        || project_name.contains('/')
+        || project_name.contains('\\')
+    {
+        return Err(unsafe_identity(project_name));
+    }
+    validate_optional("HOME", environment.home.as_deref())?;
+    let home = environment
+        .home
+        .clone()
+        .or_else(dirs::home_dir)
+        .ok_or(PathResolutionError::MissingHome)?;
+    let root = home.join(".sddk-knowledge");
+    let legacy = root.join(project_name);
+    Ok(if legacy.exists() {
+        legacy
+    } else {
+        root.join(project_id)
+    })
 }
 
 /// Resolve the manifest path for a project's UAT state.
@@ -331,5 +375,8 @@ pub fn uat_evidence_path(
         return Err(PathResolutionError::UnsafeIdentity(ext.to_string()));
     }
     let root = uat_storage_root(environment, project_id)?;
-    Ok(root.join("evidence").join(prefix).join(format!("{rest}.{ext}")))
+    Ok(root
+        .join("evidence")
+        .join(prefix)
+        .join(format!("{rest}.{ext}")))
 }

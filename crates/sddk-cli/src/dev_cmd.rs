@@ -640,9 +640,9 @@ fn link_editor(root: &Path, editor_dir: &Path) -> LinkReport {
         }
     }
 
-    // Prompts (sdd-kernel tree).
-    let prompts_source = root.join("prompts/sdd-kernel");
-    let prompts_target = editor_dir.join("prompts/sdd-kernel");
+    // Prompts (canonical SDDK tree).
+    let prompts_source = root.join("prompts/sddk");
+    let prompts_target = editor_dir.join("prompts/sddk");
     if prompts_source.is_dir() {
         for entry in walk_dir(&prompts_source) {
             if entry.is_file() {
@@ -660,7 +660,7 @@ fn link_editor(root: &Path, editor_dir: &Path) -> LinkReport {
     }
 
     // Workflows (canonical path in repo).
-    let workflows_source = root.join("prompts/sdd-kernel/workflows");
+    let workflows_source = root.join("prompts/sddk/workflows");
     let workflows_target = editor_dir.join("workflows");
     if workflows_source.is_dir() {
         for entry in walk_dir(&workflows_source) {
@@ -1027,7 +1027,7 @@ fn framework_agent_names(root: &Path) -> Vec<String> {
 
 /// Orchestrator agents registered as primary (user-selectable) agents in
 /// opencode; every other framework agent stays a hidden subagent.
-const PRIMARY_AGENTS: [&str; 3] = ["orchestrator", "gentle-orchestrator", "book-orchestrator"];
+const PRIMARY_AGENTS: [&str; 2] = ["orchestrator", "book-orchestrator"];
 
 /// Minimal frontmatter extraction (description/model) from an agent .md.
 struct AgentFrontmatter {

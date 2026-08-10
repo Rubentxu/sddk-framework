@@ -466,6 +466,138 @@ fn fallback_apply_persists_seed_for_status_without_override() {
 }
 
 #[test]
+fn adoption_initializes_external_knowledge_profile_with_engram_disabled() {
+    let fixture = CliFixture::new("knowledge-adopted");
+    let root = fixture.root.to_str().unwrap();
+    let applied = fixture.run(&[
+        "adopt",
+        "apply",
+        "--root",
+        root,
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/knowledge.git",
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        applied.status.success(),
+        "{}",
+        String::from_utf8_lossy(&applied.stderr)
+    );
+    let applied: serde_json::Value = serde_json::from_slice(&applied.stdout).unwrap();
+    let project_id = applied["project_id"].as_str().unwrap();
+    let expected_vault = fixture.home.join(".sddk-knowledge").join(project_id);
+    assert_eq!(
+        applied["receipt"]["paths"]["vault"],
+        expected_vault.to_str().unwrap()
+    );
+    assert!(expected_vault.is_dir());
+
+    let profile_path = fixture
+        .data
+        .join("sddk/projects")
+        .join(project_id)
+        .join("knowledge-profile.json");
+    let profile: serde_json::Value =
+        serde_json::from_slice(&fs::read(profile_path).unwrap()).unwrap();
+    assert_eq!(profile["engram_enabled"], false);
+    assert_eq!(profile["vault_path"], expected_vault.to_str().unwrap());
+
+    let status = fixture.run(&[
+        "knowledge",
+        "status",
+        "--root",
+        root,
+        "--remote",
+        "https://example.com/acme/knowledge.git",
+        "--format",
+        "json",
+    ]);
+    assert!(status.status.success());
+    let status: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_eq!(status["profile_present"], true);
+    assert_eq!(status["vault_present"], true);
+    assert_eq!(status["engram_enabled"], false);
+}
+
+#[test]
+fn knowledge_profile_preserves_vault_across_checkout_rename() {
+    let fixture = CliFixture::new("knowledge-original");
+    let original = fixture.root.clone();
+    let remote = "https://example.com/acme/stable-knowledge.git";
+    let applied = fixture.run(&[
+        "adopt",
+        "apply",
+        "--root",
+        original.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        remote,
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+    ]);
+    assert!(applied.status.success());
+
+    let configured = fixture.run(&[
+        "knowledge",
+        "configure",
+        "--root",
+        original.to_str().unwrap(),
+        "--remote",
+        remote,
+        "--engram",
+        "enabled",
+        "--format",
+        "json",
+    ]);
+    assert!(configured.status.success());
+    let configured: serde_json::Value = serde_json::from_slice(&configured.stdout).unwrap();
+    assert_eq!(configured["engram_enabled"], true);
+    let original_vault = configured["vault_path"].as_str().unwrap().to_owned();
+
+    let renamed = original.parent().unwrap().join("knowledge-renamed");
+    fs::rename(&original, &renamed).unwrap();
+    let path = fixture.run(&[
+        "knowledge",
+        "path",
+        "--root",
+        renamed.to_str().unwrap(),
+        "--remote",
+        remote,
+        "--format",
+        "json",
+    ]);
+    assert!(path.status.success());
+    let path: serde_json::Value = serde_json::from_slice(&path.stdout).unwrap();
+    assert_eq!(path["vault_path"], original_vault);
+}
+
+#[test]
+fn knowledge_read_requires_a_stable_identity_signal() {
+    let fixture = CliFixture::new("knowledge-unadopted");
+    let output = fixture.run(&[
+        "knowledge",
+        "status",
+        "--root",
+        fixture.root.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("no remote URL and no adoption receipt found")
+    );
+}
+
+#[test]
 fn repair_restores_missing_receipt_and_status_reports_corruption() {
     let fixture = CliFixture::new("adopt-repair");
     let common = [
@@ -1569,10 +1701,14 @@ fn cli_closing_cycle_auto_captures_metrics_record() {
     assert!(receipt.status.success());
     let gate_json: serde_json::Value = serde_json::from_slice(&receipt.stdout).unwrap();
     let receipt_id = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let uat_receipt = evaluate("release.complete", "release-uat-approved", r#"{"ok":true}"#);
+    assert!(uat_receipt.status.success());
+    let gate_json: serde_json::Value = serde_json::from_slice(&uat_receipt.stdout).unwrap();
+    let uat_receipt_id = gate_json["receipt_id"].as_str().unwrap().to_owned();
     let step = transition(
         "release.complete",
         &["merge-receipt=main", "release-receipt=v0.0.1"],
-        &[receipt_id.as_str()],
+        &[receipt_id.as_str(), uat_receipt_id.as_str()],
     );
     assert!(
         step.status.success(),
@@ -2532,7 +2668,7 @@ fn cli_permission_policy_enforces_default_deny() {
         fixture.root.join("permissions.yaml"),
         r#"
 agents:
-  sdd-kernel-apply:
+  sddk-apply:
     phases: [build, verify]
     capabilities: [git.inspect, git.commit]
 "#,
@@ -2570,7 +2706,7 @@ agents:
             "permission",
             "check",
             "--agent",
-            "sdd-kernel-apply",
+            "sddk-apply",
             "--phase",
             "build",
             "--capability",
@@ -2618,7 +2754,7 @@ agents:
             "--program",
             "echo",
             "--agent",
-            "sdd-kernel-apply",
+            "sddk-apply",
             "--phase",
             "build",
             "--timestamp",
@@ -2650,7 +2786,7 @@ agents:
             "ok",
             "--approve",
             "--agent",
-            "sdd-kernel-apply",
+            "sddk-apply",
             "--phase",
             "build",
             "--timestamp",
@@ -3085,18 +3221,23 @@ fn cli_dev_link_doctor_and_framework_checks() {
     )
     .unwrap();
     write(
+        root.join("agents/book-orchestrator.md"),
+        "---\nname: book-orchestrator\ndescription: Test book orchestrator\n---\n# Book Orchestrator\n",
+    );
+    write(
+        root.join("agents/sddk-apply.md"),
+        "---\nname: sddk-apply\ndescription: Test SDDK apply agent\n---\n# Apply\n",
+    );
+    write(
         root.join("permissions.yaml"),
-        "agents:\n  orchestrator:\n    phases: []\n    capabilities: []\n",
+        "agents:\n  orchestrator:\n    phases: []\n    capabilities: []\n  book-orchestrator:\n    phases: []\n    capabilities: []\n  sddk-apply:\n    phases: [build]\n    capabilities: []\n",
     );
     write(root.join("skills/demo/SKILL.md"), "# Demo Skill\n");
     write(
-        root.join("prompts/sdd-kernel/workflows/sddk-a-lite.yaml"),
+        root.join("prompts/sddk/workflows/sddk-a-lite.yaml"),
         "name: a-lite\nversion: 0.1.0\n",
     );
-    write(
-        root.join("prompts/sdd-kernel/phases/apply.md"),
-        "# Apply Phase\n",
-    );
+    write(root.join("prompts/sddk/phases/apply.md"), "# Apply Phase\n");
 
     let opencode_dir = fixture.root.join("opencode");
     let zcode_dir = fixture.root.join("zcode");
@@ -3139,7 +3280,7 @@ fn cli_dev_link_doctor_and_framework_checks() {
     let link_json: serde_json::Value = serde_json::from_slice(&linked.stdout).unwrap();
     let reports = link_json.as_array().unwrap();
     assert_eq!(reports.len(), 2, "one report per editor");
-    assert_eq!(reports[0]["agents_linked"], 1);
+    assert_eq!(reports[0]["agents_linked"], 3);
     assert_eq!(reports[0]["workflows_linked"], 1);
     assert_eq!(
         reports[0]["stale_replaced"], 1,
@@ -3171,6 +3312,9 @@ fn cli_dev_link_doctor_and_framework_checks() {
         format!("{{file:{}}}", root.join("agents/orchestrator.md").display())
     );
     assert_eq!(registered["description"], "Test orchestrator agent");
+    assert_eq!(config["agent"]["book-orchestrator"]["mode"], "primary");
+    assert_eq!(config["agent"]["sddk-apply"]["mode"], "subagent");
+    assert_eq!(config["agent"]["sddk-apply"]["hidden"], true);
     // Local entry untouched.
     assert!(config["agent"]["local-only"].is_object());
 
@@ -3193,7 +3337,7 @@ fn cli_dev_link_doctor_and_framework_checks() {
         String::from_utf8_lossy(&uninstalled.stderr)
     );
     // Uninstall renders text output; verify the entry removal happened on disk.
-    assert!(String::from_utf8_lossy(&uninstalled.stdout).contains("1 entries"));
+    assert!(String::from_utf8_lossy(&uninstalled.stdout).contains("3 entries"));
     let after: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(opencode_dir.join("opencode.json")).unwrap())
             .unwrap();
@@ -3310,7 +3454,7 @@ fn cli_full_runtime_pipeline_dogfood() {
         fixture.root.join("permissions.yaml"),
         r#"
 agents:
-  sdd-kernel-apply:
+  sddk-apply:
     phases: [build, verify]
     capabilities: [git.inspect, git.commit]
 "#,
@@ -3510,7 +3654,7 @@ agents:
             "--arg",
             "ok",
             "--agent",
-            "sdd-kernel-apply",
+            "sddk-apply",
             "--phase",
             "build",
             "--timestamp",
@@ -3684,7 +3828,7 @@ agents:
             "permission",
             "check",
             "--agent",
-            "sdd-kernel-apply",
+            "sddk-apply",
             "--phase",
             "build",
             "--capability",
@@ -3795,6 +3939,7 @@ struct CliFixture {
     data: PathBuf,
     state: PathBuf,
     cache: PathBuf,
+    home: PathBuf,
 }
 
 impl CliFixture {
@@ -3807,6 +3952,7 @@ impl CliFixture {
             data: directory.path().join("data"),
             state: directory.path().join("state"),
             cache: directory.path().join("cache"),
+            home: directory.path().join("home"),
             _directory: directory,
         }
     }
@@ -3815,7 +3961,7 @@ impl CliFixture {
         let mut command = Command::new(env!("CARGO_BIN_EXE_sddk"));
         command
             .args(args)
-            .env_remove("HOME")
+            .env("HOME", &self.home)
             .env("XDG_DATA_HOME", &self.data)
             .env("XDG_STATE_HOME", &self.state)
             .env("XDG_CACHE_HOME", &self.cache);
