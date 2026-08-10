@@ -1,10 +1,11 @@
 name: CI
 
+# MANUAL-ONLY (2026-08-10): SDDK never depends on CI/CD. Validation runs
+# locally (`act`, cargo test, shell contract suites); cloud CI is an optional
+# on-demand check via workflow_dispatch, never a gate.
+
 on:
-  pull_request:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   contents: read

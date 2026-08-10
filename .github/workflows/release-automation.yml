@@ -1,9 +1,8 @@
 name: Release automation
 
-# Fully automatic release robot. Polls every 5 minutes (plus manual
-# dispatch) instead of depending on workflow events, because bot-triggered
-# pushes do not emit push/workflow_run events and CI runs for bot PRs land
-# in action_required. The robot:
+# MANUAL-ONLY (2026-08-10): SDDK never depends on CI/CD. The automatic
+# 5-minute poll was removed; this robot is dispatched explicitly by a human
+# when PR-based release automation is ever wanted again. Original behavior:
 #   1. Approves pending CI runs for release/* PRs (allowed by the repo
 #      setting "Allow GitHub Actions to create and approve pull requests").
 #   2. Ensures auto-merge is enabled for open release PRs so GitHub merges
@@ -18,8 +17,6 @@ name: Release automation
 # exists, and step 4 only acts when the version is ahead of the last tag.
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 permissions:

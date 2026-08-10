@@ -1,9 +1,11 @@
 name: Auto-merge
 
+# MANUAL-ONLY (2026-08-10): SDDK never depends on CI/CD and releases are
+# trunk-based direct to main (no PRs). Auto-merge is inert by design; kept
+# only as an optional manual helper if PR flow is ever re-enabled.
+
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
+  workflow_dispatch:
 
 permissions:
   contents: write

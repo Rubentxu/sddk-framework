@@ -3,11 +3,12 @@ name: Optional tag distribution
 # This workflow consumes an already-pushed release tag. It is not an SDDK
 # release gate: local Git verification of main SHA plus annotated remote tag is
 # authoritative, and this optional distribution may run later or not at all.
+#
+# MANUAL-ONLY (2026-08-10): SDDK never depends on CI/CD. The automatic
+# `push: tags: v*` trigger was removed so no run is ever queued by a release;
+# distribution is triggered explicitly by a human via workflow_dispatch.
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
 
 permissions:
