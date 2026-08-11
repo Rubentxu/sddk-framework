@@ -13,11 +13,11 @@ use crate::{CommandOutput, OutputFormat, dev_cmd, render_result};
 
 use sddk_domain::{
     LATEST_PLAN_SCHEMA_VERSION, UatFeatureRollup, UatHistoryReport, UatIntegrityReport,
-    UatManifest, UatManifestEntry, UatMigrationReport, UatPlan, UatReport, UatReportSummary,
-    UatScenarioRollup, UatSession, UatStalenessChangeKind, UatStalenessDiff,
-    UatStalenessReport, UatStalenessScenario, UatSuggestionsReport, UatVerdict,
-    UatOracleKind, aggregate_history, apply_all_suggestions, evidence_satisfies_spec,
-    migrate_plan_v1_to_v2, sha256_hex, suggest_scenario_context, verify_evidence,
+    UatManifest, UatManifestEntry, UatMigrationReport, UatOracleKind, UatPlan, UatReport,
+    UatReportSummary, UatScenarioRollup, UatSession, UatStalenessChangeKind, UatStalenessDiff,
+    UatStalenessReport, UatStalenessScenario, UatSuggestionsReport, UatVerdict, aggregate_history,
+    apply_all_suggestions, evidence_satisfies_spec, migrate_plan_v1_to_v2, sha256_hex,
+    suggest_scenario_context, verify_evidence,
 };
 
 /// Default view when rendering a dashboard.
@@ -705,7 +705,9 @@ fn run_uat_dashboard(args: UatDashboardArgs, environment: &crate::CliEnvironment
             UatView::Matrix => "matrix",
             UatView::Traceability => "traceability",
         };
-        eprintln!("warning: --view {view_name} is deprecated; use --mode designer|runner|reviewer instead");
+        eprintln!(
+            "warning: --view {view_name} is deprecated; use --mode designer|runner|reviewer instead"
+        );
     }
     let result = (|| -> anyhow::Result<PathBuf> {
         let raw = std::fs::read_to_string(&args.plan)
@@ -733,7 +735,9 @@ fn run_uat_open(args: UatOpenArgs, environment: &crate::CliEnvironment) -> Comma
             UatView::Matrix => "matrix",
             UatView::Traceability => "traceability",
         };
-        eprintln!("warning: --view {view_name} is deprecated; use --mode designer|runner|reviewer instead");
+        eprintln!(
+            "warning: --view {view_name} is deprecated; use --mode designer|runner|reviewer instead"
+        );
     }
     let result = (|| -> anyhow::Result<PathBuf> {
         // Resolve the plan: explicit --plan, or auto-resolve by release tag.
@@ -1356,12 +1360,11 @@ fn run_uat_gate_release(
             // Gate `release-uat-signed` (REQ-RF-028): tras validar el report,
             // exigir acceptance record válido (decision != Rejected).
             let xdg = xdg_from_env(environment);
-            let storage_root =
-                sddk_engine::uat_storage_root(&xdg, &project_id).map_err(|e| {
-                    anyhow::anyhow!("cannot resolve storage root: {e}")
-                })?;
-            let acceptance_path =
-                storage_root.join("acceptances").join(format!("uat-acceptance-{}.yaml", args.tag));
+            let storage_root = sddk_engine::uat_storage_root(&xdg, &project_id)
+                .map_err(|e| anyhow::anyhow!("cannot resolve storage root: {e}"))?;
+            let acceptance_path = storage_root
+                .join("acceptances")
+                .join(format!("uat-acceptance-{}.yaml", args.tag));
             let _signed_record = if acceptance_path.exists() {
                 Some(validate_acceptance_record(&acceptance_path)?)
             } else {
@@ -1481,9 +1484,8 @@ fn validate_release_report(report: &UatReport, tag: &str) -> anyhow::Result<()> 
 fn validate_acceptance_record(path: &Path) -> anyhow::Result<sddk_domain::UatAcceptanceRecord> {
     let raw = std::fs::read_to_string(path)
         .map_err(|e| anyhow::anyhow!("cannot read acceptance record {}: {e}", path.display()))?;
-    let record: sddk_domain::UatAcceptanceRecord =
-        serde_saphyr::from_str(&raw)
-            .map_err(|e| anyhow::anyhow!("invalid acceptance record {}: {e}", path.display()))?;
+    let record: sddk_domain::UatAcceptanceRecord = serde_saphyr::from_str(&raw)
+        .map_err(|e| anyhow::anyhow!("invalid acceptance record {}: {e}", path.display()))?;
     let errors = sddk_domain::UatAcceptanceRecord::validate(&record);
     if !errors.is_empty() {
         anyhow::bail!("acceptance record validation failed: {}", errors.join("; "));
@@ -1503,11 +1505,7 @@ fn sha256_of_file(path: &Path) -> anyhow::Result<String> {
 /// Compute evidence_snapshot_sha256 from a manifest: sorted concatenation
 /// of all entry sha256 digests, then hashed (REQ-RF-028).
 fn evidence_snapshot_sha256(manifest: &UatManifest) -> String {
-    let mut digests: Vec<&str> = manifest
-        .entries
-        .iter()
-        .map(|e| e.sha256.as_str())
-        .collect();
+    let mut digests: Vec<&str> = manifest.entries.iter().map(|e| e.sha256.as_str()).collect();
     digests.sort();
     let combined: String = digests.join("");
     let bytes = combined.as_bytes();
@@ -1536,7 +1534,10 @@ fn run_uat_signoff(args: UatSignOffArgs, environment: &crate::CliEnvironment) ->
 
         // Resolve session directory and look for a manifest there.
         let session_dir = args.session_dir.clone().unwrap_or_else(|| {
-            plan_path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf()
+            plan_path
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .to_path_buf()
         });
         // Try common manifest filenames.
         let manifest_path = {
@@ -1649,10 +1650,8 @@ fn run_uat_stale(args: UatStaleArgs, _environment: &crate::CliEnvironment) -> Co
         };
 
         // 4. Run Playwright to capture current geometry.
-        let evidence_dir_path = std::env::temp_dir().join(format!(
-            "sddk-stale-{}",
-            std::process::id()
-        ));
+        let evidence_dir_path =
+            std::env::temp_dir().join(format!("sddk-stale-{}", std::process::id()));
         std::fs::create_dir_all(&evidence_dir_path)?;
         let geo_file = evidence_dir_path.join("geometry-selectors.json");
         std::fs::write(&geo_file, serde_json::to_string(&selectors)?)?;
@@ -1669,9 +1668,8 @@ fn run_uat_stale(args: UatStaleArgs, _environment: &crate::CliEnvironment) -> Co
             output_dir: evidence_dir_path.clone(),
             timeout_ms: 30_000,
         };
-        let _outcome =
-            sddk_gateway::run_playwright(&pw_spec, None, None)
-                .map_err(|e| anyhow::anyhow!("playwright run failed: {e}"))?;
+        let _outcome = sddk_gateway::run_playwright(&pw_spec, None, None)
+            .map_err(|e| anyhow::anyhow!("playwright run failed: {e}"))?;
 
         // 5. Load current geometry.
         let current_geometry_path = evidence_dir_path.join("geometry.json");
@@ -2535,7 +2533,10 @@ justification: "LGTM"
 "#;
         std::fs::write(&path, content).unwrap();
         let record = validate_acceptance_record(&path).unwrap();
-        assert_eq!(record.decision, sddk_domain::UatAcceptanceDecision::Accepted);
+        assert_eq!(
+            record.decision,
+            sddk_domain::UatAcceptanceDecision::Accepted
+        );
     }
 
     #[test]
@@ -2553,7 +2554,11 @@ justification: "Not ready"
 "#;
         std::fs::write(&path, content).unwrap();
         let err = validate_acceptance_record(&path).unwrap_err();
-        assert!(err.to_string().contains("REJECTED"), "expected REJECTED error, got: {}", err);
+        assert!(
+            err.to_string().contains("REJECTED"),
+            "expected REJECTED error, got: {}",
+            err
+        );
     }
 
     #[test]
@@ -2561,7 +2566,11 @@ justification: "Not ready"
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nonexistent.yaml");
         let err = validate_acceptance_record(&path).unwrap_err();
-        assert!(err.to_string().contains("cannot read"), "expected read error, got: {}", err);
+        assert!(
+            err.to_string().contains("cannot read"),
+            "expected read error, got: {}",
+            err
+        );
     }
 }
 
@@ -4387,13 +4396,17 @@ entries:
             .join("projects")
             .join("test-project")
             .join("uat");
-        let acceptance_file = storage_root.join("acceptances").join("uat-acceptance-v1.9.0.yaml");
+        let acceptance_file = storage_root
+            .join("acceptances")
+            .join("uat-acceptance-v1.9.0.yaml");
         let raw = std::fs::read_to_string(&acceptance_file).unwrap();
 
         // Verify the record structure.
-        let record: sddk_domain::UatAcceptanceRecord =
-            serde_saphyr::from_str(&raw).unwrap();
-        assert_eq!(record.decision, sddk_domain::UatAcceptanceDecision::Accepted);
+        let record: sddk_domain::UatAcceptanceRecord = serde_saphyr::from_str(&raw).unwrap();
+        assert_eq!(
+            record.decision,
+            sddk_domain::UatAcceptanceDecision::Accepted
+        );
         assert_eq!(record.actor, "user:421");
         assert_eq!(record.justification, "LGTM");
         assert!(record.plan_version_sha256.starts_with("sha256:"));
@@ -4573,21 +4586,15 @@ features:
             let _ = s.kill();
         }
 
-        assert_eq!(
-            out.status, 0,
-            "command failed: {}",
-            out.stderr
-        );
+        assert_eq!(out.status, 0, "command failed: {}", out.stderr);
 
         // Parse report from stdout.
-        let report: sddk_domain::UatStalenessReport =
-            serde_saphyr::from_str(&out.stdout).unwrap();
+        let report: sddk_domain::UatStalenessReport = serde_saphyr::from_str(&out.stdout).unwrap();
         assert_eq!(report.release, "v1.0.0");
         assert!(!report.assessed_at.is_empty());
         // Current geometry differs from previous → affected_scenarios non-empty.
         assert!(
-            !report.affected_scenarios.is_empty()
-                || !report.fingerprint_diffs.is_empty(),
+            !report.affected_scenarios.is_empty() || !report.fingerprint_diffs.is_empty(),
             "expected stale detection for changed geometry"
         );
     }
@@ -4626,8 +4633,7 @@ features:
         let out = run_uat_stale(args, &env);
         // No selectors → should still succeed but report empty.
         assert_eq!(out.status, 0, "stderr: {}", out.stderr);
-        let report: sddk_domain::UatStalenessReport =
-            serde_saphyr::from_str(&out.stdout).unwrap();
+        let report: sddk_domain::UatStalenessReport = serde_saphyr::from_str(&out.stdout).unwrap();
         assert!(report.affected_scenarios.is_empty());
         assert!(report.fingerprint_diffs.is_empty());
     }
@@ -4798,9 +4804,27 @@ mod uat_mode_tests {
     /// UatRunnerMode variants have correct names via ValueEnum.
     #[test]
     fn runner_mode_enum_values() {
-        assert_eq!(UatRunnerMode::Designer.to_possible_value().unwrap().get_name(), "designer");
-        assert_eq!(UatRunnerMode::Runner.to_possible_value().unwrap().get_name(), "runner");
-        assert_eq!(UatRunnerMode::Reviewer.to_possible_value().unwrap().get_name(), "reviewer");
+        assert_eq!(
+            UatRunnerMode::Designer
+                .to_possible_value()
+                .unwrap()
+                .get_name(),
+            "designer"
+        );
+        assert_eq!(
+            UatRunnerMode::Runner
+                .to_possible_value()
+                .unwrap()
+                .get_name(),
+            "runner"
+        );
+        assert_eq!(
+            UatRunnerMode::Reviewer
+                .to_possible_value()
+                .unwrap()
+                .get_name(),
+            "reviewer"
+        );
     }
 
     /// Default mode in UatDashboardArgs is Runner.
@@ -4960,10 +4984,11 @@ entries:
             .join("projects")
             .join("test-project")
             .join("uat");
-        let acceptance_file = storage_root.join("acceptances").join("uat-acceptance-v1.9.0.yaml");
+        let acceptance_file = storage_root
+            .join("acceptances")
+            .join("uat-acceptance-v1.9.0.yaml");
         let raw_v1 = std::fs::read_to_string(&acceptance_file).unwrap();
-        let record_v1: sddk_domain::UatAcceptanceRecord =
-            serde_saphyr::from_str(&raw_v1).unwrap();
+        let record_v1: sddk_domain::UatAcceptanceRecord = serde_saphyr::from_str(&raw_v1).unwrap();
         let sha256_v1 = record_v1.plan_version_sha256.clone();
 
         // Plan v2 (different content).
@@ -4998,8 +5023,7 @@ features:
 
         // Read v2 record — sha256 should be different from v1.
         let raw_v2 = std::fs::read_to_string(&acceptance_file).unwrap();
-        let record_v2: sddk_domain::UatAcceptanceRecord =
-            serde_saphyr::from_str(&raw_v2).unwrap();
+        let record_v2: sddk_domain::UatAcceptanceRecord = serde_saphyr::from_str(&raw_v2).unwrap();
 
         // sha256 changed because plan content changed.
         assert_ne!(
@@ -5061,7 +5085,9 @@ features:
             .join("projects")
             .join("test-project")
             .join("uat");
-        let acceptance_file = storage_root.join("acceptances").join("uat-acceptance-v1.9.0.yaml");
+        let acceptance_file = storage_root
+            .join("acceptances")
+            .join("uat-acceptance-v1.9.0.yaml");
         let record_v1: sddk_domain::UatAcceptanceRecord =
             serde_saphyr::from_str(&std::fs::read_to_string(&acceptance_file).unwrap()).unwrap();
         let sha256_v1 = record_v1.plan_version_sha256.clone();

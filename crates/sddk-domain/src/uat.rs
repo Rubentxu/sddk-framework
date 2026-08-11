@@ -1275,13 +1275,19 @@ pub fn validate_form_dsl(spec: &UatFormSpec) -> Vec<String> {
         .collect();
 
     // For targets that don't resolve via explicit id, try position-based fallback.
-    fn resolve_target(target: &str, items: &[UatFormItem], id_to_pos: &std::collections::HashMap<&str, usize>) -> Option<usize> {
+    fn resolve_target(
+        target: &str,
+        items: &[UatFormItem],
+        id_to_pos: &std::collections::HashMap<&str, usize>,
+    ) -> Option<usize> {
         // First try explicit id index
         if let Some(&pos) = id_to_pos.get(target) {
             return Some(pos);
         }
         // Then try position as string
-        if let Ok(pos) = target.parse::<usize>() && pos < items.len() {
+        if let Ok(pos) = target.parse::<usize>()
+            && pos < items.len()
+        {
             return Some(pos);
         }
         None
@@ -1347,7 +1353,11 @@ pub fn validate_form_dsl(spec: &UatFormSpec) -> Vec<String> {
 
     // Completion policy validation.
     if let Some(ref completion) = spec.completion {
-        errors.extend(UatCompletionPolicy::validate(completion).into_iter().map(|e| format!("completion: {e}")));
+        errors.extend(
+            UatCompletionPolicy::validate(completion)
+                .into_iter()
+                .map(|e| format!("completion: {e}")),
+        );
     }
 
     // Branching referencial: every goto target must resolve to an existing item.
@@ -1414,7 +1424,14 @@ pub fn validate_form_dsl(spec: &UatFormSpec) -> Vec<String> {
 
     for start in 0..n {
         if color[start] == 0 {
-            dfs(start, &spec.items, &id_to_pos, &mut color, &mut cycle_path, &mut errors);
+            dfs(
+                start,
+                &spec.items,
+                &id_to_pos,
+                &mut color,
+                &mut cycle_path,
+                &mut errors,
+            );
         }
     }
 
@@ -4057,7 +4074,10 @@ mod guided_runner_f13_domain_tests {
 
     #[test]
     fn uat_completion_policy_mode_all() {
-        let policy = UatCompletionPolicy { mode: UatCompletionMode::All, threshold: None };
+        let policy = UatCompletionPolicy {
+            mode: UatCompletionMode::All,
+            threshold: None,
+        };
         let yaml = serde_saphyr::to_string(&policy).unwrap();
         assert!(yaml.contains("all"));
         let round: UatCompletionPolicy = serde_saphyr::from_str(&yaml).unwrap();
@@ -4066,7 +4086,10 @@ mod guided_runner_f13_domain_tests {
 
     #[test]
     fn uat_completion_policy_mode_majority_with_threshold() {
-        let policy = UatCompletionPolicy { mode: UatCompletionMode::Majority, threshold: Some(5) };
+        let policy = UatCompletionPolicy {
+            mode: UatCompletionMode::Majority,
+            threshold: Some(5),
+        };
         let json = serde_json::to_string(&policy).unwrap();
         assert!(json.contains("majority"));
         let round: UatCompletionPolicy = serde_json::from_str(&json).unwrap();
@@ -4077,13 +4100,19 @@ mod guided_runner_f13_domain_tests {
     #[test]
     fn uat_completion_policy_threshold_bounds() {
         // threshold 0 is invalid (must be 1..n)
-        let policy = UatCompletionPolicy { mode: UatCompletionMode::Majority, threshold: Some(0) };
+        let policy = UatCompletionPolicy {
+            mode: UatCompletionMode::Majority,
+            threshold: Some(0),
+        };
         let errors = UatCompletionPolicy::validate(&policy);
         assert!(!errors.is_empty());
         assert!(errors[0].contains("threshold"));
 
         // threshold 1 is valid
-        let policy = UatCompletionPolicy { mode: UatCompletionMode::Majority, threshold: Some(1) };
+        let policy = UatCompletionPolicy {
+            mode: UatCompletionMode::Majority,
+            threshold: Some(1),
+        };
         assert!(UatCompletionPolicy::validate(&policy).is_empty());
     }
 
@@ -4242,26 +4271,22 @@ mod guided_runner_f13_domain_tests {
         let report = UatStalenessReport {
             release: "v1.9.0".into(),
             assessed_at: "2026-08-11T12:00:00Z".into(),
-            affected_scenarios: vec![
-                UatStalenessScenario {
-                    scenario_id: "S-1".into(),
-                    checkpoint_id: None,
-                    selector: Some("button#submit".into()),
-                    text_content: Some("Submit".into()),
-                    previous_fingerprint: "fp-v1".into(),
-                    current_fingerprint: "fp-v2".into(),
-                    change_kind: UatStalenessChangeKind::SelectorChanged,
-                },
-            ],
-            fingerprint_diffs: vec![
-                UatStalenessDiff {
-                    scenario_id: "S-2".into(),
-                    checkpoint_id: Some("cp-1".into()),
-                    field: "selector".into(),
-                    previous: "div.old".into(),
-                    current: "div.new".into(),
-                },
-            ],
+            affected_scenarios: vec![UatStalenessScenario {
+                scenario_id: "S-1".into(),
+                checkpoint_id: None,
+                selector: Some("button#submit".into()),
+                text_content: Some("Submit".into()),
+                previous_fingerprint: "fp-v1".into(),
+                current_fingerprint: "fp-v2".into(),
+                change_kind: UatStalenessChangeKind::SelectorChanged,
+            }],
+            fingerprint_diffs: vec![UatStalenessDiff {
+                scenario_id: "S-2".into(),
+                checkpoint_id: Some("cp-1".into()),
+                field: "selector".into(),
+                previous: "div.old".into(),
+                current: "div.new".into(),
+            }],
         };
         let yaml = serde_saphyr::to_string(&report).unwrap();
         assert!(yaml.contains("v1.9.0"));
@@ -4417,7 +4442,11 @@ items:
         .unwrap();
         let errors = validate_form_dsl(&spec);
         assert!(!errors.is_empty());
-        assert!(errors.iter().any(|e| e.contains("nonexistent-id") && e.contains("goto")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.contains("nonexistent-id") && e.contains("goto"))
+        );
     }
 
     #[test]
@@ -4444,7 +4473,12 @@ items:
         .unwrap();
         let errors = validate_form_dsl(&spec);
         assert!(!errors.is_empty());
-        assert!(errors.iter().any(|e| e.contains("cycle") || e.contains("cyclic")), "expected cycle error, got: {errors:?}");
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.contains("cycle") || e.contains("cyclic")),
+            "expected cycle error, got: {errors:?}"
+        );
     }
 
     #[test]
@@ -4479,7 +4513,10 @@ completion:
         )
         .unwrap();
         let errors = validate_form_dsl(&spec);
-        assert!(errors.is_empty(), "majority with threshold should be valid: {errors:?}");
+        assert!(
+            errors.is_empty(),
+            "majority with threshold should be valid: {errors:?}"
+        );
     }
 
     #[test]
