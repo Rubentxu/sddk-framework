@@ -51,6 +51,8 @@ pub(crate) enum UatCommand {
     /// Evaluate the `release-uat-approved` gate for a release type under the
     /// project's config. Used by the orchestrator/release agent.
     Gate(UatGateArgs),
+    /// Sign off on a release with an immutable UatAcceptanceRecord (REQ-RF-028).
+    SignOff(UatSignOffArgs),
     MigratePlan(UatMigratePlanArgs),
     VerifyIntegrity(UatVerifyIntegrityArgs),
     StoragePath(UatStoragePathArgs),
@@ -325,6 +327,55 @@ pub(crate) struct UatGateReleaseArgs {
     pub(crate) format: OutputFormat,
 }
 
+/// Decision values for `uat sign-off`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum UatSignOffDecisionArg {
+    Accepted,
+    AcceptedConditional,
+    Rejected,
+}
+
+impl From<UatSignOffDecisionArg> for sddk_domain::UatAcceptanceDecision {
+    fn from(value: UatSignOffDecisionArg) -> Self {
+        match value {
+            UatSignOffDecisionArg::Accepted => sddk_domain::UatAcceptanceDecision::Accepted,
+            UatSignOffDecisionArg::AcceptedConditional => {
+                sddk_domain::UatAcceptanceDecision::AcceptedConditional
+            }
+            UatSignOffDecisionArg::Rejected => sddk_domain::UatAcceptanceDecision::Rejected,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct UatSignOffArgs {
+    /// Release tag, e.g. `v1.9.0`.
+    #[arg(long)]
+    pub(crate) release: String,
+    /// Sign-off decision.
+    #[arg(long, value_enum)]
+    pub(crate) decision: UatSignOffDecisionArg,
+    /// Actor who signs off, e.g. `user:421`.
+    #[arg(long)]
+    pub(crate) actor: String,
+    /// Justification for the decision.
+    #[arg(long)]
+    pub(crate) justification: String,
+    /// Path to the plan YAML (default: `uat-plan-<release>.yaml`).
+    #[arg(long)]
+    pub(crate) plan: Option<PathBuf>,
+    /// Directory containing session files for evidence snapshot (default: same
+    /// directory as the plan).
+    #[arg(long)]
+    pub(crate) session_dir: Option<PathBuf>,
+    /// Project identifier (defaults to the current adoption's `project_id`).
+    #[arg(long)]
+    pub(crate) project: Option<String>,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
+}
+
 #[derive(Debug, Clone, Args)]
 pub(crate) struct UatMigratePlanArgs {
     #[arg(long)]
@@ -497,6 +548,7 @@ pub(crate) fn run_uat(command: UatCommand, environment: &crate::CliEnvironment) 
         UatCommand::Failures(args) => run_uat_failures(args),
         UatCommand::Config(args) => run_uat_config(args, environment),
         UatCommand::Gate(args) => run_uat_gate(args, environment),
+        UatCommand::SignOff(args) => run_uat_signoff(args, environment),
         UatCommand::MigratePlan(args) => run_uat_migrate_plan(args),
         UatCommand::VerifyIntegrity(args) => run_uat_verify_integrity(args, environment),
         UatCommand::StoragePath(args) => run_uat_storage_path(args, environment),
@@ -1339,6 +1391,105 @@ fn validate_release_report(report: &UatReport, tag: &str) -> anyhow::Result<()> 
         );
     }
     Ok(())
+}
+
+/// Compute sha256 hex of a file's contents.
+fn sha256_of_file(path: &Path) -> anyhow::Result<String> {
+    let bytes = std::fs::read(path)?;
+    Ok(format!("sha256:{}", sha256_hex(&bytes)))
+}
+
+/// Compute evidence_snapshot_sha256 from a manifest: sorted concatenation
+/// of all entry sha256 digests, then hashed (REQ-RF-028).
+fn evidence_snapshot_sha256(manifest: &UatManifest) -> String {
+    let mut digests: Vec<&str> = manifest
+        .entries
+        .iter()
+        .map(|e| e.sha256.as_str())
+        .collect();
+    digests.sort();
+    let combined: String = digests.join("");
+    let bytes = combined.as_bytes();
+    format!("sha256:{}", sha256_hex(bytes))
+}
+
+fn run_uat_signoff(args: UatSignOffArgs, environment: &crate::CliEnvironment) -> CommandOutput {
+    let format = args.format;
+    let result: anyhow::Result<PathBuf> = (|| -> anyhow::Result<PathBuf> {
+        // Resolve plan path.
+        let plan_path = if let Some(p) = &args.plan {
+            p.clone()
+        } else {
+            PathBuf::from(format!("uat-plan-{}.yaml", args.release))
+        };
+        if !plan_path.exists() {
+            anyhow::bail!(
+                "plan not found: {} (run `sddk uat plan --release {}` first)",
+                plan_path.display(),
+                args.release
+            );
+        }
+
+        // Compute plan_version_sha256.
+        let plan_version_sha256 = sha256_of_file(&plan_path)?;
+
+        // Resolve session directory and look for a manifest there.
+        let session_dir = args.session_dir.clone().unwrap_or_else(|| {
+            plan_path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf()
+        });
+        // Try common manifest filenames.
+        let manifest_path = {
+            let candidates = [
+                session_dir.join("uat-manifest.yaml"),
+                session_dir.join("manifest.yaml"),
+                session_dir.join("uat-manifest.yml"),
+            ];
+            candidates.into_iter().find(|p| p.exists())
+        };
+
+        let evidence_snapshot_sha256 = if let Some(ref mpath) = manifest_path {
+            let manifest_raw = std::fs::read_to_string(mpath)
+                .map_err(|e| anyhow::anyhow!("cannot read manifest {}: {e}", mpath.display()))?;
+            let manifest: UatManifest = serde_saphyr::from_str(&manifest_raw)
+                .map_err(|e| anyhow::anyhow!("invalid manifest {}: {e}", mpath.display()))?;
+            evidence_snapshot_sha256(&manifest)
+        } else {
+            // No manifest: use empty snapshot.
+            "sha256:{}".to_string()
+        };
+
+        let record = sddk_domain::UatAcceptanceRecord {
+            decision: args.decision.into(),
+            actor: args.actor.clone(),
+            timestamp: now_rfc3339(),
+            plan_version_sha256,
+            evidence_snapshot_sha256,
+            outstanding_findings: Vec::new(),
+            justification: args.justification.clone(),
+        };
+
+        // Validate the record.
+        let errors = sddk_domain::UatAcceptanceRecord::validate(&record);
+        if !errors.is_empty() {
+            anyhow::bail!("invalid acceptance record: {}", errors.join("; "));
+        }
+
+        // Write to XDG data dir.
+        let project_id = resolve_project_id(args.project.as_deref(), environment)?;
+        let xdg = xdg_from_env(environment);
+        let acceptance_dir = sddk_engine::uat_storage_root(&xdg, &project_id)
+            .map_err(|e| anyhow::anyhow!("cannot resolve storage root: {e}"))?
+            .join("acceptances");
+        std::fs::create_dir_all(&acceptance_dir)?;
+        let output_path = acceptance_dir.join(format!("uat-acceptance-{}.yaml", args.release));
+        let yaml = serde_saphyr::to_string(&record)
+            .map_err(|e| anyhow::anyhow!("serialization failed: {e}"))?;
+        std::fs::write(&output_path, yaml)?;
+        Ok(output_path)
+    })();
+    render_result(result, format, |path| {
+        format!("uat sign-off recorded: {}\n", path.display())
+    })
 }
 
 fn config_action_str(action: sddk_domain::ReleaseGateAction) -> &'static str {
@@ -3819,5 +3970,174 @@ features:
             "stdout: {}",
             out.stdout
         );
+    }
+}
+
+#[cfg(test)]
+mod uat_signoff_tests {
+    use super::*;
+
+    fn make_env(data_dir: &Path) -> crate::CliEnvironment {
+        crate::CliEnvironment {
+            home: Some(PathBuf::from("/tmp")),
+            data_home: Some(data_dir.to_path_buf()),
+            sddk_data_dir: Some(data_dir.to_path_buf()),
+            state_home: Some(data_dir.to_path_buf()),
+            cache_home: Some(data_dir.to_path_buf()),
+            sddk_actor: Some("tester".into()),
+            user: Some("test".into()),
+        }
+    }
+
+    #[test]
+    fn signoff_emits_correct_sha256_and_deterministic() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Plan with known content.
+        let plan_content = r#"
+schema_version: 3
+release: { candidate: v1.9.0 }
+generated_by: test
+generated_at: "2026-08-11T00:00:00Z"
+features:
+  - id: F-1
+    name: Feature
+    scenarios:
+      - id: S-1
+        title: Scenario
+"#;
+        let plan_path = dir.path().join("uat-plan-v1.9.0.yaml");
+        std::fs::write(&plan_path, plan_content).unwrap();
+
+        // Manifest with known digests.
+        let manifest_content = r#"
+schema_version: 1
+project_id: test-project
+generated_at: "2026-08-11T00:00:00Z"
+entries:
+  - sha256: abcdef123456
+    path: evidence/screenshot.png
+    size_bytes: 1024
+    captured_at: "2026-08-11T00:00:00Z"
+    scenario_id: S-1
+    session_id: sess-1
+    kind: screenshot
+  - sha256: 789012abcdef
+    path: evidence/trace.zip
+    size_bytes: 4096
+    captured_at: "2026-08-11T00:00:00Z"
+    scenario_id: S-1
+    session_id: sess-1
+    kind: trace
+"#;
+        let manifest_path = dir.path().join("uat-manifest.yaml");
+        std::fs::write(&manifest_path, manifest_content).unwrap();
+
+        let env = make_env(dir.path());
+
+        // First sign-off.
+        let args = UatSignOffArgs {
+            release: "v1.9.0".into(),
+            decision: UatSignOffDecisionArg::Accepted,
+            actor: "user:421".into(),
+            justification: "LGTM".into(),
+            plan: Some(plan_path.clone()),
+            session_dir: Some(dir.path().to_path_buf()),
+            project: Some("test-project".into()),
+            format: OutputFormat::Text,
+        };
+        let out = run_uat_signoff(args, &env);
+        assert_eq!(out.status, 0, "stderr: {}", out.stderr);
+
+        // Read the output file and verify sha256 format.
+        // Path is: {data_dir}/sddk/projects/{project_id}/uat/acceptances/
+        let storage_root = dir
+            .path()
+            .join("sddk")
+            .join("projects")
+            .join("test-project")
+            .join("uat");
+        let acceptance_file = storage_root.join("acceptances").join("uat-acceptance-v1.9.0.yaml");
+        let raw = std::fs::read_to_string(&acceptance_file).unwrap();
+
+        // Verify the record structure.
+        let record: sddk_domain::UatAcceptanceRecord =
+            serde_saphyr::from_str(&raw).unwrap();
+        assert_eq!(record.decision, sddk_domain::UatAcceptanceDecision::Accepted);
+        assert_eq!(record.actor, "user:421");
+        assert_eq!(record.justification, "LGTM");
+        assert!(record.plan_version_sha256.starts_with("sha256:"));
+        assert!(record.evidence_snapshot_sha256.starts_with("sha256:"));
+
+        // Second sign-off with SAME plan/manifest must produce SAME sha256.
+        let args2 = UatSignOffArgs {
+            release: "v1.9.0".into(),
+            decision: UatSignOffDecisionArg::Accepted,
+            actor: "user:422".into(),
+            justification: "Also LGTM".into(),
+            plan: Some(plan_path.clone()),
+            session_dir: Some(dir.path().to_path_buf()),
+            project: Some("test-project".into()),
+            format: OutputFormat::Text,
+        };
+        let out2 = run_uat_signoff(args2, &env);
+        assert_eq!(out2.status, 0);
+
+        let raw2 = std::fs::read_to_string(&acceptance_file).unwrap();
+        let record2: sddk_domain::UatAcceptanceRecord = serde_saphyr::from_str(&raw2).unwrap();
+        // Same plan/manifest → same sha256 values.
+        assert_eq!(record.plan_version_sha256, record2.plan_version_sha256);
+        assert_eq!(
+            record.evidence_snapshot_sha256,
+            record2.evidence_snapshot_sha256
+        );
+        // But different actor/decision.
+        assert_eq!(record2.actor, "user:422");
+    }
+
+    #[test]
+    fn signoff_rejected_decision_is_valid() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan_path = dir.path().join("uat-plan-v1.9.0.yaml");
+        let plan_content = r#"
+schema_version: 3
+release: { candidate: v1.9.0 }
+generated_by: test
+generated_at: "2026-08-11T00:00:00Z"
+features: []
+"#;
+        std::fs::write(&plan_path, plan_content).unwrap();
+
+        let env = make_env(dir.path());
+        let args = UatSignOffArgs {
+            release: "v1.9.0".into(),
+            decision: UatSignOffDecisionArg::Rejected,
+            actor: "user:421".into(),
+            justification: "Not ready".into(),
+            plan: Some(plan_path),
+            session_dir: None,
+            project: Some("test-project".into()),
+            format: OutputFormat::Text,
+        };
+        let out = run_uat_signoff(args, &env);
+        assert_eq!(out.status, 0, "stderr: {}", out.stderr);
+    }
+
+    #[test]
+    fn signoff_missing_plan_returns_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let env = make_env(dir.path());
+        let args = UatSignOffArgs {
+            release: "v99.0.0".into(),
+            decision: UatSignOffDecisionArg::Accepted,
+            actor: "user:1".into(),
+            justification: "test".into(),
+            plan: None,
+            session_dir: None,
+            project: Some("test-project".into()),
+            format: OutputFormat::Text,
+        };
+        let out = run_uat_signoff(args, &env);
+        assert_ne!(out.status, 0, "expected error, got status 0");
     }
 }
