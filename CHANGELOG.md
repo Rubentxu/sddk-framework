@@ -3,6 +3,14 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.1] - 2026-08-11
+
+Cosmetic fixes and documentation improvements from post-release cleanup.
+
+### Other
+  - chore(docs): bootstrap.sh — rename `SHARED_DIR` → `SDDK_FRAMEWORK_ROOT` for clarity; the variable always pointed to the CWD but the name was misleading
+  - docs(sdk): add "resolved state" section to SPEC.md documenting the 2026-08-08 elimination of `~/.sddk-shared/` and current verified state
+
 ## [1.9.0] - 2026-08-11
 
 Guided Runner UX (F13, M-002): a human-governed UAT flow with immutable sign-off, stale advisories, blind checks, evidence gates, checkpoints, diagnostics, and designer/runner/reviewer modes. Minor bump for the new RF-024..028 capabilities, 13 domain types, and plan schema v4.

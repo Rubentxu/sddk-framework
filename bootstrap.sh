@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-SHARED_DIR="${SDDK_SHARED_DIR:-$(cd "$(dirname "$0")" && pwd)}"
+SDDK_FRAMEWORK_ROOT="${SDDK_FRAMEWORK_ROOT:-$(cd "$(dirname "$0")" && pwd)}"
 ZCODE_DIR="${ZCODE_DIR:-$HOME/.zcode}"
 OPENCODE_DIR="${OPENCODE_DIR:-$HOME/.config/opencode}"
 
@@ -41,7 +41,7 @@ detect_editors() {
 link_zcode() {
     info "Linking ZCode agents..."
     mkdir -p "$ZCODE_DIR/agents"
-    for f in "$SHARED_DIR"/agents/*.md; do
+    for f in "$SDDK_FRAMEWORK_ROOT"/agents/*.md; do
         name=$(basename "$f")
         target="$ZCODE_DIR/agents/$name"
         ln -sf "$f" "$target"
@@ -50,7 +50,7 @@ link_zcode() {
 
     info "Linking ZCode skills..."
     mkdir -p "$ZCODE_DIR/skills"
-    for d in "$SHARED_DIR"/skills/*/; do
+    for d in "$SDDK_FRAMEWORK_ROOT"/skills/*/; do
         name=$(basename "$d")
         target="$ZCODE_DIR/skills/$name"
         ln -sfn "$d" "$target"
@@ -63,7 +63,7 @@ link_zcode() {
 link_opencode() {
     info "Linking OpenCode skills..."
     mkdir -p "$OPENCODE_DIR/skills"
-    for d in "$SHARED_DIR"/skills/*/; do
+    for d in "$SDDK_FRAMEWORK_ROOT"/skills/*/; do
         name=$(basename "$d")
         target="$OPENCODE_DIR/skills/$name"
         ln -sfn "$d" "$target"
@@ -71,7 +71,7 @@ link_opencode() {
     info "Linked $(ls -d "$OPENCODE_DIR/skills"/*/ 2>/dev/null | wc -l) skills"
 
     # Link BOOK-*.md top-level (where consumers expect them)
-    for f in "$SHARED_DIR"/skills/BOOK-*.md; do
+    for f in "$SDDK_FRAMEWORK_ROOT"/skills/BOOK-*.md; do
         [ -f "$f" ] || continue
         name=$(basename "$f")
         target="$OPENCODE_DIR/skills/$name"
@@ -80,7 +80,7 @@ link_opencode() {
 
     info "Linking OpenCode agents..."
     mkdir -p "$OPENCODE_DIR/agents"
-    for f in "$SHARED_DIR"/agents/*.md; do
+    for f in "$SDDK_FRAMEWORK_ROOT"/agents/*.md; do
         name=$(basename "$f")
         target="$OPENCODE_DIR/agents/$name"
         ln -sf "$f" "$target"
@@ -90,22 +90,22 @@ link_opencode() {
     info "Linking OpenCode prompts (sddk)..."
     mkdir -p "$OPENCODE_DIR/prompts/sddk"
     # Link phase specs and docs
-    for f in "$SHARED_DIR"/prompts/sddk/*.md; do
+    for f in "$SDDK_FRAMEWORK_ROOT"/prompts/sddk/*.md; do
         name=$(basename "$f")
         target="$OPENCODE_DIR/prompts/sddk/$name"
         ln -sf "$f" "$target"
     done
     # Link phase specs subdirectory
     mkdir -p "$OPENCODE_DIR/prompts/sddk/phases"
-    for f in "$SHARED_DIR"/prompts/sddk/phases/*.md; do
+    for f in "$SDDK_FRAMEWORK_ROOT"/prompts/sddk/phases/*.md; do
         name=$(basename "$f")
         target="$OPENCODE_DIR/prompts/sddk/phases/$name"
         ln -sf "$f" "$target"
     done
     # Link templates subdirectory
-    if [ -d "$SHARED_DIR/prompts/sddk/templates" ]; then
+    if [ -d "$SDDK_FRAMEWORK_ROOT/prompts/sddk/templates" ]; then
         mkdir -p "$OPENCODE_DIR/prompts/sddk/templates"
-        for f in "$SHARED_DIR"/prompts/sddk/templates/*; do
+        for f in "$SDDK_FRAMEWORK_ROOT"/prompts/sddk/templates/*; do
             name=$(basename "$f")
             target="$OPENCODE_DIR/prompts/sddk/templates/$name"
             ln -sf "$f" "$target"
@@ -114,13 +114,13 @@ link_opencode() {
     info "Linked sddk prompts"
 
     info "OpenCode agents linked to: $OPENCODE_DIR/agents/"
-    info "Register agents in opencode.json with: {file: \"$SHARED_DIR/agents/<name>.md\"}"
+    info "Register agents in opencode.json with: {file: \"$SDDK_FRAMEWORK_ROOT/agents/<name>.md\"}"
 }
 
 # --- Knowledge vault setup ---
 
 setup_knowledge_base() {
-    info "Knowledge graph template is at: $SHARED_DIR/knowledge-template/"
+    info "Knowledge graph template is at: $SDDK_FRAMEWORK_ROOT/knowledge-template/"
     info "Per-project vaults will be created at: \$HOME/.sddk-knowledge/{project}/ (in user home, outside repo)"
     info "  (auto-created on first SDDK cycle per project)"
 }
@@ -129,7 +129,7 @@ setup_knowledge_base() {
 
 main() {
     echo "🔍 SDDK Framework Bootstrap"
-    echo "   Shared dir: $SHARED_DIR"
+    echo "   Framework root: $SDDK_FRAMEWORK_ROOT"
     echo ""
 
     local editors

@@ -9,7 +9,7 @@
 
 ## 1. Objetivo
 
-Separar en tres roles incompatibles el estado actual donde `/var/home/rubentxu/.sddk-shared` es a la vez repo de desarrollo, fuente del dev link y workspace de uso adoptado. Garantizar que el framework **nunca escribe dentro de los repos git de los proyectos** (cero intrusión): todo el estado operativo vive en directorios de usuario (`$SDDK_DATA_DIR`, `~/.sddk-knowledge/`), con resolución de versión por proyecto inspirada en asdf-vm y soporte multiplataforma (Linux/macOS/Windows).
+Separar en tres roles incompatibles el estado anterior donde `~/.sddk-shared/` era un segundo checkout del mismo repositorio, funcionando simultáneamente como repo de desarrollo, fuente del dev link y workspace de uso. Garantizar que el framework **nunca escribe dentro de los repos git de los proyectos** (cero intrusión): todo el estado operativo vive en directorios de usuario (`$SDDK_DATA_DIR`, `~/.sddk-knowledge/`), con resolución de versión por proyecto inspirada en asdf-vm y soporte multiplataforma (Linux/macOS/Windows).
 
 ## 2. No objetivos
 
@@ -178,7 +178,37 @@ Implementación: crate `dirs` en `sddk-engine/src/paths.rs`. Orden de resolució
 - **Multiplataforma**: tests de paths con env simulado (macOS/Windows dirs); los tests no asumen Unix.
 - **Integración**: ciclo completo E2E con `git status` limpio (extender `e2e-plan.md` N3 o suite de ciclo).
 
-## 12. Referencias
+## 12. Estado resuelto (2026-08-08)
+
+**Eliminado** `~/.sddk-shared/` (33 GB, segundo checkout del mismo repositorio).
+
+### Qué se resolvió
+
+| Problema | Resolución | Fecha |
+|----------|-----------|-------|
+| `~/.sddk-shared/` como segundo checkout | Eliminado; todo trabajo en el CWD | 2026-08-08 |
+| Drift entre CWD y bundle runtime | Bundle runtime en `~/.local/share/sddk/framework/<v>/` actualizado con `sddk dev install` | 2026-08-08 |
+| `bootstrap.sh` referenced `~/.sddk-shared/` | Actualizado a CWD como fuente de verdad | 2026-08-08 |
+| Receipts duplicados en `~/.sddk-shared/` | Eliminados; receipts residen en `~/.local/share/sddk/projects/<id>/` | 2026-08-08 |
+
+### Estado actual verificado (HEAD = `2af85e2`, v1.9.0)
+
+```
+CWD = ~/Proyectos/agentesIA/sddk-framework   ✅ repo de desarrollo (fuente de verdad)
+~/.local/share/sddk/framework/v1.9.0/         ✅ bundle runtime (instalado)
+~/.local/share/sddk/framework/current → v1.9.0 ✅ symlink activo
+~/.sddk-knowledge/sddk-framework/              ✅ vault del proyecto
+git status clean                              ✅
+```
+
+### Criterios de aceptación resueltos
+
+- [x] `adopt apply` en un repo limpio no modifica `git status` (zero intrusión).
+- [x] Los symlinks de opencode/zcode apuntan bajo `$SDDK_DATA_DIR/framework/current/`.
+- [x] Un solo receipt por workspace; control plane ingiere identidades únicas.
+- [x] 0 regresiones: `cargo test --workspace` verde (358 tests), `cargo clippy --workspace` 0 errores.
+
+## 13. Referencias
 
 - `crates/sddk-engine/src/paths.rs` (`resolve_xdg_paths`), `crates/sddk-cli/src/lib.rs` (`plant_workflow_manifest`, `WORKFLOW_MANIFEST`), `crates/sddk-cli/src/cycle.rs` (`load_workflow` fallback embebido), `crates/sddk-cli/src/dev_cmd.rs` (`run_dev_update`, `link_editor`, dual symlink/copy).
 - `skills/_shared/persistence-contract.md`, `skills/knowledge-graph/SKILL.md`, `agents/sddk-*.md`.
