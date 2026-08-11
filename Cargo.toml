@@ -47,5 +47,8 @@ time = { version = "=0.3.36", features = ["formatting", "parsing"] }
 walkdir = "2"
 regex = "1"
 
+# HTTP
+ureq = "2"
+
 # Testing
 tempfile = "3"

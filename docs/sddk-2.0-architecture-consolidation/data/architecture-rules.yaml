@@ -1,0 +1,34 @@
+rules:
+  - id: ARCH001
+    severity: error
+    rule: engine_must_not_depend_on_storage
+    target: dependency_graph
+    desired_state: sddk-engine/application logic depends only on inward ports
+  - id: ARCH002
+    severity: error
+    rule: domain_must_not_depend_on_adapters
+    target: dependency_graph
+  - id: ARCH003
+    severity: error
+    rule: cli_must_not_own_persistence_logic
+    target: source_imports_and_calls
+  - id: ARCH004
+    severity: error
+    rule: packs_must_declare_dependencies
+    target: pack_manifest
+  - id: ARCH005
+    severity: error
+    rule: reactive_behaviors_must_not_execute_governed_effects_directly
+    target: capability_imports
+  - id: ARCH006
+    severity: warning_then_ratchet
+    rule: core_ontology_requires_cross_domain_evidence
+    target: ontology
+  - id: ARCH007
+    severity: warning_then_ratchet
+    rule: projection_must_be_rebuildable
+    target: projection_contract
+  - id: ARCH008
+    severity: error
+    rule: secrets_must_not_enter_evidence_or_graph_payloads
+    target: evidence_and_event_validation

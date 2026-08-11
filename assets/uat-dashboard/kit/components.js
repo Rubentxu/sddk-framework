@@ -240,6 +240,12 @@ const UatRender = (() => {
       if (kind === "metric") {
         return `<div class="evidence-input evidence-input-metric" style="--i:${i}"><label class="evidence-input-label">📊 Metric${k.expected_value != null ? ` <span class="evidence-input-ref">expected: <code>${escapeHtml(k.expected_value)}</code></span>` : ""}</label><input class="evidence-text evidence-text-metric" type="text" data-evidence-kind="metric" placeholder="valor"><button class="btn btn-tiny" data-attach-text="metric">Capturar</button></div>`;
       }
+      if (kind === "video") {
+        return `<div class="evidence-input evidence-input-video" style="--i:${i}"><label class="evidence-input-label">🎥 Video</label><div class="video-controls"><button class="btn btn-tiny video-start" data-evidence-kind="video">Grabar</button><button class="btn btn-tiny video-stop" data-evidence-kind="video" disabled>Parar</button><span class="video-timer"></span></div><video class="video-preview" controls style="display:none"></video></div>`;
+      }
+      if (kind === "annotation") {
+        return `<div class="evidence-input evidence-input-annotation" style="--i:${i}"><label class="evidence-input-label">✏️ Anotación</label><div class="annotation-base" id="annotation-base"></div><div class="annotation-tools"><button class="btn btn-tiny annotation-tool-active" data-tool="arrow">→</button><button class="btn btn-tiny" data-tool="rect">▢</button><button class="btn btn-tiny" data-tool="text">T</button><button class="btn btn-tiny" data-tool="clear">✕</button></div><canvas class="annotation-canvas" width="800" height="500" style="display:none"></canvas><button class="btn btn-tiny" data-attach-annotation="annotation">Adjuntar anotación</button></div>`;
+      }
       return `<div class="evidence-input evidence-input-note" style="--i:${i}"><label class="evidence-input-label">📝 Nota</label><textarea class="evidence-text" rows="2" data-evidence-kind="note" placeholder="${escapeHtml(k.note || "Observación libre")}"></textarea><button class="btn btn-tiny" data-attach-text="note">Capturar</button></div>`;
     }).join("");
     return `<div class="evidence-section" style="--i:6"><p class="evidence-prompt"><strong>Evidencia</strong>${prompt}</p><div class="evidence-inputs">${inputs}</div><ul class="evidence-list">${evidenceChips(current.evidence)}</ul></div>`;
@@ -318,6 +324,7 @@ const UatRender = (() => {
     const features = plan.features || [];
     const scenarioStatus = {};
     let attention = 0, inProgress = 0, blocked = 0, total = 0;
+    let totalEstMinutes = 0, totalPreflight = 0, totalHuman = 0, totalCoverage = 0;
 
     for (const feature of features) {
       for (const sc of feature.scenarios || []) {
@@ -327,38 +334,61 @@ const UatRender = (() => {
         if (st === "PENDING") attention++;
         else if (st === "IN_PROGRESS") inProgress++;
         else if (st === "BLOCKED") blocked++;
+
+        // E14.1: metadata enrichment
+        const estMinutes = sc.context?.estimated_duration
+          || Math.max(1, ((sc.steps && sc.steps.length) || (sc.form && sc.form.items && sc.form.items.length) || 3) * 2);
+        const preflightCount = (sc.context?.preconditions?.length || 0);
+        const humanCount = (sc.form?.items || []).filter(item =>
+          item.check && ["blind_observation", "human_confirmation", "human_rating", "human_observation"].includes(item.check.kind)
+        ).length;
+        const hasResult = st && st !== "PENDING";
+        scenarioStatus[sc.id]._meta = { estMinutes, preflightCount, humanCount, hasResult };
+        totalEstMinutes += estMinutes;
+        totalPreflight += preflightCount;
+        totalHuman += humanCount;
+        if (hasResult) totalCoverage++;
       }
     }
 
     const rows = [];
     for (const feature of features) {
       for (const sc of feature.scenarios || []) {
-        const { status: st } = scenarioStatus[sc.id];
+        const { status: st, _meta } = scenarioStatus[sc.id];
         const priority = (sc.priority || "P2").toUpperCase();
         const priorityCls = priority === "P0" ? "p0" : priority === "P1" ? "p1" : "p2";
         const statusCls = st === "PASS" ? "passed" : st === "FAIL" ? "failed" : st === "BLOCKED" ? "blocked" : st === "IN_PROGRESS" ? "in-progress" : "pending";
         const statusLabel = st === "IN_PROGRESS" ? `${inProgress}/${total}` : st;
+        const { estMinutes, preflightCount, humanCount } = _meta;
         rows.push(
           `<tr class="inbox-row inbox-row-${statusCls}" data-scenario="${escapeHtml(sc.id)}">` +
             `<td class="id">${escapeHtml(sc.id)}</td>` +
             `<td>${escapeHtml(sc.title)}</td>` +
             `<td><span class="badge badge-${priorityCls.toLowerCase()}">${priority}</span></td>` +
+            `<td class="inbox-meta">` +
+              `<span class="inbox-meta-item inbox-time">⏱${estMinutes}m</span>` +
+              `<span class="inbox-meta-item inbox-preflight">✓${preflightCount}</span>` +
+              `<span class="inbox-meta-item inbox-human">⚠${humanCount}</span>` +
+            `</td>` +
             `<td class="inbox-status"><span class="status-pill ${statusCls}">${statusLabel}</span></td>` +
           `</tr>`
         );
       }
     }
 
+    const coveragePct = total > 0 ? Math.round((totalCoverage / total) * 100) : 0;
     const summary = `<div class="inbox-summary">
-      <span class="inbox-stat inbox-attention">⚠ Requires attention: ${attention}</span>
-      <span class="inbox-stat inbox-progress">⏳ In progress: ${inProgress}/${total}</span>
-      <span class="inbox-stat inbox-blocked">⏸ Blocked: ${blocked}</span>
+      <span class="inbox-stat inbox-attention">⚠ ${attention}</span>
+      <span class="inbox-stat inbox-progress">⏳ ${inProgress}/${total}</span>
+      <span class="inbox-stat inbox-blocked">⏸ ${blocked}</span>
+      <span class="inbox-stat inbox-coverage">☑ ${totalCoverage}/${total} (${coveragePct}%)</span>
+      <span class="inbox-stat inbox-est">⏱ ${totalEstMinutes}m total</span>
     </div>`;
 
     return `<section class="inbox-view" style="--i:0">
       <header class="inbox-head"><h2 class="inbox-title">My Validations</h2></header>
       ${summary}
-      <table class="data-table inbox-table"><thead><tr><th class="id">ID</th><th>Escenario</th><th>Prioridad</th><th>Estado</th></tr></thead><tbody>${rows.join("")}</tbody></table>
+      <table class="data-table inbox-table"><thead><tr><th class="id">ID</th><th>Escenario</th><th>Prioridad</th><th class="inbox-meta-col">Meta</th><th>Estado</th></tr></thead><tbody>${rows.join("")}</tbody></table>
     </section>`;
   }
 
