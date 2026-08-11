@@ -1314,6 +1314,25 @@ fn run_uat_gate_release(
                 anyhow::anyhow!("invalid UAT report {}: {e}", report_path.display())
             })?;
             validate_release_report(&report, &args.tag)?;
+
+            // Gate `release-uat-signed` (REQ-RF-028): tras validar el report,
+            // exigir acceptance record válido (decision != Rejected).
+            let xdg = xdg_from_env(environment);
+            let storage_root =
+                sddk_engine::uat_storage_root(&xdg, &project_id).map_err(|e| {
+                    anyhow::anyhow!("cannot resolve storage root: {e}")
+                })?;
+            let acceptance_path =
+                storage_root.join("acceptances").join(format!("uat-acceptance-{}.yaml", args.tag));
+            let _signed_record = if acceptance_path.exists() {
+                Some(validate_acceptance_record(&acceptance_path)?)
+            } else {
+                anyhow::bail!(
+                    "acceptance record required for {}: {} not found; run `sddk uat sign-off` first",
+                    args.tag,
+                    acceptance_path.display()
+                );
+            };
             Some(report_path.as_path())
         } else {
             None
@@ -1417,6 +1436,24 @@ fn validate_release_report(report: &UatReport, tag: &str) -> anyhow::Result<()> 
         );
     }
     Ok(())
+}
+
+/// Validate an acceptance record for the gate.
+/// Checks: file exists, parses as UatAcceptanceRecord, sha256 format, decision != Rejected.
+fn validate_acceptance_record(path: &Path) -> anyhow::Result<sddk_domain::UatAcceptanceRecord> {
+    let raw = std::fs::read_to_string(path)
+        .map_err(|e| anyhow::anyhow!("cannot read acceptance record {}: {e}", path.display()))?;
+    let record: sddk_domain::UatAcceptanceRecord =
+        serde_saphyr::from_str(&raw)
+            .map_err(|e| anyhow::anyhow!("invalid acceptance record {}: {e}", path.display()))?;
+    let errors = sddk_domain::UatAcceptanceRecord::validate(&record);
+    if !errors.is_empty() {
+        anyhow::bail!("acceptance record validation failed: {}", errors.join("; "));
+    }
+    if record.decision == sddk_domain::UatAcceptanceDecision::Rejected {
+        anyhow::bail!("acceptance record for {} is REJECTED", path.display());
+    }
+    Ok(record)
 }
 
 /// Compute sha256 hex of a file's contents.
@@ -2431,6 +2468,50 @@ features: []
         assert!(json.contains("\"comment\":\"no muestra error\""));
         let parsed: Vec<HashMap<String, serde_json::Value>> = serde_json::from_str(&json).unwrap();
         let _ = parsed;
+    }
+
+    #[test]
+    fn acceptance_record_accepted_is_valid() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("uat-acceptance-v1.0.0.yaml");
+        let content = r#"
+decision: accepted
+actor: user:421
+timestamp: "2026-08-11T00:00:00Z"
+plan_version_sha256: sha256:abc123
+evidence_snapshot_sha256: sha256:def456
+outstanding_findings: []
+justification: "LGTM"
+"#;
+        std::fs::write(&path, content).unwrap();
+        let record = validate_acceptance_record(&path).unwrap();
+        assert_eq!(record.decision, sddk_domain::UatAcceptanceDecision::Accepted);
+    }
+
+    #[test]
+    fn acceptance_record_rejected_is_invalid() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("uat-acceptance-v1.0.0.yaml");
+        let content = r#"
+decision: rejected
+actor: user:421
+timestamp: "2026-08-11T00:00:00Z"
+plan_version_sha256: sha256:abc123
+evidence_snapshot_sha256: sha256:def456
+outstanding_findings: []
+justification: "Not ready"
+"#;
+        std::fs::write(&path, content).unwrap();
+        let err = validate_acceptance_record(&path).unwrap_err();
+        assert!(err.to_string().contains("REJECTED"), "expected REJECTED error, got: {}", err);
+    }
+
+    #[test]
+    fn acceptance_record_missing_is_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nonexistent.yaml");
+        let err = validate_acceptance_record(&path).unwrap_err();
+        assert!(err.to_string().contains("cannot read"), "expected read error, got: {}", err);
     }
 }
 
