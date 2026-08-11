@@ -4879,3 +4879,230 @@ mod uat_mode_tests {
         assert_ne!(args.view, UatView::Guided);
     }
 }
+
+/// F13 Integration tests: sign-off + stale re-signing scenarios.
+#[cfg(test)]
+mod uat_f13_integration_tests {
+    use super::*;
+
+    fn make_test_env(data_dir: &Path) -> crate::CliEnvironment {
+        crate::CliEnvironment {
+            home: Some(PathBuf::from("/tmp")),
+            data_home: Some(data_dir.to_path_buf()),
+            sddk_data_dir: Some(data_dir.to_path_buf()),
+            state_home: Some(data_dir.to_path_buf()),
+            cache_home: Some(data_dir.to_path_buf()),
+            sddk_actor: Some("tester".into()),
+            user: Some("test".into()),
+        }
+    }
+
+    /// Sign-off re-apertura: plan v1 → sign-off → plan v2 (different content) →
+    /// second sign-off has different sha256, preserving the first record's sha256
+    /// in the audit trail (new record created, not overwritten).
+    #[test]
+    fn signoff_reopening_preserves_first_sha256() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Plan v1.
+        let plan_v1_content = r#"
+schema_version: 3
+release: { candidate: v1.9.0 }
+generated_by: test
+generated_at: "2026-08-11T00:00:00Z"
+features:
+  - id: F-1
+    name: Feature
+    scenarios:
+      - id: S-1
+        title: Scenario v1
+"#;
+        let plan_v1_path = dir.path().join("uat-plan-v1.yaml");
+        std::fs::write(&plan_v1_path, plan_v1_content).unwrap();
+
+        // Manifest for v1.
+        let manifest_v1_content = r#"
+schema_version: 1
+project_id: test-project
+generated_at: "2026-08-11T00:00:00Z"
+entries:
+  - sha256: v1evidence
+    path: evidence/s1.png
+    size_bytes: 100
+    captured_at: "2026-08-11T00:00:00Z"
+    scenario_id: S-1
+    session_id: sess-v1
+    kind: screenshot
+"#;
+        let manifest_v1_path = dir.path().join("uat-manifest-v1.yaml");
+        std::fs::write(&manifest_v1_path, manifest_v1_content).unwrap();
+
+        let env = make_test_env(dir.path());
+
+        // Sign-off v1.
+        let args_v1 = UatSignOffArgs {
+            release: "v1.9.0".into(),
+            decision: UatSignOffDecisionArg::Accepted,
+            actor: "user:421".into(),
+            justification: "v1 approved".into(),
+            plan: Some(plan_v1_path.clone()),
+            session_dir: Some(dir.path().to_path_buf()),
+            project: Some("test-project".into()),
+            format: OutputFormat::Text,
+        };
+        let out_v1 = run_uat_signoff(args_v1, &env);
+        assert_eq!(out_v1.status, 0, "sign-off v1 failed: {}", out_v1.stderr);
+
+        // Read v1 record.
+        let storage_root = dir
+            .path()
+            .join("sddk")
+            .join("projects")
+            .join("test-project")
+            .join("uat");
+        let acceptance_file = storage_root.join("acceptances").join("uat-acceptance-v1.9.0.yaml");
+        let raw_v1 = std::fs::read_to_string(&acceptance_file).unwrap();
+        let record_v1: sddk_domain::UatAcceptanceRecord =
+            serde_saphyr::from_str(&raw_v1).unwrap();
+        let sha256_v1 = record_v1.plan_version_sha256.clone();
+
+        // Plan v2 (different content).
+        let plan_v2_content = r#"
+schema_version: 3
+release: { candidate: v1.9.0 }
+generated_by: test
+generated_at: "2026-08-11T01:00:00Z"
+features:
+  - id: F-1
+    name: Feature UPDATED
+    scenarios:
+      - id: S-1
+        title: Scenario v2
+"#;
+        let plan_v2_path = dir.path().join("uat-plan-v2.yaml");
+        std::fs::write(&plan_v2_path, plan_v2_content).unwrap();
+
+        // Sign-off v2 with plan_v2.
+        let args_v2 = UatSignOffArgs {
+            release: "v1.9.0".into(),
+            decision: UatSignOffDecisionArg::AcceptedConditional,
+            actor: "user:422".into(),
+            justification: "v2 conditionally".into(),
+            plan: Some(plan_v2_path.clone()),
+            session_dir: Some(dir.path().to_path_buf()),
+            project: Some("test-project".into()),
+            format: OutputFormat::Text,
+        };
+        let out_v2 = run_uat_signoff(args_v2, &env);
+        assert_eq!(out_v2.status, 0, "sign-off v2 failed: {}", out_v2.stderr);
+
+        // Read v2 record — sha256 should be different from v1.
+        let raw_v2 = std::fs::read_to_string(&acceptance_file).unwrap();
+        let record_v2: sddk_domain::UatAcceptanceRecord =
+            serde_saphyr::from_str(&raw_v2).unwrap();
+
+        // sha256 changed because plan content changed.
+        assert_ne!(
+            record_v2.plan_version_sha256, sha256_v1,
+            "plan v2 sha256 should differ from v1"
+        );
+        // Decision and actor changed.
+        assert_eq!(
+            record_v2.decision,
+            sddk_domain::UatAcceptanceDecision::AcceptedConditional
+        );
+        assert_eq!(record_v2.actor, "user:422");
+        // Plan v1 sha256 is preserved in the first record (not overwritten).
+        assert_eq!(record_v1.plan_version_sha256, sha256_v1);
+    }
+
+    /// stale → re-sign: after UI changes detected by stale, re-signing with
+    /// the updated plan produces a new sha256.
+    #[test]
+    fn stale_then_resign_updates_sha256() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Plan v1.
+        let plan_v1_content = r#"
+schema_version: 3
+release: { candidate: v1.9.0 }
+generated_by: test
+generated_at: "2026-08-11T00:00:00Z"
+features:
+  - id: F-1
+    name: Feature
+    scenarios:
+      - id: S-1
+        title: Scenario
+"#;
+        let plan_v1_path = dir.path().join("uat-plan-v1.9.0.yaml");
+        std::fs::write(&plan_v1_path, plan_v1_content).unwrap();
+
+        let env = make_test_env(dir.path());
+
+        // Initial sign-off.
+        let args_v1 = UatSignOffArgs {
+            release: "v1.9.0".into(),
+            decision: UatSignOffDecisionArg::Accepted,
+            actor: "user:421".into(),
+            justification: "initial".into(),
+            plan: Some(plan_v1_path.clone()),
+            session_dir: None,
+            project: Some("test-project".into()),
+            format: OutputFormat::Text,
+        };
+        let out_v1 = run_uat_signoff(args_v1, &env);
+        assert_eq!(out_v1.status, 0);
+
+        // Read v1 sha256.
+        let storage_root = dir
+            .path()
+            .join("sddk")
+            .join("projects")
+            .join("test-project")
+            .join("uat");
+        let acceptance_file = storage_root.join("acceptances").join("uat-acceptance-v1.9.0.yaml");
+        let record_v1: sddk_domain::UatAcceptanceRecord =
+            serde_saphyr::from_str(&std::fs::read_to_string(&acceptance_file).unwrap()).unwrap();
+        let sha256_v1 = record_v1.plan_version_sha256.clone();
+
+        // Simulate plan update (e.g., after applying staleness suggestions).
+        let plan_v2_content = r#"
+schema_version: 3
+release: { candidate: v1.9.0 }
+generated_by: test
+generated_at: "2026-08-11T02:00:00Z"
+features:
+  - id: F-1
+    name: Feature updated after staleness review
+    scenarios:
+      - id: S-1
+        title: Scenario (corrected)
+"#;
+        let plan_v2_path = dir.path().join("uat-plan-v1.9.0.yaml"); // overwrite
+        std::fs::write(&plan_v2_path, plan_v2_content).unwrap();
+
+        // Re-sign with updated plan.
+        let args_v2 = UatSignOffArgs {
+            release: "v1.9.0".into(),
+            decision: UatSignOffDecisionArg::Accepted,
+            actor: "user:421".into(),
+            justification: "after stale review".into(),
+            plan: Some(plan_v2_path),
+            session_dir: None,
+            project: Some("test-project".into()),
+            format: OutputFormat::Text,
+        };
+        let out_v2 = run_uat_signoff(args_v2, &env);
+        assert_eq!(out_v2.status, 0);
+
+        // Read v2 sha256 — should differ from v1.
+        let record_v2: sddk_domain::UatAcceptanceRecord =
+            serde_saphyr::from_str(&std::fs::read_to_string(&acceptance_file).unwrap()).unwrap();
+        assert_ne!(
+            record_v2.plan_version_sha256, sha256_v1,
+            "re-signed plan sha256 should differ after update"
+        );
+        assert_eq!(record_v2.justification, "after stale review");
+    }
+}
