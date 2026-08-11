@@ -47,6 +47,8 @@ const PLAN = @PLAN_JSON@;
 const RELEASE = '@RELEASE@';
 const SDDK_INGEST_URL = '@INGEST_URL@';
 const SDDK_HEALTH_URL = '@HEALTH_URL@';
+const RUNNER_CONTEXT = @RUNNER_CONTEXT@;
+const RUNNER_MODE = RUNNER_CONTEXT?.mode || 'runner';
 const all = [];
 for (const f of PLAN.features || []) for (const s of f.scenarios || []) all.push({feature: f, scenario: s});
 const SCENARIO_ORDER = all.map(({scenario}) => scenario.id);
@@ -55,6 +57,8 @@ let idx = 0;
 let verdicts = {};
 let startedAt = null;
 let finishedAt = null;
+let currentFormItems = null; // For branching runtime
+let visitedItems = new Set(); // For cycle detection in branching
 
 document.getElementById('tester-id-badge').textContent = `id: ${UAT.ensureTesterId()}`;
 
@@ -146,6 +150,33 @@ function assigneeBadge(a) {
 }
 
 function render() {
+  // Show staleness banner if report present
+  const staleReport = window.__STALENESS_REPORT__;
+  if (staleReport && RUNNER_MODE !== 'designer') {
+    const banner = UatRender.stalenessBanner(staleReport);
+    if (banner) {
+      const existing = document.querySelector('.staleness-banner');
+      if (!existing) {
+        const page = document.querySelector('.page');
+        if (page) page.prepend(Object.assign(document.createElement('div'), { innerHTML: banner }).firstElementChild);
+      }
+    }
+  }
+
+  // Inbox view: show on start for runner/reviewer mode
+  if (RUNNER_MODE === 'runner' || RUNNER_MODE === 'reviewer') {
+    const session = UAT.loadSession(RELEASE);
+    const inboxHtml = UatRender.inboxView(PLAN, session);
+    // Only show inbox if no verdicts yet
+    const hasVerdicts = Object.keys(verdicts).some(id => verdicts[id] && verdicts[id].status);
+    if (!hasVerdicts) {
+      document.getElementById('wizard').innerHTML = inboxHtml;
+      updateProgress();
+      bindInboxEvents();
+      return;
+    }
+  }
+
   const total = all.length;
   const { feature, scenario } = all[idx] || {};
   if (!feature) {
@@ -160,8 +191,21 @@ function render() {
   const steps = (scenario.plain_steps || []).map((step, i) => UatRender.stepBlock(step, i)).join("");
   // Form DSL (v3): si el escenario declara `form`, el wizard renderiza el
   // formulario determinista en lugar de los plain_steps.
+  const formItems = scenario.form ? scenario.form.items || [] : [];
+  currentFormItems = formItems;
   const formSteps = scenario.form ? UatRender.formList(scenario.form, 0) : "";
   const flags = (scenario.flags || []).map(f => `<span class="badge badge-flag">${escapeHtml(f)}</span>`).join("");
+
+  // Checkpoint block (if checkpoint in form)
+  const checkpoint = scenario.form && scenario.form.checkpoint;
+  const checkpointSummary = current.checkpoint_summary || { machine: { passed: 0, total: 0 }, fara: {}, anomalies: [] };
+  const checkpointHtml = checkpoint ? UatRender.checkpointBlock(checkpoint, checkpointSummary) : '';
+
+  // Diagnostics panel (if FAIL was set with driver data)
+  const driverData = current.driver_data || {};
+  const diagnosticsHtml = (current.status === 'FAIL' && Object.keys(driverData).length > 0)
+    ? UatRender.diagnosticsPanel({ cause: current.failure_cause, category: current.failure_category, suggested_defect: current.failure_defect_title, observed: current.observed, expected: current.expected }, driverData)
+    : '';
 
   document.getElementById('wizard').innerHTML = `
     ${UatRender.contextBar(scenario, feature)}
@@ -182,7 +226,9 @@ function render() {
 
     <ol class="scenario-steps" style="--i:4">${formSteps || steps}</ol>
 
-    ${UatRender.evidenceCaptureUI(scenario, current)}
+    ${checkpointHtml}
+
+    ${diagnosticsHtml || UatRender.evidenceCaptureUI(scenario, current)}
 
     <div class="comment-section" style="--i:7">
       <label for="comment" class="comment-label">Comentario / notas del tester (opcional)</label>
@@ -209,11 +255,48 @@ function render() {
     </nav>
   `;
 
-  if (current.status === 'FAIL') {
+  if (current.status === 'FAIL' && !diagnosticsHtml) {
     showFailurePanel(scenario, current.observed || "");
   }
   updateProgress();
   bindEvents(scenario, feature);
+}
+
+function bindInboxEvents() {
+  document.querySelectorAll('.inbox-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const scId = row.dataset.scenario;
+      const scIdx = all.findIndex(({scenario}) => scenario.id === scId);
+      if (scIdx !== -1) {
+        idx = scIdx;
+        visitedItems.add(scId);
+        render();
+      }
+    });
+  });
+}
+
+function handleCheckpointApproval(scenarioId, approved) {
+  const entry = verdicts[scenarioId] || {};
+  entry.checkpoint_approved = approved;
+  entry.checkpoint_approved_at = UAT.nowRfc3339();
+  verdicts[scenarioId] = entry;
+  saveVerdicts();
+  // Navigate to next scenario after approval
+  if (approved && idx < all.length - 1) {
+    idx++;
+    render();
+  }
+}
+
+function handleDiagnosticsEdit(scenarioId, field, value) {
+  const entry = verdicts[scenarioId] || {};
+  if (field === 'observed') entry.observed = value;
+  else if (field === 'failure_cause') entry.failure_cause = value;
+  else if (field === 'failure_category') entry.failure_category = value;
+  else if (field === 'failure_defect_title') entry.failure_defect_title = value;
+  verdicts[scenarioId] = entry;
+  saveVerdicts();
 }
 
 function btn(key, label, emoji, cls) {
@@ -254,6 +337,42 @@ function bindEvents(scenario, feature) {
   document.querySelectorAll('.evidence-remove[data-remove]').forEach(b => {
     b.addEventListener('click', () => removeEvidence(scenario.id, parseInt(b.dataset.remove, 10)));
   });
+  // F13: Checkpoint approve/reject
+  document.querySelectorAll('.btn-checkpoint-approve').forEach(b => {
+    b.addEventListener('click', () => handleCheckpointApproval(scenario.id, true));
+  });
+  document.querySelectorAll('.btn-checkpoint-reject').forEach(b => {
+    b.addEventListener('click', () => handleCheckpointApproval(scenario.id, false));
+  });
+  // F13: Diagnostics edit
+  const editActualBtn = document.querySelector('.btn-edit-actual');
+  if (editActualBtn) {
+    editActualBtn.addEventListener('click', () => {
+      const obs = prompt('Actual Result (machine-observable):', verdicts[scenario.id]?.observed || '');
+      if (obs !== null) handleDiagnosticsEdit(scenario.id, 'observed', obs);
+    });
+  }
+  // F13: BlindMatch — auto-evaluate on form input for blind checks
+  if (scenario.form && scenario.form.items) {
+    scenario.form.items.forEach(item => {
+      if (item.check && item.check.visibility === 'blind' && item.check.expected) {
+        const checkEl = document.querySelector(`[name^="check-"]`);
+        if (checkEl) {
+          checkEl.addEventListener('change', () => {
+            const observed = checkEl.value;
+            const match = UatRender.blindMatch(observed, item.check.expected);
+            // Show match/mismatch indicator
+            const existing = document.querySelector('.match-indicator');
+            if (existing) existing.remove();
+            const indicator = document.createElement('span');
+            indicator.className = `match-indicator ${match ? 'match' : 'mismatch'}`;
+            indicator.textContent = match ? '✓ MATCH' : '✕ MISMATCH';
+            checkEl.closest('.form-controls')?.appendChild(indicator);
+          });
+        }
+      }
+    });
+  }
 }
 
 function attachFile(scenarioId, kindLabel) {
@@ -361,7 +480,8 @@ function setVerdict(id, status, btnEl) {
   entry.verdict_at = UAT.nowRfc3339();
   const ta = document.getElementById('comment');
   if (ta) entry.comment = ta.value;
-  const scenario = all.find(({scenario}) => scenario.id === id).scenario;
+  const scenarioObj = all.find(({scenario}) => scenario.id === id);
+  const scenario = scenarioObj.scenario;
   const repro = (scenario.plain_steps || []).find(s => s.copy_hint && (s.kind === 'shell' || !s.kind));
   if (repro) entry.repro_command = repro.action;
   verdicts[id] = entry;
@@ -371,6 +491,31 @@ function setVerdict(id, status, btnEl) {
     void btnEl.offsetWidth;
     btnEl.classList.add('is-active');
   }
+
+  // F13: Branching runtime evaluation
+  // After verdict, check if there's a form with branching flow to navigate
+  if (scenario.form && scenario.form.items) {
+    const formId = scenario.form.id || id;
+    const currentItemId = formId; // item id = scenario id for single-form scenarios
+    const nextItemId = UatRender.interpretBranching(scenario.form.items, currentItemId, status);
+    if (nextItemId) {
+      // Check for cycle
+      if (visitedItems.has(nextItemId)) {
+        // Cycle detected, stop here
+        console.warn('Branching cycle detected, stopping at', nextItemId);
+      } else {
+        visitedItems.add(nextItemId);
+        // Navigate to the next item/scenario
+        const nextIdx = all.findIndex(({scenario}) => scenario.id === nextItemId || scenario.form?.id === nextItemId);
+        if (nextIdx !== -1 && nextIdx !== idx) {
+          idx = nextIdx;
+          render();
+          return;
+        }
+      }
+    }
+  }
+
   if (status === 'FAIL') render();
   updateProgress();
 }
