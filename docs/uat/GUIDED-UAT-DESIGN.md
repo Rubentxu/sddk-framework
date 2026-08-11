@@ -1,6 +1,6 @@
 # GUIDED-UAT-DESIGN — Guided UAT Runner: AI-generated, machine-observed, human-validated, evidence-backed
 
-**Status:** PROPOSED
+**Status:** IMPLEMENTED
 **Date:** 2026-08-10
 **Supersedes:** n/a (extiende `PLAN-uat-v3-quality-control-plane.md` F0-F11)
 **Core rule:** los agentes NUNCA generan HTML/JavaScript arbitrario. Generan una **especificación declarativa** (`UAT Form DSL`); un **renderer determinista** la convierte en wizard, formularios, checks, branching y pantallas de revisión. UX, seguridad, accesibilidad y trazabilidad quedan controladas por el framework.
@@ -323,11 +323,11 @@ Staleness: cuando la UI cambia (`Create project` → `New project`), el sistema 
 
 ## 13. Tres modos de interfaz
 
-| Modo | Rol | Pantallas |
-|---|---|---|
-| **Designer** | QA / product owner | requirements, scenarios, AI suggestions, coverage, form editor, testability |
-| **Runner** | Validador humano | wizard, evidence, observation, pass/fail, checkpoints, AI diagnostics |
-| **Reviewer** | Responsable UAT | evidence, AI assessment, disagreements, defects, sign-off wizard |
+| Modo | Rol | Pantallas | Status |
+|---|---|---|---|
+| **Designer** | QA / product owner | requirements, scenarios, AI suggestions, coverage, form editor, testability | ✅ Implementado (dashboard editor) |
+| **Runner** | Validador humano | wizard, inbox, evidence, observation, pass/fail, checkpoints, AI diagnostics | ✅ Implementado (guided.html) |
+| **Reviewer** | Responsable UAT | evidence, AI assessment, disagreements, defects, sign-off wizard, release acceptance | ✅ Implementado (guided.html + releaseAcceptanceView) |
 
 ### Runner — pantalla inicial (inbox)
 
@@ -406,11 +406,11 @@ La capa Guided UAT Runner se integra como **fase F12 (Form DSL + renderer) y F13
 
 ## 17. Criterios de salida
 
-- [ ] Un agente genera spec YAML validada → el renderer produce el wizard sin HTML del agente
-- [ ] Blind check: el tester no ve el expected hasta confirmar; MATCH automático
-- [ ] Evidence gate: `Continue` bloqueado sin evidencia requerida
-- [ ] FAIL presenta diagnostics automáticos (screenshot/trace/console/network + causa propuesta + defect)
-- [ ] Checkpoint humano aprueba/rechaza bloque con resumen máquina
-- [ ] Sign-off inmutable con plan_version + evidence_snapshot sha256
-- [ ] Staleness detecta cambios de UI y marca UAT afectados
-- [ ] 250+ tests workspace verde, clippy -D warnings, lint 0/0
+- [x] Un agente genera spec YAML validada → el renderer produce el wizard sin HTML del agente
+- [x] Blind check: el tester no ve el expected hasta confirmar; MATCH automático
+- [x] Evidence gate: `Continue` bloqueado sin evidencia requerida
+- [x] FAIL presenta diagnostics automáticos (screenshot/trace/console/network + causa propuesta + defect)
+- [x] Checkpoint humano aprueba/rechaza bloque con resumen máquina
+- [x] Sign-off inmutable con plan_version + evidence_snapshot sha256
+- [x] Staleness detecta cambios de UI y marca UAT afectados
+- [x] 350+ tests workspace verde, clippy -D warnings, lint 0/0
