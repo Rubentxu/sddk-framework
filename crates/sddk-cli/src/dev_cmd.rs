@@ -81,6 +81,9 @@ pub(crate) struct DoctorArgs {
     /// Output format.
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     pub(crate) format: OutputFormat,
+    /// Strict mode: exit 1 when any surface brevity check reports a file over threshold.
+    #[arg(long)]
+    pub(crate) strict: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -317,8 +320,93 @@ fn run_dev_doctor(args: DoctorArgs, environment: &CliEnvironment) -> CommandOutp
             framework_warnings += 1;
         }
     }
+
+    // Surface brevity checks (ADR-016): agent ≤ 300, skill ≤ 150, prompt ≤ 200.
+    let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let mut brevity_violations = 0usize;
+
+    // Agents: agents/*.md
+    if let Ok(entries) = std::fs::read_dir(root.join("agents")) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("md")
+                && let Ok(content) = std::fs::read_to_string(&path)
+            {
+                let line_count = content.lines().count();
+                let rel = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown");
+                let present = line_count <= 300;
+                if !present {
+                    brevity_violations += 1;
+                }
+                checks.push(DoctorCheck {
+                    tool: format!("surface.briefness.{rel}"),
+                    present,
+                });
+            }
+        }
+    }
+
+    // Skills: skills/*/SKILL.md
+    if let Ok(entries) = std::fs::read_dir(root.join("skills")) {
+        for entry in entries.flatten() {
+            let skill_dir = entry.path();
+            if skill_dir.is_dir() {
+                let skill_name =
+                    skill_dir.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
+                let skl_path = skill_dir.join("SKILL.md");
+                if skl_path.is_file()
+                    && let Ok(content) = std::fs::read_to_string(&skl_path)
+                {
+                    let line_count = content.lines().count();
+                    let present = line_count <= 150;
+                    if !present {
+                        brevity_violations += 1;
+                    }
+                    checks.push(DoctorCheck {
+                        tool: format!("surface.briefness.{skill_name}/SKILL.md"),
+                        present,
+                    });
+                }
+            }
+        }
+    }
+
+    // Prompts: prompts/sddk/*.md
+    let prompts_dir = root.join("prompts/sddk");
+    if prompts_dir.is_dir() && let Ok(entries) = std::fs::read_dir(&prompts_dir) {
+        for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file()
+                    && path.extension().and_then(|e| e.to_str()) == Some("md")
+                    && let Ok(content) = std::fs::read_to_string(&path)
+                {
+                    let line_count = content.lines().count();
+                    let rel = path
+                        .strip_prefix(&prompts_dir)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    let present = line_count <= 200;
+                    if !present {
+                        brevity_violations += 1;
+                    }
+                    checks.push(DoctorCheck {
+                        tool: format!("surface.briefness.{rel}"),
+                        present,
+                    });
+                }
+        }
+    }
+
+    // `all_present` reflects only non-brevity checks (framework layout).
+    // Brevity violations are tracked separately via `brevity_violations` and
+    // only affect the exit code in strict mode (ADR-016 §4).
+    let all_present = framework_warnings == 0;
     let result = Ok::<_, anyhow::Error>(DoctorOutput {
-        all_present: checks.iter().all(|check| check.present) && framework_warnings == 0,
+        all_present,
         checks,
     });
     match result {
@@ -328,7 +416,11 @@ fn run_dev_doctor(args: DoctorArgs, environment: &CliEnvironment) -> CommandOutp
                 checks: output.checks.clone(),
             };
             let mut command = render_result(Ok(cloned), format, doctor_text);
-            if !output.all_present {
+            // Strict mode: any brevity violation triggers non-zero exit.
+            if args.strict && brevity_violations > 0 {
+                command.status = 1;
+            } else if !output.all_present {
+                // Advisory: non-brevity layout issues are fatal.
                 command.status = 1;
             }
             command
