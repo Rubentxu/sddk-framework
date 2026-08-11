@@ -4268,6 +4268,82 @@ fn cli_dev_doctor_surface_briefness() {
     );
 }
 
+#[test]
+fn cli_dev_doctor_surface_empty_dirs() {
+    // RED test: surface.empty-dirs check (ADR-016).
+    // Creates an empty agents/ directory and verifies the doctor reports it.
+    let fixture = CliFixture::new("surface-empty-dirs");
+    let root = fixture.root.clone();
+
+    // Minimal framework layout.
+    write(
+        root.join("agents/orchestrator.md"),
+        "---\nname: orchestrator\ndescription: Test\nmodel: test\n---\n# Orch\n",
+    );
+    write(
+        root.join("permissions.yaml"),
+        "agents:\n  orchestrator:\n    phases: []\n    capabilities: []\n",
+    );
+    write(
+        root.join("prompts/sddk/test.md"),
+        "# Prompt\ncontent\n",
+    );
+    write(
+        root.join("skills/demo/SKILL.md"),
+        "# Demo\n",
+    );
+
+    // Create empty agents/ subdirectory (violation: no empty dirs allowed).
+    std::fs::create_dir_all(root.join("agents/_empty/")).unwrap();
+
+    // Advisory: empty dirs should be flagged as present=false.
+    let doctor = to_command_output(run_doctor_from(
+        &root,
+        &["dev", "doctor", "--format", "json"],
+    ));
+    let output: serde_json::Value = serde_json::from_str(&doctor.stdout).unwrap();
+    let checks = output["checks"].as_array().unwrap();
+    let empty_check = checks
+        .iter()
+        .find(|c| c["tool"].as_str().unwrap() == "surface.empty_dirs.agents/_empty")
+        .expect("surface.empty_dirs.agents/_empty must be present in doctor output");
+    assert!(
+        !empty_check["present"].as_bool().unwrap(),
+        "empty agents/_empty/ directory must be flagged as present=false"
+    );
+    assert_eq!(
+        doctor.status, 0,
+        "advisory mode must exit 0 even with empty dir violation"
+    );
+
+    // Strict mode: must exit 1.
+    let doctor_strict = to_command_output(run_doctor_from(
+        &root,
+        &["dev", "doctor", "--strict", "--format", "json"],
+    ));
+    assert_eq!(
+        doctor_strict.status, 1,
+        "--strict must exit 1 when surface.empty_dirs check reports present=false"
+    );
+
+    // Non-empty directory must report present=true.
+    std::fs::write(root.join("agents/_empty/file.md"), "# not empty\n").unwrap();
+    let doctor2 = to_command_output(run_doctor_from(
+        &root,
+        &["dev", "doctor", "--format", "json"],
+    ));
+    let output2: serde_json::Value = serde_json::from_str(&doctor2.stdout).unwrap();
+    let checks2 = output2["checks"].as_array().unwrap();
+    let non_empty_check = checks2
+        .iter()
+        .find(|c| c["tool"].as_str().unwrap() == "surface.empty_dirs.agents/_empty")
+        .expect("surface.empty_dirs.agents/_empty must be present");
+    assert!(
+        non_empty_check["present"].as_bool().unwrap(),
+        "non-empty agents/_empty/ directory must be flagged as present=true"
+    );
+}
+
 fn run_with_root(fixture: &CliFixture, args: &[&str], common: &[&str]) -> std::process::Output {
     fixture.run(
         &args
