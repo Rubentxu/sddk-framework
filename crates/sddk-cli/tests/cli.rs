@@ -4169,6 +4169,14 @@ fn to_command_output(output: std::process::Output) -> sddk_cli::CommandOutput {
     }
 }
 
+fn run_doctor_from(root: &Path, args: &[&str]) -> std::process::Output {
+    std::process::Command::new(env!("CARGO_BIN_EXE_sddk"))
+        .args(args)
+        .current_dir(root)
+        .output()
+        .unwrap()
+}
+
 #[test]
 fn cli_dev_doctor_surface_briefness() {
     // RED test: surface.briefness check (ADR-016).
@@ -4195,21 +4203,27 @@ fn cli_dev_doctor_surface_briefness() {
     );
 
     // Create the 501-line fixture that exceeds the agent threshold (300).
-    let mut lines = String::from("---\nname: _fixture_briefness\ndescription: fixture\n---\n# Fixture Briefness\n");
+    // Total = 4 (frontmatter + h1) + 501 (content lines) = 505 lines > 300.
+    let mut lines =
+        String::from("---\nname: _fixture_briefness\ndescription: fixture\n---\n# Fixture Briefness\n");
     for i in 0..501 {
         lines.push_str(&format!("line {}\n", i));
     }
     write(root.join("agents/_fixture_briefness.md"), &lines);
 
     // Advisory mode: should report present=false but exit 0.
-    let doctor_raw = fixture.run(&["dev", "doctor", "--format", "json"]);
-    let doctor = to_command_output(doctor_raw);
+    let doctor = to_command_output(run_doctor_from(
+        &root,
+        &["dev", "doctor", "--format", "json"],
+    ));
     let output: serde_json::Value = serde_json::from_str(&doctor.stdout).unwrap();
     let checks = output["checks"].as_array().unwrap();
     let brevity_check = checks
         .iter()
-        .find(|c| c["tool"].as_str().unwrap() == "surface.briefness._fixture_briefness")
-        .expect("surface.briefness._fixture_briefness must be present in doctor output");
+        .find(|c| c["tool"].as_str().unwrap() == "surface.briefness._fixture_briefness.md")
+        .expect(
+            "surface.briefness._fixture_briefness.md must be present in doctor output",
+        );
     assert!(
         !brevity_check["present"].as_bool().unwrap(),
         "501-line agent must be flagged as present=false"
@@ -4220,29 +4234,34 @@ fn cli_dev_doctor_surface_briefness() {
     );
 
     // Strict mode: must exit 1 when any surface.briefness is present=false.
-    let doctor_strict_raw = fixture.run(&["dev", "doctor", "--strict", "--format", "json"]);
-    let doctor_strict = to_command_output(doctor_strict_raw);
+    let doctor_strict = to_command_output(run_doctor_from(
+        &root,
+        &["dev", "doctor", "--strict", "--format", "json"],
+    ));
     assert_eq!(
         doctor_strict.status, 1,
         "--strict must exit 1 when surface.briefness check reports present=false"
     );
 
     // Also verify a 299-line fixture (under threshold) reports present=true.
+    // Total = 4 (frontmatter + h1) + 295 (content lines) = 299 lines ≤ 300.
     let mut small_lines =
         String::from("---\nname: _fixture_small\ndescription: fixture\n---\n# Fixture Small\n");
-    for i in 0..299 {
+    for i in 0..295 {
         small_lines.push_str(&format!("line {}\n", i));
     }
     write(root.join("agents/_fixture_small.md"), &small_lines);
 
-    let doctor2_raw = fixture.run(&["dev", "doctor", "--format", "json"]);
-    let doctor2 = to_command_output(doctor2_raw);
+    let doctor2 = to_command_output(run_doctor_from(
+        &root,
+        &["dev", "doctor", "--format", "json"],
+    ));
     let output2: serde_json::Value = serde_json::from_str(&doctor2.stdout).unwrap();
     let checks2 = output2["checks"].as_array().unwrap();
     let small_check = checks2
         .iter()
-        .find(|c| c["tool"].as_str().unwrap() == "surface.briefness._fixture_small")
-        .expect("surface.briefness._fixture_small must be present");
+        .find(|c| c["tool"].as_str().unwrap() == "surface.briefness._fixture_small.md")
+        .expect("surface.briefness._fixture_small.md must be present");
     assert!(
         small_check["present"].as_bool().unwrap(),
         "299-line agent must be flagged as present=true"
