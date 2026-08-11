@@ -10,6 +10,7 @@
 //   node driver.mjs --url <url> --output <dir> [--viewport WxH]
 //     [--actions actions.json] [--screenshot] [--trace] [--console]
 //     [--network] [--dom] [--geometry selectors.json] [--timeout ms]
+//   node driver.mjs --inspect --url <url> --output <dir> [--viewport WxH]
 
 // Resolve `playwright` manually: ESM import ignores NODE_PATH and Node 25
 // CJS also ignores it, so walk known global module roots ourselves.
@@ -238,6 +239,65 @@ async function run() {
   // Trace archive.
   if (trace) {
     await context.tracing.stop({ path: path.join(output, "trace.zip") });
+  }
+
+  // Inspect mode: capture fingerprint for staleness diff.
+  if (args.inspect) {
+    // Collect visible text content.
+    const texts = await page.evaluate(() => {
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+        acceptNode: (node) => {
+          if (!node.textContent.trim()) return NodeFilter.FILTER_REJECT;
+          const style = window.getComputedStyle(node.parentElement);
+          if (style.display === "none" || style.visibility === "hidden") return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      });
+      const nodes = [];
+      let node;
+      while ((node = walker.nextNode())) {
+        const t = node.textContent.trim();
+        if (t.length > 0) nodes.push(t);
+      }
+      return [...new Set(nodes)];
+    });
+
+    // Collect meaningful selectors (ids, data-*, aria labels).
+    const selectors = await page.evaluate(() => {
+      const found = new Set();
+      // IDs
+      document.querySelectorAll("[id]").forEach(el => {
+        if (el.id) found.add(`#${el.id}`);
+      });
+      // data-testid / data-* attributes
+      document.querySelectorAll("[data-testid]").forEach(el => {
+        found.add(`[data-testid="${el.getAttribute("data-testid")}"]`);
+      });
+      document.querySelectorAll("[data-cy]").forEach(el => {
+        found.add(`[data-cy="${el.getAttribute("data-cy")}"]`);
+      });
+      document.querySelectorAll("[aria-label]").forEach(el => {
+        found.add(`[aria-label="${el.getAttribute("aria-label")}"]`);
+      });
+      // Common semantic selectors
+      ["button", "a", "input", "select", "textarea"].forEach(tag => {
+        document.querySelectorAll(tag).forEach((el, i) => {
+          if (el.name) found.add(`${tag}[name="${el.name}"]`);
+          if (el.type && el.type !== "hidden") found.add(`${tag}[type="${el.type}"]`);
+        });
+      });
+      return [...found];
+    });
+
+    const fingerprint = {
+      url,
+      timestamp: new Date().toISOString(),
+      viewport: { width: viewport[0], height: viewport[1] },
+      texts,
+      selectors,
+    };
+
+    fs.writeFileSync(path.join(output, "fingerprint.json"), JSON.stringify(fingerprint, null, 2));
   }
 
   // Summary (the executor parses this).
