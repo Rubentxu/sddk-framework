@@ -264,11 +264,271 @@ const UatRender = (() => {
     return `<section class="teardown" style="--i:0"><header class="teardown-head"><h3 class="teardown-title">Teardown</h3><span class="teardown-hint">Cleanup tras el scenario</span></header><ul class="teardown-list">${rows}</ul></section>`;
   }
 
+  // ─── F13: Blind Match + Normalization (REQ-RF-026) ─────────────────────────
+  // spec: trim → NBSP → space → lowercase → collapse whitespace
+  function normalizeForMatch(s) {
+    if (s == null) return "";
+    return String(s)
+      .replace(/\u00A0/g, " ")   // NBSP → space
+      .replace(/\u200B/g, "")     // zero-width space
+      .replace(/[ \t]+/g, " ")   // collapse interior whitespace
+      .trim()
+      .toLowerCase();
+  }
+
+  function blindMatch(observed, expected) {
+    return normalizeForMatch(observed || "") === normalizeForMatch(expected || "");
+  }
+
+  // ─── F13: Branching Runtime (REQ-RF-025) ───────────────────────────────────
+  // Returns nextItemId or null (stop / continue-manual / target-not-found)
+  function interpretBranching(items, currentItemId, status) {
+    if (!items || !currentItemId || !status) return null;
+    const current = items.find((i) => i.id === currentItemId);
+    if (!current || !current.flow) return null;
+    const key = { PASS: "on_pass", FAIL: "on_fail", BLOCKED: "on_blocked" }[status];
+    if (!key) return null;
+    const target = current.flow[key];
+    if (!target || target === "stop" || target === "continue") return null;
+    // If target doesn't exist in items, runtime should stop
+    if (!items.find((i) => i.id === target)) return null;
+    return target;
+  }
+
+  // ─── F13: Evidence Gate (REQ-RF-026) ───────────────────────────────────────
+  // Returns true if all evidence_requirement[] kinds are satisfied
+  function evidenceGateEnforce(scenario, evidence) {
+    const reqs = (scenario.check && scenario.check.evidence_requirement) || {};
+    if (!reqs.required) return true;
+    const accepted = reqs.accepted || ["screenshot"];
+    const evidenceKinds = (evidence || []).map((e) => (e.kind || "note").toLowerCase());
+    return accepted.every((k) => evidenceKinds.includes(k.toLowerCase()));
+  }
+
+  // ─── F13: Rating Gate (REQ-RF-026) ─────────────────────────────────────────
+  // Rating 1-5; if rating < require_comment_below, comment is mandatory
+  function ratingGate(rating, comment, requireCommentBelow) {
+    if (!requireCommentBelow) return true;
+    if (rating >= requireCommentBelow) return true;
+    return (comment || "").trim().length > 0;
+  }
+
+  // ─── F13: Inbox View (REQ-RF-024) ──────────────────────────────────────────
+  function inboxView(plan, session) {
+    const features = plan.features || [];
+    const scenarioStatus = {};
+    let attention = 0, inProgress = 0, blocked = 0, total = 0;
+
+    for (const feature of features) {
+      for (const sc of feature.scenarios || []) {
+        total++;
+        const st = statusOf(session, sc.id);
+        scenarioStatus[sc.id] = { status: st, scenario: sc, feature };
+        if (st === "PENDING") attention++;
+        else if (st === "IN_PROGRESS") inProgress++;
+        else if (st === "BLOCKED") blocked++;
+      }
+    }
+
+    const rows = [];
+    for (const feature of features) {
+      for (const sc of feature.scenarios || []) {
+        const { status: st } = scenarioStatus[sc.id];
+        const priority = (sc.priority || "P2").toUpperCase();
+        const priorityCls = priority === "P0" ? "p0" : priority === "P1" ? "p1" : "p2";
+        const statusCls = st === "PASS" ? "passed" : st === "FAIL" ? "failed" : st === "BLOCKED" ? "blocked" : st === "IN_PROGRESS" ? "in-progress" : "pending";
+        const statusLabel = st === "IN_PROGRESS" ? `${inProgress}/${total}` : st;
+        rows.push(
+          `<tr class="inbox-row inbox-row-${statusCls}" data-scenario="${escapeHtml(sc.id)}">` +
+            `<td class="id">${escapeHtml(sc.id)}</td>` +
+            `<td>${escapeHtml(sc.title)}</td>` +
+            `<td><span class="badge badge-${priorityCls.toLowerCase()}">${priority}</span></td>` +
+            `<td class="inbox-status"><span class="status-pill ${statusCls}">${statusLabel}</span></td>` +
+          `</tr>`
+        );
+      }
+    }
+
+    const summary = `<div class="inbox-summary">
+      <span class="inbox-stat inbox-attention">⚠ Requires attention: ${attention}</span>
+      <span class="inbox-stat inbox-progress">⏳ In progress: ${inProgress}/${total}</span>
+      <span class="inbox-stat inbox-blocked">⏸ Blocked: ${blocked}</span>
+    </div>`;
+
+    return `<section class="inbox-view" style="--i:0">
+      <header class="inbox-head"><h2 class="inbox-title">My Validations</h2></header>
+      ${summary}
+      <table class="data-table inbox-table"><thead><tr><th class="id">ID</th><th>Escenario</th><th>Prioridad</th><th>Estado</th></tr></thead><tbody>${rows.join("")}</tbody></table>
+    </section>`;
+  }
+
+  // ─── F13: Checkpoint Block (REQ-RF-027) ────────────────────────────────────
+  function checkpointBlock(checkpoint, summary) {
+    const title = escapeHtml(checkpoint.title || "Checkpoint");
+    const machineSummary = summary.machine || {};
+    const machinePassed = machineSummary.passed || 0;
+    const machineTotal = machineSummary.total || 0;
+    const machinePct = machineTotal ? Math.round((100 * machinePassed) / machineTotal) : 0;
+    const faraSummary = summary.fara || {};
+    const faraConf = faraSummary.confidence ? ` (${Math.round(faraSummary.confidence * 100)}%)` : "";
+    const anomalies = (summary.anomalies || []).length;
+    const anomalyNote = anomalies > 0 ? `<span class="checkpoint-anomaly">⚠ ${anomalies} anomaly(ies)</span>` : "";
+
+    return `<section class="checkpoint-block" style="--i:10">
+      <header class="checkpoint-head">
+        <h3 class="checkpoint-title">${title}</h3>
+        <span class="checkpoint-badge">Checkpoint</span>
+      </header>
+      <div class="checkpoint-evidence-summary">
+        <div class="checkpoint-machine">
+          <span class="checkpoint-label">Machine</span>
+          <span class="checkpoint-value">${machinePassed}/${machineTotal} (${machinePct}%)</span>
+          <div class="checkpoint-bar"><div class="checkpoint-fill" style="width:${machinePct}%"></div></div>
+        </div>
+        ${faraSummary.assessment ? `<div class="checkpoint-fara"><span class="checkpoint-label">AI Assessment</span><span class="checkpoint-value checkpoint-ai">◉ ${escapeHtml(faraSummary.assessment)}${faraConf}</span></div>` : ""}
+        ${anomalyNote}
+      </div>
+      <div class="checkpoint-actions">
+        <button class="btn btn-checkpoint-approve" data-action="approve">✅ Approve</button>
+        <button class="btn btn-checkpoint-reject" data-action="reject">❌ Reject</button>
+      </div>
+    </section>`;
+  }
+
+  // ─── F13: AI Diagnostics Panel (REQ-RF-027) ────────────────────────────────
+  // 6 evidence kinds: screenshot, trace, console, network, dom, trajectory
+  function diagnosticsPanel(failure, driverData) {
+    const collected = driverData || {};
+    const kinds = [];
+    if (collected.screenshot) kinds.push("screenshot");
+    if (collected.trace || collected.trace_zip) kinds.push("trace");
+    if (collected.console_messages > 0) kinds.push("console");
+    if (collected.network_failures > 0) kinds.push("network");
+    if (collected.dom) kinds.push("DOM");
+    if (collected.trajectory) kinds.push("trajectory");
+
+    const icons = kinds.map((k) => {
+      const icon = k === "screenshot" ? "📷" : k === "trace" ? "🔍" : k === "console" ? "⌨️" : k === "network" ? "🌐" : k === "DOM" ? "📄" : "🛤️";
+      return `<span class="diag-kind">${icon} ${k}</span>`;
+    }).join("");
+
+    const cause = escapeHtml(failure.cause || "Unknown — inspect evidence above");
+    const category = escapeHtml(failure.category || "Uncategorized");
+    const defectTitle = escapeHtml(failure.suggested_defect || "Untitled defect");
+    const observed = escapeHtml(failure.observed || "");
+    const expected = escapeHtml(failure.expected || "");
+
+    return `<section class="diagnostics-panel" style="--i:9">
+      <header class="diagnostics-head"><h3 class="diagnostics-title">Failure detected — evidence already collected</h3></header>
+      <div class="diagnostics-evidence">${icons}</div>
+      <div class="diagnostics-cause">
+        <span class="diag-label">Possible cause:</span>
+        <p class="diag-value">${cause}</p>
+      </div>
+      <div class="diagnostics-category">
+        <span class="diag-label">Category:</span>
+        <span class="badge badge-flag">${category}</span>
+      </div>
+      <div class="diagnostics-defect">
+        <span class="diag-label">Suggested defect:</span>
+        <p class="diag-defect-title">${defectTitle}</p>
+      </div>
+      ${observed || expected ? `<div class="diagnostics-compare"><span class="diag-label">Observed:</span><code>${observed}</code><span class="diag-label">Expected:</span><code>${expected}</code></div>` : ""}
+      <div class="diagnostics-actual-result">
+        <label class="diag-label">Actual Result (machine-observable):</label>
+        <div class="actual-result-confirm">
+          <span class="actual-correct">[✓ Correct]</span>
+          <button class="btn btn-tiny btn-edit-actual">Edit</button>
+        </div>
+      </div>
+    </section>`;
+  }
+
+  // ─── F13: Sign-Off Wizard (REQ-RF-028) ─────────────────────────────────────
+  function signOffWizard(acceptance, counts) {
+    const decision = acceptance.decision || "pending";
+    const actor = escapeHtml(acceptance.actor || "");
+    const justification = escapeHtml(acceptance.justification || "");
+    const timestamp = acceptance.timestamp || "";
+    const decisionIcon = { accepted: "✅", accepted_conditional: "⚠", rejected: "❌", pending: "⏳" }[decision] || "⏳";
+    const decisionLabel = { accepted: "Accepted", accepted_conditional: "Accepted conditionally", rejected: "Rejected", pending: "Pending" }[decision] || "Pending";
+
+    return `<section class="signoff-wizard" style="--i:0">
+      <header class="signoff-head"><h2 class="signoff-title">Sign-off Decision</h2></header>
+      <div class="signoff-decision">
+        <span class="signoff-icon">${decisionIcon}</span>
+        <span class="signoff-label">${decisionLabel}</span>
+      </div>
+      <div class="signoff-meta">
+        <span class="signoff-actor">Actor: ${actor}</span>
+        ${timestamp ? `<span class="signoff-time">${timestamp}</span>` : ""}
+      </div>
+      ${justification ? `<div class="signoff-justification"><p>${justification}</p></div>` : ""}
+      <div class="signoff-counts">
+        <span class="count-badge count-pass">✓ ${counts.passed || 0}</span>
+        <span class="count-badge count-conditional">⚠ ${counts.conditional || 0}</span>
+        <span class="count-badge count-rejected">✕ ${counts.rejected || 0}</span>
+      </div>
+    </section>`;
+  }
+
+  // ─── F13: Release Acceptance View (REQ-RF-028) ───────────────────────────────
+  function releaseAcceptanceView(report) {
+    const counts = report.counts || {};
+    const criticalReqs = report.critical_requirements || [];
+    const openDefects = report.open_defects || [];
+    const aiAssessment = report.ai_assessment || {};
+    const aiConf = aiAssessment.confidence ? ` (${Math.round(aiAssessment.confidence * 100)}%)` : "";
+
+    const criticalBadges = criticalReqs.map((r) => {
+      const cls = r.status === "pass" ? "pass" : r.status === "fail" ? "fail" : "conditional";
+      return `<span class="badge badge-${cls}">${escapeHtml(r.req || r)}</span>`;
+    }).join("");
+
+    const defectRows = openDefects.map((d) =>
+      `<tr><td class="id">${escapeHtml(d.id || "")}</td><td>${escapeHtml(d.title || "")}</td><td>${escapeHtml(d.priority || "P2")}</td></tr>`
+    ).join("");
+
+    return `<section class="release-acceptance-view" style="--i:0">
+      <header class="ra-head"><h2 class="ra-title">RELEASE ACCEPTANCE — ${escapeHtml(report.release || "N/A")}</h2></header>
+      <div class="ra-counts">
+        <div class="ra-count-item ra-pass"><span class="ra-count-num">${counts.machine_passed || 0}</span><span class="ra-count-label">machine ✓</span></div>
+        <div class="ra-count-item ra-human"><span class="ra-count-num">${counts.human_passed || 0}</span><span class="ra-count-label">human ✓</span></div>
+        <div class="ra-count-item ra-conditional"><span class="ra-count-num">${counts.conditional || 0}</span><span class="ra-count-label">conditional ⚠</span></div>
+        <div class="ra-count-item ra-rejected"><span class="ra-count-num">${counts.rejected || 0}</span><span class="ra-count-label">rejected ✕</span></div>
+      </div>
+      <div class="ra-critical"><h3>Critical requirements</h3><div class="ra-badges">${criticalBadges || "<span class='text-dim'>none</span>"}</div></div>
+      <div class="ra-defects">
+        <h3>Open defects</h3>
+        <p class="ra-defect-summary">P0 ${openDefects.filter(d => d.priority === "P0").length} | P1 ${openDefects.filter(d => d.priority === "P1").length} | P2 ${openDefects.filter(d => d.priority === "P2").length}</p>
+        ${defectRows ? `<table class="data-table"><thead><tr><th class="id">ID</th><th>Title</th><th>Priority</th></tr></thead><tbody>${defectRows}</tbody></table>` : ""}
+      </div>
+      ${aiAssessment.decision ? `<div class="ra-ai"><h3>AI Assessment</h3><p>◉ ${escapeHtml(aiAssessment.decision)}${aiConf}</p></div>` : ""}
+    </section>`;
+  }
+
+  // ─── F13: Staleness Banner (REQ-RF-024) ────────────────────────────────────
+  function stalenessBanner(report) {
+    const affected = report.affected_scenarios || [];
+    if (!affected.length) return "";
+    const count = affected.length;
+    return `<div class="staleness-banner" style="--i:0">
+      <span class="staleness-icon">⚠</span>
+      <span class="staleness-text">${count} scenario${count > 1 ? "s" : ""} may be stale</span>
+      <button class="btn btn-small" onclick="location.reload()">Review proposed updates</button>
+    </div>`;
+  }
+
   return {
     pill, matrix, traceability, kpis,
     userStoryBanner, preflightChecklist, contextBar, stepBlock,
     formList, formItemBlock,
     evidenceChips, evidenceCaptureUI, failureProtocolPanel, teardownChecklist,
     escapeHtml,
+    // F13 exports
+    normalizeForMatch, blindMatch, interpretBranching,
+    evidenceGateEnforce, ratingGate,
+    inboxView, checkpointBlock, diagnosticsPanel,
+    signOffWizard, releaseAcceptanceView, stalenessBanner,
   };
 })();
