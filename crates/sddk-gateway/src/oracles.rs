@@ -242,12 +242,13 @@ where
     F: Fn(UatOracleVerdict, Option<String>) -> UatOracleAssessment,
 {
     let expect = spec.expect.clone().unwrap_or(Value::Null);
-    let schema = expect.get("schema").cloned().ok_or_else(|| {
-        OracleError::BadExpect {
+    let schema = expect
+        .get("schema")
+        .cloned()
+        .ok_or_else(|| OracleError::BadExpect {
             kind: spec.kind,
             message: "json_schema oracle needs `schema`".into(),
-        }
-    })?;
+        })?;
     // Locate the payload artifact: explicit `payload_ref` or first JSON
     // artifact with a payload-eligible kind.
     let artifact = match expect.get("payload_ref").and_then(Value::as_str) {
@@ -297,12 +298,13 @@ where
     let artifact = artifact_of_kind(bundle, spec.kind, UatEvidenceKind::Dom)?;
     let html = read_text(artifact, spec.kind)?;
     let expect = spec.expect.clone().unwrap_or(Value::Null);
-    let selector = expect.get("selector").and_then(Value::as_str).ok_or_else(|| {
-        OracleError::BadExpect {
+    let selector = expect
+        .get("selector")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OracleError::BadExpect {
             kind: spec.kind,
             message: "dom oracle needs `selector`".into(),
-        }
-    })?;
+        })?;
     // Lite presence check: selector text (id, class, tag) appears in the
     // HTML snapshot. Exact CSS matching is a F12 concern (harness DOM).
     let present = selector
@@ -335,12 +337,13 @@ where
     let artifact = artifact_of_kind(bundle, spec.kind, UatEvidenceKind::Geometry)?;
     let payload = read_json(artifact, spec.kind)?;
     let expect = spec.expect.clone().unwrap_or(Value::Null);
-    let selector = expect.get("selector").and_then(Value::as_str).ok_or_else(|| {
-        OracleError::BadExpect {
+    let selector = expect
+        .get("selector")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OracleError::BadExpect {
             kind: spec.kind,
             message: "geometry oracle needs `selector`".into(),
-        }
-    })?;
+        })?;
     let box_value = payload
         .get(selector)
         .and_then(Value::as_object)
@@ -356,14 +359,14 @@ where
     };
     let failures: Vec<String> = ["x", "y", "width", "height"]
         .iter()
-        .filter_map(|key| {
-            check(key)
-                .and_then(|ok| (!ok).then(|| format!("{key} mismatch")))
-        })
+        .filter_map(|key| check(key).and_then(|ok| (!ok).then(|| format!("{key} mismatch"))))
         .collect();
     let min_width = expect.get("min_width").and_then(Value::as_f64);
     if let Some(min) = min_width {
-        let width = box_value.get("width").and_then(Value::as_f64).unwrap_or(0.0);
+        let width = box_value
+            .get("width")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
         if width < min {
             return Ok(assessment(
                 UatOracleVerdict::Fail,
@@ -432,7 +435,9 @@ where
             match worst {
                 Some((idx, severity)) if idx >= expected_index => Ok(assessment(
                     UatOracleVerdict::Fail,
-                    Some(format!("a11y violation at severity {severity:?} >= {expected_severity:?}")),
+                    Some(format!(
+                        "a11y violation at severity {severity:?} >= {expected_severity:?}"
+                    )),
                 )),
                 _ => Ok(assessment(
                     UatOracleVerdict::Pass,
@@ -589,23 +594,26 @@ pub fn validate_json_schema(schema: &Value, instance: &Value) -> Result<bool, St
         }
     }
     if let Some(required) = schema.get("required").and_then(Value::as_array) {
-        let object = instance.as_object().ok_or("required only valid on object")?;
+        let object = instance
+            .as_object()
+            .ok_or("required only valid on object")?;
         for key in required {
-            let key = key
-                .as_str()
-                .ok_or("required entries must be strings")?;
+            let key = key.as_str().ok_or("required entries must be strings")?;
             if !object.contains_key(key) {
                 return Ok(false);
             }
         }
     }
     if let Some(props) = schema.get("properties").and_then(Value::as_object) {
-        let object = instance.as_object().ok_or("properties only valid on object")?;
+        let object = instance
+            .as_object()
+            .ok_or("properties only valid on object")?;
         for (key, subschema) in props {
             if let Some(value) = object.get(key)
-                && !validate_json_schema(subschema, value)? {
-                    return Ok(false);
-                }
+                && !validate_json_schema(subschema, value)?
+            {
+                return Ok(false);
+            }
         }
     }
     if let Some(items) = schema.get("items") {
@@ -617,17 +625,24 @@ pub fn validate_json_schema(schema: &Value, instance: &Value) -> Result<bool, St
         }
     }
     if let Some(enum_values) = schema.get("enum").and_then(Value::as_array)
-        && !enum_values.contains(instance) {
-            return Ok(false);
-        }
-    if let (Some(min), Some(n)) = (schema.get("minimum").and_then(Value::as_f64), instance.as_f64())
-        && n < min {
-            return Ok(false);
-        }
-    if let (Some(max), Some(n)) = (schema.get("maximum").and_then(Value::as_f64), instance.as_f64())
-        && n > max {
-            return Ok(false);
-        }
+        && !enum_values.contains(instance)
+    {
+        return Ok(false);
+    }
+    if let (Some(min), Some(n)) = (
+        schema.get("minimum").and_then(Value::as_f64),
+        instance.as_f64(),
+    ) && n < min
+    {
+        return Ok(false);
+    }
+    if let (Some(max), Some(n)) = (
+        schema.get("maximum").and_then(Value::as_f64),
+        instance.as_f64(),
+    ) && n > max
+    {
+        return Ok(false);
+    }
     Ok(true)
 }
 
@@ -658,10 +673,8 @@ mod tests {
 
     fn temp_dir(tag: &str) -> std::path::PathBuf {
         let n = NEXT_DIR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "sddk-oracle-{tag}-{}-{n}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("sddk-oracle-{tag}-{}-{n}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -672,7 +685,11 @@ mod tests {
         let tag = if files.is_empty() {
             "empty".to_owned()
         } else {
-            files.iter().map(|(name, _, _)| *name).collect::<Vec<_>>().join("+")
+            files
+                .iter()
+                .map(|(name, _, _)| *name)
+                .collect::<Vec<_>>()
+                .join("+")
         };
         let dir = temp_dir(&tag);
         let mut bundle = UatEvidenceBundle {
@@ -771,11 +788,7 @@ mod tests {
             severity: None,
             blocking: true,
         };
-        let bundle = bundle_with_files(&[(
-            "output.log",
-            "command_output",
-            b"uat validate: OK\n",
-        )]);
+        let bundle = bundle_with_files(&[("output.log", "command_output", b"uat validate: OK\n")]);
         let run = OracleRunContext::default();
         let assessment = evaluate_deterministic(&spec, &bundle, &run).unwrap();
         assert_eq!(assessment.verdict, UatOracleVerdict::Pass);
@@ -790,11 +803,7 @@ mod tests {
             severity: None,
             blocking: true,
         };
-        let bundle = bundle_with_files(&[(
-            "dom.html",
-            "dom",
-            b"<html><body>hello</body></html>",
-        )]);
+        let bundle = bundle_with_files(&[("dom.html", "dom", b"<html><body>hello</body></html>")]);
         let run = OracleRunContext::default();
         let assessment = evaluate_deterministic(&spec, &bundle, &run).unwrap();
         assert_eq!(assessment.verdict, UatOracleVerdict::Fail);
@@ -879,11 +888,7 @@ mod tests {
             severity: None,
             blocking: true,
         };
-        let bundle = bundle_with_files(&[(
-            "http.json",
-            "http",
-            br#"{"url": "http://x"}"#,
-        )]);
+        let bundle = bundle_with_files(&[("http.json", "http", br#"{"url": "http://x"}"#)]);
         let run = OracleRunContext::default();
         let assessment = evaluate_deterministic(&spec, &bundle, &run).unwrap();
         assert_eq!(assessment.verdict, UatOracleVerdict::Fail);
@@ -1018,7 +1023,11 @@ mod tests {
 
     #[test]
     fn semantic_kinds_are_rejected() {
-        for kind in [UatOracleKind::VisualAi, UatOracleKind::LlmRubric, UatOracleKind::Human] {
+        for kind in [
+            UatOracleKind::VisualAi,
+            UatOracleKind::LlmRubric,
+            UatOracleKind::Human,
+        ] {
             let spec = UatOracleSpec {
                 kind,
                 expect: None,
@@ -1080,10 +1089,8 @@ mod tests {
             confidence: 1.0,
             details: None,
         };
-        let verdict = aggregate_verdict(&[
-            mk(UatOracleVerdict::Pass),
-            mk(UatOracleVerdict::Uncertain),
-        ]);
+        let verdict =
+            aggregate_verdict(&[mk(UatOracleVerdict::Pass), mk(UatOracleVerdict::Uncertain)]);
         assert_eq!(verdict, UatOracleVerdict::Uncertain);
     }
 }

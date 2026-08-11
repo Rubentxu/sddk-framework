@@ -4197,15 +4197,13 @@ fn cli_dev_doctor_surface_briefness() {
         root.join("prompts/sddk/some-prompt.md"),
         "# Prompt\nsome content\n",
     );
-    write(
-        root.join("skills/demo/SKILL.md"),
-        "# Demo Skill\n",
-    );
+    write(root.join("skills/demo/SKILL.md"), "# Demo Skill\n");
 
     // Create the 501-line fixture that exceeds the agent threshold (300).
     // Total = 4 (frontmatter + h1) + 501 (content lines) = 505 lines > 300.
-    let mut lines =
-        String::from("---\nname: _fixture_briefness\ndescription: fixture\n---\n# Fixture Briefness\n");
+    let mut lines = String::from(
+        "---\nname: _fixture_briefness\ndescription: fixture\n---\n# Fixture Briefness\n",
+    );
     for i in 0..501 {
         lines.push_str(&format!("line {}\n", i));
     }
@@ -4221,9 +4219,7 @@ fn cli_dev_doctor_surface_briefness() {
     let brevity_check = checks
         .iter()
         .find(|c| c["tool"].as_str().unwrap() == "surface.briefness._fixture_briefness.md")
-        .expect(
-            "surface.briefness._fixture_briefness.md must be present in doctor output",
-        );
+        .expect("surface.briefness._fixture_briefness.md must be present in doctor output");
     assert!(
         !brevity_check["present"].as_bool().unwrap(),
         "501-line agent must be flagged as present=false"
@@ -4284,14 +4280,8 @@ fn cli_dev_doctor_surface_empty_dirs() {
         root.join("permissions.yaml"),
         "agents:\n  orchestrator:\n    phases: []\n    capabilities: []\n",
     );
-    write(
-        root.join("prompts/sddk/test.md"),
-        "# Prompt\ncontent\n",
-    );
-    write(
-        root.join("skills/demo/SKILL.md"),
-        "# Demo\n",
-    );
+    write(root.join("prompts/sddk/test.md"), "# Prompt\ncontent\n");
+    write(root.join("skills/demo/SKILL.md"), "# Demo\n");
 
     // Create empty agents/ subdirectory (violation: no empty dirs allowed).
     std::fs::create_dir_all(root.join("agents/_empty/")).unwrap();

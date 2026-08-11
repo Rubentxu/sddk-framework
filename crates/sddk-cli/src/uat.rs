@@ -1434,8 +1434,10 @@ fn aggregate_report(plan: &UatPlan, sessions: &[UatSession]) -> UatReport {
         ),
     > = std::collections::HashMap::new();
     // Oracle assessments por scenario (última session gana).
-    let mut scenario_oracles: std::collections::HashMap<String, Vec<sddk_domain::UatOracleAssessment>> =
-        std::collections::HashMap::new();
+    let mut scenario_oracles: std::collections::HashMap<
+        String,
+        Vec<sddk_domain::UatOracleAssessment>,
+    > = std::collections::HashMap::new();
     let mut total_minutes = 0u32;
     let mut defects = 0u32;
     let mut ux_issues = 0u32;
@@ -1453,7 +1455,10 @@ fn aggregate_report(plan: &UatPlan, sessions: &[UatSession]) -> UatReport {
             // Last writer wins per scenario.
             scenario_status.insert(result.scenario_id.clone(), (result, Some(session.executor)));
             if !result.oracle_assessments.is_empty() {
-                scenario_oracles.insert(result.scenario_id.clone(), result.oracle_assessments.clone());
+                scenario_oracles.insert(
+                    result.scenario_id.clone(),
+                    result.oracle_assessments.clone(),
+                );
             }
             if result.status == sddk_domain::UatStatus::Fail {
                 defects += 1;
@@ -1560,11 +1565,11 @@ fn aggregate_report(plan: &UatPlan, sessions: &[UatSession]) -> UatReport {
                 None
             };
             if acceptance_required
-                && matches!(status, sddk_domain::UatStatus::Pass | sddk_domain::UatStatus::Partial)
-                && !matches!(
-                    acceptance,
-                    Some(sddk_domain::UatAcceptanceStatus::Accepted)
+                && matches!(
+                    status,
+                    sddk_domain::UatStatus::Pass | sddk_domain::UatStatus::Partial
                 )
+                && !matches!(acceptance, Some(sddk_domain::UatAcceptanceStatus::Accepted))
             {
                 acceptance_blockers.push(format!(
                     "{} (machine {} pero sin acceptance humana)",
@@ -2707,7 +2712,10 @@ fn run_uat_batch(args: UatBatchArgs) -> CommandOutput {
         for (id, status, reason) in &results {
             lines.push(format!(
                 "  {id}: {status}{}",
-                reason.as_deref().map(|r| format!(" ({r})")).unwrap_or_default()
+                reason
+                    .as_deref()
+                    .map(|r| format!(" ({r})"))
+                    .unwrap_or_default()
             ));
         }
         if results.is_empty() {
@@ -2752,8 +2760,7 @@ fn run_uat_assess(args: UatAssessArgs) -> CommandOutput {
         let workflow_path = std::path::Path::new(crate::WORKFLOW_MANIFEST);
         if workflow_path.is_file() {
             let workflow_raw = std::fs::read_to_string(workflow_path)?;
-            let workflow: sddk_domain::WorkflowManifest =
-                serde_saphyr::from_str(&workflow_raw)?;
+            let workflow: sddk_domain::WorkflowManifest = serde_saphyr::from_str(&workflow_raw)?;
             let policy = sddk_gateway::CapabilityPolicy::from_workflow(&workflow);
             sddk_gateway::authorize_uat(
                 sddk_domain::UatExecutorKind::ComputerUse,
@@ -2821,13 +2828,19 @@ fn run_uat_assess(args: UatAssessArgs) -> CommandOutput {
             sddk_domain::UatOracleKind::VisualAi,
             sddk_domain::UatOracleKind::LlmRubric,
         ];
-        for oracle in scenario.oracles.iter().filter(|o| semantic_kinds.contains(&o.kind)) {
+        for oracle in scenario
+            .oracles
+            .iter()
+            .filter(|o| semantic_kinds.contains(&o.kind))
+        {
             // Localizar la evidencia: screenshot para visual_ai, dom para llm_rubric.
             let (kind_flag, evidence) = match oracle.kind {
                 sddk_domain::UatOracleKind::VisualAi => {
                     let shot = result.evidence.iter().find(|e| {
                         e.kind == sddk_domain::UatEvidenceKind::Screenshot
-                            || e.path.as_deref().is_some_and(|p| p.ends_with("screenshot.png"))
+                            || e.path
+                                .as_deref()
+                                .is_some_and(|p| p.ends_with("screenshot.png"))
                     });
                     match shot.and_then(|e| e.path.clone()) {
                         Some(p) => (sddk_domain::UatOracleKind::VisualAi, p),
@@ -3110,25 +3123,15 @@ fn run_uat_run(args: UatRunArgs) -> CommandOutput {
         let workflow_path = std::path::Path::new(crate::WORKFLOW_MANIFEST);
         if workflow_path.is_file() {
             let workflow_raw = std::fs::read_to_string(workflow_path).map_err(|e| {
-                anyhow::anyhow!(
-                    "cannot read workflow {}: {e}",
-                    workflow_path.display()
-                )
+                anyhow::anyhow!("cannot read workflow {}: {e}", workflow_path.display())
             })?;
             let workflow: sddk_domain::WorkflowManifest = serde_saphyr::from_str(&workflow_raw)
                 .map_err(|e| {
-                    anyhow::anyhow!(
-                        "invalid workflow {}: {e}",
-                        workflow_path.display()
-                    )
+                    anyhow::anyhow!("invalid workflow {}: {e}", workflow_path.display())
                 })?;
             let policy = sddk_gateway::CapabilityPolicy::from_workflow(&workflow);
-            sddk_gateway::authorize_uat(executor_kind, &policy, args.approve).map_err(|e| {
-                anyhow::anyhow!(
-                    "scenario {} blocked by policy: {e}",
-                    scenario.id
-                )
-            })?;
+            sddk_gateway::authorize_uat(executor_kind, &policy, args.approve)
+                .map_err(|e| anyhow::anyhow!("scenario {} blocked by policy: {e}", scenario.id))?;
         }
 
         // --- Dispatch por kind de executor (ADR-014, eje 1) ---
@@ -3137,8 +3140,7 @@ fn run_uat_run(args: UatRunArgs) -> CommandOutput {
         let (run_status, run_comment, stderr_detail, bundle, run_ctx) = match executor_kind {
             sddk_domain::UatExecutorKind::Cli | sddk_domain::UatExecutorKind::Script => {
                 // Typed argv split — first token is the program, rest are args.
-                let tokens: Vec<String> =
-                    ref_str.split_whitespace().map(str::to_owned).collect();
+                let tokens: Vec<String> = ref_str.split_whitespace().map(str::to_owned).collect();
                 let (program, argv) = tokens.split_first().ok_or_else(|| {
                     anyhow::anyhow!("scenario {} executor command is empty", scenario.id)
                 })?;
@@ -3183,12 +3185,10 @@ fn run_uat_run(args: UatRunArgs) -> CommandOutput {
                         ),
                     )
                 };
-                let bundle = sddk_gateway::EvidenceCollector::new(
-                    sddk_gateway::EvidenceContext {
-                        executor: "cli".into(),
-                        ..Default::default()
-                    },
-                )
+                let bundle = sddk_gateway::EvidenceCollector::new(sddk_gateway::EvidenceContext {
+                    executor: "cli".into(),
+                    ..Default::default()
+                })
                 .add(sddk_gateway::EvidenceFile {
                     kind: sddk_domain::UatEvidenceKind::CommandOutput,
                     path: write_evidence_payload(&scenario.id, &ref_str, &outcome)?,
@@ -3222,7 +3222,9 @@ fn run_uat_run(args: UatRunArgs) -> CommandOutput {
                         .iter()
                         .filter(|o| o.kind == sddk_domain::UatOracleKind::Geometry)
                         .filter_map(|o| {
-                            o.expect.as_ref().and_then(|e| e.get("selector"))
+                            o.expect
+                                .as_ref()
+                                .and_then(|e| e.get("selector"))
                                 .and_then(serde_json::Value::as_str)
                                 .map(str::to_owned)
                         })
@@ -3280,16 +3282,15 @@ fn run_uat_run(args: UatRunArgs) -> CommandOutput {
                         format!("pass: `{ref_str}` loaded (title {:?})", outcome.page_title),
                     )
                 };
-                let mut collector = sddk_gateway::EvidenceCollector::new(
-                    sddk_gateway::EvidenceContext {
+                let mut collector =
+                    sddk_gateway::EvidenceCollector::new(sddk_gateway::EvidenceContext {
                         executor: "playwright".into(),
                         browser: Some("chromium".into()),
                         viewport: None,
                         git_sha: None,
                         app_version: Some(plan.release.candidate.clone()),
                         ..Default::default()
-                    },
-                );
+                    });
                 collector.collect_dir(&output_dir);
                 let bundle = collector
                     .build()
@@ -3319,9 +3320,10 @@ fn run_uat_run(args: UatRunArgs) -> CommandOutput {
                     output_dir: output_dir.clone(),
                     timeout_ms: args.timeout_ms,
                 };
-                let outcome = sddk_gateway::run_computer_use(&cu_spec, None, None).map_err(|e| {
-                    anyhow::anyhow!("scenario {} computer_use run failed: {e}", scenario.id)
-                })?;
+                let outcome =
+                    sddk_gateway::run_computer_use(&cu_spec, None, None).map_err(|e| {
+                        anyhow::anyhow!("scenario {} computer_use run failed: {e}", scenario.id)
+                    })?;
                 let (status, comment) = if outcome.done {
                     (
                         sddk_domain::UatStatus::Pass,
@@ -3339,16 +3341,15 @@ fn run_uat_run(args: UatRunArgs) -> CommandOutput {
                         ),
                     )
                 };
-                let mut collector = sddk_gateway::EvidenceCollector::new(
-                    sddk_gateway::EvidenceContext {
+                let mut collector =
+                    sddk_gateway::EvidenceCollector::new(sddk_gateway::EvidenceContext {
                         executor: "computer_use".into(),
                         browser: Some("chromium".into()),
                         git_sha: None,
                         app_version: Some(plan.release.candidate.clone()),
                         model: Some("fara-9b".into()),
                         ..Default::default()
-                    },
-                );
+                    });
                 collector.collect_dir(&output_dir);
                 let bundle = collector
                     .build()

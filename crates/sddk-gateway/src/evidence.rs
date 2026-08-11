@@ -105,12 +105,11 @@ impl EvidenceCollector {
         }
         let mut artifacts = Vec::with_capacity(self.files.len());
         for file in &self.files {
-            let bytes = std::fs::read(&file.path).map_err(|source| {
-                EvidenceCollectorError::Read {
+            let bytes =
+                std::fs::read(&file.path).map_err(|source| EvidenceCollectorError::Read {
                     path: file.path.display().to_string(),
                     source,
-                }
-            })?;
+                })?;
             let digest = sddk_domain::sha256_hex(&bytes);
             let size = bytes.len() as u64;
             artifacts.push(UatEvidenceArtifact {
@@ -182,7 +181,10 @@ mod tests {
     #[test]
     fn empty_collector_is_error() {
         let collector = EvidenceCollector::new(EvidenceContext::default());
-        assert!(matches!(collector.build(), Err(EvidenceCollectorError::Empty)));
+        assert!(matches!(
+            collector.build(),
+            Err(EvidenceCollectorError::Empty)
+        ));
     }
 
     #[test]
@@ -206,14 +208,8 @@ mod tests {
         assert!(artifact.r#ref.starts_with("sha256:"));
         assert_eq!(artifact.size_bytes, Some(14));
         assert_eq!(bundle.environment.browser.as_deref(), Some("chromium"));
-        assert_eq!(
-            bundle.environment.os.as_deref(),
-            Some(std::env::consts::OS)
-        );
-        assert_eq!(
-            bundle.execution.executor.as_deref(),
-            Some("playwright")
-        );
+        assert_eq!(bundle.environment.os.as_deref(), Some(std::env::consts::OS));
+        assert_eq!(bundle.execution.executor.as_deref(), Some("playwright"));
 
         std::fs::remove_dir_all(&dir).ok();
     }

@@ -109,10 +109,12 @@ pub fn run_semantic_oracle(
     let kind_str = match spec.kind {
         UatOracleKind::VisualAi => "visual_ai",
         UatOracleKind::LlmRubric => "llm_rubric",
-        _ => return Err(SemanticOracleError::Run {
-            kind: spec.kind,
-            message: "kind is not semantic".into(),
-        }),
+        _ => {
+            return Err(SemanticOracleError::Run {
+                kind: spec.kind,
+                message: "kind is not semantic".into(),
+            });
+        }
     };
     let evidence_flag = if spec.kind == UatOracleKind::VisualAi {
         "--screenshot"
@@ -176,12 +178,11 @@ pub fn run_semantic_oracle(
             path: assessment_path.display().to_string(),
             source,
         })?;
-    let value: serde_json::Value = serde_json::from_str(&raw).map_err(|source| {
-        SemanticOracleError::Run {
+    let value: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|source| SemanticOracleError::Run {
             kind: spec.kind,
             message: format!("invalid assessment.json: {source}"),
-        }
-    })?;
+        })?;
 
     let verdict = match value
         .get("verdict")

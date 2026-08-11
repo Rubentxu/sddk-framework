@@ -26,9 +26,7 @@ mod uat_policy;
 
 pub use artifact_store::{ArtifactMeta, ArtifactStore, ArtifactStoreError};
 pub use computer_use::{ComputerUseError, ComputerUseOutcome, ComputerUseSpec, run_computer_use};
-pub use evidence::{
-    EvidenceCollector, EvidenceCollectorError, EvidenceContext, EvidenceFile,
-};
+pub use evidence::{EvidenceCollector, EvidenceCollectorError, EvidenceContext, EvidenceFile};
 pub use filesystem::{FsError, ScopedFs};
 pub use forge::{
     CheckState, Forge, ForgeError, GitHubForge, MergeReceipt, MockForge, PrReceipt, PrRequest,
@@ -37,8 +35,7 @@ pub use forge::{
 pub use gateway::{CapabilityGateway, CapabilityPlan, CapabilityPlanInput, GatewayError};
 pub use git::{GitBranch, GitCommit, GitError, GitExecutor, GitInspect, GitTag};
 pub use oracles::{
-    OracleError, OracleRunContext, aggregate_verdict, evaluate_deterministic,
-    validate_json_schema,
+    OracleError, OracleRunContext, aggregate_verdict, evaluate_deterministic, validate_json_schema,
 };
 pub use permissions::{AgentPermissions, PermissionDecision, PermissionPolicy, PermissionsError};
 pub use playwright::{PlaywrightError, PlaywrightOutcome, PlaywrightSpec, run_playwright};
@@ -49,8 +46,10 @@ pub use release::{
     plan_release, reconcile_pending,
 };
 pub use runner::{RunOutcome, RunSpec, RunnerError, run};
-pub use semantic::{SemanticOracleError, SemanticOracleOutcome, SemanticOracleSpec, run_semantic_oracle};
 pub use sddk_storage::CapabilityReceipt;
+pub use semantic::{
+    SemanticOracleError, SemanticOracleOutcome, SemanticOracleSpec, run_semantic_oracle,
+};
 pub use uat_policy::{UatPolicyError, authorize_uat, capability_name, default_risk};
 
 /// Resolves a UAT driver/harness asset (driver.mjs, computer_use.mjs,

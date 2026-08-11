@@ -691,10 +691,9 @@ pub fn build_review_queue(
             } else if !sampled_ids.contains(&scenario.id) {
                 // Muestreo determinista: hash(scenario + seed) % 100 < pct.
                 let digest = sha256_hex(format!("{}::{seed}", scenario.id).as_bytes());
-                let bucket = digest
-                    .chars()
-                    .take(8)
-                    .fold(0u64, |acc, c| acc.wrapping_mul(16) + c.to_digit(16).unwrap_or(0) as u64);
+                let bucket = digest.chars().take(8).fold(0u64, |acc, c| {
+                    acc.wrapping_mul(16) + c.to_digit(16).unwrap_or(0) as u64
+                });
                 let pct = (sampling * 100.0).round() as u64;
                 if bucket % 100 < pct {
                     items.push(UatReviewItem {
@@ -1050,15 +1049,20 @@ pub fn validate_form_dsl(spec: &UatFormSpec) -> Vec<String> {
             UatFormElementKind::Check => match &item.check {
                 None => errors.push(format!("item[{i}]: kind=check sin `check` block")),
                 Some(check) => {
-                    if check.comment_required_when.as_deref().is_some_and(|v| {
-                        !matches!(v, "always" | "on_fail" | "never")
-                    }) {
+                    if check
+                        .comment_required_when
+                        .as_deref()
+                        .is_some_and(|v| !matches!(v, "always" | "on_fail" | "never"))
+                    {
                         errors.push(format!(
                             "item[{i}]: comment_required_when={:?} no está en {{always,on_fail,never}}",
                             check.comment_required_when
                         ));
                     }
-                    if check.confidence_requirement.is_some_and(|c| !(0.0..=1.0).contains(&c)) {
+                    if check
+                        .confidence_requirement
+                        .is_some_and(|c| !(0.0..=1.0).contains(&c))
+                    {
                         errors.push(format!(
                             "item[{i}]: confidence_requirement={:?} fuera de [0,1]",
                             check.confidence_requirement
@@ -1548,7 +1552,6 @@ pub struct HumanAvailability {
     #[serde(default = "default_true")]
     pub architect: bool,
 }
-
 
 impl Default for HumanAvailability {
     fn default() -> Self {
@@ -3592,9 +3595,11 @@ features:
         let plan = review_plan(None);
         let report = review_report(&plan);
         let queue = build_review_queue(&plan, &report, 0.0, "seed");
-        assert!(queue
-            .iter()
-            .any(|i| i.scenario_id == "S-P0" && i.reason == UatReviewReason::Required));
+        assert!(
+            queue
+                .iter()
+                .any(|i| i.scenario_id == "S-P0" && i.reason == UatReviewReason::Required)
+        );
     }
 
     #[test]

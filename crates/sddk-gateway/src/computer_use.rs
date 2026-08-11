@@ -130,7 +130,10 @@ pub fn run_computer_use(
         program: node_bin.unwrap_or("node").to_owned(),
         args,
         env: computer_use_env(&spec.fara_url),
-        timeout_ms: spec.timeout_ms.saturating_mul(spec.max_steps as u64 + 1).max(60_000),
+        timeout_ms: spec
+            .timeout_ms
+            .saturating_mul(spec.max_steps as u64 + 1)
+            .max(60_000),
         output_max_bytes: 1_048_576,
     };
 
@@ -167,12 +170,11 @@ pub fn run_computer_use(
             path: summary_path.display().to_string(),
             source,
         })?;
-    let summary: serde_json::Value = serde_json::from_str(&raw).map_err(|source| {
-        ComputerUseError::Run {
+    let summary: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|source| ComputerUseError::Run {
             url: spec.url.clone(),
             message: format!("invalid harness summary: {source}"),
-        }
-    })?;
+        })?;
 
     Ok(ComputerUseOutcome {
         evidence_dir: spec.output_dir.clone(),
@@ -214,11 +216,7 @@ mod tests {
 
     #[test]
     fn missing_harness_is_reported_before_spawn() {
-        let spec = ComputerUseSpec::new(
-            "https://example.com",
-            "goal",
-            PathBuf::from("/tmp/cu-x"),
-        );
+        let spec = ComputerUseSpec::new("https://example.com", "goal", PathBuf::from("/tmp/cu-x"));
         let err = run_computer_use(
             &spec,
             Some(Path::new("/nonexistent/computer_use.mjs")),

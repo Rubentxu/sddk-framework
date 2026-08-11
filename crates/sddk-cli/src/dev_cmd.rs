@@ -284,9 +284,7 @@ fn run_dev_doctor(args: DoctorArgs, environment: &CliEnvironment) -> CommandOutp
     // `uat run --executor playwright|computer_use` at runtime.
     if let Ok(framework_root) = resolve_active_framework_root(environment) {
         let assets = framework_root.join("assets");
-        let driver_ok = assets
-            .join("uat-driver/driver.mjs")
-            .is_file()
+        let driver_ok = assets.join("uat-driver/driver.mjs").is_file()
             && assets.join("uat-driver/computer_use.mjs").is_file()
             && assets.join("uat-driver/assess.mjs").is_file();
         let kit_ok = assets.join("uat-dashboard/kit/components.js").is_file()
@@ -354,8 +352,10 @@ fn run_dev_doctor(args: DoctorArgs, environment: &CliEnvironment) -> CommandOutp
         for entry in entries.flatten() {
             let skill_dir = entry.path();
             if skill_dir.is_dir() {
-                let skill_name =
-                    skill_dir.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
+                let skill_name = skill_dir
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown");
                 let skl_path = skill_dir.join("SKILL.md");
                 if skl_path.is_file()
                     && let Ok(content) = std::fs::read_to_string(&skl_path)
@@ -376,56 +376,60 @@ fn run_dev_doctor(args: DoctorArgs, environment: &CliEnvironment) -> CommandOutp
 
     // Prompts: prompts/sddk/*.md
     let prompts_dir = root.join("prompts/sddk");
-    if prompts_dir.is_dir() && let Ok(entries) = std::fs::read_dir(&prompts_dir) {
+    if prompts_dir.is_dir()
+        && let Ok(entries) = std::fs::read_dir(&prompts_dir)
+    {
         for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file()
-                    && path.extension().and_then(|e| e.to_str()) == Some("md")
-                    && let Ok(content) = std::fs::read_to_string(&path)
-                {
-                    let line_count = content.lines().count();
-                    let rel = path
-                        .strip_prefix(&prompts_dir)
-                        .unwrap_or(&path)
-                        .to_string_lossy()
-                        .replace('\\', "/");
-                    let present = line_count <= 200;
-                    if !present {
-                        brevity_violations += 1;
-                    }
-                    checks.push(DoctorCheck {
-                        tool: format!("surface.briefness.{rel}"),
-                        present,
-                    });
+            let path = entry.path();
+            if path.is_file()
+                && path.extension().and_then(|e| e.to_str()) == Some("md")
+                && let Ok(content) = std::fs::read_to_string(&path)
+            {
+                let line_count = content.lines().count();
+                let rel = path
+                    .strip_prefix(&prompts_dir)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                let present = line_count <= 200;
+                if !present {
+                    brevity_violations += 1;
                 }
+                checks.push(DoctorCheck {
+                    tool: format!("surface.briefness.{rel}"),
+                    present,
+                });
+            }
         }
     }
 
     // Surface empty-dirs check (ADR-016): no empty subdirectories in surfaces.
     for surface_dir in ["agents", "skills", "prompts/sddk"] {
         let dir_path = root.join(surface_dir);
-        if dir_path.is_dir() && let Ok(entries) = std::fs::read_dir(&dir_path) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    // Only check directories (not files).
-                    if path.is_dir() {
-                        let rel = path
-                            .strip_prefix(&root)
-                            .unwrap_or(&path)
-                            .to_string_lossy()
-                            .replace('\\', "/");
-                        // Empty if no files (recursive check).
-                        let is_empty = path
-                            .read_dir()
-                            .map(|mut i| i.next().is_none())
-                            .unwrap_or(false);
-                        let present = !is_empty;
-                        checks.push(DoctorCheck {
-                            tool: format!("surface.empty_dirs.{rel}"),
-                            present,
-                        });
-                    }
+        if dir_path.is_dir()
+            && let Ok(entries) = std::fs::read_dir(&dir_path)
+        {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                // Only check directories (not files).
+                if path.is_dir() {
+                    let rel = path
+                        .strip_prefix(&root)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    // Empty if no files (recursive check).
+                    let is_empty = path
+                        .read_dir()
+                        .map(|mut i| i.next().is_none())
+                        .unwrap_or(false);
+                    let present = !is_empty;
+                    checks.push(DoctorCheck {
+                        tool: format!("surface.empty_dirs.{rel}"),
+                        present,
+                    });
                 }
+            }
         }
     }
 
@@ -767,7 +771,8 @@ fn link_file(source: &Path, target: &Path, stale_replaced: &mut usize) -> std::i
             // Already a link: only recreate when it points somewhere else
             // (hash-free check: compare canonical target).
             if let Ok(current) = std::fs::read_link(target) {
-                let source_abs = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
+                let source_abs =
+                    std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
                 let current_abs = if current.is_absolute() {
                     current
                 } else {
@@ -776,8 +781,7 @@ fn link_file(source: &Path, target: &Path, stale_replaced: &mut usize) -> std::i
                         .unwrap_or_else(|| Path::new("/"))
                         .join(current)
                 };
-                let current_abs = std::fs::canonicalize(&current_abs)
-                    .unwrap_or(current_abs);
+                let current_abs = std::fs::canonicalize(&current_abs).unwrap_or(current_abs);
                 if current_abs == source_abs {
                     // Correct target already: leave it (idempotent).
                     return Ok(());
@@ -830,12 +834,9 @@ fn prune_editor(root: &Path, editor_dir: &Path) -> usize {
             .symlink_metadata()
             .map(|m| m.file_type().is_symlink() && !path.exists())
             .unwrap_or(false);
-        let is_stale_backup = name
-            .to_string_lossy()
-            .ends_with(".sddk-stale");
-        let should_remove = is_broken_link
-            || is_stale_backup
-            || (is_framework_entry && !exists_in_source);
+        let is_stale_backup = name.to_string_lossy().ends_with(".sddk-stale");
+        let should_remove =
+            is_broken_link || is_stale_backup || (is_framework_entry && !exists_in_source);
         if should_remove {
             let _ = std::fs::remove_file(path);
             let _ = std::fs::remove_dir_all(path);
@@ -1558,9 +1559,8 @@ fn register_opencode_agents(root: &Path, opencode_json: &Path) -> anyhow::Result
     // Prune orphaned registrations: framework-namespaced agents that no
     // longer exist in the source tree (renamed/removed surfaces). Entries
     // from other systems are left untouched.
-    let source_agent_names: std::collections::HashSet<String> = framework_agent_names(root)
-        .into_iter()
-        .collect();
+    let source_agent_names: std::collections::HashSet<String> =
+        framework_agent_names(root).into_iter().collect();
     let orphans: Vec<String> = agents
         .keys()
         .filter(|name| {
@@ -1838,7 +1838,11 @@ mod reconciliation_tests {
         let editor = temp_tree("editor");
         // Framework source: one agent + one skill.
         std::fs::create_dir_all(root.join("agents")).unwrap();
-        std::fs::write(root.join("agents/orchestrator.md"), "---\nname: orchestrator\n---\n").unwrap();
+        std::fs::write(
+            root.join("agents/orchestrator.md"),
+            "---\nname: orchestrator\n---\n",
+        )
+        .unwrap();
         std::fs::create_dir_all(root.join("skills")).unwrap();
         std::fs::create_dir_all(root.join("skills/sddk-apply")).unwrap();
         std::fs::write(root.join("skills/sddk-apply/SKILL.md"), "# apply\n").unwrap();
@@ -1848,12 +1852,24 @@ mod reconciliation_tests {
         std::fs::create_dir_all(editor.join("agents")).unwrap();
         std::fs::create_dir_all(editor.join("skills")).unwrap();
         std::fs::create_dir_all(editor.join("workflows")).unwrap();
-        std::os::unix::fs::symlink("/nonexistent/sddk-deprecated.md", editor.join("agents/sddk-deprecated.md")).unwrap();
+        std::os::unix::fs::symlink(
+            "/nonexistent/sddk-deprecated.md",
+            editor.join("agents/sddk-deprecated.md"),
+        )
+        .unwrap();
         std::fs::create_dir_all(editor.join("skills/sddk-continue-options")).unwrap();
-        std::fs::write(editor.join("skills/sddk-continue-options/SKILL.md"), "# orphan\n").unwrap();
+        std::fs::write(
+            editor.join("skills/sddk-continue-options/SKILL.md"),
+            "# orphan\n",
+        )
+        .unwrap();
         std::fs::write(editor.join("workflows/sddk-a-full.sddk-stale"), "stale\n").unwrap();
         std::fs::create_dir_all(editor.join("skills/architecture-discovery")).unwrap();
-        std::fs::write(editor.join("skills/architecture-discovery/SKILL.md"), "# foreign\n").unwrap();
+        std::fs::write(
+            editor.join("skills/architecture-discovery/SKILL.md"),
+            "# foreign\n",
+        )
+        .unwrap();
 
         let pruned = prune_editor(&root, &editor);
         // 1 broken agent + 1 orphan skill + 1 stale workflow = 3.
@@ -1862,7 +1878,11 @@ mod reconciliation_tests {
         assert!(!editor.join("skills/sddk-continue-options").exists());
         assert!(!editor.join("workflows/sddk-a-full.sddk-stale").exists());
         // Foreign surface untouched.
-        assert!(editor.join("skills/architecture-discovery/SKILL.md").exists());
+        assert!(
+            editor
+                .join("skills/architecture-discovery/SKILL.md")
+                .exists()
+        );
 
         std::fs::remove_dir_all(&root).ok();
         std::fs::remove_dir_all(&editor).ok();
@@ -1895,7 +1915,12 @@ mod reconciliation_tests {
         link_file(&source, &target, &mut stale).unwrap();
         assert_eq!(stale, 1);
         assert!(dir.join("target.sddk-stale").exists());
-        assert!(std::fs::symlink_metadata(&target).unwrap().file_type().is_symlink());
+        assert!(
+            std::fs::symlink_metadata(&target)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }
@@ -1907,7 +1932,8 @@ mod manifest_tests {
     fn temp_root(tag: &str) -> std::path::PathBuf {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("sddk-manifest-{tag}-{}-{n}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("sddk-manifest-{tag}-{}-{n}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -1924,7 +1950,10 @@ mod manifest_tests {
         assert_eq!(count, 2);
         assert!(root.join(MANIFEST_FILE).is_file());
         let mismatches = verify_manifest(&root).unwrap();
-        assert!(mismatches.is_empty(), "intact tree must verify: {mismatches:?}");
+        assert!(
+            mismatches.is_empty(),
+            "intact tree must verify: {mismatches:?}"
+        );
         std::fs::remove_dir_all(&root).ok();
     }
 

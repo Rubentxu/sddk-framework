@@ -105,7 +105,6 @@ pub enum PlaywrightError {
     },
 }
 
-
 /// Environment allowlist for browser runs. The typed runner clears the
 /// environment (`env_clear`); Playwright needs `PATH` (node + browser
 /// binaries), `HOME` (browser cache) and `NODE_PATH` (npm module
@@ -226,12 +225,11 @@ pub fn run_playwright(
             path: summary_path.display().to_string(),
             source,
         })?;
-    let summary: DriverSummary = serde_json::from_str(&summary_raw).map_err(|source| {
-        PlaywrightError::Run {
+    let summary: DriverSummary =
+        serde_json::from_str(&summary_raw).map_err(|source| PlaywrightError::Run {
             url: spec.url.clone(),
             message: format!("invalid driver summary: {source}"),
-        }
-    })?;
+        })?;
 
     Ok(PlaywrightOutcome {
         evidence_dir: spec.output_dir.clone(),
@@ -314,11 +312,9 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(700));
 
         let evidence_dir = dir.join("evidence");
-        let spec = PlaywrightSpec::new(
-            "http://127.0.0.1:18766/index.html",
-            evidence_dir.clone(),
-        );
-        let driver = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/uat-driver/driver.mjs");
+        let spec = PlaywrightSpec::new("http://127.0.0.1:18766/index.html", evidence_dir.clone());
+        let driver =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/uat-driver/driver.mjs");
         let outcome = run_playwright(&spec, Some(&driver), Some("node"));
 
         let outcome = match outcome {
