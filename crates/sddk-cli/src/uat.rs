@@ -4582,3 +4582,160 @@ features:
         assert!(report.fingerprint_diffs.is_empty());
     }
 }
+
+#[cfg(test)]
+mod uat_validate_tests {
+    use super::*;
+
+    /// Valid plan with no form DSL → validate OK.
+    #[test]
+    fn validate_plan_without_form_is_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan_path = dir.path().join("plan.yaml");
+        let plan_content = r#"
+schema_version: 3
+release: { candidate: v1.0.0 }
+generated_by: test
+generated_at: "2026-08-11T00:00:00Z"
+features:
+  - id: F1
+    name: Login
+    scenarios:
+      - id: S-1
+        title: Login works
+        priority: P0
+        plain_steps: []
+"#;
+        std::fs::write(&plan_path, plan_content).unwrap();
+        let args = UatValidateArgs {
+            file: plan_path,
+            format: OutputFormat::Text,
+        };
+        let out = run_uat_validate(args);
+        assert_eq!(out.status, 0, "expected OK, got: {}", out.stderr);
+    }
+
+    /// Form DSL with goto pointing to non-existent item → exit 1.
+    #[test]
+    fn validate_form_goto_nonexistent_target_is_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan_path = dir.path().join("plan.yaml");
+        let plan_content = r#"
+schema_version: 3
+release: { candidate: v1.0.0 }
+generated_by: test
+generated_at: "2026-08-11T00:00:00Z"
+features:
+  - id: F1
+    name: Login
+    scenarios:
+      - id: S-1
+        title: Login form
+        priority: P0
+        plain_steps: []
+        form:
+          dsl_version: 1
+          items:
+            - id: start
+              kind: info
+              text: "Start"
+            - id: broken
+              kind: flow
+              flow: goto
+              target: nonexistent
+"#;
+        std::fs::write(&plan_path, plan_content).unwrap();
+        let args = UatValidateArgs {
+            file: plan_path,
+            format: OutputFormat::Text,
+        };
+        let out = run_uat_validate(args);
+        assert_ne!(out.status, 0, "expected error for broken goto target");
+        assert!(
+            out.stderr.contains("goto target") || out.stderr.contains("not found"),
+            "expected goto error, got: {}",
+            out.stderr
+        );
+    }
+
+    /// Form DSL with goto cycle (a→b→a) → exit 1.
+    #[test]
+    fn validate_form_goto_cycle_is_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan_path = dir.path().join("plan.yaml");
+        let plan_content = r#"
+schema_version: 3
+release: { candidate: v1.0.0 }
+generated_by: test
+generated_at: "2026-08-11T00:00:00Z"
+features:
+  - id: F1
+    name: Login
+    scenarios:
+      - id: S-1
+        title: Login form
+        priority: P0
+        plain_steps: []
+        form:
+          dsl_version: 1
+          items:
+            - id: a
+              kind: flow
+              flow: goto
+              target: b
+            - id: b
+              kind: flow
+              flow: goto
+              target: a
+"#;
+        std::fs::write(&plan_path, plan_content).unwrap();
+        let args = UatValidateArgs {
+            file: plan_path,
+            format: OutputFormat::Text,
+        };
+        let out = run_uat_validate(args);
+        assert_ne!(out.status, 0, "expected error for goto cycle");
+        assert!(
+            out.stderr.contains("cycle") || out.stderr.contains("goto cycle"),
+            "expected cycle error, got: {}",
+            out.stderr
+        );
+    }
+
+    /// CompletionPolicy with invalid mode → exit 1.
+    #[test]
+    fn validate_form_completion_invalid_mode_is_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan_path = dir.path().join("plan.yaml");
+        let plan_content = r#"
+schema_version: 3
+release: { candidate: v1.0.0 }
+generated_by: test
+generated_at: "2026-08-11T00:00:00Z"
+features:
+  - id: F1
+    name: Login
+    scenarios:
+      - id: S-1
+        title: Login form
+        priority: P0
+        plain_steps: []
+        form:
+          dsl_version: 1
+          items:
+            - id: start
+              kind: info
+              text: "Start"
+          completion:
+            mode: invalid_mode
+            threshold: 1
+"#;
+        std::fs::write(&plan_path, plan_content).unwrap();
+        let args = UatValidateArgs {
+            file: plan_path,
+            format: OutputFormat::Text,
+        };
+        let out = run_uat_validate(args);
+        assert_ne!(out.status, 0, "expected error for invalid completion mode");
+    }
+}
