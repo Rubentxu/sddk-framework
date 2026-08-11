@@ -324,7 +324,6 @@ fn run_dev_doctor(args: DoctorArgs, environment: &CliEnvironment) -> CommandOutp
     // Surface brevity checks (ADR-016): agent ≤ 300, skill ≤ 150, prompt ≤ 200.
     let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let mut brevity_violations = 0usize;
-    let mut empty_dir_violations = 0usize;
 
     // Agents: agents/*.md
     if let Ok(entries) = std::fs::read_dir(root.join("agents")) {
@@ -421,9 +420,6 @@ fn run_dev_doctor(args: DoctorArgs, environment: &CliEnvironment) -> CommandOutp
                             .map(|mut i| i.next().is_none())
                             .unwrap_or(false);
                         let present = !is_empty;
-                        if !present {
-                            empty_dir_violations += 1;
-                        }
                         checks.push(DoctorCheck {
                             tool: format!("surface.empty_dirs.{rel}"),
                             present,
@@ -448,8 +444,9 @@ fn run_dev_doctor(args: DoctorArgs, environment: &CliEnvironment) -> CommandOutp
                 checks: output.checks.clone(),
             };
             let mut command = render_result(Ok(cloned), format, doctor_text);
-            // Strict mode: any brevity or empty-dir violation triggers non-zero exit.
-            if args.strict && (brevity_violations > 0 || empty_dir_violations > 0) {
+            // Strict mode: only brevity violations trigger non-zero exit (ADR-016 §4).
+            // surface.empty_dirs is detect-only advisory — never promoted by --strict.
+            if args.strict && brevity_violations > 0 {
                 command.status = 1;
             } else if !output.all_present {
                 // Advisory: non-brevity layout issues are fatal.

@@ -4315,15 +4315,20 @@ fn cli_dev_doctor_surface_empty_dirs() {
         doctor.status, 0,
         "advisory mode must exit 0 even with empty dir violation"
     );
+    // Verify doctor does NOT mutate the filesystem (detect-only).
+    assert!(
+        root.join("agents/_empty").is_dir(),
+        "doctor must not delete or modify empty dir (detect-only)"
+    );
 
-    // Strict mode: must exit 1.
+    // Strict mode: must exit 0 (empty-dirs is advisory-only, not promoted by --strict).
     let doctor_strict = to_command_output(run_doctor_from(
         &root,
         &["dev", "doctor", "--strict", "--format", "json"],
     ));
     assert_eq!(
-        doctor_strict.status, 1,
-        "--strict must exit 1 when surface.empty_dirs check reports present=false"
+        doctor_strict.status, 0,
+        "--strict must NOT promote surface.empty_dirs to exit 1 (advisory only)"
     );
 
     // Non-empty directory must report present=true.
