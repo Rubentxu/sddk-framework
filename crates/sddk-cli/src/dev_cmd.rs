@@ -405,8 +405,7 @@ fn run_dev_doctor(args: DoctorArgs, environment: &CliEnvironment) -> CommandOutp
     // Surface empty-dirs check (ADR-016): no empty subdirectories in surfaces.
     for surface_dir in ["agents", "skills", "prompts/sddk"] {
         let dir_path = root.join(surface_dir);
-        if dir_path.is_dir() {
-            if let Ok(entries) = std::fs::read_dir(&dir_path) {
+        if dir_path.is_dir() && let Ok(entries) = std::fs::read_dir(&dir_path) {
                 for entry in entries.flatten() {
                     let path = entry.path();
                     // Only check directories (not files).
@@ -431,7 +430,6 @@ fn run_dev_doctor(args: DoctorArgs, environment: &CliEnvironment) -> CommandOutp
                         });
                     }
                 }
-            }
         }
     }
 
