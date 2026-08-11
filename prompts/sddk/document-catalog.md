@@ -78,3 +78,40 @@ state is repaired under `$SDDK_DATA_DIR/projects/{project_id}/`.
 `sddk generate docs|inventory --in-repo` is allowed only when explicitly run
 against the `sddk-framework` development repository. It is never used for an
 adopted product workspace.
+
+## Vault Layout and Ownership
+
+Full vault structure (resolved via `sddk knowledge path`):
+
+```
+$VAULT_PATH (via `sddk knowledge path`, e.g. ~/.sddk-knowledge/<project_id>/)
+                                        ← KNOWLEDGE GRAPH (outside repo)
+├── milestones/                         ← serialization lock + milestones
+│   ├── _active.md                      ← lock file (LOCKED/AVAILABLE)
+│   └── M-NNN-{slug}.md                 ← one node per cycle
+├── adrs/                               ← architectural decisions
+│   └── ADR-NNN-{slug}.md               ← linked to REQ nodes + cycle
+├── specs/{domain}/                     ← system requirements
+│   └── REQ-{Slug}.md                   ← linked to ADR + cycle + tests
+├── cycles/                             ← cycle manifests (traceability hub)
+│   └── CYC-{date}-{slug}.md            ← links to ALL artifacts of a cycle
+├── incidences/                         ← problems found
+│   └── INC-NNN-{slug}.md               ← linked to ADR + REQ
+├── terms/                              ← glossary
+│   └── TERM-{Slug}.md                  ← linked to ADR + REQ
+├── _index.md                           ← MOC raíz (Dataview queries)
+└── _log.md                             ← append-only activity log
+```
+
+| Node type | Owner | When |
+|-----------|-------|------|
+| `milestone` (M-NNN) | Orchestrator | Step 0.2 (create as `in_progress`), Release (update to `completed`) |
+| `active_lock` (_active) | Orchestrator (acquire) / Release (release) | Step 0.2 / Step 3 |
+| `adr` (ADR-NNN) | sddk-spec / sddk-design (create) → Release (status update + implementation log) | Step 1.4 / Step 3 |
+| `requirement` (REQ-Slug) | sddk-spec (create) → Release (update last_cycle/version) | Step 1.4 / Step 3 |
+| `cycle` (CYC-date-slug) | sddk-archive | Step 2.5 |
+| `incidence` (INC-NNN) | sddk-release (if issues found) | Step 3 |
+| `term` (TERM-Slug) | sddk-explore / sddk-spec | Phase 1 |
+| proposal, spec delta, design, tasks | phase agents (working state in `{cycle-artifacts-dir}/`) | Phase 1 |
+| verify-report, debt-report | verify/debt agents (working state) | Phase 2 |
+| release-report | sddk-release | Phase 3 |
