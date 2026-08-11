@@ -324,6 +324,7 @@ fn run_dev_doctor(args: DoctorArgs, environment: &CliEnvironment) -> CommandOutp
     // Surface brevity checks (ADR-016): agent ≤ 300, skill ≤ 150, prompt ≤ 200.
     let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let mut brevity_violations = 0usize;
+    let mut empty_dir_violations = 0usize;
 
     // Agents: agents/*.md
     if let Ok(entries) = std::fs::read_dir(root.join("agents")) {
@@ -401,6 +402,39 @@ fn run_dev_doctor(args: DoctorArgs, environment: &CliEnvironment) -> CommandOutp
         }
     }
 
+    // Surface empty-dirs check (ADR-016): no empty subdirectories in surfaces.
+    for surface_dir in ["agents", "skills", "prompts/sddk"] {
+        let dir_path = root.join(surface_dir);
+        if dir_path.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&dir_path) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    // Only check directories (not files).
+                    if path.is_dir() {
+                        let rel = path
+                            .strip_prefix(&root)
+                            .unwrap_or(&path)
+                            .to_string_lossy()
+                            .replace('\\', "/");
+                        // Empty if no files (recursive check).
+                        let is_empty = path
+                            .read_dir()
+                            .map(|mut i| i.next().is_none())
+                            .unwrap_or(false);
+                        let present = !is_empty;
+                        if !present {
+                            empty_dir_violations += 1;
+                        }
+                        checks.push(DoctorCheck {
+                            tool: format!("surface.empty_dirs.{rel}"),
+                            present,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
     // `all_present` reflects only non-brevity checks (framework layout).
     // Brevity violations are tracked separately via `brevity_violations` and
     // only affect the exit code in strict mode (ADR-016 §4).
@@ -416,8 +450,8 @@ fn run_dev_doctor(args: DoctorArgs, environment: &CliEnvironment) -> CommandOutp
                 checks: output.checks.clone(),
             };
             let mut command = render_result(Ok(cloned), format, doctor_text);
-            // Strict mode: any brevity violation triggers non-zero exit.
-            if args.strict && brevity_violations > 0 {
+            // Strict mode: any brevity or empty-dir violation triggers non-zero exit.
+            if args.strict && (brevity_violations > 0 || empty_dir_violations > 0) {
                 command.status = 1;
             } else if !output.all_present {
                 // Advisory: non-brevity layout issues are fatal.
