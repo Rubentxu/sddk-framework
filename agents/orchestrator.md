@@ -258,6 +258,7 @@ Do NOT emit `status: success` in the final result-contract unless ALL true:
 1. `release_status: success` — `sddk-release` returned success
 2. `main_synced: true` — `HEAD == origin/main` verified via bash
 3. `semver_tag` is non-null — tag confirmed on remote
+4. `release-receipt` references the `archive-manifest` produced by `sddk-archive` (release → archive sequence, ADR-0011)
 
 If any false → `status: blocked`, `next_recommended: /sddk-release <change>`.
 
