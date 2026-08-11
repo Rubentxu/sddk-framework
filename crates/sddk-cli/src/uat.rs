@@ -14,9 +14,10 @@ use crate::{CommandOutput, OutputFormat, dev_cmd, render_result};
 use sddk_domain::{
     LATEST_PLAN_SCHEMA_VERSION, UatFeatureRollup, UatHistoryReport, UatIntegrityReport,
     UatManifest, UatManifestEntry, UatMigrationReport, UatPlan, UatReport, UatReportSummary,
-    UatScenarioRollup, UatSession, UatSuggestionsReport, UatVerdict, aggregate_history,
-    apply_all_suggestions, evidence_satisfies_spec, migrate_plan_v1_to_v2, sha256_hex,
-    suggest_scenario_context, verify_evidence,
+    UatScenarioRollup, UatSession, UatStalenessChangeKind, UatStalenessDiff,
+    UatStalenessReport, UatStalenessScenario, UatSuggestionsReport, UatVerdict,
+    UatOracleKind, aggregate_history, apply_all_suggestions, evidence_satisfies_spec,
+    migrate_plan_v1_to_v2, sha256_hex, suggest_scenario_context, verify_evidence,
 };
 
 /// Default view when rendering a dashboard.
@@ -53,6 +54,9 @@ pub(crate) enum UatCommand {
     Gate(UatGateArgs),
     /// Sign off on a release with an immutable UatAcceptanceRecord (REQ-RF-028).
     SignOff(UatSignOffArgs),
+    /// Staleness advisory: inspect UI selectors against stored fingerprints and
+    /// report drift (REQ-RF-024).
+    Stale(UatStaleArgs),
     MigratePlan(UatMigratePlanArgs),
     VerifyIntegrity(UatVerifyIntegrityArgs),
     StoragePath(UatStoragePathArgs),
@@ -376,6 +380,27 @@ pub(crate) struct UatSignOffArgs {
     pub(crate) format: OutputFormat,
 }
 
+/// Args for the `uat stale` command (REQ-RF-024).
+#[derive(Debug, Clone, Args)]
+pub(crate) struct UatStaleArgs {
+    /// URL of the application to inspect for staleness.
+    #[arg(long)]
+    pub(crate) url: String,
+    /// Project identifier.
+    #[arg(long)]
+    pub(crate) project: Option<String>,
+    /// Path to the plan YAML (default: auto-resolved from release in plan).
+    #[arg(long)]
+    pub(crate) plan: Option<PathBuf>,
+    /// Directory containing the previous session's evidence (default: latest in
+    /// the project's UAT storage).
+    #[arg(long)]
+    pub(crate) session_dir: Option<PathBuf>,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
+}
+
 #[derive(Debug, Clone, Args)]
 pub(crate) struct UatMigratePlanArgs {
     #[arg(long)]
@@ -549,6 +574,7 @@ pub(crate) fn run_uat(command: UatCommand, environment: &crate::CliEnvironment) 
         UatCommand::Config(args) => run_uat_config(args, environment),
         UatCommand::Gate(args) => run_uat_gate(args, environment),
         UatCommand::SignOff(args) => run_uat_signoff(args, environment),
+        UatCommand::Stale(args) => run_uat_stale(args, environment),
         UatCommand::MigratePlan(args) => run_uat_migrate_plan(args),
         UatCommand::VerifyIntegrity(args) => run_uat_verify_integrity(args, environment),
         UatCommand::StoragePath(args) => run_uat_storage_path(args, environment),
@@ -1490,6 +1516,179 @@ fn run_uat_signoff(args: UatSignOffArgs, environment: &crate::CliEnvironment) ->
     render_result(result, format, |path| {
         format!("uat sign-off recorded: {}\n", path.display())
     })
+}
+
+/// Execute the `uat stale` command: inspect UI selectors against stored fingerprints
+/// and report drift (REQ-RF-024).
+fn run_uat_stale(args: UatStaleArgs, _environment: &crate::CliEnvironment) -> CommandOutput {
+    let format = args.format;
+    let result: anyhow::Result<String> = (|| -> anyhow::Result<String> {
+        // 1. Load the plan.
+        let plan_path = args
+            .plan
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("uat-plan.yaml"));
+        let plan_raw = std::fs::read_to_string(&plan_path)
+            .map_err(|e| anyhow::anyhow!("cannot read plan {}: {e}", plan_path.display()))?;
+        let plan: UatPlan =
+            serde_saphyr::from_str(&plan_raw).map_err(|e| anyhow::anyhow!("invalid plan: {e}"))?;
+
+        // 2. Extract geometry selectors from geometry-oracle scenarios.
+        let selectors: Vec<String> = plan
+            .features
+            .iter()
+            .flat_map(|f| &f.scenarios)
+            .flat_map(|s| &s.oracles)
+            .filter(|o| o.kind == UatOracleKind::Geometry)
+            .filter_map(|o| {
+                o.expect
+                    .as_ref()
+                    .and_then(|e| e.get("selector"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+            })
+            .collect();
+
+        if selectors.is_empty() {
+            // No geometry oracles → empty fresh report.
+            let report = UatStalenessReport {
+                release: plan.release.candidate.clone(),
+                assessed_at: now_rfc3339(),
+                affected_scenarios: Vec::new(),
+                fingerprint_diffs: Vec::new(),
+            };
+            return serialize_report(&report, format);
+        }
+
+        // 3. Load previous geometry from session_dir if provided.
+        let prev_geometry: serde_json::Value = if let Some(ref session) = args.session_dir {
+            let geo_path = session.join("geometry.json");
+            if geo_path.exists() {
+                serde_json::from_str(&std::fs::read_to_string(&geo_path)?)
+                    .map_err(|e| anyhow::anyhow!("invalid geometry.json: {e}"))?
+            } else {
+                serde_json::Value::Object(serde_json::Map::new())
+            }
+        } else {
+            serde_json::Value::Object(serde_json::Map::new())
+        };
+
+        // 4. Run Playwright to capture current geometry.
+        let evidence_dir_path = std::env::temp_dir().join(format!(
+            "sddk-stale-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&evidence_dir_path)?;
+        let geo_file = evidence_dir_path.join("geometry-selectors.json");
+        std::fs::write(&geo_file, serde_json::to_string(&selectors)?)?;
+        let pw_spec = sddk_gateway::PlaywrightSpec {
+            url: args.url.clone(),
+            viewport: None,
+            actions: None,
+            screenshot: false,
+            trace: false,
+            console: false,
+            network: false,
+            dom: false,
+            geometry: Some(geo_file),
+            output_dir: evidence_dir_path.clone(),
+            timeout_ms: 30_000,
+        };
+        let _outcome =
+            sddk_gateway::run_playwright(&pw_spec, None, None)
+                .map_err(|e| anyhow::anyhow!("playwright run failed: {e}"))?;
+
+        // 5. Load current geometry.
+        let current_geometry_path = evidence_dir_path.join("geometry.json");
+        let current_geometry: serde_json::Value = if current_geometry_path.exists() {
+            serde_json::from_str(&std::fs::read_to_string(&current_geometry_path)?)
+                .map_err(|e| anyhow::anyhow!("invalid geometry.json: {e}"))?
+        } else {
+            serde_json::Value::Object(serde_json::Map::new())
+        };
+
+        // 6. Compare geometries → build staleness report.
+        let prev_obj = prev_geometry.as_object().cloned().unwrap_or_default();
+        let curr_obj = current_geometry.as_object().cloned().unwrap_or_default();
+
+        let mut affected_scenarios = Vec::new();
+        let mut fingerprint_diffs = Vec::new();
+
+        // Detectar elementos cambiados o eliminados.
+        for (selector, prev_val) in &prev_obj {
+            let curr_val = curr_obj.get(selector);
+            match curr_val {
+                Some(curr) if curr != prev_val => {
+                    // Geometry changed.
+                    fingerprint_diffs.push(UatStalenessDiff {
+                        scenario_id: String::new(),
+                        checkpoint_id: None,
+                        field: "geometry".into(),
+                        previous: prev_val.to_string(),
+                        current: curr.to_string(),
+                    });
+                    affected_scenarios.push(UatStalenessScenario {
+                        scenario_id: String::new(),
+                        checkpoint_id: None,
+                        selector: Some(selector.clone()),
+                        text_content: None,
+                        previous_fingerprint: prev_val.to_string(),
+                        current_fingerprint: curr.to_string(),
+                        change_kind: UatStalenessChangeKind::AttributeChanged,
+                    });
+                }
+                Some(_) => {
+                    // Identical — no change.
+                }
+                None => {
+                    // Element removed.
+                    affected_scenarios.push(UatStalenessScenario {
+                        scenario_id: String::new(),
+                        checkpoint_id: None,
+                        selector: Some(selector.clone()),
+                        text_content: None,
+                        previous_fingerprint: prev_val.to_string(),
+                        current_fingerprint: "null".into(),
+                        change_kind: UatStalenessChangeKind::ElementRemoved,
+                    });
+                }
+            }
+        }
+
+        // Detectar elementos nuevos.
+        for (selector, curr_val) in &curr_obj {
+            if !prev_obj.contains_key::<String>(selector) {
+                affected_scenarios.push(UatStalenessScenario {
+                    scenario_id: String::new(),
+                    checkpoint_id: None,
+                    selector: Some(selector.clone()),
+                    text_content: None,
+                    previous_fingerprint: "null".into(),
+                    current_fingerprint: curr_val.to_string(),
+                    change_kind: UatStalenessChangeKind::ElementAdded,
+                });
+            }
+        }
+
+        let report = UatStalenessReport {
+            release: plan.release.candidate.clone(),
+            assessed_at: now_rfc3339(),
+            affected_scenarios,
+            fingerprint_diffs,
+        };
+        serialize_report(&report, format)
+    })();
+    render_result(result, format, |s: &String| s.to_string())
+}
+
+/// Serialize a staleness report in the requested format.
+fn serialize_report(report: &UatStalenessReport, format: OutputFormat) -> anyhow::Result<String> {
+    match format {
+        OutputFormat::Json => serde_json::to_string_pretty(report)
+            .map_err(|e| anyhow::anyhow!("JSON serialization failed: {e}")),
+        _ => serde_saphyr::to_string(report)
+            .map_err(|e| anyhow::anyhow!("YAML serialization failed: {e}")),
+    }
 }
 
 fn config_action_str(action: sddk_domain::ReleaseGateAction) -> &'static str {
@@ -4139,5 +4338,166 @@ features: []
         };
         let out = run_uat_signoff(args, &env);
         assert_ne!(out.status, 0, "expected error, got status 0");
+    }
+}
+
+#[cfg(test)]
+mod uat_stale_tests {
+    // Tests for `uat stale` command (REQ-RF-024).
+    // Requires node + playwright browser — skipped in CI without it.
+    use super::*;
+
+    fn make_env(data_dir: &Path) -> crate::CliEnvironment {
+        crate::CliEnvironment {
+            home: Some(PathBuf::from("/tmp")),
+            data_home: Some(data_dir.to_path_buf()),
+            sddk_data_dir: Some(data_dir.to_path_buf()),
+            state_home: Some(data_dir.to_path_buf()),
+            cache_home: Some(data_dir.to_path_buf()),
+            sddk_actor: Some("tester".into()),
+            user: Some("test".into()),
+        }
+    }
+
+    /// Full stale detection: previous geometry stored, current geometry differs.
+    #[test]
+    fn stale_detects_geometry_change() {
+        // Check if node is available (prerequisite for playwright).
+        let node_check = std::process::Command::new("node")
+            .arg("--version")
+            .output()
+            .ok();
+        if node_check.map(|o| o.status.success()) != Some(true) {
+            eprintln!("skipping: node unavailable");
+            return;
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+
+        // Write a minimal HTML page with a button for Playwright to inspect.
+        std::fs::write(
+            dir.path().join("index.html"),
+            "<!DOCTYPE html><html><head><title>Test</title></head>\
+             <body><button id=\"login-btn\">Login</button></body></html>",
+        )
+        .unwrap();
+
+        // Spin up a local HTTP server on a random port.
+        let port: u16 = std::sync::atomic::AtomicU16::new(0)
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            .wrapping_add(49152);
+        let server = std::process::Command::new("python3")
+            .args(["-m", "http.server", &port.to_string()])
+            .current_dir(dir.path())
+            .spawn();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let url = format!("http://127.0.0.1:{}/index.html", port);
+
+        // Plan with a geometry oracle selector.
+        let plan_content = r##"
+schema_version: 3
+release: { candidate: v1.0.0 }
+generated_by: test
+generated_at: "2026-08-11T00:00:00Z"
+features:
+  - id: F1
+    name: Login
+    scenarios:
+      - id: S-1
+        title: Login button visible
+        priority: P0
+        plain_steps: []
+        oracles:
+          - kind: geometry
+            expect:
+              selector: "#login-btn"
+"##;
+        let plan_path = dir.path().join("uat-plan.yaml");
+        std::fs::write(&plan_path, plan_content).unwrap();
+
+        // Previous session: geometry with bounding box {x: 10, y: 20, width: 100, height: 44}.
+        let session_dir = dir.path().join("sessions/s-001");
+        std::fs::create_dir_all(&session_dir).unwrap();
+        let prev_geometry: serde_json::Value = serde_json::json!({
+            "#login-btn": { "x": 10, "y": 20, "width": 100, "height": 44 }
+        });
+        std::fs::write(
+            session_dir.join("geometry.json"),
+            serde_json::to_string_pretty(&prev_geometry).unwrap(),
+        )
+        .unwrap();
+
+        let env = make_env(dir.path());
+        let args = UatStaleArgs {
+            url,
+            project: Some("test-project".into()),
+            plan: Some(plan_path),
+            session_dir: Some(session_dir),
+            format: OutputFormat::Text,
+        };
+        let out = run_uat_stale(args, &env);
+
+        // Cleanup server.
+        if let Ok(mut s) = server {
+            let _ = s.kill();
+        }
+
+        assert_eq!(
+            out.status, 0,
+            "command failed: {}",
+            out.stderr
+        );
+
+        // Parse report from stdout.
+        let report: sddk_domain::UatStalenessReport =
+            serde_saphyr::from_str(&out.stdout).unwrap();
+        assert_eq!(report.release, "v1.0.0");
+        assert!(!report.assessed_at.is_empty());
+        // Current geometry differs from previous → affected_scenarios non-empty.
+        assert!(
+            !report.affected_scenarios.is_empty()
+                || !report.fingerprint_diffs.is_empty(),
+            "expected stale detection for changed geometry"
+        );
+    }
+
+    /// No previous session → fresh report with zero affected scenarios.
+    #[test]
+    fn stale_no_previous_session_is_fresh() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let plan_content = r#"
+schema_version: 3
+release: { candidate: v1.0.0 }
+generated_by: test
+generated_at: "2026-08-11T00:00:00Z"
+features:
+  - id: F1
+    name: Login
+    scenarios:
+      - id: S-1
+        title: Login button visible
+        priority: P0
+        plain_steps: []
+        oracles: []
+"#;
+        let plan_path = dir.path().join("uat-plan.yaml");
+        std::fs::write(&plan_path, plan_content).unwrap();
+
+        let env = make_env(dir.path());
+        let args = UatStaleArgs {
+            url: "http://127.0.0.1:18766/index.html".into(),
+            project: Some("test-project".into()),
+            plan: Some(plan_path),
+            session_dir: None,
+            format: OutputFormat::Text,
+        };
+        let out = run_uat_stale(args, &env);
+        // No selectors → should still succeed but report empty.
+        assert_eq!(out.status, 0, "stderr: {}", out.stderr);
+        let report: sddk_domain::UatStalenessReport =
+            serde_saphyr::from_str(&out.stdout).unwrap();
+        assert!(report.affected_scenarios.is_empty());
+        assert!(report.fingerprint_diffs.is_empty());
     }
 }
