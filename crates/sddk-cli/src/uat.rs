@@ -523,6 +523,7 @@ fn run_uat_plan(args: UatPlanArgs, _environment: &crate::CliEnvironment) -> Comm
             generated_by: "uat-planner".into(),
             generated_at: now_rfc3339(),
             features: Vec::new(),
+            runner_mode: None,
         };
         let path = args
             .output

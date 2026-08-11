@@ -995,12 +995,16 @@ pub struct UatFormCheck {
     pub expected: Option<String>,
 }
 
-/// Un elemento del formulario: check, informativo o flujo.
+/// Un elemento del formulario: check, informativo, flujo o checkpoint.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct UatFormItem {
     /// Tipo de elemento.
     pub kind: UatFormElementKind,
+    /// ID único del item (para referencias en goto/checkpoint). Si no se declara,
+    /// la posición ordinal actúa como ID implícito.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     /// Check cuando kind == Check.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub check: Option<UatFormCheck>,
@@ -1013,6 +1017,9 @@ pub struct UatFormItem {
     /// Destino de branch/goto (id de item).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
+    /// Checkpoint cuando kind == Checkpoint (REQ-RF-027).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint: Option<UatCheckpoint>,
 }
 
 /// Clasificador del elemento de formulario.
@@ -1022,6 +1029,8 @@ pub enum UatFormElementKind {
     Check,
     Info,
     Flow,
+    /// Checkpoint que pausa el wizard y requiere approve/reject (REQ-RF-027).
+    Checkpoint,
 }
 
 /// Spec Form DSL de un escenario (ADR-015): pasos → items de formulario.
@@ -1034,16 +1043,251 @@ pub struct UatFormSpec {
     /// Items del formulario en orden de render.
     #[serde(default)]
     pub items: Vec<UatFormItem>,
+    /// Completion policy for the scenario (REQ-RF-025).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion: Option<UatCompletionPolicy>,
 }
 
 fn default_dsl_version() -> u32 {
     1
 }
 
+// ---------------------------------------------------------------------------
+// Guided Runner F13 — Domain Types (REQ-RF-024..028)
+// ---------------------------------------------------------------------------
+
+/// Modo de ejecución del Runner (REQ-RF-028): Designer (edición),
+/// Runner (wizard/evidence/checkpoints), Reviewer (sign-off/acceptance).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatRunnerMode {
+    Designer,
+    Runner,
+    Reviewer,
+}
+
+/// Machine-readable evidence summary shown at a checkpoint (REQ-RF-027).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatEvidenceSummary {
+    #[serde(default)]
+    pub machine_passed: u32,
+    #[serde(default)]
+    pub machine_total: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fara_assessment: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fara_confidence: Option<f64>,
+    #[serde(default)]
+    pub anomalies: Vec<String>,
+}
+
+/// Completion policy mode for a form scenario (REQ-RF-025).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatCompletionMode {
+    /// All items must pass.
+    All,
+    /// Majority threshold required.
+    Majority,
+}
+
+/// Policy that determines when a form scenario is considered complete (REQ-RF-025).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatCompletionPolicy {
+    pub mode: UatCompletionMode,
+    /// Threshold for Majority mode (1..n). None for All.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threshold: Option<u32>,
+}
+
+impl UatCompletionPolicy {
+    /// Validate the completion policy. Returns errors if invalid.
+    pub fn validate(policy: &UatCompletionPolicy) -> Vec<String> {
+        let mut errors = Vec::new();
+        if policy.threshold == Some(0) {
+            errors.push("completion.threshold must be >= 1".into());
+        }
+        errors
+    }
+}
+
+/// Checkpoint block that pauses the wizard for human approve/reject (REQ-RF-027).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatCheckpoint {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub evidence_summary: UatEvidenceSummary,
+    /// Item ids that belong to this checkpoint block.
+    #[serde(default)]
+    pub items: Vec<String>,
+}
+
+/// Diagnostics report produced when a scenario fails (REQ-RF-027).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatDiagnosticsReport {
+    pub scenario_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_id: Option<String>,
+    #[serde(default)]
+    pub collected_evidence: Vec<UatEvidenceKindItem>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cause: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggested_defect: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected: Option<String>,
+}
+
+/// Decision on an acceptance record (REQ-RF-028).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatAcceptanceDecision {
+    Accepted,
+    AcceptedConditional,
+    Rejected,
+}
+
+/// Immutable acceptance record with sha256 snapshots (REQ-RF-028).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatAcceptanceRecord {
+    pub decision: UatAcceptanceDecision,
+    /// Actor who signed off, e.g. `user:421`.
+    pub actor: String,
+    /// RFC 3339 timestamp.
+    pub timestamp: String,
+    /// SHA-256 of the plan at sign-off time (format: `sha256:<hex>`).
+    pub plan_version_sha256: String,
+    /// SHA-256 of the evidence manifest snapshot (format: `sha256:<hex>`).
+    pub evidence_snapshot_sha256: String,
+    #[serde(default)]
+    pub outstanding_findings: Vec<String>,
+    pub justification: String,
+}
+
+impl UatAcceptanceRecord {
+    /// Validate the acceptance record. Returns errors if invalid.
+    pub fn validate(record: &UatAcceptanceRecord) -> Vec<String> {
+        let mut errors = Vec::new();
+        if !record.plan_version_sha256.starts_with("sha256:") {
+            errors.push("plan_version_sha256 must start with sha256:".into());
+        }
+        if !record.evidence_snapshot_sha256.starts_with("sha256:") {
+            errors.push("evidence_snapshot_sha256 must start with sha256:".into());
+        }
+        errors
+    }
+}
+
+/// Kind of staleness change detected (REQ-RF-024).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatStalenessChangeKind {
+    SelectorChanged,
+    TextContentChanged,
+    AttributeChanged,
+    ElementRemoved,
+    ElementAdded,
+}
+
+/// One scenario affected by UI staleness (REQ-RF-024).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatStalenessScenario {
+    pub scenario_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selector: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_content: Option<String>,
+    pub previous_fingerprint: String,
+    pub current_fingerprint: String,
+    pub change_kind: UatStalenessChangeKind,
+}
+
+/// One detected difference in fingerprint between snapshot and current UI (REQ-RF-024).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatStalenessDiff {
+    pub scenario_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_id: Option<String>,
+    pub field: String,
+    pub previous: String,
+    pub current: String,
+}
+
+/// Staleness advisory report (REQ-RF-024).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatStalenessReport {
+    pub release: String,
+    pub assessed_at: String,
+    #[serde(default)]
+    pub affected_scenarios: Vec<UatStalenessScenario>,
+    #[serde(default)]
+    pub fingerprint_diffs: Vec<UatStalenessDiff>,
+}
+
+/// Staleness status of a scenario (REQ-RF-024).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UatScenarioStaleness {
+    Fresh,
+    Stale,
+}
+
 /// Valida que todos los valores de la spec pertenezcan al vocabulario
-/// cerrado (REQ-RF-025). Devuelve lista de errores estables; vacío = válida.
+/// cerrado (REQ-RF-025 + REQ-RF-027). Devuelve lista de errores estables; vacío = válida.
+///
+/// Validates:
+/// - Closed vocabulary for check items
+/// - Branching referencial: every `goto` target resolves to an existing item id
+/// - Cycle detection: goto graph must be acyclic (DFS coloring)
+/// - CompletionPolicy: mode ∈ {all, majority}, threshold 1..n
+/// - Checkpoint: all referenced item ids must exist
 pub fn validate_form_dsl(spec: &UatFormSpec) -> Vec<String> {
     let mut errors = Vec::new();
+
+    // Build item id → position index.
+    // ID resolution order: explicit `item.id` field first, then fallback to position string.
+    let n = spec.items.len();
+    let id_to_pos: std::collections::HashMap<&str, usize> = spec
+        .items
+        .iter()
+        .enumerate()
+        .filter_map(|(pos, item)| {
+            // Explicit id takes precedence
+            item.id.as_ref().map(|id| (id.as_str(), pos))
+        })
+        .collect();
+
+    // For targets that don't resolve via explicit id, try position-based fallback.
+    fn resolve_target(target: &str, items: &[UatFormItem], id_to_pos: &std::collections::HashMap<&str, usize>) -> Option<usize> {
+        // First try explicit id index
+        if let Some(&pos) = id_to_pos.get(target) {
+            return Some(pos);
+        }
+        // Then try position as string
+        if let Ok(pos) = target.parse::<usize>() && pos < items.len() {
+            return Some(pos);
+        }
+        None
+    }
+
+    // First pass: basic item validation.
     for (i, item) in spec.items.iter().enumerate() {
         match item.kind {
             UatFormElementKind::Check => match &item.check {
@@ -1093,8 +1337,102 @@ pub fn validate_form_dsl(spec: &UatFormSpec) -> Vec<String> {
                     errors.push(format!("item[{i}]: kind=flow sin `flow`"));
                 }
             }
+            UatFormElementKind::Checkpoint => {
+                if item.checkpoint.is_none() {
+                    errors.push(format!("item[{i}]: kind=checkpoint sin `checkpoint` block"));
+                }
+            }
         }
     }
+
+    // Completion policy validation.
+    if let Some(ref completion) = spec.completion {
+        errors.extend(UatCompletionPolicy::validate(completion).into_iter().map(|e| format!("completion: {e}")));
+    }
+
+    // Branching referencial: every goto target must resolve to an existing item.
+    for (i, item) in spec.items.iter().enumerate() {
+        if item.kind == UatFormElementKind::Flow && item.flow == Some(UatFormFlowKind::Goto) {
+            if let Some(target) = &item.target {
+                if resolve_target(target, &spec.items, &id_to_pos).is_none() {
+                    errors.push(format!(
+                        "scenario=X item[{i}]: goto target '{target}' not found"
+                    ));
+                }
+            } else {
+                errors.push(format!("item[{i}]: kind=flow with goto but no target"));
+            }
+        }
+    }
+
+    // Cycle detection using DFS three-color marking: 0=unvisited, 1=visiting, 2=done.
+    let mut color = vec![0u8; n];
+    let mut cycle_path: Vec<usize> = Vec::new();
+
+    fn dfs(
+        pos: usize,
+        items: &[UatFormItem],
+        id_to_pos: &std::collections::HashMap<&str, usize>,
+        color: &mut [u8],
+        path: &mut Vec<usize>,
+        errors: &mut Vec<String>,
+    ) {
+        if color[pos] == 2 {
+            return; // already fully processed
+        }
+        if color[pos] == 1 {
+            // Cycle detected — record the cycle path.
+            let cycle_start = path.iter().position(|&p| p == pos).unwrap_or(0);
+            let cycle: Vec<String> = path[cycle_start..]
+                .iter()
+                .chain(std::iter::once(&pos))
+                .map(|&p| {
+                    let item = &items[p];
+                    let label = item.id.as_deref().or(item.target.as_deref()).unwrap_or("*");
+                    format!("item[{p}](goto:{label})")
+                })
+                .collect();
+            errors.push(format!("goto cycle detected: {}", cycle.join(" → ")));
+            return;
+        }
+
+        color[pos] = 1;
+        path.push(pos);
+
+        let item = &items[pos];
+        if item.kind == UatFormElementKind::Flow
+            && item.flow == Some(UatFormFlowKind::Goto)
+            && let Some(target) = &item.target
+            && let Some(target_pos) = resolve_target(target, items, id_to_pos)
+        {
+            dfs(target_pos, items, id_to_pos, color, path, errors);
+        }
+
+        path.pop();
+        color[pos] = 2;
+    }
+
+    for start in 0..n {
+        if color[start] == 0 {
+            dfs(start, &spec.items, &id_to_pos, &mut color, &mut cycle_path, &mut errors);
+        }
+    }
+
+    // Checkpoint item references must point to existing items.
+    for (i, item) in spec.items.iter().enumerate() {
+        if item.kind == UatFormElementKind::Checkpoint
+            && let Some(cp) = &item.checkpoint
+        {
+            for cp_item in &cp.items {
+                if resolve_target(cp_item, &spec.items, &id_to_pos).is_none() {
+                    errors.push(format!(
+                        "item[{i}]: checkpoint references nonexistent item '{cp_item}'"
+                    ));
+                }
+            }
+        }
+    }
+
     errors
 }
 
@@ -1167,6 +1505,19 @@ pub struct UatScenario {
     /// Runner. Opcional — los escenarios v2 siguen usando plain_steps.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub form: Option<UatFormSpec>,
+    // --- UAT v4 (F13) — Guided Runner fields (REQ-RF-024..028) ---
+    /// Form checkpoint that marks the end of a block (REQ-RF-027).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form_checkpoint: Option<UatCheckpoint>,
+    /// Form-level completion policy (REQ-RF-025).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form_completion: Option<UatCompletionPolicy>,
+    /// Scenario-level completion policy (REQ-RF-025).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion: Option<UatCompletionPolicy>,
+    /// Staleness status (REQ-RF-024).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staleness: Option<UatScenarioStaleness>,
 }
 
 /// One feature under test, grouping its scenarios.
@@ -1207,6 +1558,9 @@ pub struct UatPlan {
     #[serde(default)]
     /// Features under test.
     pub features: Vec<UatFeature>,
+    /// Runner mode hint (v4, REQ-RF-028): designer/runner/reviewer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runner_mode: Option<UatRunnerMode>,
 }
 
 /// Release context of a plan: features aggregated since the last UAT'd tag.
@@ -1684,7 +2038,7 @@ pub struct UatMigrationReport {
     pub reviews_assigned: u32,
 }
 
-pub const LATEST_PLAN_SCHEMA_VERSION: u32 = 3;
+pub const LATEST_PLAN_SCHEMA_VERSION: u32 = 4;
 
 /// Migrate a `UatPlan` from v1 to v2 in an additive, idempotent way.
 pub fn migrate_plan_v1_to_v2(plan: &mut UatPlan) -> UatMigrationReport {
@@ -3628,5 +3982,544 @@ features:
             .count();
         assert_eq!(sampled, 3);
         assert!(low.len() <= high.len());
+    }
+}
+
+#[cfg(test)]
+mod guided_runner_f13_domain_tests {
+    use super::*;
+
+    // -------------------------------------------------------------------------
+    // Task 1.1: UatRunnerMode
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn uat_runner_mode_serde_designer() {
+        let mode = UatRunnerMode::Designer;
+        let yaml = serde_saphyr::to_string(&mode).unwrap();
+        assert!(yaml.contains("designer"));
+        let round: UatRunnerMode = serde_saphyr::from_str(&yaml).unwrap();
+        assert_eq!(round, mode);
+    }
+
+    #[test]
+    fn uat_runner_mode_serde_runner() {
+        let mode = UatRunnerMode::Runner;
+        let json = serde_json::to_string(&mode).unwrap();
+        assert!(json.contains("runner"));
+        let round: UatRunnerMode = serde_json::from_str(&json).unwrap();
+        assert_eq!(round, mode);
+    }
+
+    #[test]
+    fn uat_runner_mode_serde_reviewer() {
+        let mode = UatRunnerMode::Reviewer;
+        let yaml = serde_saphyr::to_string(&mode).unwrap();
+        assert!(yaml.contains("reviewer"));
+        let round: UatRunnerMode = serde_saphyr::from_str(&yaml).unwrap();
+        assert_eq!(round, mode);
+    }
+
+    // -------------------------------------------------------------------------
+    // Task 1.1: UatEvidenceSummary
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn uat_evidence_summary_serde() {
+        let summary = UatEvidenceSummary {
+            machine_passed: 8,
+            machine_total: 10,
+            fara_assessment: Some("PASS".into()),
+            fara_confidence: Some(0.95),
+            anomalies: vec!["selector-changed".into(), "text-mismatch".into()],
+        };
+        let yaml = serde_saphyr::to_string(&summary).unwrap();
+        assert!(yaml.contains("machine_passed"));
+        assert!(yaml.contains("8"));
+        let round: UatEvidenceSummary = serde_saphyr::from_str(&yaml).unwrap();
+        assert_eq!(round.machine_passed, 8);
+        assert_eq!(round.machine_total, 10);
+        assert_eq!(round.anomalies.len(), 2);
+    }
+
+    #[test]
+    fn uat_evidence_summary_default() {
+        let summary = UatEvidenceSummary::default();
+        assert_eq!(summary.machine_passed, 0);
+        assert_eq!(summary.machine_total, 0);
+        assert!(summary.fara_assessment.is_none());
+        assert!(summary.anomalies.is_empty());
+    }
+
+    // -------------------------------------------------------------------------
+    // Task 1.1: UatCompletionPolicy
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn uat_completion_policy_mode_all() {
+        let policy = UatCompletionPolicy { mode: UatCompletionMode::All, threshold: None };
+        let yaml = serde_saphyr::to_string(&policy).unwrap();
+        assert!(yaml.contains("all"));
+        let round: UatCompletionPolicy = serde_saphyr::from_str(&yaml).unwrap();
+        assert_eq!(round.mode, UatCompletionMode::All);
+    }
+
+    #[test]
+    fn uat_completion_policy_mode_majority_with_threshold() {
+        let policy = UatCompletionPolicy { mode: UatCompletionMode::Majority, threshold: Some(5) };
+        let json = serde_json::to_string(&policy).unwrap();
+        assert!(json.contains("majority"));
+        let round: UatCompletionPolicy = serde_json::from_str(&json).unwrap();
+        assert_eq!(round.mode, UatCompletionMode::Majority);
+        assert_eq!(round.threshold, Some(5));
+    }
+
+    #[test]
+    fn uat_completion_policy_threshold_bounds() {
+        // threshold 0 is invalid (must be 1..n)
+        let policy = UatCompletionPolicy { mode: UatCompletionMode::Majority, threshold: Some(0) };
+        let errors = UatCompletionPolicy::validate(&policy);
+        assert!(!errors.is_empty());
+        assert!(errors[0].contains("threshold"));
+
+        // threshold 1 is valid
+        let policy = UatCompletionPolicy { mode: UatCompletionMode::Majority, threshold: Some(1) };
+        assert!(UatCompletionPolicy::validate(&policy).is_empty());
+    }
+
+    // -------------------------------------------------------------------------
+    // Task 1.1: UatCheckpoint
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn uat_checkpoint_serde_with_items() {
+        let checkpoint = UatCheckpoint {
+            id: "cp-1".into(),
+            label: Some("After login flow".into()),
+            evidence_summary: UatEvidenceSummary {
+                machine_passed: 5,
+                machine_total: 5,
+                fara_assessment: None,
+                fara_confidence: None,
+                anomalies: vec![],
+            },
+            items: vec!["item-1".into(), "item-2".into(), "item-3".into()],
+        };
+        let yaml = serde_saphyr::to_string(&checkpoint).unwrap();
+        assert!(yaml.contains("cp-1"));
+        assert!(yaml.contains("item-1"));
+        let round: UatCheckpoint = serde_saphyr::from_str(&yaml).unwrap();
+        assert_eq!(round.id, "cp-1");
+        assert_eq!(round.items.len(), 3);
+    }
+
+    #[test]
+    fn uat_checkpoint_default() {
+        let cp = UatCheckpoint::default();
+        assert!(cp.id.is_empty());
+        assert!(cp.items.is_empty());
+    }
+
+    // -------------------------------------------------------------------------
+    // Task 1.1: UatDiagnosticsReport
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn uat_diagnostics_report_serde() {
+        let report = UatDiagnosticsReport {
+            scenario_id: "S-1".into(),
+            checkpoint_id: Some("cp-1".into()),
+            collected_evidence: vec![
+                UatEvidenceKindItem {
+                    kind: UatEvidenceKind::Screenshot,
+                    r#ref: None,
+                    match_mode: None,
+                    expected_value: None,
+                    min_bytes: None,
+                },
+                UatEvidenceKindItem {
+                    kind: UatEvidenceKind::Console,
+                    r#ref: None,
+                    match_mode: None,
+                    expected_value: None,
+                    min_bytes: None,
+                },
+            ],
+            cause: Some("Element not found".into()),
+            category: Some("ui_interaction".into()),
+            suggested_defect: Some("Login button selector changed".into()),
+            observed: Some("Button#login not present".into()),
+            expected: Some("Button#login present and visible".into()),
+        };
+        let json = serde_json::to_string(&report).unwrap();
+        assert!(json.contains("S-1"));
+        assert!(json.contains("screenshot"));
+        let round: UatDiagnosticsReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(round.scenario_id, "S-1");
+        assert_eq!(round.collected_evidence.len(), 2);
+        assert_eq!(round.cause.as_deref(), Some("Element not found"));
+    }
+
+    #[test]
+    fn uat_diagnostics_report_minimal() {
+        let report = UatDiagnosticsReport {
+            scenario_id: "S-2".into(),
+            checkpoint_id: None,
+            collected_evidence: vec![],
+            cause: None,
+            category: None,
+            suggested_defect: None,
+            observed: None,
+            expected: None,
+        };
+        let yaml = serde_saphyr::to_string(&report).unwrap();
+        let round: UatDiagnosticsReport = serde_saphyr::from_str(&yaml).unwrap();
+        assert_eq!(round.scenario_id, "S-2");
+        assert!(round.cause.is_none());
+    }
+
+    // -------------------------------------------------------------------------
+    // Task 1.1: UatAcceptanceRecord
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn uat_acceptance_record_serde_with_sha256() {
+        let record = UatAcceptanceRecord {
+            decision: UatAcceptanceDecision::Accepted,
+            actor: "user:421".into(),
+            timestamp: "2026-08-11T10:00:00Z".into(),
+            plan_version_sha256: "sha256:abc123def456".into(),
+            evidence_snapshot_sha256: "sha256:789xyz123abc".into(),
+            outstanding_findings: vec!["finding-1".into()],
+            justification: "All critical paths verified".into(),
+        };
+        let yaml = serde_saphyr::to_string(&record).unwrap();
+        assert!(yaml.contains("sha256:abc123def456"));
+        assert!(yaml.contains("accepted"));
+        let round: UatAcceptanceRecord = serde_saphyr::from_str(&yaml).unwrap();
+        assert_eq!(round.plan_version_sha256, "sha256:abc123def456");
+        assert_eq!(round.decision, UatAcceptanceDecision::Accepted);
+        assert_eq!(round.outstanding_findings.len(), 1);
+    }
+
+    #[test]
+    fn uat_acceptance_record_decision_variants() {
+        let decisions = vec![
+            UatAcceptanceDecision::Accepted,
+            UatAcceptanceDecision::AcceptedConditional,
+            UatAcceptanceDecision::Rejected,
+        ];
+        for decision in decisions {
+            let json = serde_json::to_string(&decision).unwrap();
+            let round: UatAcceptanceDecision = serde_json::from_str(&json).unwrap();
+            assert_eq!(round, decision);
+        }
+    }
+
+    #[test]
+    fn uat_acceptance_record_sha256_format() {
+        // sha256 prefix is required
+        let record = UatAcceptanceRecord {
+            decision: UatAcceptanceDecision::Accepted,
+            actor: "user:1".into(),
+            timestamp: "2026-08-11T00:00:00Z".into(),
+            plan_version_sha256: "abc123".into(), // missing sha256: prefix
+            evidence_snapshot_sha256: "sha256:xyz".into(),
+            outstanding_findings: vec![],
+            justification: "test".into(),
+        };
+        let errors = UatAcceptanceRecord::validate(&record);
+        assert!(!errors.is_empty());
+        assert!(errors[0].contains("sha256"));
+    }
+
+    // -------------------------------------------------------------------------
+    // Task 1.1: UatStalenessReport
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn uat_staleness_report_serde() {
+        let report = UatStalenessReport {
+            release: "v1.9.0".into(),
+            assessed_at: "2026-08-11T12:00:00Z".into(),
+            affected_scenarios: vec![
+                UatStalenessScenario {
+                    scenario_id: "S-1".into(),
+                    checkpoint_id: None,
+                    selector: Some("button#submit".into()),
+                    text_content: Some("Submit".into()),
+                    previous_fingerprint: "fp-v1".into(),
+                    current_fingerprint: "fp-v2".into(),
+                    change_kind: UatStalenessChangeKind::SelectorChanged,
+                },
+            ],
+            fingerprint_diffs: vec![
+                UatStalenessDiff {
+                    scenario_id: "S-2".into(),
+                    checkpoint_id: Some("cp-1".into()),
+                    field: "selector".into(),
+                    previous: "div.old".into(),
+                    current: "div.new".into(),
+                },
+            ],
+        };
+        let yaml = serde_saphyr::to_string(&report).unwrap();
+        assert!(yaml.contains("v1.9.0"));
+        assert!(yaml.contains("button#submit"));
+        let round: UatStalenessReport = serde_saphyr::from_str(&yaml).unwrap();
+        assert_eq!(round.release, "v1.9.0");
+        assert_eq!(round.affected_scenarios.len(), 1);
+        assert_eq!(round.fingerprint_diffs.len(), 1);
+    }
+
+    #[test]
+    fn uat_staleness_report_empty_is_valid() {
+        let report = UatStalenessReport {
+            release: "v2.0.0".into(),
+            assessed_at: "2026-08-11T00:00:00Z".into(),
+            affected_scenarios: vec![],
+            fingerprint_diffs: vec![],
+        };
+        assert!(report.affected_scenarios.is_empty());
+        assert!(report.fingerprint_diffs.is_empty());
+        let yaml = serde_saphyr::to_string(&report).unwrap();
+        let round: UatStalenessReport = serde_saphyr::from_str(&yaml).unwrap();
+        assert_eq!(round.release, "v2.0.0");
+    }
+
+    #[test]
+    fn uat_staleness_change_kind_variants() {
+        let kinds = vec![
+            UatStalenessChangeKind::SelectorChanged,
+            UatStalenessChangeKind::TextContentChanged,
+            UatStalenessChangeKind::AttributeChanged,
+            UatStalenessChangeKind::ElementRemoved,
+            UatStalenessChangeKind::ElementAdded,
+        ];
+        for kind in kinds {
+            let json = serde_json::to_string(&kind).unwrap();
+            let round: UatStalenessChangeKind = serde_json::from_str(&json).unwrap();
+            assert_eq!(round, kind);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Task 1.3: Plan schema v4 — backward compat
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn plan_v3_still_parses_identically() {
+        // A v3 plan must parse without needing any v4 fields.
+        let v3_plan: UatPlan = serde_saphyr::from_str(
+            r#"
+schema_version: 3
+release: { candidate: v1.8.0 }
+generated_by: test
+generated_at: "2026-08-11T00:00:00Z"
+features:
+  - id: F-1
+    name: Feature
+    scenarios:
+      - id: S-1
+        title: Scenario
+"#,
+        )
+        .unwrap();
+        assert_eq!(v3_plan.schema_version, 3);
+        // v4 fields are absent — must be None
+        assert!(v3_plan.runner_mode.is_none());
+    }
+
+    #[test]
+    fn plan_v4_with_all_new_fields() {
+        let v4_plan: UatPlan = serde_saphyr::from_str(
+            r#"
+schema_version: 4
+release: { candidate: v1.9.0 }
+generated_by: test
+generated_at: "2026-08-11T00:00:00Z"
+runner_mode: runner
+features:
+  - id: F-1
+    name: Feature
+    scenarios:
+      - id: S-1
+        title: Scenario
+        form_checkpoint:
+          id: cp-1
+          label: Checkpoint 1
+          evidence_summary:
+            machine_passed: 3
+            machine_total: 3
+            anomalies: []
+          items: [item-1, item-2]
+        completion:
+          mode: all
+        staleness: stale
+"#,
+        )
+        .unwrap();
+        assert_eq!(v4_plan.schema_version, 4);
+        assert_eq!(v4_plan.runner_mode, Some(UatRunnerMode::Runner));
+        let s = &v4_plan.features[0].scenarios[0];
+        assert!(s.form_checkpoint.is_some());
+        assert!(s.completion.is_some());
+        assert!(s.staleness.is_some());
+    }
+
+    #[test]
+    fn latest_plan_schema_version_is_4() {
+        assert_eq!(LATEST_PLAN_SCHEMA_VERSION, 4);
+    }
+
+    #[test]
+    fn scenario_staleness_variants() {
+        let stale_scenario: UatScenario = serde_saphyr::from_str(
+            r#"
+id: S-1
+title: Stale Scenario
+staleness: stale
+"#,
+        )
+        .unwrap();
+        assert_eq!(stale_scenario.staleness, Some(UatScenarioStaleness::Stale));
+
+        let fresh_scenario: UatScenario = serde_saphyr::from_str(
+            r#"
+id: S-2
+title: Fresh Scenario
+staleness: fresh
+"#,
+        )
+        .unwrap();
+        assert_eq!(fresh_scenario.staleness, Some(UatScenarioStaleness::Fresh));
+    }
+
+    // -------------------------------------------------------------------------
+    // Task 1.2: Validator — branching referencial + completion
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn validate_form_dsl_goto_target_must_exist() {
+        let spec: UatFormSpec = serde_saphyr::from_str(
+            r#"
+dsl_version: 1
+items:
+  - kind: check
+    check:
+      kind: yes_no
+      prompt: OK?
+  - kind: flow
+    flow: goto
+    target: nonexistent-id
+"#,
+        )
+        .unwrap();
+        let errors = validate_form_dsl(&spec);
+        assert!(!errors.is_empty());
+        assert!(errors.iter().any(|e| e.contains("nonexistent-id") && e.contains("goto")));
+    }
+
+    #[test]
+    fn validate_form_dsl_detects_cycle() {
+        // A -> B -> C -> A cycle (using explicit item ids)
+        let spec: UatFormSpec = serde_saphyr::from_str(
+            r#"
+dsl_version: 1
+items:
+  - id: item-a
+    kind: flow
+    flow: goto
+    target: item-c
+  - id: item-b
+    kind: flow
+    flow: goto
+    target: item-a
+  - id: item-c
+    kind: flow
+    flow: goto
+    target: item-b
+"#,
+        )
+        .unwrap();
+        let errors = validate_form_dsl(&spec);
+        assert!(!errors.is_empty());
+        assert!(errors.iter().any(|e| e.contains("cycle") || e.contains("cyclic")), "expected cycle error, got: {errors:?}");
+    }
+
+    #[test]
+    fn validate_form_dsl_completion_policy_mode_all_valid() {
+        let spec: UatFormSpec = serde_saphyr::from_str(
+            r#"
+dsl_version: 1
+items:
+  - kind: flow
+    flow: stop
+completion:
+  mode: all
+"#,
+        )
+        .unwrap();
+        let errors = validate_form_dsl(&spec);
+        assert!(errors.is_empty(), "all mode should be valid: {errors:?}");
+    }
+
+    #[test]
+    fn validate_form_dsl_completion_policy_mode_majority_valid() {
+        let spec: UatFormSpec = serde_saphyr::from_str(
+            r#"
+dsl_version: 1
+items:
+  - kind: flow
+    flow: stop
+completion:
+  mode: majority
+  threshold: 5
+"#,
+        )
+        .unwrap();
+        let errors = validate_form_dsl(&spec);
+        assert!(errors.is_empty(), "majority with threshold should be valid: {errors:?}");
+    }
+
+    #[test]
+    fn validate_form_dsl_completion_policy_threshold_zero_invalid() {
+        let spec: UatFormSpec = serde_saphyr::from_str(
+            r#"
+dsl_version: 1
+items:
+  - kind: flow
+    flow: stop
+completion:
+  mode: majority
+  threshold: 0
+"#,
+        )
+        .unwrap();
+        let errors = validate_form_dsl(&spec);
+        assert!(!errors.is_empty());
+        assert!(errors.iter().any(|e| e.contains("threshold")));
+    }
+
+    #[test]
+    fn validate_form_dsl_checkpoint_must_reference_existing_items() {
+        let spec: UatFormSpec = serde_saphyr::from_str(
+            r#"
+dsl_version: 1
+items:
+  - kind: check
+    check:
+      kind: yes_no
+      prompt: OK?
+  - kind: checkpoint
+    checkpoint:
+      id: cp-1
+      items: [nonexistent-item]
+"#,
+        )
+        .unwrap();
+        let errors = validate_form_dsl(&spec);
+        assert!(!errors.is_empty());
+        assert!(errors.iter().any(|e| e.contains("nonexistent-item")));
     }
 }
