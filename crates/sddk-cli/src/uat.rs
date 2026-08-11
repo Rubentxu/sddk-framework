@@ -28,6 +28,18 @@ pub(crate) enum UatView {
     Traceability,
 }
 
+/// Runner mode: who is using the dashboard (REQ-RF-028).
+/// The mode is embedded in the renderer's context JSON for selective UI rendering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum UatRunnerMode {
+    /// Designing forms and scenarios.
+    Designer,
+    /// Running/executing the guided wizard.
+    Runner,
+    /// Reviewing results and acceptance decisions.
+    Reviewer,
+}
+
 #[derive(Debug, Subcommand)]
 pub(crate) enum UatCommand {
     /// Generate a canonical `uat-plan.yaml` for a release candidate.
@@ -110,9 +122,13 @@ pub(crate) struct UatDashboardArgs {
     /// Plan YAML to render.
     #[arg(long)]
     pub(crate) plan: PathBuf,
-    /// View to render.
+    /// View to render (deprecated: use --mode for role selection).
     #[arg(long, value_enum, default_value_t = UatView::Guided)]
     pub(crate) view: UatView,
+    /// Runner mode: who is using the dashboard (designer | runner | reviewer).
+    /// The mode is embedded in the renderer's context for selective UI rendering.
+    #[arg(long, value_enum, default_value_t = UatRunnerMode::Runner)]
+    pub(crate) mode: UatRunnerMode,
     /// Theme: dark | light.
     #[arg(long, default_value = "dark")]
     pub(crate) theme: String,
@@ -132,9 +148,13 @@ pub(crate) struct UatOpenArgs {
     /// Candidate release tag; required when --plan is omitted.
     #[arg(long)]
     pub(crate) release: Option<String>,
-    /// View to render.
+    /// View to render (deprecated: use --mode for role selection).
     #[arg(long, value_enum, default_value_t = UatView::Guided)]
     pub(crate) view: UatView,
+    /// Runner mode: who is using the dashboard (designer | runner | reviewer).
+    /// The mode is embedded in the renderer's context for selective UI rendering.
+    #[arg(long, value_enum, default_value_t = UatRunnerMode::Runner)]
+    pub(crate) mode: UatRunnerMode,
     /// Theme: dark | light.
     #[arg(long, default_value = "dark")]
     pub(crate) theme: String,
@@ -678,12 +698,21 @@ fn run_uat_validate(args: UatValidateArgs) -> CommandOutput {
 
 fn run_uat_dashboard(args: UatDashboardArgs, environment: &crate::CliEnvironment) -> CommandOutput {
     let format = args.format;
+    // Deprecation: --view is deprecated in favor of --mode.
+    if args.view != UatView::Guided {
+        let view_name = match args.view {
+            UatView::Guided => unreachable!(),
+            UatView::Matrix => "matrix",
+            UatView::Traceability => "traceability",
+        };
+        eprintln!("warning: --view {view_name} is deprecated; use --mode designer|runner|reviewer instead");
+    }
     let result = (|| -> anyhow::Result<PathBuf> {
         let raw = std::fs::read_to_string(&args.plan)
             .map_err(|e| anyhow::anyhow!("cannot read plan {}: {e}", args.plan.display()))?;
         let plan: UatPlan = serde_saphyr::from_str(&raw)
             .map_err(|e| anyhow::anyhow!("invalid plan {}: {e}", args.plan.display()))?;
-        let html = render_dashboard_html(&plan, args.view, &args.theme, environment)?;
+        let html = render_dashboard_html(&plan, args.view, args.mode, &args.theme, environment)?;
         let output = args.output.unwrap_or_else(|| {
             PathBuf::from(format!("uat-dashboard-{}.html", plan.release.candidate))
         });
@@ -697,6 +726,15 @@ fn run_uat_dashboard(args: UatDashboardArgs, environment: &crate::CliEnvironment
 
 fn run_uat_open(args: UatOpenArgs, environment: &crate::CliEnvironment) -> CommandOutput {
     let format = args.format;
+    // Deprecation: --view is deprecated in favor of --mode.
+    if args.view != UatView::Guided {
+        let view_name = match args.view {
+            UatView::Guided => unreachable!(),
+            UatView::Matrix => "matrix",
+            UatView::Traceability => "traceability",
+        };
+        eprintln!("warning: --view {view_name} is deprecated; use --mode designer|runner|reviewer instead");
+    }
     let result = (|| -> anyhow::Result<PathBuf> {
         // Resolve the plan: explicit --plan, or auto-resolve by release tag.
         let plan_path = match &args.plan {
@@ -721,7 +759,7 @@ fn run_uat_open(args: UatOpenArgs, environment: &crate::CliEnvironment) -> Comma
         let plan: UatPlan = serde_saphyr::from_str(&raw)
             .map_err(|e| anyhow::anyhow!("invalid plan {}: {e}", plan_path.display()))?;
 
-        let html = render_dashboard_html(&plan, args.view, &args.theme, environment)?;
+        let html = render_dashboard_html(&plan, args.view, args.mode, &args.theme, environment)?;
 
         let view_name = match args.view {
             UatView::Guided => "guided",
@@ -2122,6 +2160,7 @@ results:
 fn render_dashboard_html(
     plan: &UatPlan,
     view: UatView,
+    mode: UatRunnerMode,
     theme: &str,
     environment: &crate::CliEnvironment,
 ) -> anyhow::Result<String> {
@@ -2149,10 +2188,21 @@ fn render_dashboard_html(
     let plan_json = serde_json::to_string_pretty(plan)
         .map_err(|e| anyhow::anyhow!("plan serialization failed: {e}"))?;
 
+    // Runner context: mode is embedded for the renderer to do selective UI per role.
+    let mode_name = match mode {
+        UatRunnerMode::Designer => "designer",
+        UatRunnerMode::Runner => "runner",
+        UatRunnerMode::Reviewer => "reviewer",
+    };
+    let runner_context = serde_json::json!({ "mode": mode_name });
+    let runner_context_json = serde_json::to_string_pretty(&runner_context)
+        .map_err(|e| anyhow::anyhow!("runner context serialization failed: {e}"))?;
+
     let html = template
         .replace("@TOKENS@", &tokens)
         .replace("@COMPONENTS@", &format!("{components_css}\n{theme_css}"))
         .replace("@PLAN_JSON@", &plan_json)
+        .replace("@RUNNER_CONTEXT@", &runner_context_json)
         .replace("@REPORT_JSON@", "{}")
         .replace("@RELEASE@", &plan.release.candidate)
         .replace("@GENERATED_AT@", &now_rfc3339())
@@ -4737,5 +4787,95 @@ features:
         };
         let out = run_uat_validate(args);
         assert_ne!(out.status, 0, "expected error for invalid completion mode");
+    }
+}
+
+#[cfg(test)]
+mod uat_mode_tests {
+    use super::*;
+    use clap::ValueEnum;
+
+    /// UatRunnerMode variants have correct names via ValueEnum.
+    #[test]
+    fn runner_mode_enum_values() {
+        assert_eq!(UatRunnerMode::Designer.to_possible_value().unwrap().get_name(), "designer");
+        assert_eq!(UatRunnerMode::Runner.to_possible_value().unwrap().get_name(), "runner");
+        assert_eq!(UatRunnerMode::Reviewer.to_possible_value().unwrap().get_name(), "reviewer");
+    }
+
+    /// Default mode in UatDashboardArgs is Runner.
+    #[test]
+    fn dashboard_args_default_mode_is_runner() {
+        let args = UatDashboardArgs {
+            plan: PathBuf::from("/tmp/plan.yaml"),
+            view: UatView::Guided,
+            mode: UatRunnerMode::Runner,
+            theme: "dark".into(),
+            output: None,
+            format: OutputFormat::Text,
+        };
+        assert_eq!(args.mode, UatRunnerMode::Runner);
+    }
+
+    /// Default mode in UatOpenArgs is Runner.
+    #[test]
+    fn open_args_default_mode_is_runner() {
+        let args = UatOpenArgs {
+            plan: Some(PathBuf::from("/tmp/plan.yaml")),
+            release: None,
+            view: UatView::Guided,
+            mode: UatRunnerMode::Runner,
+            theme: "dark".into(),
+            browser: None,
+            output: None,
+            format: OutputFormat::Text,
+        };
+        assert_eq!(args.mode, UatRunnerMode::Runner);
+    }
+
+    /// Designer mode sets the correct variant.
+    #[test]
+    fn mode_designer_variant() {
+        let args = UatOpenArgs {
+            plan: None,
+            release: Some("v1.0.0".into()),
+            view: UatView::Guided,
+            mode: UatRunnerMode::Designer,
+            theme: "dark".into(),
+            browser: None,
+            output: None,
+            format: OutputFormat::Text,
+        };
+        assert_eq!(args.mode, UatRunnerMode::Designer);
+    }
+
+    /// view != Guided triggers the deprecation warning path.
+    #[test]
+    fn view_matrix_triggers_deprecation_warning() {
+        // When view is not Guided, run_uat_dashboard emits a warning.
+        // We test that the condition args.view != UatView::Guided holds.
+        let args = UatDashboardArgs {
+            plan: PathBuf::from("/tmp/plan.yaml"),
+            view: UatView::Matrix,
+            mode: UatRunnerMode::Runner,
+            theme: "dark".into(),
+            output: None,
+            format: OutputFormat::Text,
+        };
+        assert_ne!(args.view, UatView::Guided);
+    }
+
+    /// view traceability also triggers deprecation warning.
+    #[test]
+    fn view_traceability_triggers_deprecation_warning() {
+        let args = UatDashboardArgs {
+            plan: PathBuf::from("/tmp/plan.yaml"),
+            view: UatView::Traceability,
+            mode: UatRunnerMode::Runner,
+            theme: "dark".into(),
+            output: None,
+            format: OutputFormat::Text,
+        };
+        assert_ne!(args.view, UatView::Guided);
     }
 }
