@@ -12,12 +12,12 @@ use clap::{Args, Subcommand};
 use crate::{CommandOutput, OutputFormat, dev_cmd, render_result};
 
 use sddk_domain::{
-    LATEST_PLAN_SCHEMA_VERSION, UatFeatureRollup, UatFormItem, UatFormSpec, UatHistoryReport,
-    UatIntegrityReport, UatManifest, UatManifestEntry, UatMigrationReport, UatOracleKind, UatPlan,
-    UatReport, UatReportSummary, UatScenarioRollup, UatSession, UatStalenessChangeKind,
-    UatStalenessDiff, UatStalenessReport, UatStalenessScenario, UatSuggestionsReport, UatVerdict,
-    aggregate_history, apply_all_suggestions, evidence_satisfies_spec, migrate_plan_v1_to_v2,
-    sha256_hex, suggest_scenario_context, verify_evidence,
+    LATEST_PLAN_SCHEMA_VERSION, UatFeatureRollup, UatHistoryReport, UatIntegrityReport,
+    UatManifest, UatManifestEntry, UatMigrationReport, UatOracleKind, UatPlan, UatReport,
+    UatReportSummary, UatScenarioRollup, UatSession, UatStalenessChangeKind, UatStalenessDiff,
+    UatStalenessReport, UatStalenessScenario, UatSuggestionsReport, UatVerdict, aggregate_history,
+    apply_all_suggestions, evidence_satisfies_spec, migrate_plan_v1_to_v2, sha256_hex,
+    suggest_scenario_context, verify_evidence,
 };
 
 /// Default view when rendering a dashboard.
@@ -3381,7 +3381,7 @@ fn run_uat_enrich_forms(args: EnrichFormsArgs) -> CommandOutput {
         for feature in &mut plan.features {
             for scenario in &mut feature.scenarios {
                 if scenario.form.is_none() {
-                    scenario.form = Some(build_default_form(scenario));
+                    scenario.form = Some(crate::uat_enrich::build_default_form(scenario));
                 }
             }
         }
@@ -3397,63 +3397,6 @@ fn run_uat_enrich_forms(args: EnrichFormsArgs) -> CommandOutput {
     render_result(result, format, |path| {
         format!("uat enrich-forms: {}\n", path.display())
     })
-}
-
-fn build_default_form(scenario: &sddk_domain::UatScenario) -> UatFormSpec {
-    use sddk_domain::UatFormElementKind as FEK;
-    use sddk_domain::UatFormEvidenceKind as FEVK;
-    use sddk_domain::UatFormInputKind as FIK;
-    use sddk_domain::UatFormVisibility as FVIS;
-
-    let priority = match scenario.priority {
-        sddk_domain::UatPriority::P0 => "P0",
-        sddk_domain::UatPriority::P1 => "P1",
-        sddk_domain::UatPriority::P2 => "P2",
-    };
-    let ev_required = priority == "P0" || priority == "P1";
-
-    let items = vec![
-        UatFormItem {
-            kind: FEK::Info,
-            id: Some(format!("{}-ev", scenario.id)),
-            check: None,
-            text: Some(scenario.title.clone()),
-            flow: None,
-            target: None,
-            checkpoint: None,
-        },
-        UatFormItem {
-            kind: FEK::Check,
-            id: Some(format!("{}-check-1", scenario.id)),
-            check: Some(sddk_domain::UatFormCheck {
-                kind: FIK::Confirm,
-                prompt: "Verify this scenario passes".into(),
-                oracle: None,
-                visibility: FVIS::Visible,
-                required: true,
-                blocking: true,
-                confidence_requirement: None,
-                evidence_requirement: if ev_required {
-                    vec![FEVK::Screenshot]
-                } else {
-                    vec![]
-                },
-                comment_required_when: None,
-                options: vec![],
-                expected: None,
-            }),
-            text: None,
-            flow: None,
-            target: None,
-            checkpoint: None,
-        },
-    ];
-
-    UatFormSpec {
-        dsl_version: 1,
-        items,
-        completion: None,
-    }
 }
 
 // ─── E14.4: Test Discovery Agent ────────────────────────────────────────────
