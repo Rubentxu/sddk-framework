@@ -241,6 +241,14 @@ const UAT = (() => {
       const h = await sha256OfString(evidence.text);
       ref = h.hex;
       size_bytes = size_bytes || h.bytes;
+    } else if (evidence.kind === "video" && evidence.blob && !ref) {
+      const h = await sha256OfBlob(evidence.blob);
+      ref = h.hex;
+      size_bytes = size_bytes || h.bytes;
+    } else if (evidence.kind === "annotation" && evidence.blob && !ref) {
+      const h = await sha256OfBlob(evidence.blob);
+      ref = h.hex;
+      size_bytes = size_bytes || h.bytes;
     }
     const entry = { kind: evidence.kind, ref: ref || "", note: evidence.note, ...stamp };
     if (size_bytes != null) entry.size_bytes = size_bytes;
@@ -249,6 +257,8 @@ const UAT = (() => {
     if (evidence.observed_value != null) entry.observed_value = evidence.observed_value;
     if (evidence.expected_value != null) entry.expected_value = evidence.expected_value;
     if (evidence.match_mode != null) entry.match_mode = evidence.match_mode;
+    if (evidence.duration_ms != null) entry.duration_ms = evidence.duration_ms;
+    if (evidence.based_on != null) entry.based_on = evidence.based_on;
     const session = loadSession(release) || { schema_version: 2, release, results: [] };
     let r = (session.results || []).find(r => r.scenario_id === scenarioId);
     if (!r) {
@@ -273,6 +283,14 @@ const UAT = (() => {
     saveSession(release, session);
   }
 
+  // Internal map: `${release}:${scenarioId}` → data URL of most recent screenshot
+  // (used by annotation canvas to retrieve base image; not part of the session schema)
+  const _screenshotCache = {};
+
+  function _screenshotCacheKey(release, scenarioId) {
+    return `${release}::${scenarioId}`;
+  }
+
   async function pasteScreenshot(release, scenarioId, callback) {
     return new Promise((resolve) => {
       const handler = async (ev) => {
@@ -284,11 +302,14 @@ const UAT = (() => {
             const blob = item.getAsFile();
             const reader = new FileReader();
             reader.onload = async () => {
+              const dataUrl = reader.result;
               const entry = await addTypedEvidence(release, scenarioId, {
                 kind: "screenshot", blob, mime: blob.type,
                 note: "pegado desde portapapeles",
               });
-              if (callback) callback(reader.result, entry);
+              // Cache data URL for annotation canvas
+              _screenshotCache[_screenshotCacheKey(release, scenarioId)] = dataUrl;
+              if (callback) callback(dataUrl, entry);
               resolve(entry);
             };
             reader.readAsDataURL(blob);
@@ -323,10 +344,35 @@ const UAT = (() => {
       + `\n\n— Testado por: ${testerId}\n— Feature: ${feature ? feature.id + " / " + feature.name : "(unknown)"}`;
   }
 
+  // ─── Video evidence helpers ───────────────────────────────────────────────────
+  // Returns the most recent screenshot sha256 ref from a scenario's evidence list.
+  function getLastScreenshotRef(release, scenarioId) {
+    const session = loadSession(release);
+    if (!session) return null;
+    const r = (session.results || []).find(r => r.scenario_id === scenarioId);
+    if (!r || !r.evidence) return null;
+    // Find last screenshot evidence entry
+    const screenshots = r.evidence.filter(e => e.kind === "screenshot");
+    return screenshots.length > 0 ? screenshots[screenshots.length - 1].ref : null;
+  }
+
+  // ─── Annotation helpers ────────────────────────────────────────────────────────
+  // Caches a screenshot data URL for use by the annotation canvas.
+  function cacheScreenshotDataUrl(release, scenarioId, dataUrl) {
+    _screenshotCache[_screenshotCacheKey(release, scenarioId)] = dataUrl;
+  }
+
+  // Returns the cached screenshot data URL for the given scenario.
+  // Returns null if no screenshot has been captured/attached this session.
+  function getScreenshotDataUrl(release, scenarioId) {
+    return _screenshotCache[_screenshotCacheKey(release, scenarioId)] || null;
+  }
+
   return {
     loadSession, saveSession, exportSession, importSession,
     addEvidence, addTypedEvidence, pasteScreenshot,
     buildUatSession, buildDefectReport, fromLegacy, finalizeAndExport,
     nowRfc3339, uuid, ensureTesterId, sha256OfBlob, sha256OfString,
+    getLastScreenshotRef, cacheScreenshotDataUrl, getScreenshotDataUrl,
   };
 })();

@@ -42,6 +42,7 @@
 
 <script>@STORAGE_JS@</script>
 <script>@COMPONENTS_JS@</script>
+<script>@VIDEO_ANNOTATION_JS@</script>
 <script>
 const PLAN = @PLAN_JSON@;
 const RELEASE = '@RELEASE@';
@@ -373,6 +374,11 @@ function bindEvents(scenario, feature) {
       }
     });
   }
+  // E14: wire video + annotation evidence handlers
+  const wizardEl = document.getElementById('wizard');
+  if (window.VIDEO_ANNOTATION && wizardEl) {
+    window.VIDEO_ANNOTATION.bindHandlers(wizardEl, UAT, RELEASE, scenario.id);
+  }
 }
 
 function attachFile(scenarioId, kindLabel) {
@@ -381,10 +387,24 @@ function attachFile(scenarioId, kindLabel) {
   input.onchange = async () => {
     const file = input.files && input.files[0];
     if (!file) return;
-    await UAT.addTypedEvidence(RELEASE, scenarioId, {
-      kind: kindLabel, blob: file, mime: file.type || 'application/octet-stream', note: file.name,
-    });
-    render();
+    // For screenshots, read as data URL and cache for annotation canvas
+    if (kindLabel === 'screenshot') {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const dataUrl = reader.result;
+        await UAT.addTypedEvidence(RELEASE, scenarioId, {
+          kind: kindLabel, blob: file, mime: file.type || 'application/octet-stream', note: file.name,
+        });
+        UAT.cacheScreenshotDataUrl(RELEASE, scenarioId, dataUrl);
+        render();
+      };
+      reader.readAsDataURL(file);
+    } else {
+      await UAT.addTypedEvidence(RELEASE, scenarioId, {
+        kind: kindLabel, blob: file, mime: file.type || 'application/octet-stream', note: file.name,
+      });
+      render();
+    }
   };
   input.click();
 }

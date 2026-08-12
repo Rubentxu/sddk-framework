@@ -2271,6 +2271,7 @@ fn render_dashboard_html(
     let components_css = read_asset(&kit.join("kit/components.css"))?;
     let components_js = read_asset(&kit.join("kit/components.js"))?;
     let storage_js = read_asset(&kit.join("kit/storage.js"))?;
+    let video_annotation_js = read_asset(&kit.join("kit/video_annotation.js"))?;
 
     let view_name = match view {
         UatView::Guided => "guided",
@@ -2308,7 +2309,8 @@ fn render_dashboard_html(
         .replace("@GENERATED_AT@", &now_rfc3339())
         .replace("@PLAN_REF@", &plan.release.candidate)
         .replace("@STORAGE_JS@", &storage_js)
-        .replace("@COMPONENTS_JS@", &components_js);
+        .replace("@COMPONENTS_JS@", &components_js)
+        .replace("@VIDEO_ANNOTATION_JS@", &video_annotation_js);
 
     Ok(html)
 }
