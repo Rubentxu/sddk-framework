@@ -15,12 +15,10 @@ use sddk_domain::{UatFeature, UatPlan, UatPriority, UatScenario};
 pub fn merge_plan_features(
     new_features: Vec<UatFeature>,
     last_plan_ref: Option<&UatPlan>,
-    warnings: &mut Vec<String>,
 ) -> Vec<UatFeature> {
     if new_features.is_empty() {
         // No new criteria - preserve all scenarios from last_plan
         if let Some(prev_plan) = last_plan_ref {
-            warnings.push("plan: cloned from last_plan (no new criteria)".to_string());
             prev_plan.features.clone()
         } else {
             Vec::new()

@@ -94,9 +94,7 @@ pub fn stage_enrich(plan: &mut UatPlan) {
 
 /// Validate stage: check plan has features/scenarios and form DSL is valid.
 /// Returns total_scenarios on success.
-pub fn stage_validate(
-    plan: &UatPlan,
-) -> Result<usize, crate::uat_generate::runner::PipelineError> {
+pub fn stage_validate(plan: &UatPlan) -> Result<usize, crate::uat_generate::runner::PipelineError> {
     if plan.features.is_empty() {
         return Err(crate::uat_generate::runner::PipelineError::PlanningFailed(
             "final plan has no features".to_string(),
@@ -120,9 +118,12 @@ pub fn stage_validate(
         }
     }
     if !dsl_errors.is_empty() {
-        return Err(crate::uat_generate::runner::PipelineError::SchemaValidationFailed(
-            format!("form DSL validation failed:\n  {}", dsl_errors.join("\n  ")),
-        ));
+        return Err(
+            crate::uat_generate::runner::PipelineError::SchemaValidationFailed(format!(
+                "form DSL validation failed:\n  {}",
+                dsl_errors.join("\n  ")
+            )),
+        );
     }
 
     Ok(total_scenarios)

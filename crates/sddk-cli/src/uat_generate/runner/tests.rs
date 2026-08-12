@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::uat_common::io::{ApprovalDecision, ApprovalIo, ApprovalVerdict, UatPlanSummary};
 
-use super::{run_pipeline, PipelineConfig, PipelineError, StageOutput, render_pipeline_output};
+use super::{PipelineConfig, PipelineError, StageOutput, render_pipeline_output, run_pipeline};
 
 /// Scripted approval that always approves.
 struct FakeApprove;
@@ -104,7 +104,10 @@ fn pipeline_reject_approval_returns_approval_rejected() {
     assert!(matches!(e, PipelineError::ApprovalRejected));
 
     let output_path = td.path().join("uat-plan.yaml");
-    assert!(!output_path.exists(), "output file should not exist after rejection");
+    assert!(
+        !output_path.exists(),
+        "output file should not exist after rejection"
+    );
 }
 
 #[test]
@@ -135,10 +138,16 @@ fn pipeline_approve_creates_output_with_approval() {
     let _stages = result.unwrap();
 
     let output_path = td.path().join("uat-plan.yaml");
-    assert!(output_path.exists(), "output file should exist after approval");
+    assert!(
+        output_path.exists(),
+        "output file should exist after approval"
+    );
 
     let content = std::fs::read_to_string(&output_path).unwrap();
-    assert!(content.contains("approval"), "plan should contain approval record");
+    assert!(
+        content.contains("approval"),
+        "plan should contain approval record"
+    );
 }
 
 #[test]
@@ -204,7 +213,10 @@ fn pipeline_edit_returns_approval_edit_requested() {
     assert!(matches!(e, PipelineError::ApprovalEditRequested));
 
     let output_path = td.path().join("uat-plan.yaml");
-    assert!(!output_path.exists(), "output file should not exist after edit request");
+    assert!(
+        !output_path.exists(),
+        "output file should not exist after edit request"
+    );
 }
 
 #[test]
@@ -231,17 +243,27 @@ fn pipeline_atomic_no_partial_on_quality_failure() {
     };
 
     let result = run_pipeline(config);
-    assert!(matches!(result, Err(PipelineError::QualityFailed(_))), "Expected QualityFailed, got: {:?}", result);
+    assert!(
+        matches!(result, Err(PipelineError::QualityFailed(_))),
+        "Expected QualityFailed, got: {:?}",
+        result
+    );
 
     let output_path = td.path().join("uat-plan.yaml");
-    assert!(!output_path.exists(), "no output file should exist on pipeline failure");
+    assert!(
+        !output_path.exists(),
+        "no output file should exist on pipeline failure"
+    );
 
     let tmp_files: Vec<_> = std::fs::read_dir(td.path())
         .unwrap()
         .flatten()
         .filter(|e| e.file_name().to_string_lossy().contains(".tmp-"))
         .collect();
-    assert!(tmp_files.is_empty(), "no .tmp-* files should exist after failure");
+    assert!(
+        tmp_files.is_empty(),
+        "no .tmp-* files should exist after failure"
+    );
 }
 
 #[test]
@@ -290,12 +312,22 @@ fn pipeline_approve_calls_io_record_before_persistence() {
     };
 
     let result = run_pipeline(config);
-    assert!(result.is_ok(), "pipeline should succeed with FakeApprove: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "pipeline should succeed with FakeApprove: {:?}",
+        result
+    );
 
-    assert!(*record_called.lock().unwrap(), "io.record must be called after approval before persistence");
+    assert!(
+        *record_called.lock().unwrap(),
+        "io.record must be called after approval before persistence"
+    );
 
     let output_path = td.path().join("uat-plan.yaml");
-    assert!(output_path.exists(), "output should exist after successful pipeline");
+    assert!(
+        output_path.exists(),
+        "output should exist after successful pipeline"
+    );
 }
 
 #[test]
@@ -307,21 +339,18 @@ fn render_pipeline_output_includes_tags_and_path() {
             stage: "discover",
             path: PathBuf::from("N/A"),
             tag: "skipped".to_string(),
-            status: 0,
             message: "discover: skipped".to_string(),
         },
         StageOutput {
             stage: "plan",
             path: PathBuf::from("N/A"),
             tag: "planned".to_string(),
-            status: 0,
             message: "plan: 1 features".to_string(),
         },
         StageOutput {
             stage: "write",
             path: PathBuf::from("/tmp/uat-plan-v1.0.0.yaml"),
             tag: "written".to_string(),
-            status: 0,
             message: "written: /tmp/uat-plan-v1.0.0.yaml".to_string(),
         },
     ];
@@ -329,14 +358,29 @@ fn render_pipeline_output_includes_tags_and_path() {
 
     let output = render_pipeline_output(&stages, &final_path);
 
-    assert!(output.contains("[discover]"), "output must include discover stage tag");
-    assert!(output.contains("[plan]"), "output must include plan stage tag");
-    assert!(output.contains("[write]"), "output must include write stage tag");
+    assert!(
+        output.contains("[discover]"),
+        "output must include discover stage tag"
+    );
+    assert!(
+        output.contains("[plan]"),
+        "output must include plan stage tag"
+    );
+    assert!(
+        output.contains("[write]"),
+        "output must include write stage tag"
+    );
     assert!(output.contains("skipped"), "output must include tag values");
     assert!(output.contains("planned"), "output must include tag values");
     assert!(output.contains("written"), "output must include tag values");
-    assert!(output.contains("/tmp/uat-plan-v1.0.0.yaml"), "output must include final path");
-    assert!(output.contains("Pipeline complete"), "output must include Pipeline complete marker");
+    assert!(
+        output.contains("/tmp/uat-plan-v1.0.0.yaml"),
+        "output must include final path"
+    );
+    assert!(
+        output.contains("Pipeline complete"),
+        "output must include Pipeline complete marker"
+    );
 }
 
 #[test]
@@ -369,7 +413,10 @@ fn pipeline_auto_mode_approval_absent() {
     assert!(output_path.exists(), "output should exist in auto mode");
 
     let content = std::fs::read_to_string(&output_path).unwrap();
-    assert!(!content.contains("approval:"), "auto mode should not include approval in output");
+    assert!(
+        !content.contains("approval:"),
+        "auto mode should not include approval in output"
+    );
 }
 
 #[test]
@@ -418,10 +465,20 @@ fn pipeline_atomic_no_output_on_record_failure() {
     };
 
     let result = run_pipeline(config);
-    assert!(result.is_err(), "Expected pipeline to fail on record error, got: {:?}", result);
+    assert!(
+        result.is_err(),
+        "Expected pipeline to fail on record error, got: {:?}",
+        result
+    );
 
-    assert!(*record_called.lock().unwrap(), "io.record must have been called");
+    assert!(
+        *record_called.lock().unwrap(),
+        "io.record must have been called"
+    );
 
     let output_path = td.path().join("uat-plan.yaml");
-    assert!(!output_path.exists(), "no output file should exist when record fails");
+    assert!(
+        !output_path.exists(),
+        "no output file should exist when record fails"
+    );
 }

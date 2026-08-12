@@ -1,7 +1,7 @@
 //! E14.5 — Approval stage for the generate pipeline.
 
-use sddk_domain::{UatPlan, UatPlanApproval};
 use crate::uat_common::io::{ApprovalDecision, ApprovalIo, ApprovalVerdict, StdioApprovalIo};
+use sddk_domain::{UatPlan, UatPlanApproval};
 
 /// Run the approval stage: prompt for or skip human approval.
 /// Modifies plan in-place to set approval field if approved.
@@ -21,8 +21,9 @@ pub fn stage_approval(
 
         match decision.verdict {
             ApprovalVerdict::Approve => {
-                io.record(&decision)
-                    .map_err(|e| crate::uat_generate::runner::PipelineError::IoError(e.to_string()))?;
+                io.record(&decision).map_err(|e| {
+                    crate::uat_generate::runner::PipelineError::IoError(e.to_string())
+                })?;
 
                 let approval = UatPlanApproval {
                     id: decision.id.clone(),

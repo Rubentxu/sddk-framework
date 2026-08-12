@@ -3,14 +3,13 @@
 //! Parses `computer_use.mjs` outputs: `trajectory.json`, `summary.json`, and
 //! screenshots into a non-empty `ActualApplicationModel` (AAM) YAML.
 
-mod aam;
+pub(crate) mod aam;
 mod parser;
 pub mod run;
 #[cfg(test)]
 mod tests;
 
-#[allow(unused_imports)]
-pub use aam::{AamEvidence, AamFlow, AamModel, AamPage, AamProvenance, AamScenarioCandidate};
+pub use aam::{AamFlow, AamModel, AamPage, AamScenarioCandidate};
 
 /// Outcome of a discovery run: AAM model plus optional warning message.
 /// Warning is present when Fara is unreachable but we still produce a fallback AAM.

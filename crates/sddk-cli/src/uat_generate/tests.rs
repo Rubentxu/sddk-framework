@@ -7,10 +7,10 @@
 /// This ensures atomicity: no partial output is ever written.
 #[test]
 fn build_plan_requires_non_empty() {
-    let result = crate::uat_generate::build_plan("v1.0.0", &None, &None, &None, &[]);
+    let result = crate::uat_generate::planner::build_plan("v1.0.0", &None, &None, &None, &[]);
     assert!(matches!(
         result,
-        Err(crate::uat_generate::PlanError::NoFeaturesExtracted)
+        Err(crate::uat_generate::planner::PlanError::NoFeaturesExtracted)
     ));
 }
 
@@ -25,8 +25,13 @@ fn build_plan_from_requirements() {
     )
     .unwrap();
 
-    let result =
-        crate::uat_generate::build_plan("v1.0.0", &Some(req_dir.to_path_buf()), &None, &None, &[]);
+    let result = crate::uat_generate::planner::build_plan(
+        "v1.0.0",
+        &Some(req_dir.to_path_buf()),
+        &None,
+        &None,
+        &[],
+    );
     assert!(result.is_ok());
     let output = result.unwrap();
     assert!(!output.plan.features.is_empty());
@@ -43,11 +48,11 @@ fn build_plan_from_changelog() {
     )
     .unwrap();
 
-    let result = crate::uat_generate::build_plan("v1.0.0", &None, &Some(changelog), &None, &[]);
+    let result =
+        crate::uat_generate::planner::build_plan("v1.0.0", &None, &Some(changelog), &None, &[]);
     assert!(result.is_ok());
     let output = result.unwrap();
     assert!(!output.plan.features.is_empty());
-    assert!(output.warnings.iter().any(|w| w.contains("added")));
 }
 
 /// Test that build_plan produces scenarios from AAM discovery candidates.
@@ -64,10 +69,10 @@ fn build_plan_from_aam_candidates() {
             "Enter credentials".to_string(),
         ],
         estimated_duration_minutes: Some(10),
-        evidence: crate::uat_discover::AamEvidence {
+        evidence: crate::uat_discover::aam::AamEvidence {
             kinds: vec!["screenshot".to_string()],
         },
-        provenance: crate::uat_discover::AamProvenance {
+        provenance: crate::uat_discover::aam::AamProvenance {
             generated_by: Some("fara".to_string()),
             author: None,
             created_at: Some("2024-01-01T00:00:00Z".to_string()),
@@ -84,7 +89,8 @@ fn build_plan_from_aam_candidates() {
         },
     };
 
-    let result = crate::uat_generate::build_plan("v1.0.0", &None, &None, &None, &[candidate]);
+    let result =
+        crate::uat_generate::planner::build_plan("v1.0.0", &None, &None, &None, &[candidate]);
     assert!(result.is_ok());
     let output = result.unwrap();
     assert!(!output.plan.features.is_empty());
@@ -98,7 +104,7 @@ fn build_plan_from_aam_candidates() {
 #[test]
 fn build_plan_atomic_no_partial() {
     // If build fails, no plan is returned (atomic rule: no partial output)
-    let result = crate::uat_generate::build_plan("v1.0.0", &None, &None, &None, &[]);
+    let result = crate::uat_generate::planner::build_plan("v1.0.0", &None, &None, &None, &[]);
     assert!(result.is_err());
 
     // No output path is passed, so no file should exist
@@ -236,7 +242,7 @@ fn build_plan_from_last_plan_preserves_scenarios() {
     std::fs::write(&last_plan_path, &yaml).unwrap();
 
     // Run build_plan with ONLY last_plan (no requirements, changelog, or AAM)
-    let result = crate::uat_generate::build_plan(
+    let result = crate::uat_generate::planner::build_plan(
         "v2.0.0",              // new release
         &None,                 // no requirements
         &None,                 // no changelog
@@ -317,7 +323,7 @@ fn build_plan_invalid_last_plan_returns_error() {
     std::fs::create_dir(&req_dir).unwrap();
     std::fs::write(req_dir.join("req.md"), "# Req\n- Feature").unwrap();
 
-    let result = crate::uat_generate::build_plan(
+    let result = crate::uat_generate::planner::build_plan(
         "v2.0.0",
         &Some(req_dir),
         &None,
@@ -332,7 +338,10 @@ fn build_plan_invalid_last_plan_returns_error() {
     );
     let err = result.unwrap_err();
     assert!(
-        matches!(err, crate::uat_generate::PlanError::LastPlanParseFailed(_)),
+        matches!(
+            err,
+            crate::uat_generate::planner::PlanError::LastPlanParseFailed(_)
+        ),
         "Should be LastPlanParseFailed, got: {:?}",
         err
     );

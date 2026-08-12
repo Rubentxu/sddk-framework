@@ -16,7 +16,10 @@ use std::path::PathBuf;
 use crate::uat_common::io::ApprovalIo;
 
 pub use approval::stage_approval;
-pub use stages::{render_pipeline_output, run_discover, run_quality_stage, stage_enrich, stage_validate, stage_write};
+pub use stages::{
+    render_pipeline_output, run_discover, run_quality_stage, stage_enrich, stage_validate,
+    stage_write,
+};
 
 /// Pipeline errors.
 #[derive(Debug)]
@@ -56,8 +59,6 @@ pub struct StageOutput {
     pub stage: &'static str,
     pub path: PathBuf,
     pub tag: String,
-    #[allow(dead_code)]
-    pub status: i32,
     pub message: String,
 }
 
@@ -116,7 +117,7 @@ pub fn run_pipeline(config: PipelineConfig) -> Result<Vec<StageOutput>, Pipeline
                     stage: "discover",
                     path: PathBuf::from("N/A"),
                     tag: "discovered".to_string(),
-                    status: 0,
+
                     message: format!("discover: {} scenario candidates", candidates.len()),
                 });
                 candidates
@@ -128,7 +129,6 @@ pub fn run_pipeline(config: PipelineConfig) -> Result<Vec<StageOutput>, Pipeline
             stage: "discover",
             path: PathBuf::from("N/A"),
             tag: "skipped".to_string(),
-            status: 0,
             message: "discover: skipped (no --discover)".to_string(),
         });
         Vec::new()
@@ -148,11 +148,15 @@ pub fn run_pipeline(config: PipelineConfig) -> Result<Vec<StageOutput>, Pipeline
         stage: "plan",
         path: PathBuf::from("N/A"),
         tag: "planned".to_string(),
-        status: 0,
         message: format!(
             "plan: {} features, {} scenarios",
             plan_output.plan.features.len(),
-            plan_output.plan.features.iter().map(|f| f.scenarios.len()).sum::<usize>()
+            plan_output
+                .plan
+                .features
+                .iter()
+                .map(|f| f.scenarios.len())
+                .sum::<usize>()
         ),
     });
 
@@ -164,7 +168,6 @@ pub fn run_pipeline(config: PipelineConfig) -> Result<Vec<StageOutput>, Pipeline
         stage: "enrich",
         path: PathBuf::from("N/A"),
         tag: "enriched".to_string(),
-        status: 0,
         message: "enrich: forms + provenance set".to_string(),
     });
 
@@ -182,7 +185,6 @@ pub fn run_pipeline(config: PipelineConfig) -> Result<Vec<StageOutput>, Pipeline
         stage: "quality",
         path: PathBuf::from("N/A"),
         tag: "quality_pass".to_string(),
-        status: 0,
         message: format!(
             "quality: {} smells ({} blockers, {} warnings) — PASS",
             quality_report.summary.total,
@@ -199,7 +201,6 @@ pub fn run_pipeline(config: PipelineConfig) -> Result<Vec<StageOutput>, Pipeline
             stage: "approval",
             path: PathBuf::from("N/A"),
             tag: "approved".to_string(),
-            status: 0,
             message: "approval: approved".to_string(),
         });
     } else {
@@ -207,7 +208,6 @@ pub fn run_pipeline(config: PipelineConfig) -> Result<Vec<StageOutput>, Pipeline
             stage: "approval",
             path: PathBuf::from("N/A"),
             tag: "auto_skip".to_string(),
-            status: 0,
             message: "approval: auto mode — no human approval recorded".to_string(),
         });
     }
@@ -219,7 +219,6 @@ pub fn run_pipeline(config: PipelineConfig) -> Result<Vec<StageOutput>, Pipeline
         stage: "validate",
         path: PathBuf::from("N/A"),
         tag: "validated".to_string(),
-        status: 0,
         message: format!(
             "validate: {} features, {} scenarios — OK",
             enriched_plan.features.len(),
@@ -234,7 +233,6 @@ pub fn run_pipeline(config: PipelineConfig) -> Result<Vec<StageOutput>, Pipeline
         stage: "write",
         path: output_path.clone(),
         tag: "written".to_string(),
-        status: 0,
         message: format!("written: {}", output_path.display()),
     });
 

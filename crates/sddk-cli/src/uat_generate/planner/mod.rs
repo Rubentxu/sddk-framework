@@ -38,14 +38,11 @@ impl std::fmt::Display for PlanError {
     }
 }
 
-/// Planner output: built plan plus warnings collected during planning.
+/// Planner output: the built UatPlan.
 #[derive(Debug)]
 pub struct PlanOutput {
     /// The constructed UatPlan.
     pub plan: UatPlan,
-    /// Warnings collected during planning (e.g., changelog stats, last_plan stats).
-    #[allow(dead_code)]
-    pub warnings: Vec<String>,
 }
 
 impl PlanOutput {
@@ -186,7 +183,6 @@ pub fn build_plan(
     last_plan: &Option<std::path::PathBuf>,
     aam_scenario_candidates: &[crate::uat_discover::AamScenarioCandidate],
 ) -> Result<PlanOutput, PlanError> {
-    let mut warnings = Vec::new();
     let mut all_criteria: Vec<(String, Option<String>)> = Vec::new();
 
     // Consume requirements markdown
@@ -216,11 +212,6 @@ pub fn build_plan(
         && let Ok(content) = std::fs::read_to_string(cl)
     {
         let (added, changed) = parse_changelog_sections(&content);
-        warnings.push(format!(
-            "changelog: {} added, {} changed items",
-            added.len(),
-            changed.len()
-        ));
         for criterion in added.into_iter().chain(changed) {
             all_criteria.push((criterion, None));
         }
@@ -233,11 +224,6 @@ pub fn build_plan(
                 .map_err(|e| PlanError::LastPlanParseFailed(format!("read failed: {}", e)))?;
             let prev_plan: UatPlan = serde_saphyr::from_str(&content)
                 .map_err(|e| PlanError::LastPlanParseFailed(format!("parse failed: {}", e)))?;
-            warnings.push(format!(
-                "last_plan: {} features, {} scenarios",
-                prev_plan.features.len(),
-                prev_plan.features.iter().map(|f| f.scenarios.len()).sum::<usize>()
-            ));
             Some(prev_plan)
         } else {
             return Err(PlanError::LastPlanParseFailed(
@@ -315,8 +301,7 @@ pub fn build_plan(
     }
 
     // Merge with last_plan using merge module
-    let features: Vec<UatFeature> =
-        merge_plan_features(new_features, last_plan_ref.as_ref(), &mut warnings);
+    let features: Vec<UatFeature> = merge_plan_features(new_features, last_plan_ref.as_ref());
 
     // If no features, return error (atomic: no partial output)
     if features.is_empty() {
@@ -341,7 +326,7 @@ pub fn build_plan(
         approval: None,
     };
 
-    let output = PlanOutput { plan, warnings };
+    let output = PlanOutput { plan };
     output.validate_non_empty()?;
     Ok(output)
 }
