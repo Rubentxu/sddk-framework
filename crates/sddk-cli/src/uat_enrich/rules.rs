@@ -4,53 +4,44 @@
 //!
 //! ```text
 //! For each scenario without a form:
-//! ├── Has API/Http step?
-//! │   └── YES → Machine oracle check (Http/Json/Dom)
-//! ├── Has subjective UX criterion?
-//! │   └── YES → Human rating with scale anchors
-//! ├── Has expected textual observable?
-//! │   └── YES → Blind observation (visibility=blind)
-//! └── Otherwise → Human confirmation (fallback)
+//! ├── Has plain_steps?
+//! │   └── YES → per-step items: action instruction + semantic check
+//! │       ├── Machine-checkable step → oracle check (Http/Json/Dom)
+//! │       ├── UX subjective → human rating with scale anchors
+//! │       ├── Expected textual observable → blind observation
+//! │       └── Otherwise → human confirmation (fallback)
+//! └── NO plain_steps → scenario-level decision (same as above)
 //!
 //! Every 5 items → insert Checkpoint
 //! P0/P1 blocking checks → evidence_requirement: [Screenshot]
-//! Provenance → generated_by: "uat-ux-form", model: "heuristic-v1"
+//! Provenance → author: "uat-ux-form" (set in enrich_scenario, not here)
 //! ```
 
+mod items;
+
 use sddk_domain::{
-    UatFormCheck, UatFormElementKind as FEK, UatFormEvidenceKind as FEVK, UatFormInputKind as FIK,
+    UatFormEvidenceKind as FEVK,
     UatFormItem, UatFormOracleKind as FOK, UatFormSpec, UatFormVisibility as FVIS, UatPriority,
-    UatScenario,
+    UatScenario, UatStep,
 };
+
+use items::{
+    insert_checkpoints, mk_check_item, mk_confirm_item, mk_info_item, mk_rating_item, CheckConfig,
+};
+
+// ─── Public API ───────────────────────────────────────────────────────────────
 
 /// Build form items for a scenario using deterministic rules.
 pub fn build_form_for_scenario(scenario: &UatScenario) -> UatFormSpec {
-    let priority = match scenario.priority {
-        UatPriority::P0 => "P0",
-        UatPriority::P1 => "P1",
-        UatPriority::P2 => "P2",
-    };
-    let p0_p1 = priority == "P0" || priority == "P1";
+    let p0_p1 = matches!(scenario.priority, UatPriority::P0 | UatPriority::P1);
 
-    let mut items = Vec::new();
-
-    // Decision 1: Check if any step indicates machine-checkable criteria
-    let machine_items = detect_machine_check(scenario, p0_p1);
-    if !machine_items.is_empty() {
-        items.extend(machine_items);
-    } else if is_ux_subjective(scenario) {
-        // Decision 2: UX subjective → rating
-        items.extend(build_rating_items(scenario, p0_p1));
-    } else if has_expected_textual(scenario) {
-        // Decision 3: Expected textual observable → blind observation
-        items.extend(build_blind_observation_items(scenario, p0_p1));
+    let items = if scenario.plain_steps.is_empty() {
+        build_scenario_level_items(scenario, p0_p1)
     } else {
-        // Decision 4: Fallback → human confirmation
-        items.extend(build_confirmation_items(scenario, p0_p1));
-    }
+        build_per_step_items(scenario, p0_p1)
+    };
 
-    // Insert checkpoints if > 5 items
-    items = insert_checkpoints(items);
+    let items = insert_checkpoints(items);
 
     UatFormSpec {
         dsl_version: 1,
@@ -59,103 +50,186 @@ pub fn build_form_for_scenario(scenario: &UatScenario) -> UatFormSpec {
     }
 }
 
-/// Detect machine-checkable criteria from steps.
-/// Only triggers when criteria/steps EXPLICITLY indicate HTTP/API/DOM/JSON verifiable.
-fn detect_machine_check(scenario: &UatScenario, p0_p1: bool) -> Vec<UatFormItem> {
-    // Machine check is ONLY for explicit machine-verifiable indicators
-    let has_http_indicator = scenario.plain_steps.iter().any(|s| {
-        // More precise: must contain actual HTTP indicators
-        let action_lower = s.action.to_lowercase();
-        // HTTP endpoint or response status indicators
-        (action_lower.contains("http://")
-            || action_lower.contains("https://")
-            || action_lower.contains("/health")
-            || action_lower.contains("/api/")
-            || action_lower.contains("status code")
-            || action_lower.contains("status_code")
-            || action_lower.contains("response status")
-            || action_lower.contains("status 200")
-            || action_lower.contains("status 404")
-            || action_lower.contains("response.status"))
-            && !action_lower.contains("json") // exclude JSON which is separate
-    });
+// ─── Scenario-level items (no steps) ────────────────────────────────────────
 
-    let has_json_indicator = scenario.plain_steps.iter().any(|s| {
-        let action_lower = s.action.to_lowercase();
-        let expected_lower = s.expected.to_lowercase();
-        // JSON indicators: explicit json mentions or body structure checks
-        (action_lower.contains("json") || action_lower.contains("/api/"))
-            && (expected_lower.contains("json")
-                || expected_lower.contains("body")
-                || expected_lower.contains("field")
-                || expected_lower.contains("property"))
-    });
+fn build_scenario_level_items(scenario: &UatScenario, p0_p1: bool) -> Vec<UatFormItem> {
+    if let Some(items) = detect_machine_check_items(scenario, p0_p1) {
+        return items;
+    }
+    if is_ux_subjective(scenario) {
+        return build_rating_items_scenario(scenario, p0_p1);
+    }
+    if has_expected_textual(scenario) {
+        return build_blind_items_scenario(scenario, p0_p1);
+    }
+    build_confirmation_items_scenario(scenario, p0_p1)
+}
 
-    let has_dom_indicator = scenario.plain_steps.iter().any(|s| {
-        let action_lower = s.action.to_lowercase();
-        // DOM: more specific - must have selector or explicit DOM check
-        action_lower.contains("selector")
-            || action_lower.contains("css selector")
-            || action_lower.contains("xpath")
-            || action_lower.contains("dom element")
-            || (action_lower.contains("check") && action_lower.contains("element"))
-    });
+// ─── Per-step items (≥1 step → 2 items per step) ───────────────────────────
 
-    let oracle = if has_http_indicator {
-        Some(FOK::Http)
-    } else if has_json_indicator {
-        Some(FOK::Json)
-    } else if has_dom_indicator {
-        Some(FOK::Dom)
-    } else {
-        None
-    };
+fn build_per_step_items(scenario: &UatScenario, p0_p1: bool) -> Vec<UatFormItem> {
+    let mut items = Vec::new();
 
-    if oracle.is_some() {
+    for (idx, step) in scenario.plain_steps.iter().enumerate() {
+        let step_num = idx + 1;
+
+        // Info item: action instruction for this step
+        items.push(mk_info_item(
+            &format!("{}-step-{}-action", scenario.id, step_num),
+            &step.action,
+        ));
+
+        // Check item: semantic check for this step
+        if let Some(check_item) = build_check_for_step(scenario, step, step_num, p0_p1) {
+            items.push(check_item);
+        }
+    }
+
+    items
+}
+
+fn build_check_for_step(
+    scenario: &UatScenario,
+    step: &UatStep,
+    step_num: usize,
+    p0_p1: bool,
+) -> Option<UatFormItem> {
+    // Try machine check first
+    if let Some(oracle) = detect_step_oracle(step) {
         let ev_required = if p0_p1 {
             vec![FEVK::Screenshot]
         } else {
             vec![]
         };
+        return Some(mk_check_item(CheckConfig {
+            id: format!("{}-step-{}-check", scenario.id, step_num),
+            prompt: format!("Verify step {} result", step_num),
+            oracle: Some(oracle),
+            visibility: FVIS::Visible,
+            blocking: true,
+            evidence_requirement: ev_required,
+            expected: None,
+        }));
+    }
 
-        vec![
-            // Info item: scenario title
-            mk_info_item(&format!("{}-title", scenario.id), &scenario.title),
-            // Machine oracle check
-            mk_check_item(CheckConfig {
-                id: format!("{}-machine-check", scenario.id),
-                prompt: "Verify the expected result automatically".into(),
-                oracle,
-                visibility: FVIS::Visible,
-                blocking: true,
-                evidence_requirement: ev_required.clone(),
-                expected: None,
-            }),
-        ]
+    // UX subjective check
+    if is_ux_subjective(scenario) {
+        let ev_required: Vec<FEVK> = if p0_p1 {
+            vec![FEVK::Screenshot]
+        } else {
+            vec![]
+        };
+        return Some(mk_rating_item(
+            &format!("{}-step-{}-rating", scenario.id, step_num),
+            &format!("Rate step {} UX quality (1=Poor, 5=Excellent)", step_num),
+            ev_required,
+        ));
+    }
+
+    // Blind observation check
+    if has_step_expected_textual(step) {
+        let ev_required: Vec<FEVK> = if p0_p1 {
+            vec![FEVK::Screenshot]
+        } else {
+            vec![]
+        };
+        return Some(mk_check_item(CheckConfig {
+            id: format!("{}-step-{}-blind", scenario.id, step_num),
+            prompt: format!("Observe and confirm step {} result", step_num),
+            oracle: None,
+            visibility: FVIS::Blind,
+            blocking: true,
+            evidence_requirement: ev_required,
+            expected: Some("Expected result hidden for blind observation".into()),
+        }));
+    }
+
+    // Fallback: human confirmation
+    let ev_required: Vec<FEVK> = if p0_p1 {
+        vec![FEVK::Screenshot]
     } else {
         vec![]
-    }
+    };
+    Some(mk_confirm_item(
+        &format!("{}-step-{}-confirm", scenario.id, step_num),
+        &format!("Confirm step {} passes", step_num),
+        FVIS::Visible,
+        p0_p1,
+        ev_required,
+    ))
 }
 
-/// Check if scenario has subjective UX criterion.
+// ─── Machine check detection ─────────────────────────────────────────────────
+
+fn detect_step_oracle(step: &UatStep) -> Option<FOK> {
+    let action_lower = step.action.to_lowercase();
+
+    if (action_lower.contains("http://")
+        || action_lower.contains("https://")
+        || action_lower.contains("/health")
+        || action_lower.contains("/api/")
+        || action_lower.contains("status code")
+        || action_lower.contains("status_code")
+        || action_lower.contains("response status")
+        || action_lower.contains("status 200")
+        || action_lower.contains("status 404")
+        || action_lower.contains("response.status"))
+        && !action_lower.contains("json")
+    {
+        return Some(FOK::Http);
+    }
+
+    let expected_lower = step.expected.to_lowercase();
+    if (action_lower.contains("json") || action_lower.contains("/api/"))
+        && (expected_lower.contains("json")
+            || expected_lower.contains("body")
+            || expected_lower.contains("field")
+            || expected_lower.contains("property"))
+    {
+        return Some(FOK::Json);
+    }
+
+    if action_lower.contains("selector")
+        || action_lower.contains("css selector")
+        || action_lower.contains("xpath")
+        || action_lower.contains("dom element")
+        || (action_lower.contains("check") && action_lower.contains("element"))
+    {
+        return Some(FOK::Dom);
+    }
+
+    None
+}
+
+fn detect_machine_check_items(scenario: &UatScenario, p0_p1: bool) -> Option<Vec<UatFormItem>> {
+    let oracle = scenario.plain_steps.iter().find_map(detect_step_oracle)?;
+
+    let ev_required = if p0_p1 {
+        vec![FEVK::Screenshot]
+    } else {
+        vec![]
+    };
+
+    Some(vec![
+        mk_info_item(&format!("{}-title", scenario.id), &scenario.title),
+        mk_check_item(CheckConfig {
+            id: format!("{}-machine-check", scenario.id),
+            prompt: "Verify the expected result automatically".into(),
+            oracle: Some(oracle),
+            visibility: FVIS::Visible,
+            blocking: true,
+            evidence_requirement: ev_required,
+            expected: None,
+        }),
+    ])
+}
+
+// ─── UX subjective detection ─────────────────────────────────────────────────
+
 fn is_ux_subjective(scenario: &UatScenario) -> bool {
-    // UX subjective indicators:
-    // - context.user_story contains UX-related keywords
-    // - title contains UX-related terms
     let ux_keywords = [
-        "helpful",
-        "usability",
-        "UX",
-        "user experience",
-        "intuitive",
-        "easy to use",
-        "design",
-        "appearance",
-        "look and feel",
-        "color",
-        "font",
-        "layout",
-        "navigate",
+        "helpful", "usability", "UX", "user experience", "intuitive", "easy to use",
+        "design", "appearance", "look and feel", "color", "font", "layout", "navigate",
     ];
 
     let text_to_check = scenario
@@ -176,28 +250,26 @@ fn is_ux_subjective(scenario: &UatScenario) -> bool {
     ux_keywords.iter().any(|kw| text_to_check.contains(kw))
 }
 
-/// Check if scenario has expected textual observable (for blind observation).
-/// Only triggers when steps have explicit expected text but NOT machine-checkable indicators.
-fn has_expected_textual(scenario: &UatScenario) -> bool {
-    // Blind observation: steps with expected text where user observes result
-    // but shouldn't know the expected beforehand (for surprise/shock detection)
-    // Only applies when NOT machine-checkable
-    !scenario.plain_steps.is_empty()
-        && scenario.plain_steps.iter().any(|s| {
-            !s.expected.is_empty()
-                && s.expected.len() > 3
-                && !s.action.to_lowercase().contains("http://")
-                && !s.action.to_lowercase().contains("https://")
-                && !s.action.to_lowercase().contains("/api/")
-                && !s.action.to_lowercase().contains("json")
-                && !s.action.to_lowercase().contains("selector")
-                && !s.action.to_lowercase().contains("dom")
-        })
-        && !is_ux_subjective(scenario) // Not UX subjective (that's rating)
+fn has_step_expected_textual(step: &UatStep) -> bool {
+    !step.expected.is_empty()
+        && step.expected.len() > 3
+        && !step.action.to_lowercase().contains("http://")
+        && !step.action.to_lowercase().contains("https://")
+        && !step.action.to_lowercase().contains("/api/")
+        && !step.action.to_lowercase().contains("json")
+        && !step.action.to_lowercase().contains("selector")
+        && !step.action.to_lowercase().contains("dom")
 }
 
-/// Build rating items for UX subjective scenarios.
-fn build_rating_items(scenario: &UatScenario, p0_p1: bool) -> Vec<UatFormItem> {
+fn has_expected_textual(scenario: &UatScenario) -> bool {
+    !scenario.plain_steps.is_empty()
+        && scenario.plain_steps.iter().any(has_step_expected_textual)
+        && !is_ux_subjective(scenario)
+}
+
+// ─── Item builders ───────────────────────────────────────────────────────────
+
+fn build_rating_items_scenario(scenario: &UatScenario, p0_p1: bool) -> Vec<UatFormItem> {
     let ev_required: Vec<FEVK> = if p0_p1 {
         vec![FEVK::Screenshot]
     } else {
@@ -221,22 +293,19 @@ fn build_rating_items(scenario: &UatScenario, p0_p1: bool) -> Vec<UatFormItem> {
     ]
 }
 
-/// Build blind observation items.
-fn build_blind_observation_items(scenario: &UatScenario, p0_p1: bool) -> Vec<UatFormItem> {
+fn build_blind_items_scenario(scenario: &UatScenario, p0_p1: bool) -> Vec<UatFormItem> {
     let ev_required: Vec<FEVK> = if p0_p1 {
         vec![FEVK::Screenshot]
     } else {
         vec![]
     };
 
-    // For blind observation: the expected is hidden from the user
-    // We show a prompt without revealing what the expected result is
     vec![
         mk_info_item(&format!("{}-title", scenario.id), &scenario.title),
         mk_check_item(CheckConfig {
             id: format!("{}-blind-check", scenario.id),
             prompt: "Observe and confirm the result".into(),
-            oracle: None, // no oracle - human blind observation
+            oracle: None,
             visibility: FVIS::Blind,
             blocking: true,
             evidence_requirement: ev_required,
@@ -245,8 +314,7 @@ fn build_blind_observation_items(scenario: &UatScenario, p0_p1: bool) -> Vec<Uat
     ]
 }
 
-/// Build human confirmation items (fallback).
-fn build_confirmation_items(scenario: &UatScenario, p0_p1: bool) -> Vec<UatFormItem> {
+fn build_confirmation_items_scenario(scenario: &UatScenario, p0_p1: bool) -> Vec<UatFormItem> {
     let ev_required: Vec<FEVK> = if p0_p1 {
         vec![FEVK::Screenshot]
     } else {
@@ -263,155 +331,4 @@ fn build_confirmation_items(scenario: &UatScenario, p0_p1: bool) -> Vec<UatFormI
             ev_required,
         ),
     ]
-}
-
-/// Insert checkpoints every 5 items.
-fn insert_checkpoints(items: Vec<UatFormItem>) -> Vec<UatFormItem> {
-    if items.len() <= 5 {
-        return items;
-    }
-
-    let mut result = Vec::with_capacity(items.len() * 2);
-    let mut count = 0;
-
-    for item in &items {
-        result.push(item.clone());
-        count += 1;
-
-        // Insert checkpoint after every 5 items
-        if count % 5 == 0 && count < items.len() {
-            result.push(UatFormItem {
-                kind: FEK::Checkpoint,
-                id: Some(format!("cp-{}", count)),
-                check: None,
-                text: Some(format!("Checkpoint after {} items", count)),
-                flow: None,
-                target: None,
-                checkpoint: Some(sddk_domain::UatCheckpoint {
-                    id: format!("cp-{}", count),
-                    label: Some(format!("Checkpoint after {} items", count)),
-                    evidence_summary: sddk_domain::UatEvidenceSummary::default(),
-                    items: vec![],
-                }),
-            });
-        }
-    }
-
-    result
-}
-
-// ─── Helper constructors ────────────────────────────────────────────────────────
-
-fn mk_info_item(id: &str, text: &str) -> UatFormItem {
-    UatFormItem {
-        kind: FEK::Info,
-        id: Some(id.to_string()),
-        check: None,
-        text: Some(text.to_string()),
-        flow: None,
-        target: None,
-        checkpoint: None,
-    }
-}
-
-/// Config for creating a check item.
-struct CheckConfig {
-    id: String,
-    prompt: String,
-    oracle: Option<FOK>,
-    visibility: FVIS,
-    blocking: bool,
-    evidence_requirement: Vec<FEVK>,
-    expected: Option<String>,
-}
-
-fn mk_check_item(cfg: CheckConfig) -> UatFormItem {
-    UatFormItem {
-        kind: FEK::Check,
-        id: Some(cfg.id),
-        check: Some(UatFormCheck {
-            kind: FIK::Confirm,
-            prompt: cfg.prompt,
-            oracle: cfg.oracle,
-            visibility: cfg.visibility,
-            required: cfg.blocking,
-            blocking: cfg.blocking,
-            confidence_requirement: None,
-            evidence_requirement: cfg.evidence_requirement,
-            comment_required_when: None,
-            options: vec![],
-            expected: cfg.expected,
-        }),
-        text: None,
-        flow: None,
-        target: None,
-        checkpoint: None,
-    }
-}
-
-fn mk_rating_item(id: &str, prompt: &str, evidence_requirement: Vec<FEVK>) -> UatFormItem {
-    UatFormItem {
-        kind: FEK::Check,
-        id: Some(id.to_string()),
-        check: Some(UatFormCheck {
-            kind: FIK::Rating,
-            prompt: prompt.to_string(),
-            oracle: None,
-            visibility: FVIS::Visible,
-            required: true,
-            blocking: true,
-            confidence_requirement: None,
-            evidence_requirement,
-            // Rating has anchors represented via options or expected
-            comment_required_when: Some("below_3".to_string()),
-            options: vec![
-                "1 - Poor".to_string(),
-                "2 - Below Average".to_string(),
-                "3 - Average".to_string(),
-                "4 - Good".to_string(),
-                "5 - Excellent".to_string(),
-            ],
-            expected: None,
-        }),
-        text: None,
-        flow: None,
-        target: None,
-        checkpoint: None,
-    }
-}
-
-fn mk_confirm_item(
-    id: &str,
-    prompt: &str,
-    visibility: FVIS,
-    p0_p1: bool,
-    evidence_requirement: Vec<FEVK>,
-) -> UatFormItem {
-    let ev = if p0_p1 && evidence_requirement.is_empty() {
-        vec![FEVK::Screenshot]
-    } else {
-        evidence_requirement
-    };
-
-    UatFormItem {
-        kind: FEK::Check,
-        id: Some(id.to_string()),
-        check: Some(UatFormCheck {
-            kind: FIK::Confirm,
-            prompt: prompt.to_string(),
-            oracle: None,
-            visibility,
-            required: true,
-            blocking: true,
-            confidence_requirement: None,
-            evidence_requirement: ev,
-            comment_required_when: None,
-            options: vec![],
-            expected: None,
-        }),
-        text: None,
-        flow: None,
-        target: None,
-        checkpoint: None,
-    }
 }

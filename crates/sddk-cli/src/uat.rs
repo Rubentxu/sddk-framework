@@ -3380,9 +3380,8 @@ fn run_uat_enrich_forms(args: EnrichFormsArgs) -> CommandOutput {
 
         for feature in &mut plan.features {
             for scenario in &mut feature.scenarios {
-                if scenario.form.is_none() {
-                    scenario.form = Some(crate::uat_enrich::build_default_form(scenario));
-                }
+                // enrich_scenario handles: preserve existing form, set provenance
+                crate::uat_enrich::enrich_scenario(scenario);
             }
         }
 

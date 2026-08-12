@@ -10,7 +10,7 @@
 //! - Human confirmation: fallback when no other rule applies
 //! - Checkpoint: every 5 items when total > 5
 //! - P0/P1: blocking checks require `[Screenshot]` evidence
-//! - Provenance: `UatProvenance` with `generated_by: "uat-ux-form"`, additive fields
+//! - Provenance: `UatProvenance` with author="uat-ux-form", additive fields
 
 mod rules;
 
@@ -26,6 +26,7 @@ pub use sddk_domain::{
 
 /// Build a default form for a scenario using deterministic enrichment rules.
 /// Returns the existing form if the scenario already has one (preservation rule).
+#[allow(dead_code)]
 pub fn build_default_form(scenario: &sddk_domain::UatScenario) -> UatFormSpec {
     if scenario.form.is_some() {
         // Preservation rule: don't overwrite existing forms
@@ -33,4 +34,49 @@ pub fn build_default_form(scenario: &sddk_domain::UatScenario) -> UatFormSpec {
     }
 
     rules::build_form_for_scenario(scenario)
+}
+
+/// Enrich a scenario with form AND provenance.
+/// Does NOT touch existing forms (preservation rule).
+/// For new scenarios, assigns form and provenance using REAL UatProvenance.
+pub fn enrich_scenario(scenario: &mut sddk_domain::UatScenario) {
+    // Step 1: preserve existing form if present
+    if scenario.form.is_some() {
+        // Only set provenance if form already exists (provenance was not set before)
+        if scenario.provenance.is_none() {
+            scenario.provenance = Some(build_provenance(scenario));
+        }
+        return;
+    }
+
+    // Step 2: build form for scenario without form
+    let form = rules::build_form_for_scenario(scenario);
+    scenario.form = Some(form);
+
+    // Step 3: set provenance (only if not already set)
+    if scenario.provenance.is_none() {
+        scenario.provenance = Some(build_provenance(scenario));
+    }
+}
+
+/// Build a UatProvenance for the enriched scenario.
+fn build_provenance(scenario: &sddk_domain::UatScenario) -> sddk_domain::UatProvenance {
+    use sddk_domain::UatOrigin;
+    use crate::uat_common::time::now_rfc3339;
+
+    // Preserve existing origin if set, otherwise use Regression as default
+    let origin = scenario
+        .provenance
+        .as_ref()
+        .map(|p| p.origin)
+        .unwrap_or(UatOrigin::Regression);
+
+    let now = now_rfc3339();
+    sddk_domain::UatProvenance {
+        author: "uat-ux-form".to_string(),
+        created_at: now.clone(),
+        last_modified_at: now,
+        origin,
+        origin_ref: Some(scenario.id.clone()),
+    }
 }

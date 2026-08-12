@@ -9,12 +9,12 @@
 //! - Existing form preservation (not overwritten)
 
 use sddk_domain::{
-    UatFormCheck, UatFormElementKind as FEK, UatFormEvidenceKind as FEVK, UatFormInputKind as FIK,
+    UatFormElementKind as FEK, UatFormEvidenceKind as FEVK, UatFormInputKind as FIK,
     UatFormItem, UatFormOracleKind as FOK, UatFormSpec, UatFormVisibility as FVIS, UatPriority,
-    UatScenario, UatScenarioContext, UatStep, UatStepKind,
+    UatScenario, UatScenarioContext, UatStep, UatStepKind, UatProvenance, UatOrigin,
 };
 
-use crate::uat_enrich::build_default_form;
+use crate::uat_enrich::{build_default_form, enrich_scenario};
 
 // ─── Helper constructors ────────────────────────────────────────────────────
 
@@ -333,49 +333,57 @@ fn blind_check_has_hidden_expected() {
 
 #[test]
 fn long_form_inserts_checkpoint_after_5_items() {
-    // The current implementation produces a fixed set of items per scenario.
-    // To properly test checkpoint insertion, we would need a scenario that
-    // naturally produces >5 items. This test documents the checkpoint
-    // insertion logic exists and would trigger for long forms.
-    // Note: With the current 2-items-per-scenario approach, checkpoints
-    // are not inserted. The checkpoint logic IS correct - it inserts
-    // after every 5 items when items.len() > 5.
-
-    // This test verifies the checkpoint insertion function directly
-    let _items: Vec<UatFormItem> = (1..=8)
-        .map(|i| UatFormItem {
-            kind: FEK::Check,
-            id: Some(format!("check-{}", i)),
-            check: Some(UatFormCheck {
-                kind: FIK::Confirm,
-                prompt: format!("Check {}", i),
-                oracle: None,
-                visibility: FVIS::Visible,
-                required: true,
-                blocking: true,
-                confidence_requirement: None,
-                evidence_requirement: vec![],
-                comment_required_when: None,
-                options: vec![],
-                expected: None,
-            }),
-            text: None,
-            flow: None,
-            target: None,
-            checkpoint: None,
+    // GIVEN a scenario with 8 plain_steps (generates 8+ items: action+check per step)
+    let steps: Vec<UatStep> = (1..=8)
+        .map(|i| UatStep {
+            action: format!("Step {} action", i),
+            copy_hint: false,
+            expected: format!("Step {} expected result", i),
+            step: Some(i),
+            kind: Some(UatStepKind::Ui),
+            vs_expected_check: None,
         })
         .collect();
+    let scenario = scenario_with_steps("S-7", "Long multi-step scenario", steps);
 
-    // The insert_checkpoints function is internal - we test via build_default_form
-    // which would need >5 items to trigger. For now, verify the function
-    // exists and handles the >5 case correctly via the short_form test.
-    let form = build_default_form(&make_scenario("S-7", "Long scenario"));
+    // WHEN build_default_form is called
+    let form = build_default_form(&scenario);
 
-    // Verify form has at least some items
-    assert!(!form.items.is_empty(), "Form should have items");
-    // Note: With current rules, we only get 2 items max per scenario.
-    // The checkpoint insertion logic is correct but never triggers with
-    // the current item-per-scenario production.
+    // THEN the form has >5 items
+    assert!(
+        form.items.len() > 5,
+        "Form with 8 steps should produce >5 items, got {}",
+        form.items.len()
+    );
+
+    // AND a checkpoint exists between items 5 and 6
+    let checkpoint_count = form
+        .items
+        .iter()
+        .filter(|item| item.kind == FEK::Checkpoint)
+        .count();
+    assert!(
+        checkpoint_count >= 1,
+        "Form with >5 items must have at least one checkpoint, got {}",
+        checkpoint_count
+    );
+
+    // Find the position of the first checkpoint
+    let cp_positions: Vec<usize> = form
+        .items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| item.kind == FEK::Checkpoint)
+        .map(|(pos, _)| pos)
+        .collect();
+    // Checkpoint should appear AFTER item 5 (i.e., at index >= 5)
+    if let Some(first_cp_pos) = cp_positions.first() {
+        assert!(
+            *first_cp_pos >= 5,
+            "First checkpoint must appear at or after position 5, got position {}",
+            first_cp_pos
+        );
+    }
 }
 
 #[test]
@@ -511,19 +519,97 @@ fn p2_scenario_no_mandatory_screenshot() {
 // ─── Test 6: Provenance emission ──────────────────────────────────────────
 
 #[test]
-fn enriched_scenario_has_provenance() {
-    // GIVEN any scenario
-    let scenario = make_scenario("S-12", "Any scenario");
+fn enrich_scenario_populates_provenance() {
+    // GIVEN a scenario without provenance
+    let mut scenario = make_scenario("S-12", "Any scenario");
+    assert!(scenario.provenance.is_none(), "precondition: no provenance yet");
 
-    let form = build_default_form(&scenario);
+    // WHEN enrich_scenario is called
+    enrich_scenario(&mut scenario);
 
-    // THEN the form spec contains provenance information
-    // (This is stored on the scenario.provenance, not in the form spec itself)
-    // The form should have items that were generated with deterministic rules
-    assert!(!form.items.is_empty(), "Enriched form should have items");
+    // THEN provenance is populated with uat-ux-form as author
+    assert!(
+        scenario.provenance.is_some(),
+        "Enriched scenario must have provenance set"
+    );
+    let prov = scenario.provenance.as_ref().unwrap();
+    assert_eq!(
+        prov.author, "uat-ux-form",
+        "Provenance author must be 'uat-ux-form', got '{}'",
+        prov.author
+    );
+    assert!(
+        !prov.created_at.is_empty(),
+        "Provenance created_at must be set"
+    );
+    assert!(
+        !prov.last_modified_at.is_empty(),
+        "Provenance last_modified_at must be set"
+    );
+}
 
-    // The scenario's provenance field should be populated by the caller (run_enrich_forms)
-    // Here we just verify the form can be built
+#[test]
+fn enrich_scenario_preserves_existing_provenance() {
+    // GIVEN a scenario that already has provenance
+    let mut scenario = make_scenario("S-12b", "Any scenario");
+    scenario.provenance = Some(UatProvenance {
+        author: "original-author".to_string(),
+        created_at: "2024-01-01T00:00:00Z".to_string(),
+        last_modified_at: "2024-01-02T00:00:00Z".to_string(),
+        origin: UatOrigin::Spec,
+        origin_ref: Some("original-ref".to_string()),
+    });
+
+    // WHEN enrich_scenario is called
+    enrich_scenario(&mut scenario);
+
+    // THEN provenance is NOT overwritten (preserved)
+    let prov = scenario.provenance.as_ref().unwrap();
+    assert_eq!(
+        prov.author, "original-author",
+        "Existing provenance author must be preserved, got '{}'",
+        prov.author
+    );
+}
+
+#[test]
+fn enrich_scenario_preserves_existing_form() {
+    // GIVEN a scenario that already has a form
+    let existing_form = UatFormSpec {
+        dsl_version: 1,
+        items: vec![UatFormItem {
+            kind: FEK::Info,
+            id: Some("custom-item".to_string()),
+            check: None,
+            text: Some("Custom existing form".to_string()),
+            flow: None,
+            target: None,
+            checkpoint: None,
+        }],
+        completion: None,
+    };
+
+    let mut scenario = make_scenario("S-13", "Scenario with existing form");
+    scenario.form = Some(existing_form.clone());
+
+    // WHEN enrich_scenario is called
+    enrich_scenario(&mut scenario);
+
+    // THEN the form is preserved (not overwritten) AND provenance is still set
+    assert!(
+        scenario.form.is_some(),
+        "Existing form must be preserved"
+    );
+    assert_eq!(
+        scenario.form.as_ref().unwrap().items.len(),
+        existing_form.items.len(),
+        "Form must not be regenerated when it already exists"
+    );
+    // But provenance should be set since it didn't exist
+    assert!(
+        scenario.provenance.is_some(),
+        "Provenance should be set even when form is preserved"
+    );
 }
 
 // ─── Test 7: Existing form preservation ───────────────────────────────────
