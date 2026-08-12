@@ -24,6 +24,39 @@ pub enum ValidateError {
     DiscoverRequiresAppUrl,
 }
 
+impl std::fmt::Display for ValidateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ValidateError::RequirementsRequired => {
+                write!(f, "requirements directory is required but missing")
+            }
+            ValidateError::RequirementsNotDir(path) => {
+                write!(
+                    f,
+                    "requirements path is not a directory: {}",
+                    path.display()
+                )
+            }
+            ValidateError::NoCriteriaFound(path) => {
+                write!(
+                    f,
+                    "no criteria found in requirements directory: {}",
+                    path.display()
+                )
+            }
+            ValidateError::ChangelogNotFound(path) => {
+                write!(f, "changelog file not found: {}", path.display())
+            }
+            ValidateError::LastPlanNotFound(path) => {
+                write!(f, "last-plan file not found: {}", path.display())
+            }
+            ValidateError::DiscoverRequiresAppUrl => {
+                write!(f, "--discover requires --app-url")
+            }
+        }
+    }
+}
+
 /// Validate all generate pipeline inputs before any file operations.
 /// Returns Ok if inputs are valid, Err with specific error otherwise.
 /// Does NOT write any files (atomic write rule: validate before write).
@@ -115,7 +148,7 @@ mod tests {
 
     #[test]
     fn validate_requires_requirements_or_alternative() {
-        let td = TempDir::new().unwrap();
+        let _td = TempDir::new().unwrap();
 
         // Task 1 RED phase: validate_inputs MUST Err when all inputs are None
         // (no requirements, no changelog, no last_plan, no discover).

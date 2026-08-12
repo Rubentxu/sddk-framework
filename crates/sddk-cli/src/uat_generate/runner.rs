@@ -35,12 +35,45 @@ pub enum PipelineError {
     IoError(String),
 }
 
+impl std::fmt::Display for PipelineError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PipelineError::ValidationFailed(msg) => {
+                write!(f, "validation failed: {}", msg)
+            }
+            PipelineError::PlanningFailed(msg) => {
+                write!(f, "planning failed: {}", msg)
+            }
+            PipelineError::QualityFailed(msg) => {
+                write!(f, "quality gate failed: {}", msg)
+            }
+            PipelineError::SchemaValidationFailed(msg) => {
+                write!(f, "schema validation failed: {}", msg)
+            }
+            PipelineError::ApprovalRejected => {
+                write!(f, "approval rejected")
+            }
+            PipelineError::ApprovalEditRequested => {
+                write!(f, "approval edit requested (not supported)")
+            }
+            PipelineError::DiscoveryFailed(msg) => {
+                write!(f, "discovery failed: {}", msg)
+            }
+            PipelineError::IoError(msg) => {
+                write!(f, "IO error: {}", msg)
+            }
+        }
+    }
+}
+
 /// Stage output with path and status.
 #[derive(Debug, Clone)]
 pub struct StageOutput {
     pub stage: &'static str,
     pub path: PathBuf,
     pub tag: String,
+    /// Exit status code for this stage. Intentionally part of public API.
+    #[allow(dead_code)]
     pub status: i32,
     pub message: String,
 }
@@ -169,46 +202,7 @@ pub fn run_pipeline(config: PipelineConfig) -> Result<Vec<StageOutput>, Pipeline
     });
 
     // ── Stage 4: Quality (in-memory gate) ─────────────────────────────────────
-    let quality_report = if config.force_quality_failure {
-        // Test injection: force quality failure without needing actual quality issues.
-        // This follows the spec's requirement for test-only quality gate injection.
-        crate::uat_quality::report::QualityReport {
-            schema_version: 1,
-            analyzer: "pipeline-test-injection".to_string(),
-            model: "test-v1".to_string(),
-            analyzed_at: crate::uat_common::time::now_rfc3339(),
-            plan_ref: String::new(),
-            smells: vec![crate::uat_quality::report::QualitySmell {
-                id: "TEST-001".to_string(),
-                smell_id: "injected-blocker".to_string(),
-                severity: "BLOCKER".to_string(),
-                location: crate::uat_quality::report::SmellLocation {
-                    feature_id: "F-01".to_string(),
-                    scenario_id: "S-001".to_string(),
-                    item_id: None,
-                    field: None,
-                },
-                snippet: Some("test snippet".to_string()),
-                suggestion: "Remove test injection".to_string(),
-                auto_fixable: false,
-            }],
-            summary: crate::uat_quality::report::QualitySummary {
-                total: 1,
-                blockers: 1,
-                errors: 0,
-                warnings: 0,
-                suggestions: 0,
-                pass: false,
-            },
-            verdict: "NEEDS_REVISION".to_string(),
-            threshold_applied: "BLOCKER".to_string(),
-        }
-    } else {
-        crate::uat_quality::detect_13_smells(
-            &enriched_plan,
-            crate::uat_quality::report::QualityThreshold::Blocker,
-        )
-    };
+    let quality_report = run_quality_stage(&enriched_plan, config.force_quality_failure);
 
     if !quality_report.summary.pass {
         let blockers = quality_report.summary.blockers;
@@ -340,6 +334,53 @@ pub fn run_pipeline(config: PipelineConfig) -> Result<Vec<StageOutput>, Pipeline
     });
 
     Ok(stages)
+}
+
+/// Run the quality stage: detect smells in the plan.
+fn run_quality_stage(
+    plan: &sddk_domain::UatPlan,
+    force_quality_failure: bool,
+) -> crate::uat_quality::report::QualityReport {
+    if force_quality_failure {
+        // Test injection: force quality failure without needing actual quality issues.
+        // This follows the spec's requirement for test-only quality gate injection.
+        crate::uat_quality::report::QualityReport {
+            schema_version: 1,
+            analyzer: "pipeline-test-injection".to_string(),
+            model: "test-v1".to_string(),
+            analyzed_at: crate::uat_common::time::now_rfc3339(),
+            plan_ref: String::new(),
+            smells: vec![crate::uat_quality::report::QualitySmell {
+                id: "TEST-001".to_string(),
+                smell_id: "injected-blocker".to_string(),
+                severity: "BLOCKER".to_string(),
+                location: crate::uat_quality::report::SmellLocation {
+                    feature_id: "F-01".to_string(),
+                    scenario_id: "S-001".to_string(),
+                    item_id: None,
+                    field: None,
+                },
+                snippet: Some("test snippet".to_string()),
+                suggestion: "Remove test injection".to_string(),
+                auto_fixable: false,
+            }],
+            summary: crate::uat_quality::report::QualitySummary {
+                total: 1,
+                blockers: 1,
+                errors: 0,
+                warnings: 0,
+                suggestions: 0,
+                pass: false,
+            },
+            verdict: "NEEDS_REVISION".to_string(),
+            threshold_applied: "BLOCKER".to_string(),
+        }
+    } else {
+        crate::uat_quality::detect_13_smells(
+            plan,
+            crate::uat_quality::report::QualityThreshold::Blocker,
+        )
+    }
 }
 
 /// Run discovery and return scenario candidates.
@@ -533,7 +574,7 @@ mod tests {
 
         let result = run_pipeline(config);
         assert!(result.is_ok(), "pipeline should succeed: {:?}", result);
-        let stages = result.unwrap();
+        let _stages = result.unwrap();
 
         // Output file should exist
         let output_path = td.path().join("uat-plan.yaml");

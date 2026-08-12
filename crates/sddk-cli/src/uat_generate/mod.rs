@@ -5,11 +5,13 @@
 //!
 //! # Module structure
 //!
+//! - `parsing.rs` — text parsing utilities (criteria extraction, changelog parsing)
 //! - `validator.rs` — input validation (requirements, changelog, discover)
 //! - `planner.rs` — pure planner (consumes requirements + changelog + AAM)
 //! - `runner.rs` — pipeline orchestration with injectable ApprovalIo
-//! - `tests.rs` — integration tests
+//! - `tests.rs` — integration and unit tests for the generate pipeline
 
+pub mod parsing;
 pub mod planner;
 pub mod runner;
 pub mod tests;
