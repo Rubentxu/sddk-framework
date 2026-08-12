@@ -1578,6 +1578,22 @@ pub struct UatPlan {
     /// Runner mode hint (v4, REQ-RF-028): designer/runner/reviewer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runner_mode: Option<UatRunnerMode>,
+    /// Human approval record (v4, E14.5): present when a human reviewed
+    /// and approved the plan. Auto/CI runs omit this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval: Option<UatPlanApproval>,
+}
+
+/// Approval record for a plan: who approved and when.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UatPlanApproval {
+    /// Internal ID of the approver (e.g. "T-0001").
+    pub id: String,
+    /// Display name of the approver.
+    pub display: String,
+    /// RFC3339 timestamp of the approval decision.
+    pub approved_at: String,
 }
 
 /// Release context of a plan: features aggregated since the last UAT'd tag.

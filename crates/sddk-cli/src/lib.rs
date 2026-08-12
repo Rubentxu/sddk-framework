@@ -25,6 +25,7 @@ mod uat;
 mod uat_common;
 mod uat_discover;
 mod uat_enrich;
+mod uat_generate;
 mod uat_quality;
 mod uat_serve;
 mod vault_cmd;

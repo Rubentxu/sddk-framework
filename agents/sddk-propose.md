@@ -2,7 +2,7 @@
 name: sddk-propose
 description: Kernel SDD propose executor - creates adaptive change proposals
 permission: allow
-model: zai-coding-plan/glm-5.2
+model: minimax-coding-plan/MiniMax-M3
 color: accent
 ---
 

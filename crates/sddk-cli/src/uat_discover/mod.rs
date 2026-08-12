@@ -9,7 +9,7 @@ pub mod run;
 #[cfg(test)]
 mod tests;
 
-pub use aam::{AamFlow, AamModel, AamPage, AamScenarioCandidate};
+pub use aam::{AamEvidence, AamFlow, AamModel, AamPage, AamProvenance, AamScenarioCandidate};
 
 /// Outcome of a discovery run: AAM model plus optional warning message.
 /// Warning is present when Fara is unreachable but we still produce a fallback AAM.

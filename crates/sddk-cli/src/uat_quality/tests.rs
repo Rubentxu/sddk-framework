@@ -167,6 +167,7 @@ fn clean_plan() -> UatPlan {
             )],
         }],
         runner_mode: None,
+        approval: None,
     }
 }
 
@@ -193,6 +194,7 @@ fn plan_with_expected_absent() -> UatPlan {
             )],
         }],
         runner_mode: None,
+        approval: None,
     }
 }
 
@@ -321,6 +323,7 @@ fn smelly_13_plan() -> UatPlan {
             }],
         }],
         runner_mode: None,
+        approval: None,
     }
 }
 

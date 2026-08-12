@@ -100,6 +100,16 @@ fn build_check_for_step(
         } else {
             vec![]
         };
+        // Machine checks: expected from oracle-specific rules
+        let expected = match oracle {
+            FOK::Http if !step.expected.is_empty() => Some(step.expected.clone()),
+            FOK::Http => Some("HTTP response OK".to_string()),
+            FOK::Json if !step.expected.is_empty() => Some(step.expected.clone()),
+            FOK::Json => Some("JSON response matches".to_string()),
+            FOK::Dom if !step.expected.is_empty() => Some(step.expected.clone()),
+            FOK::Dom => Some("DOM element found".to_string()),
+            _ => Some("Check passes".to_string()),
+        };
         return Some(mk_check_item(CheckConfig {
             id: format!("{}-step-{}-check", scenario.id, step_num),
             prompt: format!("Verify step {} result", step_num),
@@ -107,7 +117,7 @@ fn build_check_for_step(
             visibility: FVIS::Visible,
             blocking: true,
             evidence_requirement: ev_required,
-            expected: None,
+            expected,
         }));
     }
 
@@ -139,7 +149,7 @@ fn build_check_for_step(
             visibility: FVIS::Blind,
             blocking: true,
             evidence_requirement: ev_required,
-            expected: Some("Expected result hidden for blind observation".into()),
+            expected: Some(step.expected.clone()),
         }));
     }
 
@@ -149,12 +159,19 @@ fn build_check_for_step(
     } else {
         vec![]
     };
+    // For fallback checks without oracle, use step's expected as the criterion
+    let expected_for_fallback = if !step.expected.is_empty() {
+        Some(step.expected.clone())
+    } else {
+        Some(format!("Step {} passes", step_num))
+    };
     Some(mk_confirm_item(
         &format!("{}-step-{}-confirm", scenario.id, step_num),
         &format!("Confirm step {} passes", step_num),
         FVIS::Visible,
         p0_p1,
         ev_required,
+        expected_for_fallback,
     ))
 }
 
@@ -209,6 +226,14 @@ fn detect_machine_check_items(scenario: &UatScenario, p0_p1: bool) -> Option<Vec
         vec![]
     };
 
+    // For scenario-level machine checks, use oracle-specific expected
+    let expected = match oracle {
+        FOK::Http => Some("HTTP response OK".to_string()),
+        FOK::Json => Some("JSON response matches".to_string()),
+        FOK::Dom => Some("DOM element found".to_string()),
+        _ => Some("Check passes".to_string()),
+    };
+
     Some(vec![
         mk_info_item(&format!("{}-title", scenario.id), &scenario.title),
         mk_check_item(CheckConfig {
@@ -218,7 +243,7 @@ fn detect_machine_check_items(scenario: &UatScenario, p0_p1: bool) -> Option<Vec
             visibility: FVIS::Visible,
             blocking: true,
             evidence_requirement: ev_required,
-            expected: None,
+            expected,
         }),
     ])
 }
@@ -299,6 +324,7 @@ fn build_rating_items_scenario(scenario: &UatScenario, p0_p1: bool) -> Vec<UatFo
             FVIS::Visible,
             p0_p1,
             vec![],
+            Some("UX meets expectations".to_string()),
         ),
     ]
 }
@@ -310,6 +336,19 @@ fn build_blind_items_scenario(scenario: &UatScenario, p0_p1: bool) -> Vec<UatFor
         vec![]
     };
 
+    // For scenario-level blind items, derive expected from the first step's expected
+    let expected = scenario
+        .plain_steps
+        .iter()
+        .find_map(|s| {
+            if has_step_expected_textual(s) {
+                Some(s.expected.clone())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| "Expected result confirmed".to_string());
+
     vec![
         mk_info_item(&format!("{}-title", scenario.id), &scenario.title),
         mk_check_item(CheckConfig {
@@ -319,7 +358,7 @@ fn build_blind_items_scenario(scenario: &UatScenario, p0_p1: bool) -> Vec<UatFor
             visibility: FVIS::Blind,
             blocking: true,
             evidence_requirement: ev_required,
-            expected: Some("Expected result hidden for blind observation".into()),
+            expected: Some(expected),
         }),
     ]
 }
@@ -339,6 +378,7 @@ fn build_confirmation_items_scenario(scenario: &UatScenario, p0_p1: bool) -> Vec
             FVIS::Visible,
             p0_p1,
             ev_required,
+            Some(scenario.title.clone()),
         ),
     ]
 }

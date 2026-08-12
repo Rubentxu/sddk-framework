@@ -723,6 +723,7 @@ fn run_uat_plan(args: UatPlanArgs, _environment: &crate::CliEnvironment) -> Comm
             generated_at: now_rfc3339(),
             features: Vec::new(),
             runner_mode: None,
+            approval: None,
         };
         let path = args
             .output
@@ -3407,116 +3408,46 @@ fn run_uat_discover(args: DiscoverArgs) -> CommandOutput {
 
 // ─── E14.5: Pipeline Orchestration ────────────────────────────────────────────
 
+/// Thin delegation to uat_generate module.
 fn run_uat_generate(args: GenerateArgs, _environment: &crate::CliEnvironment) -> CommandOutput {
-    let _format = args.format;
-    let result = (|| -> anyhow::Result<String> {
-        let mut lines = vec![format!(
-            "uat generate: pipeline E14.5 for {}\n",
-            args.release
-        )];
+    use crate::uat_generate::runner::{run_pipeline, PipelineConfig, PipelineError};
+    use crate::uat_generate::runner::render_pipeline_output;
 
-        // Step 1: Discovery (E14.4)
-        if args.discover {
-            if args.app_url.is_none() {
-                anyhow::bail!("--app-url required when --discover is set");
-            }
-            lines.push("  [1/5] discover...\n".into());
-            let fara_url = "http://127.0.0.1:8082";
-            if ureq::get(&format!("{}/health", fara_url))
-                .call()
-                .map(|r| r.status() == 200)
-                .unwrap_or(false)
-            {
-                lines.push("  [1/5] discover: Fara OK\n".to_string());
-            } else {
-                lines.push("  [1/5] discover: Fara unavailable — skipped\n".into());
-            }
-        } else {
-            lines.push("  [1/5] discover: skipped (no --discover)\n".into());
-        }
+    let config = PipelineConfig {
+        release: args.release.clone(),
+        requirements: args.requirements.clone(),
+        changelog: args.changelog.clone(),
+        last_plan: args.last_plan.clone(),
+        discover: args.discover,
+        app_url: args.app_url.clone(),
+        interactive: args.interactive,
+        output: args.output.clone(),
+        approval_io: None,
+    };
 
-        // Step 2: Plan stub
-        lines.push("  [2/5] plan (uat-planner agent)...\n".into());
-        let plan_path = args
-            .output
-            .clone()
-            .unwrap_or_else(|| PathBuf::from(format!("uat-plan-{}.yaml", args.release)));
-        let stub_plan = UatPlan {
-            schema_version: 2,
-            release: sddk_domain::UatPlanRelease {
-                candidate: args.release.clone(),
-                project: None,
-                last_uat_release: None,
-            },
-            generated_by: "uat-planner (via generate)".into(),
-            generated_at: now_rfc3339(),
-            features: Vec::new(),
-            runner_mode: None,
-        };
-        let yaml = serde_saphyr::to_string(&stub_plan)
-            .map_err(|e| anyhow::anyhow!("serialization: {e}"))?;
-        std::fs::write(&plan_path, &yaml).map_err(|e| anyhow::anyhow!("write plan: {e}"))?;
-        lines.push(format!("  [2/5] plan: {}\n", plan_path.display()));
-
-        // Step 3: Enrich forms (E14.3)
-        lines.push("  [3/5] enrich-forms (uat-ux-form agent)...\n".into());
-        let enriched_path =
-            plan_path.with_file_name(format!("uat-plan-{}-enriched.yaml", args.release));
-        let enrich_args = EnrichFormsArgs {
-            plan: plan_path.clone(),
-            output: Some(enriched_path.clone()),
-            format: OutputFormat::Text,
-        };
-        run_uat_enrich_forms(enrich_args);
-        lines.push(format!("  [3/5] enriched: {}\n", enriched_path.display()));
-
-        // Step 4: Quality gate (E14.2)
-        lines.push("  [4/5] quality (uat-form-quality agent)...\n".into());
-        let quality_args = QualityArgs {
-            plan: enriched_path.clone(),
-            threshold: crate::uat_quality::report::QualityThreshold::Blocker,
-            output: None,
-            format: OutputFormat::Text,
-        };
-        let quality_result = run_uat_quality(quality_args);
-        if quality_result.status != 0 {
-            lines.push(
-                "  [4/5] quality: FAIL (blockers found)\n  pipeline stopped at quality gate\n"
-                    .into(),
+    match run_pipeline(config) {
+        Ok(stages) => {
+            let final_path = stages.last().map(|s| s.path.clone()).unwrap_or_default();
+            let stdout = format!(
+                "uat generate: pipeline E14.5 for {}\n{}\nNext: sddk uat open --plan {} to execute\n",
+                args.release,
+                render_pipeline_output(&stages, &final_path),
+                final_path.display()
             );
-            return Ok(lines.join(""));
+            CommandOutput {
+                stdout,
+                stderr: String::new(),
+                status: 0,
+            }
         }
-        lines.push("  [4/5] quality: PASS\n".into());
-
-        // Step 5: Validate
-        lines.push("  [5/5] validate...\n".into());
-        let validate_args = UatValidateArgs {
-            file: enriched_path.clone(),
-            format: OutputFormat::Text,
-        };
-        let validate_result = run_uat_validate(validate_args);
-        if validate_result.status != 0 {
-            lines.push("  [5/5] validate: FAIL\n  pipeline stopped at schema validation\n".into());
-            return Ok(lines.join(""));
+        Err(e) => {
+            let msg = format!("uat generate: {:?}\n", e);
+            CommandOutput {
+                stdout: String::new(),
+                stderr: msg,
+                status: 1,
+            }
         }
-        lines.push("  [5/5] validate: OK\n".into());
-
-        lines.push(format!(
-            "\nPipeline complete: {}\n",
-            enriched_path.display()
-        ));
-        lines.push("Next: sddk uat open --plan ... to execute\n".into());
-
-        Ok(lines.join(""))
-    })();
-
-    match result {
-        Ok(out) => CommandOutput {
-            stdout: out,
-            stderr: String::new(),
-            status: 0,
-        },
-        Err(e) => crate::failure_envelope(&e),
     }
 }
 

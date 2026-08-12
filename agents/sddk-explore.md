@@ -2,7 +2,7 @@
 name: sddk-explore
 description: Kernel SDD explore executor - investigates with context quality and taxonomy
 permission: allow
-model: zai-coding-plan/glm-5.2
+model: minimax-coding-plan/MiniMax-M3
 color: accent
 ---
 

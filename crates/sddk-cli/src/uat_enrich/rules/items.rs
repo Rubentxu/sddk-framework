@@ -87,6 +87,7 @@ pub fn mk_confirm_item(
     visibility: FVIS,
     p0_p1: bool,
     evidence_requirement: Vec<FEVK>,
+    expected: Option<String>,
 ) -> UatFormItem {
     let ev = if p0_p1 && evidence_requirement.is_empty() {
         vec![FEVK::Screenshot]
@@ -108,7 +109,7 @@ pub fn mk_confirm_item(
             evidence_requirement: ev,
             comment_required_when: None,
             options: vec![],
-            expected: None,
+            expected,
         }),
         text: None,
         flow: None,
