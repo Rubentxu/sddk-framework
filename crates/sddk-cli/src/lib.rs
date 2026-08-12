@@ -23,6 +23,7 @@ mod result_cmd;
 mod telemetry;
 mod uat;
 mod uat_common;
+mod uat_discover;
 mod uat_enrich;
 mod uat_quality;
 mod uat_serve;
