@@ -11,8 +11,8 @@ use tempfile::TempDir;
 
 use crate::uat_discover::aam::AamModel;
 use crate::uat_discover::parser::{
-    SummaryJson, TrajectoryEntry, extract_action_metadata,
-    extract_action_string, parse_run_dir, sanitize_for_id,
+    SummaryJson, TrajectoryEntry, extract_action_metadata, extract_action_string, parse_run_dir,
+    sanitize_for_id,
 };
 
 #[test]
