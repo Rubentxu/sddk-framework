@@ -20,13 +20,12 @@
 mod items;
 
 use sddk_domain::{
-    UatFormEvidenceKind as FEVK,
-    UatFormItem, UatFormOracleKind as FOK, UatFormSpec, UatFormVisibility as FVIS, UatPriority,
-    UatScenario, UatStep,
+    UatFormEvidenceKind as FEVK, UatFormItem, UatFormOracleKind as FOK, UatFormSpec,
+    UatFormVisibility as FVIS, UatPriority, UatScenario, UatStep,
 };
 
 use items::{
-    insert_checkpoints, mk_check_item, mk_confirm_item, mk_info_item, mk_rating_item, CheckConfig,
+    CheckConfig, insert_checkpoints, mk_check_item, mk_confirm_item, mk_info_item, mk_rating_item,
 };
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -228,8 +227,19 @@ fn detect_machine_check_items(scenario: &UatScenario, p0_p1: bool) -> Option<Vec
 
 fn is_ux_subjective(scenario: &UatScenario) -> bool {
     let ux_keywords = [
-        "helpful", "usability", "UX", "user experience", "intuitive", "easy to use",
-        "design", "appearance", "look and feel", "color", "font", "layout", "navigate",
+        "helpful",
+        "usability",
+        "UX",
+        "user experience",
+        "intuitive",
+        "easy to use",
+        "design",
+        "appearance",
+        "look and feel",
+        "color",
+        "font",
+        "layout",
+        "navigate",
     ];
 
     let text_to_check = scenario

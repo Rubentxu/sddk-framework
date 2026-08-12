@@ -61,8 +61,8 @@ pub fn enrich_scenario(scenario: &mut sddk_domain::UatScenario) {
 
 /// Build a UatProvenance for the enriched scenario.
 fn build_provenance(scenario: &sddk_domain::UatScenario) -> sddk_domain::UatProvenance {
-    use sddk_domain::UatOrigin;
     use crate::uat_common::time::now_rfc3339;
+    use sddk_domain::UatOrigin;
 
     // Preserve existing origin if set, otherwise use Regression as default
     let origin = scenario

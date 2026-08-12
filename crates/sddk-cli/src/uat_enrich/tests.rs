@@ -9,9 +9,9 @@
 //! - Existing form preservation (not overwritten)
 
 use sddk_domain::{
-    UatFormElementKind as FEK, UatFormEvidenceKind as FEVK, UatFormInputKind as FIK,
-    UatFormItem, UatFormOracleKind as FOK, UatFormSpec, UatFormVisibility as FVIS, UatPriority,
-    UatScenario, UatScenarioContext, UatStep, UatStepKind, UatProvenance, UatOrigin,
+    UatFormElementKind as FEK, UatFormEvidenceKind as FEVK, UatFormInputKind as FIK, UatFormItem,
+    UatFormOracleKind as FOK, UatFormSpec, UatFormVisibility as FVIS, UatOrigin, UatPriority,
+    UatProvenance, UatScenario, UatScenarioContext, UatStep, UatStepKind,
 };
 
 use crate::uat_enrich::{build_default_form, enrich_scenario};
@@ -522,7 +522,10 @@ fn p2_scenario_no_mandatory_screenshot() {
 fn enrich_scenario_populates_provenance() {
     // GIVEN a scenario without provenance
     let mut scenario = make_scenario("S-12", "Any scenario");
-    assert!(scenario.provenance.is_none(), "precondition: no provenance yet");
+    assert!(
+        scenario.provenance.is_none(),
+        "precondition: no provenance yet"
+    );
 
     // WHEN enrich_scenario is called
     enrich_scenario(&mut scenario);
@@ -596,10 +599,7 @@ fn enrich_scenario_preserves_existing_form() {
     enrich_scenario(&mut scenario);
 
     // THEN the form is preserved (not overwritten) AND provenance is still set
-    assert!(
-        scenario.form.is_some(),
-        "Existing form must be preserved"
-    );
+    assert!(scenario.form.is_some(), "Existing form must be preserved");
     assert_eq!(
         scenario.form.as_ref().unwrap().items.len(),
         existing_form.items.len(),
