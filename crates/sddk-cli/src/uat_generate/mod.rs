@@ -7,8 +7,8 @@
 //!
 //! - `parsing.rs` — text parsing utilities (criteria extraction, changelog parsing)
 //! - `validator.rs` — input validation (requirements, changelog, discover)
-//! - `planner.rs` — pure planner (consumes requirements + changelog + AAM)
-//! - `runner.rs` — pipeline orchestration with injectable ApprovalIo
+//! - `planner/` — pure planner with merge and build submodules
+//! - `runner/` — pipeline orchestration with injectable ApprovalIo
 //! - `tests.rs` — integration and unit tests for the generate pipeline
 
 pub mod parsing;
@@ -17,7 +17,7 @@ pub mod runner;
 pub mod tests;
 pub mod validator;
 
-// Re-export for convenience
+// Re-exports for convenience
 #[allow(unused)]
 pub use planner::{PlanError, PlanOutput, build_plan};
 #[allow(unused)]

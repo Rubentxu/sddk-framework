@@ -644,7 +644,7 @@ fn existing_form_is_preserved() {
     // passing a scenario with form=None should create a new form
     // This test documents the expected behavior
     assert!(
-        form.items.len() >= 1,
+        !form.items.is_empty(),
         "build_default_form should produce at least one item"
     );
 }

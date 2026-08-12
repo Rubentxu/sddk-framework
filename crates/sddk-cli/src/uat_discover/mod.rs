@@ -9,6 +9,7 @@ pub mod run;
 #[cfg(test)]
 mod tests;
 
+#[allow(unused_imports)]
 pub use aam::{AamEvidence, AamFlow, AamModel, AamPage, AamProvenance, AamScenarioCandidate};
 
 /// Outcome of a discovery run: AAM model plus optional warning message.

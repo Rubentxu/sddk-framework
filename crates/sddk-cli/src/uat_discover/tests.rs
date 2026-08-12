@@ -517,7 +517,7 @@ fn test_screenshot_refs_are_relative_filenames() {
             "screenshot ref should be relative, not absolute: {screenshot}"
         );
         assert!(
-            !screenshot.contains(std::path::MAIN_SEPARATOR as char),
+            !screenshot.contains(std::path::MAIN_SEPARATOR),
             "screenshot ref should be bare filename: {screenshot}"
         );
     }

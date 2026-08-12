@@ -6,12 +6,15 @@
 //!
 //! Does NOT write files. Returns plan directly for atomic write by caller.
 
+pub mod merge;
+
 use sddk_domain::{UatFeature, UatPlan, UatPlanRelease, UatPriority, UatScenario};
 
 use super::parsing::{
     extract_criteria_from_md, extract_req_ids, parse_changelog_sections,
     scenario_title_from_criterion, step_from_text,
 };
+use super::planner::merge::merge_plan_features;
 
 /// Planning errors.
 #[derive(Debug)]
@@ -28,7 +31,9 @@ impl std::fmt::Display for PlanError {
             PlanError::NoFeaturesExtracted => {
                 write!(f, "no features could be extracted from inputs")
             }
-            PlanError::LastPlanParseFailed(msg) => write!(f, "last plan parse failed: {}", msg),
+            PlanError::LastPlanParseFailed(msg) => {
+                write!(f, "last plan parse failed: {}", msg)
+            }
         }
     }
 }
@@ -39,8 +44,6 @@ pub struct PlanOutput {
     /// The constructed UatPlan.
     pub plan: UatPlan,
     /// Warnings collected during planning (e.g., changelog stats, last_plan stats).
-    /// Intentionally part of public API for external callers to inspect.
-    /// Internal code populates but does not consume this field.
     #[allow(dead_code)]
     pub warnings: Vec<String>,
 }
@@ -78,7 +81,6 @@ fn build_feature(
 }
 
 /// Build features from criteria list.
-/// Returns (features, last_feature_id_used).
 fn build_features_from_criteria(
     all_criteria: &[(String, Option<String>)],
 ) -> (Vec<UatFeature>, usize) {
@@ -90,7 +92,6 @@ fn build_features_from_criteria(
     let mut feature_scenario_count = 0usize;
 
     for (criterion, req_id) in all_criteria {
-        // If req_id changed, start a new feature group
         if current_req_id.is_none() || current_req_id.as_ref() != req_id.as_ref() {
             if !feature_scenarios.is_empty() {
                 features.push(build_feature(
@@ -150,7 +151,6 @@ fn build_features_from_criteria(
         scenario_id += 1;
         feature_scenario_count += 1;
 
-        // Create a new feature every 5 scenarios
         if feature_scenario_count >= 5 {
             features.push(build_feature(
                 std::mem::take(&mut feature_scenarios),
@@ -163,7 +163,6 @@ fn build_features_from_criteria(
         }
     }
 
-    // Flush remaining scenarios
     if !feature_scenarios.is_empty() {
         features.push(build_feature(
             feature_scenarios,
@@ -188,9 +187,9 @@ pub fn build_plan(
     aam_scenario_candidates: &[crate::uat_discover::AamScenarioCandidate],
 ) -> Result<PlanOutput, PlanError> {
     let mut warnings = Vec::new();
-    let mut all_criteria: Vec<(String, Option<String>)> = Vec::new(); // (text, req_id)
+    let mut all_criteria: Vec<(String, Option<String>)> = Vec::new();
 
-    // (B) Consume requirements markdown
+    // Consume requirements markdown
     if let Some(req_dir) = requirements
         && req_dir.is_dir()
         && let Ok(entries) = std::fs::read_dir(req_dir)
@@ -211,7 +210,7 @@ pub fn build_plan(
         }
     }
 
-    // (B) Consume changelog Added/Changed sections
+    // Consume changelog Added/Changed sections
     if let Some(cl) = changelog
         && cl.exists()
         && let Ok(content) = std::fs::read_to_string(cl)
@@ -227,10 +226,7 @@ pub fn build_plan(
         }
     }
 
-    // (B) Consume last-plan for continuity
-    // Spec: merge real last_plan - if parsed successfully, clone features/scenarios
-    // from previous plan; approval=None; release last_uat_release; combine with new
-    // criteria/AAM; dedupe by scenario ID + title; renumber only new collisions.
+    // Consume last-plan for continuity
     let last_plan_ref: Option<UatPlan> = if let Some(lp) = last_plan {
         if lp.exists() {
             let content = std::fs::read_to_string(lp)
@@ -240,11 +236,7 @@ pub fn build_plan(
             warnings.push(format!(
                 "last_plan: {} features, {} scenarios",
                 prev_plan.features.len(),
-                prev_plan
-                    .features
-                    .iter()
-                    .map(|f| f.scenarios.len())
-                    .sum::<usize>()
+                prev_plan.features.iter().map(|f| f.scenarios.len()).sum::<usize>()
             ));
             Some(prev_plan)
         } else {
@@ -256,7 +248,7 @@ pub fn build_plan(
         None
     };
 
-    // (B) If discovery ran, consume AamModel scenario_candidates
+    // Consume AamModel scenario_candidates from discovery
     let mut discovery_scenarios = Vec::new();
     for candidate in aam_scenario_candidates {
         let plain_steps: Vec<sddk_domain::UatStep> = candidate
@@ -322,70 +314,9 @@ pub fn build_plan(
         ));
     }
 
-    // Merge: clone last_plan scenarios if no new criteria provided.
-    // Spec: dedupe by scenario ID + title; renumber only new collisions;
-    // keep prev IDs for preserved scenarios.
-    let features: Vec<UatFeature> = if new_features.is_empty() {
-        // No new criteria - preserve all scenarios from last_plan
-        if let Some(ref prev_plan) = last_plan_ref {
-            warnings.push("plan: cloned from last_plan (no new criteria)".to_string());
-            prev_plan.features.clone()
-        } else {
-            Vec::new()
-        }
-    } else if let Some(ref prev_plan) = last_plan_ref {
-        // New criteria provided - merge with last_plan scenarios.
-        // Build set of (id, title) from new scenarios for dedup
-        let new_scenario_keys: std::collections::HashSet<(String, String)> = new_features
-            .iter()
-            .flat_map(|f| f.scenarios.iter().map(|s| (s.id.clone(), s.title.clone())))
-            .collect();
-
-        // Clone prev_plan scenarios that don't collide with new ones
-        let mut preserved_scenarios: Vec<UatScenario> = prev_plan
-            .features
-            .iter()
-            .flat_map(|f| f.scenarios.iter())
-            .filter(|s| !new_scenario_keys.contains(&(s.id.clone(), s.title.clone())))
-            .cloned()
-            .collect();
-
-        // Assign IDs to preserved scenarios if they collide with new ones
-        let max_new_id = new_features
-            .iter()
-            .flat_map(|f| f.scenarios.iter())
-            .filter_map(|s| {
-                s.id.strip_prefix("S-")
-                    .and_then(|n| n.parse::<usize>().ok())
-            })
-            .max()
-            .unwrap_or(0);
-
-        let mut next_id = max_new_id + 1;
-        for scenario in &mut preserved_scenarios {
-            // Renumber only if collision detected
-            if new_scenario_keys.contains(&(scenario.id.clone(), scenario.title.clone())) {
-                scenario.id = format!("S-{:03}", next_id);
-                next_id += 1;
-            }
-        }
-
-        // Combine: new features first, then preserved scenarios grouped by original feature
-        let mut combined = new_features;
-        if !preserved_scenarios.is_empty() {
-            combined.push(UatFeature {
-                id: format!("F-{:02}", combined.len() + 1),
-                name: "Preserved from Previous Plan".to_string(),
-                requirement_ref: None,
-                design_ref: None,
-                priority: UatPriority::P2,
-                scenarios: preserved_scenarios,
-            });
-        }
-        combined
-    } else {
-        new_features
-    };
+    // Merge with last_plan using merge module
+    let features: Vec<UatFeature> =
+        merge_plan_features(new_features, last_plan_ref.as_ref(), &mut warnings);
 
     // If no features, return error (atomic: no partial output)
     if features.is_empty() {
