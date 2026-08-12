@@ -16,6 +16,9 @@ pub mod tests;
 pub mod validator;
 
 // Re-export for convenience
-pub use planner::{build_plan, PlanError, PlanOutput};
-pub use runner::{run_pipeline, PipelineConfig, PipelineError, StageOutput};
-pub use validator::{validate_inputs, ValidateError};
+#[allow(unused)]
+pub use planner::{PlanError, PlanOutput, build_plan};
+#[allow(unused)]
+pub use runner::{PipelineConfig, PipelineError, StageOutput, run_pipeline};
+#[allow(unused)]
+pub use validator::{ValidateError, validate_inputs};

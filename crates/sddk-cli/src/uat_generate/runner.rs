@@ -7,11 +7,11 @@
 //! No intermediate files are written. On error, no output file exists.
 
 use crate::uat_common::io::{ApprovalIo, ApprovalVerdict, StdioApprovalIo, UatPlanSummary};
-use crate::uat_common::plan_io::{atomic_write_plan, read_plan};
-use sddk_domain::{UatPlan, UatPlanApproval, validate_form_dsl};
-use std::path::PathBuf;
+use crate::uat_common::plan_io::atomic_write_plan;
+use sddk_domain::{UatPlanApproval, validate_form_dsl};
+use std::path::{Path, PathBuf};
 
-use super::planner::{build_plan, PlanOutput};
+use super::planner::{PlanOutput, build_plan};
 use super::validator::validate_inputs;
 
 /// Pipeline errors.
@@ -57,6 +57,11 @@ pub struct PipelineConfig {
     pub output: Option<PathBuf>,
     /// Approval IO handler (injected for testing).
     pub approval_io: Option<Box<dyn ApprovalIo>>,
+    /// Force quality gate to fail (test-only).
+    /// When true, the quality stage always returns QualityFailed regardless of
+    /// actual plan quality. This allows testing the stage gate behavior
+    /// without needing to construct plans with actual quality issues.
+    pub force_quality_failure: bool,
 }
 
 impl PipelineConfig {
@@ -121,9 +126,14 @@ pub fn run_pipeline(config: PipelineConfig) -> Result<Vec<StageOutput>, Pipeline
     };
 
     // ── Stage 2: Plan (pure planner, in-memory) ──────────────────────────────
-    let plan_output: PlanOutput =
-        build_plan(&release, &requirements, &changelog, &last_plan, &aam_scenario_candidates)
-            .map_err(|e| PipelineError::PlanningFailed(format!("{:?}", e)))?;
+    let plan_output: PlanOutput = build_plan(
+        &release,
+        &requirements,
+        &changelog,
+        &last_plan,
+        &aam_scenario_candidates,
+    )
+    .map_err(|e| PipelineError::PlanningFailed(format!("{:?}", e)))?;
 
     stages.push(StageOutput {
         stage: "plan",
@@ -133,7 +143,12 @@ pub fn run_pipeline(config: PipelineConfig) -> Result<Vec<StageOutput>, Pipeline
         message: format!(
             "plan: {} features, {} scenarios",
             plan_output.plan.features.len(),
-            plan_output.plan.features.iter().map(|f| f.scenarios.len()).sum::<usize>()
+            plan_output
+                .plan
+                .features
+                .iter()
+                .map(|f| f.scenarios.len())
+                .sum::<usize>()
         ),
     });
 
@@ -154,13 +169,53 @@ pub fn run_pipeline(config: PipelineConfig) -> Result<Vec<StageOutput>, Pipeline
     });
 
     // ── Stage 4: Quality (in-memory gate) ─────────────────────────────────────
-    let quality_report = crate::uat_quality::detect_13_smells(
-        &enriched_plan,
-        crate::uat_quality::report::QualityThreshold::Blocker,
-    );
+    let quality_report = if config.force_quality_failure {
+        // Test injection: force quality failure without needing actual quality issues.
+        // This follows the spec's requirement for test-only quality gate injection.
+        crate::uat_quality::report::QualityReport {
+            schema_version: 1,
+            analyzer: "pipeline-test-injection".to_string(),
+            model: "test-v1".to_string(),
+            analyzed_at: crate::uat_common::time::now_rfc3339(),
+            plan_ref: String::new(),
+            smells: vec![crate::uat_quality::report::QualitySmell {
+                id: "TEST-001".to_string(),
+                smell_id: "injected-blocker".to_string(),
+                severity: "BLOCKER".to_string(),
+                location: crate::uat_quality::report::SmellLocation {
+                    feature_id: "F-01".to_string(),
+                    scenario_id: "S-001".to_string(),
+                    item_id: None,
+                    field: None,
+                },
+                snippet: Some("test snippet".to_string()),
+                suggestion: "Remove test injection".to_string(),
+                auto_fixable: false,
+            }],
+            summary: crate::uat_quality::report::QualitySummary {
+                total: 1,
+                blockers: 1,
+                errors: 0,
+                warnings: 0,
+                suggestions: 0,
+                pass: false,
+            },
+            verdict: "NEEDS_REVISION".to_string(),
+            threshold_applied: "BLOCKER".to_string(),
+        }
+    } else {
+        crate::uat_quality::detect_13_smells(
+            &enriched_plan,
+            crate::uat_quality::report::QualityThreshold::Blocker,
+        )
+    };
+
     if !quality_report.summary.pass {
         let blockers = quality_report.summary.blockers;
-        return Err(PipelineError::QualityFailed(format!("{} blockers found", blockers)));
+        return Err(PipelineError::QualityFailed(format!(
+            "{} blockers found",
+            blockers
+        )));
     }
 
     stages.push(StageOutput {
@@ -188,6 +243,11 @@ pub fn run_pipeline(config: PipelineConfig) -> Result<Vec<StageOutput>, Pipeline
 
         match decision.verdict {
             ApprovalVerdict::Approve => {
+                // io.record must be called AFTER approval and BEFORE atomic_write.
+                // Error aborts pipeline (no file written).
+                io.record(&decision)
+                    .map_err(|e| PipelineError::IoError(e.to_string()))?;
+
                 let approval = UatPlanApproval {
                     id: decision.id.clone(),
                     display: decision.display.clone(),
@@ -320,7 +380,7 @@ fn run_discover(app_url: &str) -> Result<Vec<crate::uat_discover::AamScenarioCan
 }
 
 /// Render pipeline output as string.
-pub fn render_pipeline_output(stages: &[StageOutput], final_path: &PathBuf) -> String {
+pub fn render_pipeline_output(stages: &[StageOutput], final_path: &Path) -> String {
     let mut lines = Vec::new();
     for stage in stages {
         lines.push(format!(
@@ -400,6 +460,7 @@ mod tests {
             interactive: false,
             output: Some(td.path().join("uat-plan.yaml")),
             approval_io: None,
+            force_quality_failure: false,
         };
 
         let result = run_pipeline(config);
@@ -431,6 +492,7 @@ mod tests {
             interactive: true,
             output: Some(td.path().join("uat-plan.yaml")),
             approval_io: Some(Box::new(FakeReject)),
+            force_quality_failure: false,
         };
 
         let result = run_pipeline(config);
@@ -466,6 +528,7 @@ mod tests {
             interactive: true,
             output: Some(td.path().join("uat-plan.yaml")),
             approval_io: Some(Box::new(FakeApprove)),
+            force_quality_failure: false,
         };
 
         let result = run_pipeline(config);
@@ -474,11 +537,17 @@ mod tests {
 
         // Output file should exist
         let output_path = td.path().join("uat-plan.yaml");
-        assert!(output_path.exists(), "output file should exist after approval");
+        assert!(
+            output_path.exists(),
+            "output file should exist after approval"
+        );
 
         // Check that approval was recorded
         let content = std::fs::read_to_string(&output_path).unwrap();
-        assert!(content.contains("approval"), "plan should contain approval record");
+        assert!(
+            content.contains("approval"),
+            "plan should contain approval record"
+        );
     }
 
     #[test]
@@ -501,6 +570,7 @@ mod tests {
             interactive: false, // Auto mode
             output: Some(td.path().join("uat-plan.yaml")),
             approval_io: None,
+            force_quality_failure: false,
         };
 
         let result = run_pipeline(config);
@@ -535,6 +605,7 @@ mod tests {
             interactive: true,
             output: Some(td.path().join("uat-plan.yaml")),
             approval_io: Some(Box::new(FakeEdit)),
+            force_quality_failure: false,
         };
 
         let result = run_pipeline(config);
@@ -550,14 +621,16 @@ mod tests {
         );
     }
 
+    /// Test that quality failure blocks pipeline and produces no output.
+    /// Uses force_quality_failure injection to test the stage gate behavior
+    /// without needing to construct plans with actual quality issues.
     #[test]
     fn pipeline_atomic_no_partial_on_quality_failure() {
         let td = tempfile::TempDir::new().unwrap();
-        // Empty requirements dir - will cause planning to fail or quality to fail
         let req_dir = td.path();
         std::fs::write(
             req_dir.join("req.md"),
-            "# Requirements\n\n## Feature\n- Step without expected value or oracle\n",
+            "# Requirements\n\n## Login\n- User can login\n",
         )
         .unwrap();
 
@@ -571,16 +644,279 @@ mod tests {
             interactive: false,
             output: Some(td.path().join("uat-plan.yaml")),
             approval_io: None,
+            force_quality_failure: true, // Injected quality failure
         };
 
         let result = run_pipeline(config);
-        // If the pipeline fails at any point, no output file should exist
-        if result.is_err() {
-            let output_path = td.path().join("uat-plan.yaml");
-            assert!(
-                !output_path.exists(),
-                "no output file should exist on pipeline failure"
-            );
+        // Pipeline MUST fail with QualityFailed (not silently)
+        assert!(
+            matches!(result, Err(PipelineError::QualityFailed(_))),
+            "Expected QualityFailed, got: {:?}",
+            result
+        );
+
+        // No output file should exist (atomic rule)
+        let output_path = td.path().join("uat-plan.yaml");
+        assert!(
+            !output_path.exists(),
+            "no output file should exist on pipeline failure"
+        );
+
+        // Also verify no temp files left behind
+        let tmp_files: Vec<_> = std::fs::read_dir(td.path())
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().contains(".tmp-"))
+            .collect();
+        assert!(
+            tmp_files.is_empty(),
+            "no .tmp-* files should exist after failure"
+        );
+    }
+
+    /// Test that io.record is called after approval but before persistence.
+    /// Uses shared state to verify record was invoked.
+    #[test]
+    fn pipeline_approve_calls_io_record_before_persistence() {
+        use std::sync::{Arc, Mutex};
+
+        let td = tempfile::TempDir::new().unwrap();
+        let req_dir = td.path();
+        std::fs::write(
+            req_dir.join("req.md"),
+            "# Requirements\n\n## Login\n- User can login\n",
+        )
+        .unwrap();
+
+        // Track whether record was called
+        let record_called = Arc::new(Mutex::new(false));
+        let record_called_clone = record_called.clone();
+
+        // Scripted approval that records the call
+        struct FakeApproveWithRecord {
+            called: Arc<Mutex<bool>>,
         }
+        impl ApprovalIo for FakeApproveWithRecord {
+            fn prompt(&mut self, _draft: &UatPlanSummary) -> anyhow::Result<ApprovalDecision> {
+                Ok(ApprovalDecision::new(
+                    ApprovalVerdict::Approve,
+                    "T-test".to_string(),
+                    "Test User".to_string(),
+                ))
+            }
+            fn record(&mut self, _decision: &ApprovalDecision) -> anyhow::Result<()> {
+                *self.called.lock().unwrap() = true;
+                Ok(())
+            }
+        }
+
+        let config = PipelineConfig {
+            release: "v1.0.0".to_string(),
+            requirements: Some(req_dir.to_path_buf()),
+            changelog: None,
+            last_plan: None,
+            discover: false,
+            app_url: None,
+            interactive: true, // requires approval
+            output: Some(td.path().join("uat-plan.yaml")),
+            approval_io: Some(Box::new(FakeApproveWithRecord {
+                called: record_called_clone,
+            })),
+            force_quality_failure: false,
+        };
+
+        let result = run_pipeline(config);
+        assert!(
+            result.is_ok(),
+            "pipeline should succeed with FakeApprove: {:?}",
+            result
+        );
+
+        // io.record MUST have been called
+        assert!(
+            *record_called.lock().unwrap(),
+            "io.record must be called after approval before persistence"
+        );
+
+        // Verify output exists (persistence happened after record)
+        let output_path = td.path().join("uat-plan.yaml");
+        assert!(
+            output_path.exists(),
+            "output should exist after successful pipeline"
+        );
+    }
+
+    /// Test that render_pipeline_output includes stage tags and final path.
+    #[test]
+    fn render_pipeline_output_includes_tags_and_path() {
+        use std::path::PathBuf;
+
+        let stages = vec![
+            StageOutput {
+                stage: "discover",
+                path: PathBuf::from("N/A"),
+                tag: "skipped".to_string(),
+                status: 0,
+                message: "discover: skipped".to_string(),
+            },
+            StageOutput {
+                stage: "plan",
+                path: PathBuf::from("N/A"),
+                tag: "planned".to_string(),
+                status: 0,
+                message: "plan: 1 features".to_string(),
+            },
+            StageOutput {
+                stage: "write",
+                path: PathBuf::from("/tmp/uat-plan-v1.0.0.yaml"),
+                tag: "written".to_string(),
+                status: 0,
+                message: "written: /tmp/uat-plan-v1.0.0.yaml".to_string(),
+            },
+        ];
+        let final_path = PathBuf::from("/tmp/uat-plan-v1.0.0.yaml");
+
+        let output = render_pipeline_output(&stages, &final_path);
+
+        // Must contain stage tags
+        assert!(
+            output.contains("[discover]"),
+            "output must include discover stage tag"
+        );
+        assert!(
+            output.contains("[plan]"),
+            "output must include plan stage tag"
+        );
+        assert!(
+            output.contains("[write]"),
+            "output must include write stage tag"
+        );
+
+        // Must contain tag values
+        assert!(output.contains("skipped"), "output must include tag values");
+        assert!(output.contains("planned"), "output must include tag values");
+        assert!(output.contains("written"), "output must include tag values");
+
+        // Must include final path
+        assert!(
+            output.contains("/tmp/uat-plan-v1.0.0.yaml"),
+            "output must include final path"
+        );
+        assert!(
+            output.contains("Pipeline complete"),
+            "output must include Pipeline complete marker"
+        );
+    }
+
+    /// Test that pipeline in auto mode (non-interactive) does not include approval in output.
+    #[test]
+    fn pipeline_auto_mode_approval_absent() {
+        let td = tempfile::TempDir::new().unwrap();
+        let req_dir = td.path();
+        std::fs::write(
+            req_dir.join("req.md"),
+            "# Requirements\n\n## Login\n- User can login with email and password\n",
+        )
+        .unwrap();
+
+        let output_path = td.path().join("uat-plan.yaml");
+        let config = PipelineConfig {
+            release: "v1.0.0".to_string(),
+            requirements: Some(req_dir.to_path_buf()),
+            changelog: None,
+            last_plan: None,
+            discover: false,
+            app_url: None,
+            interactive: false, // auto mode
+            output: Some(output_path.clone()),
+            approval_io: None,
+            force_quality_failure: false,
+        };
+
+        let result = run_pipeline(config);
+        assert!(result.is_ok(), "auto mode should succeed: {:?}", result);
+
+        // Output should exist
+        assert!(output_path.exists(), "output should exist in auto mode");
+
+        // Content should NOT contain approval record (auto mode)
+        let content = std::fs::read_to_string(&output_path).unwrap();
+        assert!(
+            !content.contains("approval:"),
+            "auto mode should not include approval in output"
+        );
+    }
+
+    /// Test that io.record failure blocks pipeline and produces no output (atomicity).
+    /// When record() returns an error, the pipeline should fail BEFORE atomic_write,
+    /// ensuring no output file exists.
+    #[test]
+    fn pipeline_atomic_no_output_on_record_failure() {
+        use std::sync::{Arc, Mutex};
+
+        let td = tempfile::TempDir::new().unwrap();
+        let req_dir = td.path();
+        std::fs::write(
+            req_dir.join("req.md"),
+            "# Requirements\n\n## Login\n- User can login\n",
+        )
+        .unwrap();
+
+        // Track whether record was called
+        let record_called = Arc::new(Mutex::new(false));
+        let record_called_clone = record_called.clone();
+
+        struct FakeApproveWithRecordError {
+            called: Arc<Mutex<bool>>,
+        }
+        impl ApprovalIo for FakeApproveWithRecordError {
+            fn prompt(&mut self, _draft: &UatPlanSummary) -> anyhow::Result<ApprovalDecision> {
+                Ok(ApprovalDecision::new(
+                    ApprovalVerdict::Approve,
+                    "T-test".to_string(),
+                    "Test User".to_string(),
+                ))
+            }
+            fn record(&mut self, _decision: &ApprovalDecision) -> anyhow::Result<()> {
+                *self.called.lock().unwrap() = true;
+                Err(anyhow::anyhow!("simulated record failure"))
+            }
+        }
+
+        let config = PipelineConfig {
+            release: "v1.0.0".to_string(),
+            requirements: Some(req_dir.to_path_buf()),
+            changelog: None,
+            last_plan: None,
+            discover: false,
+            app_url: None,
+            interactive: true,
+            output: Some(td.path().join("uat-plan.yaml")),
+            approval_io: Some(Box::new(FakeApproveWithRecordError {
+                called: record_called_clone,
+            })),
+            force_quality_failure: false,
+        };
+
+        let result = run_pipeline(config);
+        // Pipeline MUST fail because record() returned an error
+        assert!(
+            result.is_err(),
+            "Expected pipeline to fail on record error, got: {:?}",
+            result
+        );
+
+        // io.record was called (proving it happens before atomicity check)
+        assert!(
+            *record_called.lock().unwrap(),
+            "io.record must have been called"
+        );
+
+        // No output file should exist (atomic rule - failure before write)
+        let output_path = td.path().join("uat-plan.yaml");
+        assert!(
+            !output_path.exists(),
+            "no output file should exist when record fails"
+        );
     }
 }

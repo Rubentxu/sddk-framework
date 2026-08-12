@@ -57,17 +57,17 @@ pub fn validate_inputs(
     }
 
     // (A) Changelog: must exist if provided
-    if let Some(cl) = changelog {
-        if !cl.exists() {
-            return Err(ValidateError::ChangelogNotFound(cl.clone()));
-        }
+    if let Some(cl) = changelog
+        && !cl.exists()
+    {
+        return Err(ValidateError::ChangelogNotFound(cl.clone()));
     }
 
     // (A) Last-plan: must exist if provided
-    if let Some(lp) = last_plan {
-        if !lp.exists() {
-            return Err(ValidateError::LastPlanNotFound(lp.clone()));
-        }
+    if let Some(lp) = last_plan
+        && !lp.exists()
+    {
+        return Err(ValidateError::LastPlanNotFound(lp.clone()));
     }
 
     // (A) Discovery requires app-url
@@ -85,12 +85,11 @@ fn count_criteria_in_dir(dir: &Path) -> usize {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().map(|e| e == "md").unwrap_or(false) {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    if has_criteria_content(&content) {
-                        count += 1;
-                    }
-                }
+            if path.extension().is_some_and(|e| e == "md")
+                && let Ok(content) = std::fs::read_to_string(&path)
+                && has_criteria_content(&content)
+            {
+                count += 1;
             }
         }
     }

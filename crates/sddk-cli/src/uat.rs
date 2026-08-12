@@ -3410,8 +3410,8 @@ fn run_uat_discover(args: DiscoverArgs) -> CommandOutput {
 
 /// Thin delegation to uat_generate module.
 fn run_uat_generate(args: GenerateArgs, _environment: &crate::CliEnvironment) -> CommandOutput {
-    use crate::uat_generate::runner::{run_pipeline, PipelineConfig, PipelineError};
     use crate::uat_generate::runner::render_pipeline_output;
+    use crate::uat_generate::runner::{PipelineConfig, run_pipeline};
 
     let config = PipelineConfig {
         release: args.release.clone(),
@@ -3423,6 +3423,7 @@ fn run_uat_generate(args: GenerateArgs, _environment: &crate::CliEnvironment) ->
         interactive: args.interactive,
         output: args.output.clone(),
         approval_io: None,
+        force_quality_failure: false,
     };
 
     match run_pipeline(config) {
