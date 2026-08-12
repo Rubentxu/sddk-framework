@@ -22,6 +22,8 @@ mod release_cmd;
 mod result_cmd;
 mod telemetry;
 mod uat;
+mod uat_common;
+mod uat_quality;
 mod uat_serve;
 mod vault_cmd;
 

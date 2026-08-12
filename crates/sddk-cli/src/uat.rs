@@ -12,14 +12,12 @@ use clap::{Args, Subcommand};
 use crate::{CommandOutput, OutputFormat, dev_cmd, render_result};
 
 use sddk_domain::{
-    LATEST_PLAN_SCHEMA_VERSION, UatCheckpoint, UatFeatureRollup, UatFormCheck,
-    UatFormElementKind, UatFormEvidenceKind, UatFormInputKind, UatFormItem, UatFormSpec,
-    UatFormVisibility, UatHistoryReport, UatIntegrityReport, UatManifest, UatManifestEntry,
-    UatMigrationReport, UatOracleKind, UatPlan, UatReport, UatReportSummary,
-    UatScenarioRollup, UatSession, UatStalenessChangeKind, UatStalenessDiff,
-    UatStalenessReport, UatStalenessScenario, UatSuggestionsReport, UatVerdict, aggregate_history,
-    apply_all_suggestions, evidence_satisfies_spec, migrate_plan_v1_to_v2, sha256_hex,
-    suggest_scenario_context, verify_evidence,
+    LATEST_PLAN_SCHEMA_VERSION, UatFeatureRollup, UatFormItem, UatFormSpec, UatHistoryReport,
+    UatIntegrityReport, UatManifest, UatManifestEntry, UatMigrationReport, UatOracleKind, UatPlan,
+    UatReport, UatReportSummary, UatScenarioRollup, UatSession, UatStalenessChangeKind,
+    UatStalenessDiff, UatStalenessReport, UatStalenessScenario, UatSuggestionsReport, UatVerdict,
+    aggregate_history, apply_all_suggestions, evidence_satisfies_spec, migrate_plan_v1_to_v2,
+    sha256_hex, suggest_scenario_context, verify_evidence,
 };
 
 /// Default view when rendering a dashboard.
@@ -593,25 +591,19 @@ pub(crate) struct UatRunArgs {
 
 // E14.2: Form Quality Agent
 #[derive(Debug, Clone, Args)]
-pub(crate) struct QualityArgs {
+pub struct QualityArgs {
     /// Path to the uat-plan.yaml to audit.
     #[arg(long)]
-    pub(crate) plan: PathBuf,
+    pub plan: PathBuf,
     /// Severity threshold: BLOCKER stops on blockers, WARNING stops on any smell.
-    #[arg(long, value_enum, default_value_t = QualityThreshold::Blocker)]
-    pub(crate) threshold: QualityThreshold,
+    #[arg(long, value_enum, default_value_t = crate::uat_quality::report::QualityThreshold::Blocker)]
+    pub threshold: crate::uat_quality::report::QualityThreshold,
     /// Write the quality report to this path (default: next to the plan).
     #[arg(long)]
-    pub(crate) output: Option<PathBuf>,
+    pub output: Option<PathBuf>,
     /// Output format.
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
-    pub(crate) format: OutputFormat,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub(crate) enum QualityThreshold {
-    Blocker,
-    Warning,
+    pub format: OutputFormat,
 }
 
 // E14.3: UX Form Agent
@@ -3337,14 +3329,14 @@ fn run_uat_batch(args: UatBatchArgs) -> CommandOutput {
 // ─── E14.2: Form Quality Agent ────────────────────────────────────────────────
 
 fn run_uat_quality(args: QualityArgs) -> CommandOutput {
-    let format = args.format;
+    let _format = args.format;
     let result = (|| -> anyhow::Result<(PathBuf, bool)> {
         let plan_raw = std::fs::read_to_string(&args.plan)
             .map_err(|e| anyhow::anyhow!("cannot read plan {}: {e}", args.plan.display()))?;
         let plan: UatPlan = serde_saphyr::from_str(&plan_raw)
             .map_err(|e| anyhow::anyhow!("invalid plan {}: {e}", args.plan.display()))?;
 
-        let mut report = detect_form_smells(&plan, args.threshold);
+        let mut report = crate::uat_quality::detect_13_smells(&plan, args.threshold);
         report.plan_ref = args.plan.to_string_lossy().into_owned();
         let output_path = args
             .output
@@ -3376,212 +3368,6 @@ fn run_uat_quality(args: QualityArgs) -> CommandOutput {
     }
 }
 
-fn detect_form_smells(plan: &UatPlan, threshold: QualityThreshold) -> QualityReport {
-    use sddk_domain::UatFormElementKind as FEK;
-    use sddk_domain::UatFormVisibility as FVIS;
-
-    let mut smells = Vec::new();
-    let mut smell_id = 1u32;
-
-    for feature in &plan.features {
-        for scenario in &feature.scenarios {
-            if let Some(form) = &scenario.form {
-                for item in &form.items {
-                    // EXPECTED_ABSENT — check without expected value or oracle
-                    if item.kind == FEK::Check {
-                        let check = item.check.as_ref();
-                        let has_expected = check.and_then(|c| c.expected.as_ref()).is_some();
-                        let has_oracle = check.and_then(|c| c.oracle.as_ref()).is_some();
-                        if !has_expected && !has_oracle {
-                            smells.push(QualitySmell {
-                                id: format!("FQ-{:03}", smell_id),
-                                smell_id: "EXPECTED_ABSENT".into(),
-                                severity: "BLOCKER".into(),
-                                location: SmellLocation {
-                                    feature_id: feature.id.clone(),
-                                    scenario_id: scenario.id.clone(),
-                                    item_id: item.id.clone(),
-                                    field: None,
-                                },
-                                snippet: None,
-                                suggestion: "Add check.expected or check.oracle".into(),
-                                auto_fixable: false,
-                            });
-                            smell_id += 1;
-                        }
-
-                        // AMBIGUOUS_INSTRUCTION — vague terms in the check prompt
-                        if let Some(prompt) = check.map(|c| c.prompt.as_str()) {
-                            let vague = ["correcto", "adecuado", "bien", "normal", "apropiado", "razonable"];
-                            if vague.iter().any(|v| prompt.to_lowercase().contains(v)) {
-                                smells.push(QualitySmell {
-                                    id: format!("FQ-{:03}", smell_id),
-                                    smell_id: "AMBIGUOUS_INSTRUCTION".into(),
-                                    severity: "WARNING".into(),
-                                    location: SmellLocation {
-                                        feature_id: feature.id.clone(),
-                                        scenario_id: scenario.id.clone(),
-                                        item_id: item.id.clone(),
-                                        field: Some("check.prompt".into()),
-                                    },
-                                    snippet: Some(prompt.chars().take(60).collect()),
-                                    suggestion: "Replace vague term with operational criterion".into(),
-                                    auto_fixable: false,
-                                });
-                                smell_id += 1;
-                            }
-                        }
-
-                        // BLIND_CHECK_WITHOUT_HIDDEN — blind check must have expected
-                        if check.map(|c| c.visibility == FVIS::Blind).unwrap_or(false) {
-                            let has_expected = check.and_then(|c| c.expected.as_ref()).is_some();
-                            if !has_expected {
-                                smells.push(QualitySmell {
-                                    id: format!("FQ-{:03}", smell_id),
-                                    smell_id: "BLIND_CHECK_WITHOUT_HIDDEN".into(),
-                                    severity: "WARNING".into(),
-                                    location: SmellLocation {
-                                        feature_id: feature.id.clone(),
-                                        scenario_id: scenario.id.clone(),
-                                        item_id: item.id.clone(),
-                                        field: Some("check.visibility".into()),
-                                    },
-                                    snippet: None,
-                                    suggestion: "Blind checks require check.expected to be set".into(),
-                                    auto_fixable: false,
-                                });
-                                smell_id += 1;
-                            }
-                        }
-
-                        // FAIL_NO_EVIDENCE — blocking check without evidence_requirement
-                        let ev_required = check
-                            .map(|c| !c.evidence_requirement.is_empty())
-                            .unwrap_or(false);
-                        let is_blocking = check.map(|c| c.blocking).unwrap_or(true);
-                        if is_blocking && !ev_required {
-                            smells.push(QualitySmell {
-                                id: format!("FQ-{:03}", smell_id),
-                                smell_id: "FAIL_NO_EVIDENCE".into(),
-                                severity: "BLOCKER".into(),
-                                location: SmellLocation {
-                                    feature_id: feature.id.clone(),
-                                    scenario_id: scenario.id.clone(),
-                                    item_id: item.id.clone(),
-                                    field: Some("check.evidence_requirement".into()),
-                                },
-                                snippet: None,
-                                suggestion: "Add evidence_requirement (e.g., screenshot) to blocking checks"
-                                    .into(),
-                                auto_fixable: false,
-                            });
-                            smell_id += 1;
-                        }
-                    }
-                }
-
-                // EXCESSIVE_STEPS — form with >12 items and no checkpoint
-                if form.items.len() > 12 {
-                    let has_checkpoint =
-                        form.items.iter().any(|i| i.kind == FEK::Checkpoint);
-                    if !has_checkpoint {
-                        smells.push(QualitySmell {
-                            id: format!("FQ-{:03}", smell_id),
-                            smell_id: "EXCESSIVE_STEPS".into(),
-                            severity: "WARNING".into(),
-                            location: SmellLocation {
-                                feature_id: feature.id.clone(),
-                                scenario_id: scenario.id.clone(),
-                                item_id: None,
-                                field: Some("form.items".into()),
-                            },
-                            snippet: None,
-                            suggestion: format!(
-                                "Scenario has {} items — add checkpoints every ~5 items",
-                                form.items.len()
-                            ),
-                            auto_fixable: false,
-                        });
-                        smell_id += 1;
-                    }
-                }
-            }
-        }
-    }
-
-    let blockers = smells.iter().filter(|s| s.severity == "BLOCKER").count();
-    let warnings = smells.iter().filter(|s| s.severity == "WARNING").count();
-    let pass = blockers == 0
-        && match threshold {
-            QualityThreshold::Blocker => true,
-            QualityThreshold::Warning => warnings == 0,
-        };
-
-    QualityReport {
-        schema_version: 1,
-        analyzer: "uat-form-quality".into(),
-        model: "heuristic".into(),
-        analyzed_at: now_rfc3339(),
-        plan_ref: String::new(),
-        smells,
-        summary: QualitySummary {
-            total: smell_id.saturating_sub(1),
-            blockers: blockers as u32,
-            errors: 0,
-            warnings: warnings as u32,
-            suggestions: 0,
-            pass,
-        },
-        verdict: if pass { "PASS".into() } else { "NEEDS_REVISION".into() },
-        threshold_applied: match threshold {
-            QualityThreshold::Blocker => "BLOCKER".into(),
-            QualityThreshold::Warning => "WARNING".into(),
-        },
-    }
-}
-
-#[derive(serde::Serialize)]
-struct QualityReport {
-    schema_version: u32,
-    analyzer: String,
-    model: String,
-    analyzed_at: String,
-    plan_ref: String,
-    smells: Vec<QualitySmell>,
-    summary: QualitySummary,
-    verdict: String,
-    threshold_applied: String,
-}
-
-#[derive(serde::Serialize)]
-struct QualitySmell {
-    id: String,
-    smell_id: String,
-    severity: String,
-    location: SmellLocation,
-    snippet: Option<String>,
-    suggestion: String,
-    auto_fixable: bool,
-}
-
-#[derive(serde::Serialize)]
-struct SmellLocation {
-    feature_id: String,
-    scenario_id: String,
-    item_id: Option<String>,
-    field: Option<String>,
-}
-
-#[derive(serde::Serialize)]
-struct QualitySummary {
-    total: u32,
-    blockers: u32,
-    errors: u32,
-    warnings: u32,
-    suggestions: u32,
-    pass: bool,
-}
-
 // ─── E14.3: UX Form Agent ────────────────────────────────────────────────────
 
 fn run_uat_enrich_forms(args: EnrichFormsArgs) -> CommandOutput {
@@ -3603,12 +3389,14 @@ fn run_uat_enrich_forms(args: EnrichFormsArgs) -> CommandOutput {
         let output_path = args
             .output
             .unwrap_or_else(|| args.plan.with_file_name("uat-plan-enriched.yaml"));
-        let yaml = serde_saphyr::to_string(&plan)
-            .map_err(|e| anyhow::anyhow!("serialization: {e}"))?;
+        let yaml =
+            serde_saphyr::to_string(&plan).map_err(|e| anyhow::anyhow!("serialization: {e}"))?;
         std::fs::write(&output_path, &yaml)?;
         Ok(output_path)
     })();
-    render_result(result, format, |path| format!("uat enrich-forms: {}\n", path.display()))
+    render_result(result, format, |path| {
+        format!("uat enrich-forms: {}\n", path.display())
+    })
 }
 
 fn build_default_form(scenario: &sddk_domain::UatScenario) -> UatFormSpec {
@@ -3671,9 +3459,12 @@ fn build_default_form(scenario: &sddk_domain::UatScenario) -> UatFormSpec {
 // ─── E14.4: Test Discovery Agent ────────────────────────────────────────────
 
 fn run_uat_discover(args: DiscoverArgs) -> CommandOutput {
-    let format = args.format;
+    let _format = args.format;
     let result = (|| -> anyhow::Result<String> {
-        let fara_url = args.fara_url.clone().unwrap_or_else(|| "http://127.0.0.1:8082".into());
+        let fara_url = args
+            .fara_url
+            .clone()
+            .unwrap_or_else(|| "http://127.0.0.1:8082".into());
 
         // Health check: Fara
         let fara_ok = ureq::get(&format!("{}/health", fara_url))
@@ -3700,8 +3491,7 @@ fn run_uat_discover(args: DiscoverArgs) -> CommandOutput {
 
         // Run Fara for each goal
         let temp_dir = std::env::temp_dir().join(format!("uat-discovery-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&temp_dir)
-            .map_err(|e| anyhow::anyhow!("mkdir: {e}"))?;
+        std::fs::create_dir_all(&temp_dir).map_err(|e| anyhow::anyhow!("mkdir: {e}"))?;
 
         let mut lines = vec![format!(
             "uat discover: {} goals against {}\n",
@@ -3711,8 +3501,7 @@ fn run_uat_discover(args: DiscoverArgs) -> CommandOutput {
 
         for (i, goal) in args.goals.iter().enumerate() {
             let output_dir = temp_dir.join(format!("run-{:03}", i));
-            std::fs::create_dir_all(&output_dir)
-                .map_err(|e| anyhow::anyhow!("mkdir: {e}"))?;
+            std::fs::create_dir_all(&output_dir).map_err(|e| anyhow::anyhow!("mkdir: {e}"))?;
 
             let status = std::process::Command::new("node")
                 .arg("assets/uat-driver/computer_use.mjs")
@@ -3761,7 +3550,7 @@ fn run_uat_discover(args: DiscoverArgs) -> CommandOutput {
     }
 }
 
-fn discovered_flows_to_aam(temp_dir: &std::path::Path, app_url: &str) -> DiscoveredAam {
+fn discovered_flows_to_aam(_temp_dir: &std::path::Path, app_url: &str) -> DiscoveredAam {
     DiscoveredAam {
         schema_version: 1,
         model: "uat-discovery".into(),
@@ -3899,10 +3688,13 @@ struct AamProvenance {
 
 // ─── E14.5: Pipeline Orchestration ────────────────────────────────────────────
 
-fn run_uat_generate(args: GenerateArgs, environment: &crate::CliEnvironment) -> CommandOutput {
-    let format = args.format;
+fn run_uat_generate(args: GenerateArgs, _environment: &crate::CliEnvironment) -> CommandOutput {
+    let _format = args.format;
     let result = (|| -> anyhow::Result<String> {
-        let mut lines = vec![format!("uat generate: pipeline E14.5 for {}\n", args.release)];
+        let mut lines = vec![format!(
+            "uat generate: pipeline E14.5 for {}\n",
+            args.release
+        )];
 
         // Step 1: Discovery (E14.4)
         if args.discover {
@@ -3944,13 +3736,13 @@ fn run_uat_generate(args: GenerateArgs, environment: &crate::CliEnvironment) -> 
         };
         let yaml = serde_saphyr::to_string(&stub_plan)
             .map_err(|e| anyhow::anyhow!("serialization: {e}"))?;
-        std::fs::write(&plan_path, &yaml)
-            .map_err(|e| anyhow::anyhow!("write plan: {e}"))?;
+        std::fs::write(&plan_path, &yaml).map_err(|e| anyhow::anyhow!("write plan: {e}"))?;
         lines.push(format!("  [2/5] plan: {}\n", plan_path.display()));
 
         // Step 3: Enrich forms (E14.3)
         lines.push("  [3/5] enrich-forms (uat-ux-form agent)...\n".into());
-        let enriched_path = plan_path.with_file_name(format!("uat-plan-{}-enriched.yaml", args.release));
+        let enriched_path =
+            plan_path.with_file_name(format!("uat-plan-{}-enriched.yaml", args.release));
         let enrich_args = EnrichFormsArgs {
             plan: plan_path.clone(),
             output: Some(enriched_path.clone()),
@@ -3963,13 +3755,16 @@ fn run_uat_generate(args: GenerateArgs, environment: &crate::CliEnvironment) -> 
         lines.push("  [4/5] quality (uat-form-quality agent)...\n".into());
         let quality_args = QualityArgs {
             plan: enriched_path.clone(),
-            threshold: QualityThreshold::Blocker,
+            threshold: crate::uat_quality::report::QualityThreshold::Blocker,
             output: None,
             format: OutputFormat::Text,
         };
         let quality_result = run_uat_quality(quality_args);
         if quality_result.status != 0 {
-            lines.push("  [4/5] quality: FAIL (blockers found)\n  pipeline stopped at quality gate\n".into());
+            lines.push(
+                "  [4/5] quality: FAIL (blockers found)\n  pipeline stopped at quality gate\n"
+                    .into(),
+            );
             return Ok(lines.join(""));
         }
         lines.push("  [4/5] quality: PASS\n".into());
@@ -3987,7 +3782,10 @@ fn run_uat_generate(args: GenerateArgs, environment: &crate::CliEnvironment) -> 
         }
         lines.push("  [5/5] validate: OK\n".into());
 
-        lines.push(format!("\nPipeline complete: {}\n", enriched_path.display()));
+        lines.push(format!(
+            "\nPipeline complete: {}\n",
+            enriched_path.display()
+        ));
         lines.push("Next: sddk uat open --plan ... to execute\n".into());
 
         Ok(lines.join(""))
