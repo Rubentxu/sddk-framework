@@ -1,0 +1,33 @@
+Deterministic SDDK workflow tooling
+
+Usage: sddk <COMMAND>
+
+Commands:
+  version       Show the resolved framework version for the current directory
+  project       Resolve deterministic project and workspace identity
+  adopt         Plan, apply, inspect, or repair project adoption
+  lint          Validate repository contracts and generated workflow documentation
+  generate      Generate deterministic repository documentation
+  cycle         Plan and apply workflow cycles under the local authority
+  ledger        Verify the causal ledger and list its events
+  capability    Plan and execute typed capabilities under the default-deny policy
+  git           Run typed local Git operations with verified postconditions
+  artifact      Store and verify content-addressed artifacts
+  permission    Check agent phase and capability permissions
+  validate      Validate structured results against canonical schemas
+  agent-result  Convert legacy agent output into structured results
+  release       Plan and apply local Git releases or optional forge integrations
+  vault         Index, validate, search, and export knowledge vaults
+  knowledge     Resolve the canonical knowledge vault path and profile
+  dev           Developer tooling: doctor, gates, and atomic install/verify
+  pack          Validate declarative pack manifests
+  metrics       Record, aggregate, and tune cycle telemetry metrics
+  analytics     Report, trend, and bottleneck analytics from cycle metrics
+  telemetry     Central telemetry control plane (cross-project ingest, aggregates, dashboard)
+  uat           UAT (User Acceptance Testing): data-driven YAML plans rendered to self-contained HTML dashboards, with human-in-the-loop validation
+  completion    Generate or install shell completion scripts
+  help          Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version
