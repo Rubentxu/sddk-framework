@@ -9,7 +9,16 @@ use time::OffsetDateTime;
 use crate::{failure, CommandOutput};
 
 const CATALOG_DEFAULT: &str = "docs/sddk-2.0-architecture-consolidation/data/architecture-rules.yaml";
-const BASELINE_DEFAULT: &str = "data/projects/p-52b95ef55999f9de/cycle-artifacts/p-52b95ef55999f9de/sddk-2-0-phase0-baseline/baseline-dependency-entropy.json";
+
+fn baseline_default() -> String {
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+        .join("sddk/projects/p-52b95ef55999f9de/cycle-artifacts/p-52b95ef55999f9de/sddk-2-0-phase0-baseline/baseline-dependency-entropy.json")
+        .to_string_lossy()
+        .into_owned()
+}
+
+static BASELINE_DEFAULT: std::sync::LazyLock<String> = std::sync::LazyLock::new(baseline_default);
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum RulesCommand {
@@ -21,7 +30,7 @@ pub(crate) enum RulesCommand {
 pub(crate) struct RulesCheckArgs {
     #[arg(long, default_value = CATALOG_DEFAULT)]
     pub(crate) catalog: PathBuf,
-    #[arg(long, default_value = BASELINE_DEFAULT)]
+    #[arg(long, default_value = BASELINE_DEFAULT.as_str())]
     pub(crate) baseline: PathBuf,
     #[arg(long)]
     pub(crate) out: Option<PathBuf>,

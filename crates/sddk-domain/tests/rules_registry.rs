@@ -1,6 +1,6 @@
 //! Unit tests for the architecture-rule registry.
 
-use sddk_domain::{ArchitectureRule, EvaluatorKind, RuleRegistry, RuleSeverity, RuleStatus, RuleTarget, ARCHITECTURE_RULES_SCHEMA_VERSION};
+use sddk_domain::{EvaluatorKind, RuleRegistry, RuleSeverity, RuleStatus, RuleTarget, ARCHITECTURE_RULES_SCHEMA_VERSION};
 
 const SAMPLE_YAML: &str = r#"schema_version: 1.0.0
 rules:
@@ -73,6 +73,19 @@ rules:
 "#;
     let err = RuleRegistry::from_yaml_str(yaml).expect_err("duplicate must fail");
     assert!(err.to_string().contains("duplicate"));
+}
+
+#[test]
+fn parse_rejects_missing_rule_id() {
+    let yaml = r#"schema_version: 1.0.0
+rules:
+  - id: ""
+    severity: error
+    rule: x
+    target: dependency_graph
+"#;
+    let err = RuleRegistry::from_yaml_str(yaml).expect_err("empty rule id must fail");
+    assert!(err.to_string().contains("missing id") || err.to_string().contains("MissingRuleId"));
 }
 
 #[test]

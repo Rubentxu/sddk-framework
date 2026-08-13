@@ -2,6 +2,7 @@
 
 use sddk_domain::{BaselineRef, RuleStatus};
 use sddk_engine::rules::{evaluate_all, Baseline, BaselineConsumer, BaselineError, CrossCrateImport};
+use std::path::PathBuf;
 
 fn make_baseline(imports: Vec<(&str, u32, &str)>) -> Baseline {
     let cross_crate_imports = imports.into_iter().map(|(from_file, line, to_crate)| {
@@ -130,4 +131,43 @@ waivers:
     assert_eq!(r.status, RuleStatus::NotApplicable);
     assert!(r.waiver_id.is_none());
     assert!(r.provenance.as_ref().unwrap().contains("expired"));
+}
+
+#[test]
+fn shipped_catalog_parses_with_five_rules() {
+    // Regression: shipped architecture-rules.yaml must parse with ARCH001..ARCH005 only.
+    let yaml_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/sddk-2.0-architecture-consolidation/data/architecture-rules.yaml");
+    let yaml = std::fs::read_to_string(&yaml_path)
+        .expect("shipped YAML must be readable");
+    let registry = sddk_domain::RuleRegistry::from_yaml_str(&yaml)
+        .expect("shipped YAML must parse with 5 rules");
+    let ids: Vec<&str> = registry.iter().map(|r| r.id.as_str()).collect();
+    assert_eq!(ids, vec!["ARCH001", "ARCH002", "ARCH003", "ARCH004", "ARCH005"]);
+}
+
+#[test]
+fn shipped_catalog_against_baseline_produces_five_evaluations() {
+    // Regression: shipped YAML + baseline produces 5 evaluations (ARCH001..ARCH005),
+    // all with status=NotApplicable, all with provenance.
+    let yaml_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/sddk-2.0-architecture-consolidation/data/architecture-rules.yaml");
+    let yaml = std::fs::read_to_string(&yaml_path)
+        .expect("shipped YAML must be readable");
+    let registry = sddk_domain::RuleRegistry::from_yaml_str(&yaml)
+        .expect("shipped YAML must parse");
+
+    let baseline_path = dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+        .join("sddk/projects/p-52b95ef55999f9de/cycle-artifacts/p-52b95ef55999f9de/sddk-2-0-phase0-baseline/baseline-dependency-entropy.json");
+    let consumer = BaselineConsumer::new(&baseline_path, &["1.0.0"])
+        .expect("baseline consumer must be created");
+    let baseline = consumer.load().expect("baseline must load");
+
+    let results = evaluate_all(&registry, &baseline, "2026-08-13T12:00:00Z");
+    assert_eq!(results.len(), 5, "shipped catalog must produce 5 evaluations");
+    for r in &results {
+        assert_eq!(r.status, RuleStatus::NotApplicable);
+        assert!(r.provenance.is_some(), "every rule needs provenance");
+    }
 }
