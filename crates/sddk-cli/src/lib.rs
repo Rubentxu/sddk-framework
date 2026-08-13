@@ -20,6 +20,7 @@ mod pack_cmd;
 mod permission;
 mod release_cmd;
 mod result_cmd;
+mod rules_cmd;
 mod telemetry;
 mod uat;
 mod uat_common;
@@ -47,6 +48,7 @@ use pack_cmd::PackCommand;
 use permission::PermissionCommand;
 use release_cmd::ReleaseCommand;
 use result_cmd::{AgentResultCommand, ValidateCommand};
+use rules_cmd::RulesCommand;
 use sddk_domain::{
     IdentitySource, SddkErrorCode, normalize_scope, resolve_project_identity, stable_workspace_id,
 };
@@ -192,6 +194,11 @@ enum Command {
     Uat {
         #[command(subcommand)]
         command: uat::UatCommand,
+    },
+    /// Architecture-rule registry: evaluate rules against baseline JSON (SDDK2-003).
+    Rules {
+        #[command(subcommand)]
+        command: RulesCommand,
     },
     /// Generate or install shell completion scripts.
     Completion {
@@ -493,6 +500,7 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         Command::Analytics { command } => analytics::run_analytics(command, environment),
         Command::Telemetry { command } => telemetry::run_telemetry(command, environment),
         Command::Uat { command } => uat::run_uat(command, environment),
+        Command::Rules { command } => rules_cmd::run_rules(command),
         Command::Completion { command } => run_completion(command),
     }
 }

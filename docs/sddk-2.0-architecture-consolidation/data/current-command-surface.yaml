@@ -22,6 +22,7 @@ observed_top_level_commands:
   - analytics
   - telemetry
   - uat
+  - rules
   - completion
   - help
 observed_uat_commands:

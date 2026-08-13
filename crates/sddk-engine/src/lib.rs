@@ -9,6 +9,7 @@
 
 mod adoption;
 mod paths;
+pub mod rules;
 
 pub use adoption::*;
 pub use paths::*;
