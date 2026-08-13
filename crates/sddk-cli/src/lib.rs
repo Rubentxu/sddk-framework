@@ -245,6 +245,8 @@ enum AdoptCommand {
     Status(AdoptionArgs),
     /// Complete matching partial state without overwriting conflicts.
     Repair(AdoptionArgs),
+    /// Converge runtime metadata without overwriting identity (sddk2-005).
+    Refresh(AdoptionArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -777,6 +779,7 @@ enum AdoptionOperation {
     Apply,
     Status,
     Repair,
+    Refresh,
 }
 
 #[derive(Serialize)]
@@ -942,6 +945,7 @@ fn run_adopt(command: AdoptCommand, environment: &CliEnvironment) -> CommandOutp
         AdoptCommand::Apply(args) => (AdoptionOperation::Apply, args),
         AdoptCommand::Status(args) => (AdoptionOperation::Status, args),
         AdoptCommand::Repair(args) => (AdoptionOperation::Repair, args),
+        AdoptCommand::Refresh(args) => (AdoptionOperation::Refresh, args),
     };
     let format = args.format;
     let result = (|| -> anyhow::Result<AdoptionCommandResult> {
@@ -957,6 +961,10 @@ fn run_adopt(command: AdoptCommand, environment: &CliEnvironment) -> CommandOutp
             }
             AdoptionOperation::Repair => {
                 AdoptionCommandResult::Status(Box::new(repair_adoption(&plan)?))
+            }
+            AdoptionOperation::Refresh => {
+                let status = sddk_engine::refresh_adoption(&plan)?;
+                AdoptionCommandResult::Status(Box::new(status))
             }
         })
     })();
@@ -1004,7 +1012,9 @@ fn prepare_adoption_plan(
             AdoptionOperation::Plan | AdoptionOperation::Apply => {
                 Some(Uuid::new_v4().hyphenated().to_string())
             }
-            AdoptionOperation::Status | AdoptionOperation::Repair => {
+            AdoptionOperation::Status
+            | AdoptionOperation::Repair
+            | AdoptionOperation::Refresh => {
                 anyhow::bail!(
                     "fallback seed is required because no remote or matching adoption receipt exists"
                 )

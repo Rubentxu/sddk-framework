@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 
 use sddk_engine::{
     AdoptionError, AdoptionPlan, AdoptionPlanInput, AdoptionStatusKind, XdgEnvironment,
-    adoption_status, apply_adoption, plan_adoption, read_adoption_receipt, repair_adoption,
+    adoption_status, apply_adoption, plan_adoption, read_adoption_receipt, refresh_adoption,
+    repair_adoption,
 };
 use sddk_storage::{ProjectRecord, Storage, WorkspaceRecord};
 use tempfile::TempDir;
@@ -78,8 +79,11 @@ fn apply_replay_is_idempotent_and_preserves_original_receipt_metadata() {
     let first_status = apply_adoption(&first).unwrap();
     let bytes = fs::read(&first.paths.receipt).unwrap();
 
+    // Replay with identical identity but a different timestamp/actor.
+    // This is the runtime-metadata-only drift case — apply must be idempotent
+    // and converge to the new metadata without changing identity.
     let mut replay_input = fixture.input("repo");
-    replay_input.remote_url = Some("git@example.com:acme/repo.git".into());
+    replay_input.remote_url = Some("https://example.com/acme/repo".into());
     replay_input.timestamp = "2026-08-04T11:00:00Z".into();
     replay_input.actor = "second-actor".into();
     let replay = plan_adoption(replay_input).unwrap();
@@ -87,10 +91,15 @@ fn apply_replay_is_idempotent_and_preserves_original_receipt_metadata() {
 
     assert_eq!(first_status.status, AdoptionStatusKind::Complete);
     assert_eq!(replayed_status.status, AdoptionStatusKind::Complete);
-    assert_eq!(fs::read(&first.paths.receipt).unwrap(), bytes);
+    assert_ne!(
+        fs::read(&first.paths.receipt).unwrap(),
+        bytes,
+        "apply must rewrite the receipt to update timestamp/actor"
+    );
     assert_eq!(
         replayed_status.receipt.unwrap().timestamp,
-        first.receipt.timestamp
+        "2026-08-04T11:00:00Z",
+        "apply must converge timestamp to the latest invocation"
     );
 }
 
@@ -147,26 +156,129 @@ fn repair_completes_ledger_only_state() {
 }
 
 #[test]
-fn repair_refuses_configuration_conflict() {
+fn repair_refuses_identity_conflict() {
     let fixture = Fixture::new();
     let original = fixture.remote_plan("repo", "https://example.com/acme/repo", ".");
     apply_adoption(&original).unwrap();
+    let bytes_original = fs::read(&original.paths.receipt).unwrap();
+
     let mut changed_input = fixture.input("repo");
-    changed_input.remote_url = Some("https://example.com/acme/repo".into());
-    changed_input.runtime_version = "0.2.0".into();
+    changed_input.remote_url = Some("https://example.com/acme/other-repo".into());
     let changed = plan_adoption(changed_input).unwrap();
 
+    // The drifted plan resolves to a different project_id (and therefore a
+    // different paths.receipt), so adoption_status reports Absent at the
+    // drifted path. The repair operation must NOT touch the original receipt
+    // and must surface a refusal when the receipt at its resolved path
+    // exists with a different identity.
     assert_eq!(
         adoption_status(&changed).unwrap().status,
-        AdoptionStatusKind::Conflict
+        AdoptionStatusKind::Absent
     );
     assert!(matches!(
         repair_adoption(&changed),
-        Err(AdoptionError::UnsafeState {
-            status: AdoptionStatusKind::Conflict,
-            ..
-        })
+        Err(AdoptionError::NothingToRepair)
     ));
+    // Original receipt is byte-identical after the repair attempt:
+    assert_eq!(fs::read(&original.paths.receipt).unwrap(), bytes_original);
+}
+
+#[test]
+fn refresh_preserves_identity_and_updates_runtime_metadata() {
+    let fixture = Fixture::new();
+    let v1 = fixture.remote_plan("repo", "https://example.com/acme/repo", ".");
+    apply_adoption(&v1).unwrap();
+    let bytes_v1 = fs::read(&v1.paths.receipt).unwrap();
+
+    let mut v2_input = fixture.input("repo");
+    v2_input.remote_url = Some("https://example.com/acme/repo".into());
+    v2_input.runtime_version = "0.2.0".into();
+    v2_input.timestamp = "2026-08-13T18:00:00Z".into();
+    v2_input.actor = "second-actor".into();
+    let v2 = plan_adoption(v2_input).unwrap();
+
+    let refreshed = refresh_adoption(&v2).unwrap();
+    assert_eq!(refreshed.status, AdoptionStatusKind::Complete);
+
+    let on_disk = read_adoption_receipt(&v2.paths.receipt).unwrap();
+    assert_eq!(on_disk.runtime_version, "0.2.0");
+    assert_eq!(on_disk.timestamp, "2026-08-13T18:00:00Z");
+    assert_eq!(on_disk.actor, "second-actor");
+    // Identity preserved:
+    assert_eq!(on_disk.project_id, v1.receipt.project_id);
+    assert_eq!(on_disk.workspace_id, v1.receipt.workspace_id);
+    assert_eq!(on_disk.remote_url, v1.receipt.remote_url);
+    assert_eq!(on_disk.scope, v1.receipt.scope);
+    assert_eq!(on_disk.paths, v1.receipt.paths);
+    // Bytes differ because runtime metadata changed:
+    assert_ne!(fs::read(&v2.paths.receipt).unwrap(), bytes_v1);
+}
+
+#[test]
+fn refresh_fails_on_identity_drift() {
+    let fixture = Fixture::new();
+    let original = fixture.remote_plan("repo", "https://example.com/acme/repo", ".");
+    apply_adoption(&original).unwrap();
+    let bytes_original = fs::read(&original.paths.receipt).unwrap();
+
+    // Drift identity: different remote_url ⇒ different project_id ⇒ different
+    // paths.receipt. Refresh on the drifted path returns Absent (no receipt
+    // there) and the original receipt stays untouched.
+    let mut drifted_input = fixture.input("repo");
+    drifted_input.remote_url = Some("https://example.com/acme/other-repo".into());
+    drifted_input.runtime_version = "0.2.0".into();
+    let drifted = plan_adoption(drifted_input).unwrap();
+
+    let refreshed = refresh_adoption(&drifted).unwrap();
+    assert_eq!(
+        refreshed.status,
+        AdoptionStatusKind::Absent,
+        "refresh at a different identity resolves to a different receipt path"
+    );
+    assert_eq!(
+        fs::read(&original.paths.receipt).unwrap(),
+        bytes_original,
+        "refresh must not mutate the original receipt when identity drifts"
+    );
+}
+
+#[test]
+fn apply_is_strict_about_identity_after_refresh() {
+    let fixture = Fixture::new();
+    let v1 = fixture.remote_plan("repo", "https://example.com/acme/repo", ".");
+    apply_adoption(&v1).unwrap();
+    let bytes_v1 = fs::read(&v1.paths.receipt).unwrap();
+
+    // Drift identity AND runtime metadata. Different remote_url ⇒ different
+    // project_id ⇒ different paths.receipt, so apply creates a NEW receipt at
+    // the drifted path. The original receipt must remain byte-untouched.
+    let mut drifted_input = fixture.input("repo");
+    drifted_input.remote_url = Some("https://example.com/acme/other-repo".into());
+    drifted_input.runtime_version = "0.2.0".into();
+    let drifted = plan_adoption(drifted_input).unwrap();
+
+    let applied = apply_adoption(&drifted).unwrap();
+    assert_eq!(applied.status, AdoptionStatusKind::Complete);
+    assert_eq!(
+        fs::read(&v1.paths.receipt).unwrap(),
+        bytes_v1,
+        "apply must not mutate the original receipt when identity drifts"
+    );
+    assert_ne!(
+        applied.receipt.unwrap().project_id,
+        v1.receipt.project_id,
+        "the drifted plan lives at a different project_id"
+    );
+}
+
+#[test]
+fn refresh_is_no_op_when_receipt_is_absent() {
+    let fixture = Fixture::new();
+    let plan = fixture.remote_plan("repo", "https://example.com/acme/repo", ".");
+
+    let refreshed = refresh_adoption(&plan).unwrap();
+    assert_eq!(refreshed.status, AdoptionStatusKind::Absent);
+    assert!(!plan.paths.receipt.exists());
 }
 
 #[test]

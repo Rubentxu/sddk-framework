@@ -5013,3 +5013,72 @@ fn analytics_research_all_projects_uses_control_plane() {
     );
     assert!(packet_json["cycles"].as_array().unwrap().len() >= 2);
 }
+
+#[test]
+fn cli_adopt_refresh_preserves_identity_and_updates_metadata() {
+    let fixture = CliFixture::new("adopt-refresh");
+    let common = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--actor",
+        "cli-test",
+        "--format",
+        "json",
+    ];
+
+    let mut apply_args = common.to_vec();
+    apply_args.extend_from_slice(&["--timestamp", "2026-08-13T17:00:00Z"]);
+    let applied = fixture.run_adopt("apply", &apply_args);
+    assert!(
+        applied.status.success(),
+        "{}",
+        String::from_utf8_lossy(&applied.stderr)
+    );
+    let applied_json: serde_json::Value = serde_json::from_slice(&applied.stdout).unwrap();
+    assert_eq!(applied_json["status"], "complete");
+
+    let mut refresh_args = common.to_vec();
+    refresh_args.extend_from_slice(&["--timestamp", "2026-08-13T18:00:00Z"]);
+    let refreshed = fixture.run_adopt("refresh", &refresh_args);
+    assert!(
+        refreshed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&refreshed.stderr)
+    );
+    let refreshed_json: serde_json::Value = serde_json::from_slice(&refreshed.stdout).unwrap();
+    assert_eq!(refreshed_json["status"], "complete");
+    assert_eq!(
+        refreshed_json["receipt"]["timestamp"], "2026-08-13T18:00:00Z",
+        "refresh must rewrite the receipt's timestamp"
+    );
+    assert_eq!(
+        refreshed_json["receipt"]["project_id"], applied_json["receipt"]["project_id"],
+        "refresh must preserve project_id"
+    );
+    assert_eq!(
+        refreshed_json["receipt"]["workspace_id"], applied_json["receipt"]["workspace_id"],
+        "refresh must preserve workspace_id"
+    );
+    assert_eq!(
+        refreshed_json["receipt"]["remote_url"], applied_json["receipt"]["remote_url"],
+        "refresh must preserve remote_url"
+    );
+}
+
+#[test]
+fn cli_adopt_help_lists_refresh_subcommand() {
+    let fixture = CliFixture::new("adopt-help");
+    let help = fixture.run(&["adopt", "--help"]);
+    assert!(help.status.success());
+    let stdout = String::from_utf8_lossy(&help.stdout);
+    let stderr = String::from_utf8_lossy(&help.stderr);
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        combined.contains("refresh"),
+        "adopt --help must list the refresh subcommand: {combined}"
+    );
+}

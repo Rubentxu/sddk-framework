@@ -9,6 +9,7 @@ use sddk_domain::{
     AdoptionReceipt, IdentityError, IdentitySource, ResolvedProjectIdentity,
     resolve_project_identity, stable_workspace_id,
 };
+use sddk_domain::error::SddkErrorCode;
 use sddk_storage::{ProjectRecord, Storage, StorageError, WorkspaceRecord};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -138,6 +139,45 @@ pub enum AdoptionError {
     /// Repair was requested for a project with no partial adoption state.
     #[error("adoption is absent; use adopt apply before repair")]
     NothingToRepair,
+}
+
+impl SddkErrorCode for AdoptionError {
+    fn code(&self) -> &'static str {
+        match self {
+            Self::Identity(_) => "ADOPTION_IDENTITY",
+            Self::Paths(_) => "ADOPTION_PATHS",
+            Self::Io(_) => "ADOPTION_IO",
+            Self::Serialization(_) => "ADOPTION_SERIALIZATION",
+            Self::Storage(_) => "ADOPTION_STORAGE",
+            Self::InvalidInput(_) => "ADOPTION_INVALID_INPUT",
+            Self::UnsafeState { status, .. } => match status {
+                AdoptionStatusKind::Conflict => "ADOPTION_IDENTITY_CONFLICT",
+                AdoptionStatusKind::Corrupt => "ADOPTION_RECEIPT_CORRUPT",
+                // For Absent/ReceiptOnly/LedgerOnly/Complete, this variant is not
+                // reachable in practice; fall through to a generic identity drift code.
+                _ => "ADOPTION_IDENTITY_CONFLICT",
+            },
+            Self::NothingToRepair => "ADOPTION_NOTHING_TO_REPAIR",
+        }
+    }
+
+    fn recovery(&self) -> &'static str {
+        match self {
+            Self::UnsafeState { status: AdoptionStatusKind::Conflict, .. } => {
+                "if only the CLI version changed, run `sddk adopt refresh`; \
+                 for identity drift, inspect the receipt manually"
+            }
+            Self::UnsafeState { status: AdoptionStatusKind::Corrupt, .. } => {
+                "inspect the receipt file (it may have been truncated or \
+                 edited) and re-adopt only after backing it up"
+            }
+            Self::NothingToRepair => {
+                "nothing to repair; run `sddk adopt apply` to create the \
+                 initial adoption state"
+            }
+            _ => "inspect the error detail and retry",
+        }
+    }
 }
 
 /// Builds an adoption plan without reading or writing process or filesystem state.
@@ -271,11 +311,47 @@ fn converge(plan: &AdoptionPlan) -> Result<(), AdoptionError> {
     fs::create_dir_all(&plan.paths.cache)?;
     let mut storage = Storage::open(&plan.paths.ledger)?;
     storage.register_project_workspace(&project_record(plan), &workspace_record(plan))?;
-    if !plan.paths.receipt.exists() {
-        write_receipt_atomically(&plan.paths.receipt, &plan.receipt)?;
-    }
+    let overwrite = if plan.paths.receipt.exists() {
+        let existing = read_adoption_receipt(&plan.paths.receipt)?;
+        if !same_identity(&existing, &plan.receipt) {
+            return Err(AdoptionError::UnsafeState {
+                status: AdoptionStatusKind::Conflict,
+                detail: "existing receipt has a different identity".into(),
+            });
+        }
+        true
+    } else {
+        false
+    };
+    write_receipt_atomically(&plan.paths.receipt, &plan.receipt, overwrite)?;
     write_knowledge_profile(plan)?;
     Ok(())
+}
+
+/// Converges runtime metadata of an existing adoption receipt without
+/// overwriting its identity. Refuses on absent, corrupt, or identity-drifted
+/// state. Always refreshes the on-disk receipt when the identity matches.
+pub fn refresh_adoption(plan: &AdoptionPlan) -> Result<AdoptionStatus, AdoptionError> {
+    let status = adoption_status(plan)?;
+    match status.status {
+        AdoptionStatusKind::Complete | AdoptionStatusKind::ReceiptOnly => {
+            let existing = read_adoption_receipt(&plan.paths.receipt)?;
+            if same_identity(&existing, &plan.receipt) {
+                converge(plan)?;
+                require_complete(adoption_status(plan)?)
+            } else {
+                Ok(invalid_status(
+                    base_status(plan),
+                    AdoptionStatusKind::Conflict,
+                    "identity drift detected; refresh only accepts runtime metadata drift".into(),
+                ))
+            }
+        }
+        AdoptionStatusKind::Absent
+        | AdoptionStatusKind::LedgerOnly
+        | AdoptionStatusKind::Conflict
+        | AdoptionStatusKind::Corrupt => Ok(status),
+    }
 }
 
 /// Writes the knowledge profile to `$XDG_DATA_HOME/sddk/projects/{project_id}/knowledge-profile.json`.
@@ -330,10 +406,13 @@ fn inspect_receipt(plan: &AdoptionPlan) -> ReceiptInspection {
         }
         Err(error) => return ReceiptInspection::Corrupt(error.to_string()),
     }
-    if same_configuration(&receipt, &plan.receipt) {
+    if same_identity(&receipt, &plan.receipt) {
         ReceiptInspection::Matching(Box::new(receipt))
     } else {
-        ReceiptInspection::Conflict("receipt identity or configuration differs from plan".into())
+        ReceiptInspection::Conflict(
+            "receipt identity differs from plan; refresh only accepts runtime metadata drift"
+                .into(),
+        )
     }
 }
 
@@ -381,15 +460,26 @@ fn inspect_ledger(plan: &AdoptionPlan) -> LedgerInspection {
     }
 }
 
-fn write_receipt_atomically(path: &Path, receipt: &AdoptionReceipt) -> Result<(), AdoptionError> {
+/// Atomically writes the receipt. When `overwrite` is `true`, an existing
+/// receipt at `path` is replaced (used by `converge` after the caller has
+/// verified identity matching). When `overwrite` is `false`, the existence
+/// of a receipt at `path` produces `AdoptionError::UnsafeState { status:
+/// Conflict, .. }` to surface the race-condition guard for unexpected
+/// concurrent writes.
+fn write_receipt_atomically(
+    path: &Path,
+    receipt: &AdoptionReceipt,
+    overwrite: bool,
+) -> Result<(), AdoptionError> {
     let parent = path.parent().ok_or_else(|| {
         AdoptionError::InvalidInput(format!("receipt path has no parent: {path:?}"))
     })?;
     fs::create_dir_all(parent)?;
     let sequence = TEMP_FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let temp = parent.join(format!(
-        ".adoption.json.tmp-{}-{sequence}",
-        std::process::id()
+        ".adoption.json.tmp-{}-{}",
+        std::process::id(),
+        sequence
     ));
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
@@ -401,8 +491,8 @@ fn write_receipt_atomically(path: &Path, receipt: &AdoptionReceipt) -> Result<()
         return Err(error.into());
     }
     drop(file);
-    if path.exists() {
-        fs::remove_file(&temp)?;
+    if path.exists() && !overwrite {
+        let _ = fs::remove_file(&temp);
         return Err(AdoptionError::UnsafeState {
             status: AdoptionStatusKind::Conflict,
             detail: "receipt appeared during apply; refusing to overwrite it".into(),
@@ -451,51 +541,40 @@ fn configuration_hash(receipt: &AdoptionReceipt) -> Result<String, AdoptionError
     Ok(format!("sha256:{:x}", hasher.finalize()))
 }
 
-fn same_configuration(left: &AdoptionReceipt, right: &AdoptionReceipt) -> bool {
-    exact_configuration(left, right) || legacy_xdg_vault_configuration(left, right)
-}
-
-fn exact_configuration(left: &AdoptionReceipt, right: &AdoptionReceipt) -> bool {
-    left.schema_version == right.schema_version
-        && left.sddk_version == right.sddk_version
-        && left.runtime_version == right.runtime_version
-        && left.project_id == right.project_id
-        && left.workspace_id == right.workspace_id
-        && left.display_name == right.display_name
-        && left.canonical_workspace_path == right.canonical_workspace_path
-        && left.identity_source == right.identity_source
-        && left.remote_url == right.remote_url
-        && left.scope == right.scope
-        && left.fallback_seed == right.fallback_seed
-        && left.configuration_hash == right.configuration_hash
-        && left.paths == right.paths
-}
-
-fn legacy_xdg_vault_configuration(left: &AdoptionReceipt, right: &AdoptionReceipt) -> bool {
-    let Some(project_data) = Path::new(&right.paths.artifacts).parent() else {
-        return false;
-    };
-    let Some(legacy_vault) = project_data.join("vault").to_str().map(str::to_owned) else {
-        return false;
-    };
-    left.schema_version == right.schema_version
-        && left.sddk_version == right.sddk_version
-        && left.runtime_version == right.runtime_version
-        && left.project_id == right.project_id
-        && left.workspace_id == right.workspace_id
-        && left.display_name == right.display_name
-        && left.canonical_workspace_path == right.canonical_workspace_path
-        && left.identity_source == right.identity_source
-        && left.remote_url == right.remote_url
-        && left.scope == right.scope
-        && left.fallback_seed == right.fallback_seed
+/// Stable identity comparison: equal iff every immutable field matches.
+/// Runtime metadata (`sddk_version`, `runtime_version`, `timestamp`,
+/// `actor`, `configuration_hash`) is excluded so that CLI bumps can be
+/// refreshed without re-adoption.
+///
+/// The legacy `paths.vault` compatibility shim (`vault` may live at
+/// `$project_data/vault` instead of the canonical `$HOME/.sddk-knowledge/$name`)
+/// is preserved to avoid forcing users with an existing legacy receipt to
+/// re-adopt; when `left.paths.vault` matches the legacy layout, the right
+/// side is normalised to that layout before comparison.
+fn same_identity(left: &AdoptionReceipt, right: &AdoptionReceipt) -> bool {
+    let mut right_paths = right.paths.clone();
+    if let Some(legacy_vault) = legacy_vault_path(left)
         && left.paths.vault == legacy_vault
-        && left.paths.artifacts == right.paths.artifacts
-        && left.paths.cycle_artifacts == right.paths.cycle_artifacts
-        && left.paths.generated == right.paths.generated
-        && left.paths.ledger == right.paths.ledger
-        && left.paths.cache == right.paths.cache
-        && left.paths.receipt == right.paths.receipt
+    {
+        right_paths.vault = legacy_vault;
+    }
+    left.schema_version == right.schema_version
+        && left.project_id == right.project_id
+        && left.workspace_id == right.workspace_id
+        && left.remote_url == right.remote_url
+        && left.scope == right.scope
+        && left.fallback_seed == right.fallback_seed
+        && left.canonical_workspace_path == right.canonical_workspace_path
+        && left.paths == right_paths
+}
+
+/// Returns the legacy vault path (`$project_data/vault`) inferred from the
+/// receipt's `paths.artifacts` parent directory. The `project_data`
+/// directory is the parent of `paths.artifacts` in legacy receipts.
+fn legacy_vault_path(receipt: &AdoptionReceipt) -> Option<String> {
+    Path::new(&receipt.paths.artifacts)
+        .parent()
+        .and_then(|project_data| project_data.join("vault").to_str().map(str::to_owned))
 }
 
 fn validate_plan_input(input: &AdoptionPlanInput) -> Result<(), AdoptionError> {
@@ -631,7 +710,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn existing_xdg_vault_receipt_gains_profile_without_rewrite() {
+    fn existing_xdg_vault_legacy_receipt_is_absorbed_by_apply() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("repo");
         fs::create_dir_all(&root).unwrap();
@@ -656,6 +735,8 @@ mod tests {
         .unwrap();
         apply_adoption(&plan).unwrap();
 
+        // Simulate a legacy receipt authored when `paths.vault` lived at
+        // `$project_data/vault` instead of the canonical `$HOME/.sddk-knowledge/$name`.
         let mut legacy = plan.receipt.clone();
         legacy.paths.vault = path_string(&plan.paths.project_data.join("vault")).unwrap();
         legacy.configuration_hash = configuration_hash(&legacy).unwrap();
@@ -663,11 +744,23 @@ mod tests {
         fs::write(&plan.paths.receipt, &legacy_bytes).unwrap();
         fs::remove_file(&plan.paths.knowledge_profile).unwrap();
 
+        // apply must absorb the legacy receipt: status Complete, profile created,
+        // and the receipt migrated to the canonical vault (better than today's
+        // behaviour where the legacy vault path survived indefinitely).
         assert_eq!(
             apply_adoption(&plan).unwrap().status,
             AdoptionStatusKind::Complete
         );
         assert!(plan.paths.knowledge_profile.is_file());
-        assert_eq!(fs::read(&plan.paths.receipt).unwrap(), legacy_bytes);
+        let on_disk = read_adoption_receipt(&plan.paths.receipt).unwrap();
+        assert_eq!(
+            on_disk.paths.vault, plan.receipt.paths.vault,
+            "apply must migrate the legacy vault path to the canonical location"
+        );
+        assert_ne!(
+            fs::read(&plan.paths.receipt).unwrap(),
+            legacy_bytes,
+            "apply must rewrite the receipt to converge on the canonical vault"
+        );
     }
 }

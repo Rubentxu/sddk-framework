@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sddk.dev/schemas/adoption.schema.json",
   "title": "SDDK Adoption Receipt",
+  "description": "The fields sddk_version, runtime_version, timestamp, and actor are runtime metadata — they may be refreshed in place by `sddk adopt refresh`. The remaining fields define the immutable identity; changing any of them is a real identity drift and produces `Conflict`.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -27,11 +28,13 @@
     },
     "sddk_version": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "SDDK product version that produced the receipt (runtime metadata, refreshable)."
     },
     "runtime_version": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Runtime implementation version (the sddk CLI binary version, refreshable via `sddk adopt refresh`)."
     },
     "project_id": {
       "type": "string",
@@ -81,11 +84,13 @@
     },
     "timestamp": {
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "description": "Caller-supplied adoption timestamp (runtime metadata, refreshable)."
     },
     "actor": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Caller-supplied adopting actor (runtime metadata, refreshable)."
     }
   },
   "allOf": [
