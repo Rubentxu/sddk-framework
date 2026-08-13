@@ -1010,6 +1010,14 @@ impl Engine {
     }
 
     /// Atomically applies a plan after revalidating it against current state.
+    ///
+    /// When the transition moves the cycle into a new `phase` AND the
+    /// outcome is `Succeeded`, this method also atomically releases the
+    /// cycle lease (deletes the row) and emits a `lease.released` event in
+    /// the same transaction. The auto-release keeps the FSM aligned with
+    /// "active lock released by Release phase" — operators that need to
+    /// retain the lease across phases must `renew` it before the next
+    /// transition.
     pub fn apply_transition(
         &mut self,
         plan: &TransitionPlan,
@@ -1044,10 +1052,13 @@ impl Engine {
                 "failed_gates": plan.failed_gates,
             }),
         );
+        let should_auto_release = plan.outcome == TransitionOutcome::Succeeded
+            && plan.state_before.phase != plan.state_after.phase;
         let event = self.storage.update_cycle_with_event(
             &plan.state_after,
             &context.occurred_at,
             &event_input,
+            should_auto_release,
         )?;
         Ok(TransitionResult {
             transition_id: plan.transition_id.clone(),
@@ -1065,10 +1076,19 @@ impl Engine {
 
     /// Restores a missing materialized snapshot from its causal ledger events.
     ///
-    /// Returns `restored: true` only when the cycle snapshot row was missing and
-    /// was rebuilt without appending new events. A stored snapshot that disagrees
-    /// with the replayed state is treated as an integrity alarm, never overwritten.
-    pub fn rebuild_cycle(&mut self, cycle_id: &str) -> Result<RebuildVerification, EngineError> {
+    /// Returns `restored: true` only when the cycle snapshot row was missing
+    /// and was rebuilt. The caller MUST hold an unexpired lease (verified
+    /// beforehand with `require_lease_fence`); the engine then emits a
+    /// `cycle.snapshot.restored` ledger event in the same transaction so the
+    /// audit trail records the act of restoration. A stored snapshot that
+    /// disagrees with the replayed state is treated as an integrity alarm,
+    /// never overwritten.
+    pub fn rebuild_cycle(
+        &mut self,
+        cycle_id: &str,
+        context: &EventContext,
+        now_ms: i64,
+    ) -> Result<RebuildVerification, EngineError> {
         let (sequence, manifest, occurred_at) = replay_state(cycle_id, &self.storage)?;
         match self.storage.get_cycle(cycle_id) {
             Ok(record) if record.manifest == manifest => Ok(RebuildVerification {
@@ -1085,9 +1105,20 @@ impl Engine {
                 let cycle = CycleRecord {
                     manifest: manifest.clone(),
                     created_at: occurred_at.clone(),
-                    updated_at: occurred_at,
+                    updated_at: occurred_at.clone(),
                 };
-                self.storage.insert_cycle(&cycle)?;
+                let event_input = event_input(
+                    &cycle.manifest,
+                    context,
+                    "cycle.snapshot.restored",
+                    None,
+                    None,
+                    json!({
+                        "cycle_id": cycle_id,
+                        "restored_at_ms": now_ms,
+                    }),
+                );
+                self.storage.insert_cycle_with_event(&cycle, &event_input)?;
                 Ok(RebuildVerification {
                     manifest,
                     sequence,
@@ -1098,16 +1129,21 @@ impl Engine {
         }
     }
 
-    /// Verifies that the current lease still matches the caller's fencing token.
+    /// Verifies that the current lease still matches the caller's fencing
+    /// token and has not expired at `now_ms`. An expired lease is rejected
+    /// with the same `LeaseExpired` error variant the storage layer surfaces,
+    /// so the CLI's `run_cycle_transition` fails-closed instead of accepting
+    /// a fence that should have been re-acquired.
     pub fn require_lease_fence(
         &self,
         cycle_id: &str,
         owner: &str,
         fencing_token: i64,
+        now_ms: i64,
     ) -> Result<CycleLease, EngineError> {
         Ok(self
             .storage
-            .verify_cycle_lease(cycle_id, owner, fencing_token)?)
+            .verify_cycle_lease(cycle_id, owner, fencing_token, now_ms)?)
     }
 
     /// Replays a cycle and verifies it equals the materialized SQLite snapshot.

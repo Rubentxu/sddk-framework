@@ -232,6 +232,20 @@ pub(crate) struct CycleRebuildArgs {
     /// Cycle identifier.
     #[arg(long)]
     pub(crate) cycle: String,
+    /// Lease owner required by the fencing check; `rebuild` refuses to run
+    /// without an unexpired lease so silent snapshot restoration cannot
+    /// happen during a read-only audit.
+    #[arg(long)]
+    pub(crate) lease_owner: Option<String>,
+    /// Fencing token of the lease the caller currently holds.
+    #[arg(long)]
+    pub(crate) fencing_token: Option<i64>,
+    /// Explicit RFC 3339 timestamp for deterministic execution.
+    #[arg(long)]
+    pub(crate) timestamp: Option<String>,
+    /// Explicit actor for deterministic execution.
+    #[arg(long)]
+    pub(crate) actor: Option<String>,
     /// Output format.
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     pub(crate) format: OutputFormat,
@@ -256,6 +270,10 @@ pub(crate) struct CycleEvaluateGateArgs {
     /// Sanitized evaluation evidence as JSON.
     #[arg(long, default_value = "{}")]
     pub(crate) evidence: String,
+    /// Gate outcome. Defaults to `failed` (fail-closed). Callers must pass
+    /// `--outcome passed` explicitly to advance the workflow.
+    #[arg(long, value_enum)]
+    pub(crate) outcome: Option<GateOutcomeArg>,
     /// Explicit RFC 3339 timestamp for deterministic execution.
     #[arg(long)]
     pub(crate) timestamp: Option<String>,
@@ -265,6 +283,24 @@ pub(crate) struct CycleEvaluateGateArgs {
     /// Output format.
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     pub(crate) format: OutputFormat,
+}
+
+/// CLI representation of the gate outcome; defaults to `Failed` (fail-closed).
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub(crate) enum GateOutcomeArg {
+    /// Authorize the transition past this gate.
+    Passed,
+    /// Reject the transition; the workflow routes through `on_failure`.
+    Failed,
+}
+
+impl From<GateOutcomeArg> for sddk_storage::GateOutcomeStatus {
+    fn from(value: GateOutcomeArg) -> Self {
+        match value {
+            GateOutcomeArg::Passed => sddk_storage::GateOutcomeStatus::Passed,
+            GateOutcomeArg::Failed => sddk_storage::GateOutcomeStatus::Failed,
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -517,6 +553,7 @@ fn run_cycle_transition(args: CycleTransitionArgs, environment: &CliEnvironment)
     let format = args.format;
     let result = (|| -> anyhow::Result<CycleTransitionOutput> {
         let mut context = RuntimeContext::open(&args.runtime, environment, false)?;
+        let now_ms = timestamp_ms(args.timestamp.as_deref())?;
         match context.storage.get_cycle_lease(&args.cycle) {
             Ok(_) => {
                 let owner = args.lease_owner.as_deref().ok_or_else(|| {
@@ -530,7 +567,7 @@ fn run_cycle_transition(args: CycleTransitionArgs, environment: &CliEnvironment)
                 })?;
                 context
                     .engine
-                    .require_lease_fence(&args.cycle, owner, token)?;
+                    .require_lease_fence(&args.cycle, owner, token, now_ms)?;
             }
             Err(sddk_storage::StorageError::NotFound { .. }) => {
                 if args.lease_owner.is_some() || args.fencing_token.is_some() {
@@ -603,7 +640,51 @@ fn run_cycle_rebuild(args: CycleRebuildArgs, environment: &CliEnvironment) -> Co
     let format = args.format;
     let result = (|| -> anyhow::Result<CycleRebuildOutput> {
         let mut context = RuntimeContext::open(&args.runtime, environment, false)?;
-        let rebuilt = context.engine.rebuild_cycle(&args.cycle)?;
+        let now_ms = timestamp_ms(args.timestamp.as_deref())?;
+        // `rebuild` is no longer a silent read-only audit: it requires the
+        // caller to hold the same lease fence as a phase transition. An
+        // expired lease is rejected with `LeaseExpired` (fail-closed).
+        match context.storage.get_cycle_lease(&args.cycle) {
+            Ok(_) => {
+                let owner = args.lease_owner.as_deref().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "cycle {} is leased; --lease-owner is required for rebuild",
+                        args.cycle
+                    )
+                })?;
+                let token = args.fencing_token.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "cycle {} is leased; --fencing-token is required for rebuild",
+                        args.cycle
+                    )
+                })?;
+                context
+                    .engine
+                    .require_lease_fence(&args.cycle, owner, token, now_ms)?;
+            }
+            Err(sddk_storage::StorageError::NotFound { .. }) => {
+                anyhow::bail!(
+                    "cycle {} has no lease; acquire one with `sddk cycle lock acquire` before rebuild",
+                    args.cycle
+                );
+            }
+            Err(error) => return Err(error.into()),
+        }
+        let occurred_at = args
+            .timestamp
+            .clone()
+            .unwrap_or_else(crate::git_cmd::default_timestamp);
+        let command_id = format!("cycle.rebuild-{}", Uuid::new_v4().hyphenated());
+        let event_context = event_context(
+            &command_id,
+            &format!("evt-{}", Uuid::new_v4().hyphenated()),
+            &args.actor,
+            environment,
+            &occurred_at,
+        );
+        let rebuilt = context
+            .engine
+            .rebuild_cycle(&args.cycle, &event_context, now_ms)?;
         Ok(CycleRebuildOutput {
             cycle_id: rebuilt.manifest.cycle_id,
             status: wire(&rebuilt.manifest.status),
@@ -954,13 +1035,19 @@ fn run_cycle_evaluate_gate(
             .or_else(|| environment.sddk_actor.clone())
             .or_else(|| environment.user.clone())
             .unwrap_or_else(|| "sddk-cli".into());
+        // Fail-closed: when --outcome is omitted we record `Failed`, so a
+        // caller that wants to advance the workflow MUST pass
+        // `--outcome passed` explicitly.
+        let outcome = args.outcome.map(GateOutcomeArg::into).unwrap_or(
+            sddk_storage::GateOutcomeStatus::Failed,
+        );
         let receipt = context.engine.evaluate_gate(&GateEvaluationInput {
             cycle_id: args.cycle.clone(),
             transition_id: args.transition.clone(),
             gate: args.gate.clone(),
             evaluator: args.evaluator.clone(),
             evidence: serde_json::from_str(&args.evidence)?,
-            outcome: sddk_storage::GateOutcomeStatus::Passed,
+            outcome,
             evaluated_at: timestamp,
             actor,
             command_id: format!("gate-{}", uuid::Uuid::new_v4().hyphenated()),

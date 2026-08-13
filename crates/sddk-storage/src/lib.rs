@@ -21,9 +21,10 @@ use rusqlite::{
 };
 use sddk_domain::CycleManifest;
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+use uuid::Uuid;
 
 /// Result type returned by storage operations.
 pub type Result<T> = std::result::Result<T, StorageError>;
@@ -72,6 +73,24 @@ pub enum StorageError {
         owner: String,
         /// Current lease expiry in Unix milliseconds.
         expires_at_ms: i64,
+    },
+    /// The lease's `expires_at_ms` is at or before `now_ms`; the caller must
+    /// re-acquire before any protected operation succeeds.
+    #[error(
+        "cycle {cycle_id:?} lease held by {owner:?} (token={fencing_token}) expired at \
+         {expires_at_ms} (now={now_ms}); re-acquire before retrying"
+    )]
+    LeaseExpired {
+        /// Contended cycle identifier.
+        cycle_id: String,
+        /// Persisted lease owner.
+        owner: String,
+        /// Persisted fencing token.
+        fencing_token: i64,
+        /// Persisted lease expiry in Unix milliseconds.
+        expires_at_ms: i64,
+        /// Caller-supplied current time in Unix milliseconds.
+        now_ms: i64,
     },
     /// Lease times do not define a positive interval.
     #[error("lease expiry must be greater than acquisition time")]
@@ -391,11 +410,19 @@ impl Storage {
     }
 
     /// Replaces a cycle snapshot and appends its causal event atomically.
+    ///
+    /// When `release_lease_on_phase_change` is `true`, the method also
+    /// deletes the `cycles_lease` row and appends a `lease.released` ledger
+    /// event inside the same transaction. The caller (typically
+    /// `Engine::apply_transition`) opts in only when the transition changes
+    /// the cycle's `phase` and the outcome is `Succeeded`; on rollback both
+    /// the cycle update and the lease release are discarded.
     pub fn update_cycle_with_event(
         &mut self,
         manifest: &CycleManifest,
         updated_at: &str,
         event: &LedgerEventInput,
+        release_lease_on_phase_change: bool,
     ) -> Result<LedgerEvent> {
         ensure_event_scope(manifest, event)?;
         let transaction = self
@@ -424,6 +451,36 @@ impl Storage {
             return Err(not_found("cycle", &manifest.cycle_id));
         }
         let appended = append_event_on(&transaction, event)?;
+        if release_lease_on_phase_change {
+            let deleted = transaction
+                .execute(
+                    "DELETE FROM cycle_leases WHERE cycle_id = ?1",
+                    [&manifest.cycle_id],
+                )
+                .map_err(StorageError::from)?;
+            if deleted > 0 {
+                let release_event = LedgerEventInput {
+                    event_id: format!(
+                        "evt-lease-released-{}",
+                        uuid::Uuid::new_v4().hyphenated()
+                    ),
+                    project_id: manifest.project_id.clone(),
+                    cycle_id: Some(manifest.cycle_id.clone()),
+                    frame_id: event.frame_id.clone(),
+                    command_id: event.command_id.clone(),
+                    actor: event.actor.clone(),
+                    event_type: "lease.released".to_owned(),
+                    occurred_at: event.occurred_at.clone(),
+                    state_before: None,
+                    state_after: None,
+                    payload: json!({
+                        "cycle_id": manifest.cycle_id,
+                        "released_at_ms": updated_at,
+                    }),
+                };
+                append_event_on(&transaction, &release_event)?;
+            }
+        }
         transaction.commit()?;
         Ok(appended)
     }
@@ -496,12 +553,17 @@ impl Storage {
         Ok(())
     }
 
-    /// Verifies that the current lease still matches the caller's fencing token.
+    /// Verifies that the current lease still matches the caller's fencing
+    /// token and has not expired at `now_ms`. A lease whose
+    /// `expires_at_ms <= now_ms` is rejected with [`StorageError::LeaseExpired`]
+    /// even when the owner and fencing token match, so that protected
+    /// operations fail-closed once the lease instant has elapsed.
     pub fn verify_cycle_lease(
         &self,
         cycle_id: &str,
         owner: &str,
         fencing_token: i64,
+        now_ms: i64,
     ) -> Result<CycleLease> {
         let lease = self
             .get_cycle_lease_on_optional(cycle_id)?
@@ -511,6 +573,15 @@ impl Storage {
                 cycle_id: cycle_id.to_owned(),
                 owner: lease.owner,
                 expires_at_ms: lease.expires_at_ms,
+            });
+        }
+        if lease.expires_at_ms <= now_ms {
+            return Err(StorageError::LeaseExpired {
+                cycle_id: cycle_id.to_owned(),
+                owner: lease.owner,
+                fencing_token: lease.fencing_token,
+                expires_at_ms: lease.expires_at_ms,
+                now_ms,
             });
         }
         Ok(lease)
@@ -1322,6 +1393,7 @@ impl sddk_domain::SddkErrorCode for StorageError {
             Self::InvalidReceiptBegin => "STORAGE_INVALID_RECEIPT_BEGIN",
             Self::TerminalReceipt { .. } => "STORAGE_TERMINAL_RECEIPT",
             Self::LeaseConflict { .. } => "STORAGE_LEASE_CONFLICT",
+            Self::LeaseExpired { .. } => "STORAGE_LEASE_EXPIRED",
             Self::LeaseNotRenewable { .. } => "STORAGE_LEASE_NOT_RENEWABLE",
             Self::InvalidLease => "STORAGE_INVALID_LEASE",
             Self::EventScopeMismatch => "STORAGE_EVENT_SCOPE_MISMATCH",
@@ -1343,6 +1415,9 @@ impl sddk_domain::SddkErrorCode for StorageError {
             Self::InvalidReceiptBegin => "begin capability receipts in the started status",
             Self::TerminalReceipt { .. } => "do not finalize a receipt that is already terminal",
             Self::LeaseConflict { .. } => "wait for the lease to expire or release it first",
+            Self::LeaseExpired { .. } => {
+                "re-acquire the lease with `acquire`; an expired lease cannot be renewed"
+            }
             Self::LeaseNotRenewable { .. } => {
                 "call `renew` with the exact (owner, fencing_token) returned by the prior \
                  `acquire` or `renew`; release and reacquire if you need a new token"

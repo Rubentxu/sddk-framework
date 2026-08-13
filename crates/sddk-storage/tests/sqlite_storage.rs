@@ -311,7 +311,7 @@ fn renew_cycle_lease_extends_expiry_preserving_token() {
     assert_eq!(renewed.acquired_at_ms, 1_000);
 
     let verified = storage
-        .verify_cycle_lease(&cycle.manifest.cycle_id, "runtime-a", 1)
+        .verify_cycle_lease(&cycle.manifest.cycle_id, "runtime-a", 1, 1_500)
         .unwrap();
     assert_eq!(verified.expires_at_ms, 5_000);
 }
@@ -332,7 +332,7 @@ fn renew_cycle_lease_fails_with_wrong_owner() {
     ));
 
     let verified = storage
-        .verify_cycle_lease(&cycle.manifest.cycle_id, "runtime-a", 1)
+        .verify_cycle_lease(&cycle.manifest.cycle_id, "runtime-a", 1, 1_500)
         .unwrap();
     assert_eq!(verified.expires_at_ms, 2_000);
 }
@@ -351,6 +351,60 @@ fn renew_cycle_lease_fails_with_stale_fencing_token() {
         error,
         StorageError::LeaseNotRenewable { current_fencing_token: 1, .. }
     ));
+}
+
+// REQ-FSI-001: lease fence rejects expired leases deterministically.
+#[test]
+fn verify_rejects_expired_lease_returns_lease_expired() {
+    let (mut storage, cycle) = storage_with_cycle();
+    storage
+        .acquire_cycle_lease(&cycle.manifest.cycle_id, "runtime-a", 1_000, 2_000)
+        .unwrap();
+
+    // `now_ms` exactly equal to the expiry instant must already reject
+    // (fail-closed, see design §8).
+    let err = storage
+        .verify_cycle_lease(&cycle.manifest.cycle_id, "runtime-a", 1, 2_000)
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        StorageError::LeaseExpired { ref owner, fencing_token: 1, expires_at_ms: 2_000, now_ms: 2_000, .. } if owner == "runtime-a"
+    ));
+
+    // Past the expiry instant also rejects.
+    let err = storage
+        .verify_cycle_lease(&cycle.manifest.cycle_id, "runtime-a", 1, 9_999)
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        StorageError::LeaseExpired { now_ms: 9_999, .. }
+    ));
+}
+
+#[test]
+fn verify_accepts_unexpired_lease_returns_ok() {
+    let (mut storage, cycle) = storage_with_cycle();
+    storage
+        .acquire_cycle_lease(&cycle.manifest.cycle_id, "runtime-a", 1_000, 5_000)
+        .unwrap();
+    let verified = storage
+        .verify_cycle_lease(&cycle.manifest.cycle_id, "runtime-a", 1, 4_999)
+        .unwrap();
+    assert_eq!(verified.expires_at_ms, 5_000);
+}
+
+#[test]
+fn reacquire_after_expiry_preserves_acquire_semantics() {
+    let (mut storage, cycle) = storage_with_cycle();
+    storage
+        .acquire_cycle_lease(&cycle.manifest.cycle_id, "runtime-a", 1_000, 2_000)
+        .unwrap();
+    // After expiry, a different agent can still acquire (existing semantic).
+    let second = storage
+        .acquire_cycle_lease(&cycle.manifest.cycle_id, "runtime-b", 2_500, 4_000)
+        .unwrap();
+    assert_eq!(second.fencing_token, 2);
+    assert_eq!(second.owner, "runtime-b");
 }
 
 #[test]
@@ -420,7 +474,7 @@ fn failed_event_append_rolls_back_cycle_state_update() {
     };
 
     assert!(matches!(
-        storage.update_cycle_with_event(&blocked, "2026-08-03T12:01:00Z", &duplicate_event),
+        storage.update_cycle_with_event(&blocked, "2026-08-03T12:01:00Z", &duplicate_event, false),
         Err(StorageError::Database(_))
     ));
     assert_eq!(

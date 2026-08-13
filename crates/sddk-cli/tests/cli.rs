@@ -861,6 +861,8 @@ fn cli_walks_cycle_with_fencing_and_rebuilds_state() {
         "exploration-sufficient",
         "--evaluator",
         "sddk.cli",
+        "--outcome",
+        "passed",
         "--evidence",
         r#"{"checked": true}"#,
         "--timestamp",
@@ -957,7 +959,11 @@ fn cli_walks_cycle_with_fencing_and_rebuilds_state() {
     ]);
     assert!(verified.status.success());
     let verify_json: serde_json::Value = serde_json::from_slice(&verified.stdout).unwrap();
-    assert_eq!(verify_json["event_count"], 2);
+    // The explore→specify phase change auto-releases the lease in the same
+    // transaction, which now emits a `lease.released` event. The total
+    // expected event count is therefore 3 (cycle.created + cycle.transitioned
+    // + lease.released).
+    assert_eq!(verify_json["event_count"], 3);
 
     let events = fixture.run(&[
         "ledger",
@@ -973,7 +979,11 @@ fn cli_walks_cycle_with_fencing_and_rebuilds_state() {
     ]);
     assert!(events.status.success());
     let events_json: serde_json::Value = serde_json::from_slice(&events.stdout).unwrap();
-    assert_eq!(events_json.as_array().unwrap().len(), 2);
+    // After REQ-FSI-003 the explore→specify phase change emits a
+    // `lease.released` event in the same transaction, so the total event
+    // count is 3 (cycle.created + cycle.transitioned + lease.released) and
+    // the auto-release event shares the same frame as the transition.
+    assert_eq!(events_json.as_array().unwrap().len(), 3);
     let frames = events_json
         .as_array()
         .unwrap()
@@ -981,6 +991,33 @@ fn cli_walks_cycle_with_fencing_and_rebuilds_state() {
         .map(|event| event["frame_id"].as_str().unwrap())
         .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(frames.len(), 2);
+
+    // REQ-FSI-004: rebuild now requires an unexpired lease. The previous
+    // phase change auto-released the lease; we acquire a fresh one.
+    let acquired = fixture.run(&[
+        "cycle",
+        "lock",
+        "acquire",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--cycle",
+        &cycle_id,
+        "--owner",
+        "agent-a",
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        acquired.status.success(),
+        "{}",
+        String::from_utf8_lossy(&acquired.stderr)
+    );
 
     let rebuilt = fixture.run(&[
         "cycle",
@@ -993,10 +1030,20 @@ fn cli_walks_cycle_with_fencing_and_rebuilds_state() {
         "https://example.com/acme/repo.git",
         "--cycle",
         &cycle_id,
+        "--lease-owner",
+        "agent-a",
+        "--fencing-token",
+        "1",
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
         "--format",
         "json",
     ]);
-    assert!(rebuilt.status.success());
+    assert!(
+        rebuilt.status.success(),
+        "{}",
+        String::from_utf8_lossy(&rebuilt.stderr)
+    );
     let rebuild_json: serde_json::Value = serde_json::from_slice(&rebuilt.stdout).unwrap();
     assert_eq!(rebuild_json["restored"], false);
     assert_eq!(rebuild_json["phase"], "specify");
@@ -1640,6 +1687,8 @@ fn cli_closing_cycle_auto_captures_metrics_record() {
             gate,
             "--evaluator",
             "sddk.cli",
+            "--outcome",
+            "passed",
             "--evidence",
             evidence,
             "--timestamp",
@@ -1651,6 +1700,71 @@ fn cli_closing_cycle_auto_captures_metrics_record() {
         ])
     };
     let transition = |transition: &str, artifacts: &[&str], receipts: &[&str]| {
+        // Phase-changing transitions auto-release the lease in the same
+        // transaction (REQ-FSI-003). The lease lifecycle (per the updated
+        // orchestrator policy) is: try `renew` first (preserves the fencing
+        // token), and if the lease is absent — e.g. the prior transition
+        // released it — fall back to `acquire`, which starts a fresh token
+        // at 1.
+        let renew = fixture.run(&[
+            "cycle",
+            "lock",
+            "renew",
+            "--root",
+            fixture.root.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            remote,
+            "--cycle",
+            &cycle_id,
+            "--owner",
+            "agent-a",
+            "--fencing-token",
+            "1",
+            "--lease-ms",
+            "3600000",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--format",
+            "json",
+        ]);
+        let token: i64 = if renew.status.success() {
+            1
+        } else {
+            // The prior phase change auto-released the lease; acquire a new
+            // one. Reacquire semantics bump the fencing token, so we look
+            // it up from the response to keep the test self-consistent.
+            let acquire = fixture.run(&[
+                "cycle",
+                "lock",
+                "acquire",
+                "--root",
+                fixture.root.to_str().unwrap(),
+                "--scope",
+                ".",
+                "--remote",
+                remote,
+                "--cycle",
+                &cycle_id,
+                "--owner",
+                "agent-a",
+                "--lease-ms",
+                "3600000",
+                "--timestamp",
+                "2026-08-04T10:00:00Z",
+                "--format",
+                "json",
+            ]);
+            assert!(
+                acquire.status.success(),
+                "lock.acquire failed: {}",
+                String::from_utf8_lossy(&acquire.stderr)
+            );
+            let json: serde_json::Value = serde_json::from_slice(&acquire.stdout).unwrap();
+            json["fencing_token"].as_i64().unwrap_or(1)
+        };
+        let token_str = token.to_string();
         let mut args = vec![
             "cycle",
             "transition",
@@ -1667,7 +1781,7 @@ fn cli_closing_cycle_auto_captures_metrics_record() {
             "--lease-owner",
             "agent-a",
             "--fencing-token",
-            "1",
+            &token_str,
             "--timestamp",
             "2026-08-04T10:00:00Z",
             "--actor",
@@ -4176,6 +4290,8 @@ agents:
             "phase.explore.complete",
             "--gate",
             "exploration-sufficient",
+            "--outcome",
+            "passed",
             "--timestamp",
             "2026-08-04T10:00:01Z",
             "--actor",
