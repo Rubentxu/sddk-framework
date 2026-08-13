@@ -269,14 +269,140 @@ fn uniqueness_and_lease_conflicts_are_enforced() {
     );
     assert!(
         !storage
-            .release_cycle_lease(&cycle.manifest.cycle_id, "runtime-a", 1)
+            .release_cycle_lease(
+                "project-1",
+                &cycle.manifest.cycle_id,
+                "runtime-a",
+                1,
+                "tester",
+                "command-1",
+                "2026-08-13T15:00:00Z",
+            )
             .unwrap()
     );
     assert!(
         storage
-            .release_cycle_lease(&cycle.manifest.cycle_id, "runtime-b", 2)
+            .release_cycle_lease(
+                "project-1",
+                &cycle.manifest.cycle_id,
+                "runtime-b",
+                2,
+                "tester",
+                "command-2",
+                "2026-08-13T15:00:01Z",
+            )
             .unwrap()
     );
+}
+
+#[test]
+fn renew_cycle_lease_extends_expiry_preserving_token() {
+    let (mut storage, cycle) = storage_with_cycle();
+    let first = storage
+        .acquire_cycle_lease(&cycle.manifest.cycle_id, "runtime-a", 1_000, 2_000)
+        .unwrap();
+    assert_eq!(first.fencing_token, 1);
+
+    let renewed = storage
+        .renew_cycle_lease(&cycle.manifest.cycle_id, "runtime-a", 1, 1_500, 5_000)
+        .unwrap();
+    assert_eq!(renewed.fencing_token, 1);
+    assert_eq!(renewed.expires_at_ms, 5_000);
+    assert_eq!(renewed.acquired_at_ms, 1_000);
+
+    let verified = storage
+        .verify_cycle_lease(&cycle.manifest.cycle_id, "runtime-a", 1)
+        .unwrap();
+    assert_eq!(verified.expires_at_ms, 5_000);
+}
+
+#[test]
+fn renew_cycle_lease_fails_with_wrong_owner() {
+    let (mut storage, cycle) = storage_with_cycle();
+    storage
+        .acquire_cycle_lease(&cycle.manifest.cycle_id, "runtime-a", 1_000, 2_000)
+        .unwrap();
+
+    let error = storage
+        .renew_cycle_lease(&cycle.manifest.cycle_id, "runtime-b", 1, 1_500, 5_000)
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        StorageError::LeaseNotRenewable { ref current_owner, .. } if current_owner == "runtime-a"
+    ));
+
+    let verified = storage
+        .verify_cycle_lease(&cycle.manifest.cycle_id, "runtime-a", 1)
+        .unwrap();
+    assert_eq!(verified.expires_at_ms, 2_000);
+}
+
+#[test]
+fn renew_cycle_lease_fails_with_stale_fencing_token() {
+    let (mut storage, cycle) = storage_with_cycle();
+    storage
+        .acquire_cycle_lease(&cycle.manifest.cycle_id, "runtime-a", 1_000, 2_000)
+        .unwrap();
+
+    let error = storage
+        .renew_cycle_lease(&cycle.manifest.cycle_id, "runtime-a", 99, 1_500, 5_000)
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        StorageError::LeaseNotRenewable { current_fencing_token: 1, .. }
+    ));
+}
+
+#[test]
+fn release_cycle_lease_writes_lease_released_event() {
+    let (mut storage, cycle) = storage_with_cycle();
+    storage
+        .acquire_cycle_lease(&cycle.manifest.cycle_id, "runtime-a", 1_000, 2_000)
+        .unwrap();
+
+    let released = storage
+        .release_cycle_lease(
+            "project-1",
+            &cycle.manifest.cycle_id,
+            "runtime-a",
+            1,
+            "tester-1",
+            "cycle.lock.release-1",
+            "2026-08-13T15:00:00Z",
+        )
+        .unwrap();
+    assert!(released);
+
+    let events = storage.list_events().unwrap();
+    let event = events
+        .iter()
+        .find(|event| event.event_type == "lease.released")
+        .expect("lease.released event must be appended");
+    assert_eq!(event.actor, "tester-1");
+    assert_eq!(event.command_id, "cycle.lock.release-1");
+    assert_eq!(event.frame_id, "frame:cycle.lock.release-1");
+    assert_eq!(
+        event.payload,
+        json!({
+            "cycle_id": cycle.manifest.cycle_id.as_str(),
+            "owner": "runtime-a",
+            "fencing_token": 1,
+            "actor": "tester-1",
+        })
+    );
+
+    let miss = storage
+        .release_cycle_lease(
+            "project-1",
+            &cycle.manifest.cycle_id,
+            "runtime-a",
+            1,
+            "tester-1",
+            "cycle.lock.release-2",
+            "2026-08-13T15:00:01Z",
+        )
+        .unwrap();
+    assert!(!miss);
 }
 
 #[test]

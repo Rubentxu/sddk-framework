@@ -1026,6 +1026,104 @@ fn cli_walks_cycle_with_fencing_and_rebuilds_state() {
 }
 
 #[test]
+fn cli_cycle_lock_renew_extends_lease_keeping_token() {
+    let fixture = CliFixture::new("cycle-lock-renew");
+
+    let adopted = fixture.run_adopt(
+        "apply",
+        &[
+            "--root",
+            fixture.root.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            "https://example.com/acme/repo.git",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(
+        adopted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&adopted.stderr)
+    );
+
+    let started = fixture.run(&[
+        "cycle",
+        "start",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--name",
+        "add-renew",
+        "--path",
+        "a-full",
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+        "--lease-owner",
+        "agent-a",
+        "--lease-ms",
+        "3600000",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        started.status.success(),
+        "{}",
+        String::from_utf8_lossy(&started.stderr)
+    );
+    let started_json: serde_json::Value = serde_json::from_slice(&started.stdout).unwrap();
+    let cycle_id = started_json["cycle_id"].as_str().unwrap().to_owned();
+    assert_eq!(started_json["lease"]["fencing_token"], 1);
+
+    let renewed = fixture.run(&[
+        "cycle",
+        "lock",
+        "renew",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--cycle",
+        &cycle_id,
+        "--owner",
+        "agent-a",
+        "--fencing-token",
+        "1",
+        "--lease-ms",
+        "3600000",
+        "--timestamp",
+        "2026-08-04T10:30:00Z",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        renewed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&renewed.stderr)
+    );
+    let renewed_json: serde_json::Value = serde_json::from_slice(&renewed.stdout).unwrap();
+    assert_eq!(renewed_json["fencing_token"], 1);
+    let now_ms: i64 = 1_785_839_400_000; // 2026-08-04T10:30:00Z
+    assert_eq!(
+        renewed_json["expires_at_ms"].as_i64().unwrap(),
+        now_ms + 3_600_000
+    );
+    assert_eq!(renewed_json["owner"], "agent-a");
+}
+
+#[test]
 fn cli_capability_gateway_enforces_policy_and_persists_receipts() {
     let fixture = CliFixture::new("capability-gateway");
     write(

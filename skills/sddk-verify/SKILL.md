@@ -218,6 +218,8 @@ When the project is adopted (`sddk cycle status --root . --scope .` exits 0), re
 
 A failed evaluate-gate or transition is a BLOCKER: report it in the envelope and do not proceed. `{cycle_id}`, `{lease_owner}`, `{fencing_token}` come from the orchestrator launch prompt (the cycle is opened with `sddk cycle start`). Full protocol: `skills/_shared/persistence-contract.md` → CLI Ledger Channel.
 
+> When a long phase approaches the lease expiry, call `sddk cycle lock renew` (not `acquire`) so the fencing token you already passed to sub-agents stays valid.
+
 ## References
 
 - `prompts/sddk/phases/verify.md` — full phase spec

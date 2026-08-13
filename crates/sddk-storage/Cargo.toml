@@ -17,6 +17,7 @@ thiserror = { workspace = true }
 rusqlite = { workspace = true }
 sha2 = { workspace = true }
 sddk-domain = { path = "../sddk-domain" }
+uuid = { workspace = true }
 
 [dev-dependencies]
 proptest = "1.11"

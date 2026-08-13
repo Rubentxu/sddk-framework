@@ -76,6 +76,20 @@ pub enum StorageError {
     /// Lease times do not define a positive interval.
     #[error("lease expiry must be greater than acquisition time")]
     InvalidLease,
+    /// A `renew` was attempted for a lease that the caller does not hold.
+    #[error(
+        "cycle {cycle_id:?} lease is not renewable: persisted owner={current_owner:?} \
+         persisted fencing_token={current_fencing_token}; pass --fencing-token if you \
+         actually hold the current lease"
+    )]
+    LeaseNotRenewable {
+        /// Contended cycle identifier.
+        cycle_id: String,
+        /// Currently persisted lease owner (empty when the row is absent).
+        current_owner: String,
+        /// Currently persisted fencing token (zero when the row is absent).
+        current_fencing_token: i64,
+    },
     /// Cycle state and event input refer to different cycles or projects.
     #[error("cycle state and ledger event identifiers do not match")]
     EventScopeMismatch,
@@ -762,18 +776,103 @@ impl Storage {
         Ok(get_cycle_lease_on(&self.connection, cycle_id).optional()?)
     }
 
-    /// Releases a cycle lease only when owner and fencing token still match.
-    pub fn release_cycle_lease(
-        &self,
+    /// Extends the expiry of the lease you already hold without changing the
+    /// fencing token (reuse / renew semantics).
+    pub fn renew_cycle_lease(
+        &mut self,
         cycle_id: &str,
         owner: &str,
         fencing_token: i64,
+        now_ms: i64,
+        new_expires_at_ms: i64,
+    ) -> Result<CycleLease> {
+        if now_ms < 0 || new_expires_at_ms <= now_ms {
+            return Err(StorageError::InvalidLease);
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let existing = match get_cycle_lease_on(&transaction, cycle_id).optional()? {
+            Some(lease) => lease,
+            None => {
+                return Err(StorageError::LeaseNotRenewable {
+                    cycle_id: cycle_id.to_owned(),
+                    current_owner: String::new(),
+                    current_fencing_token: 0,
+                });
+            }
+        };
+        if existing.owner != owner || existing.fencing_token != fencing_token {
+            return Err(StorageError::LeaseNotRenewable {
+                cycle_id: cycle_id.to_owned(),
+                current_owner: existing.owner,
+                current_fencing_token: existing.fencing_token,
+            });
+        }
+        transaction.execute(
+            "UPDATE cycle_leases SET expires_at_ms = ?2 WHERE cycle_id = ?1",
+            params![cycle_id, new_expires_at_ms],
+        )?;
+        transaction.commit()?;
+        Ok(CycleLease {
+            cycle_id: cycle_id.to_owned(),
+            owner: owner.to_owned(),
+            acquired_at_ms: existing.acquired_at_ms,
+            expires_at_ms: new_expires_at_ms,
+            fencing_token,
+        })
+    }
+
+    /// Releases a cycle lease only when owner and fencing token still match.
+    ///
+    /// When the delete removes one row, appends a `lease.released` ledger
+    /// event in the same transaction. Returns `true` iff the event was
+    /// appended.
+    #[allow(clippy::too_many_arguments)]
+    pub fn release_cycle_lease(
+        &mut self,
+        project_id: &str,
+        cycle_id: &str,
+        owner: &str,
+        fencing_token: i64,
+        actor: &str,
+        command_id: &str,
+        occurred_at: &str,
     ) -> Result<bool> {
-        Ok(self.connection.execute(
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let changes = transaction.execute(
             "DELETE FROM cycle_leases
              WHERE cycle_id = ?1 AND owner = ?2 AND fencing_token = ?3",
             params![cycle_id, owner, fencing_token],
-        )? == 1)
+        )?;
+        if changes == 0 {
+            transaction.commit()?;
+            return Ok(false);
+        }
+        let payload = serde_json::json!({
+            "cycle_id": cycle_id,
+            "owner": owner,
+            "fencing_token": fencing_token,
+            "actor": actor,
+        });
+        let event = LedgerEventInput {
+            event_id: format!("evt-{}", uuid::Uuid::new_v4().hyphenated()),
+            project_id: project_id.to_owned(),
+            cycle_id: Some(cycle_id.to_owned()),
+            frame_id: format!("frame:{command_id}"),
+            command_id: command_id.to_owned(),
+            actor: actor.to_owned(),
+            event_type: "lease.released".to_owned(),
+            occurred_at: occurred_at.to_owned(),
+            state_before: None,
+            state_after: None,
+            payload,
+        };
+        append_event_on(&transaction, &event)?;
+        transaction.commit()?;
+        Ok(true)
     }
 
     /// Persists one authorized gate evaluation receipt.
@@ -1223,6 +1322,7 @@ impl sddk_domain::SddkErrorCode for StorageError {
             Self::InvalidReceiptBegin => "STORAGE_INVALID_RECEIPT_BEGIN",
             Self::TerminalReceipt { .. } => "STORAGE_TERMINAL_RECEIPT",
             Self::LeaseConflict { .. } => "STORAGE_LEASE_CONFLICT",
+            Self::LeaseNotRenewable { .. } => "STORAGE_LEASE_NOT_RENEWABLE",
             Self::InvalidLease => "STORAGE_INVALID_LEASE",
             Self::EventScopeMismatch => "STORAGE_EVENT_SCOPE_MISMATCH",
             Self::RegistrationConflict { .. } => "STORAGE_REGISTRATION_CONFLICT",
@@ -1243,6 +1343,10 @@ impl sddk_domain::SddkErrorCode for StorageError {
             Self::InvalidReceiptBegin => "begin capability receipts in the started status",
             Self::TerminalReceipt { .. } => "do not finalize a receipt that is already terminal",
             Self::LeaseConflict { .. } => "wait for the lease to expire or release it first",
+            Self::LeaseNotRenewable { .. } => {
+                "call `renew` with the exact (owner, fencing_token) returned by the prior \
+                 `acquire` or `renew`; release and reacquire if you need a new token"
+            }
             Self::InvalidLease => "provide an expiry later than the acquisition time",
             Self::EventScopeMismatch => "match the event scope to the cycle or project",
             Self::RegistrationConflict { .. } => "keep the existing identity data consistent",

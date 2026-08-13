@@ -204,6 +204,28 @@ fn lease_fencing_blocks_stale_holders_and_expired_reacquire_bumps_token() {
 }
 
 #[test]
+fn renew_cycle_lease_keeps_token_valid_for_require_lease_fence() {
+    let (mut storage, mut engine) = setup();
+
+    start_cycle(&mut engine, "evt-renew-1");
+
+    let lease = storage
+        .acquire_cycle_lease("cycle-1", "agent-a", 1_000, 2_000)
+        .unwrap();
+    assert_eq!(lease.fencing_token, 1);
+
+    let renewed = storage
+        .renew_cycle_lease("cycle-1", "agent-a", 1, 1_500, 5_000)
+        .unwrap();
+    assert_eq!(renewed.fencing_token, 1);
+    assert_eq!(renewed.expires_at_ms, 5_000);
+
+    let fenced = engine.require_lease_fence("cycle-1", "agent-a", 1).unwrap();
+    assert_eq!(fenced.fencing_token, 1);
+    assert_eq!(fenced.expires_at_ms, 5_000);
+}
+
+#[test]
 fn rebuild_restores_missing_snapshot_without_appending_events() {
     let (storage, mut engine) = setup();
 

@@ -862,6 +862,12 @@ no user prompt, no skip. Only after `sddk-release` returns `status=success` does
 the cycle move to `RELEASED`/`archive`, where `sddk-archive` closes the cycle by
 producing the `archive-manifest`. This is policy, not preference.
 
+> Distinguish **reuse / renew** (`sddk cycle lock renew`, same token, extends
+> expiry) from **reacquire** (`sddk cycle lock acquire`, replaces when the lease
+> has expired, bumps token). Never reuse an `acquire` call to extend a live
+> lease — that would silently invalidate the fencing token distributed to every
+> other invocation site.
+
 **Why mandatory in that order:** Phase 3 (`sddk-release`) is the only component
 that proves the completed work is on trunk and marked by a release tag. It is
 owned by one agent (`sddk-release`) so the local Git postconditions are applied

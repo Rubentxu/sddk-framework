@@ -269,9 +269,11 @@ pub(crate) struct CycleEvaluateGateArgs {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum CycleLockCommand {
-    /// Acquire an absent or expired lease, bumping the fencing token.
+    /// Acquire an absent or expired lease; replaces bump the fencing token (reacquire semantics).
     Acquire(CycleLockAcquireArgs),
-    /// Release the lease only when owner and fencing token match.
+    /// Extend the expiry of the lease you already hold; keeps the fencing token (reuse / renew semantics).
+    Renew(CycleLockRenewArgs),
+    /// Release the lease you hold; emits a `lease.released` ledger event when the row is actually deleted.
     Release(CycleLockReleaseArgs),
     /// Show the current lease.
     Status(CycleLockStatusArgs),
@@ -299,6 +301,30 @@ pub(crate) struct CycleLockAcquireArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+pub(crate) struct CycleLockRenewArgs {
+    #[command(flatten)]
+    pub(crate) runtime: RuntimeArgs,
+    /// Cycle identifier.
+    #[arg(long)]
+    pub(crate) cycle: String,
+    /// Lease owner.
+    #[arg(long)]
+    pub(crate) owner: String,
+    /// Fencing token currently held by the caller.
+    #[arg(long)]
+    pub(crate) fencing_token: i64,
+    /// Lease duration in milliseconds.
+    #[arg(long, default_value_t = 3_600_000)]
+    pub(crate) lease_ms: i64,
+    /// Explicit RFC 3339 timestamp for deterministic execution.
+    #[arg(long)]
+    pub(crate) timestamp: Option<String>,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
+}
+
+#[derive(Debug, Clone, Args)]
 pub(crate) struct CycleLockReleaseArgs {
     #[command(flatten)]
     pub(crate) runtime: RuntimeArgs,
@@ -311,6 +337,9 @@ pub(crate) struct CycleLockReleaseArgs {
     /// Fencing token issued at acquisition.
     #[arg(long)]
     pub(crate) fencing_token: i64,
+    /// Explicit actor for deterministic execution.
+    #[arg(long)]
+    pub(crate) actor: Option<String>,
     /// Output format.
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     pub(crate) format: OutputFormat,
@@ -617,6 +646,7 @@ fn artifacts_dir_text(output: &ArtifactsDirOutput) -> String {
 fn run_cycle_lock(command: CycleLockCommand, environment: &CliEnvironment) -> CommandOutput {
     match command {
         CycleLockCommand::Acquire(args) => run_cycle_lock_acquire(args, environment),
+        CycleLockCommand::Renew(args) => run_cycle_lock_renew(args, environment),
         CycleLockCommand::Release(args) => run_cycle_lock_release(args, environment),
         CycleLockCommand::Status(args) => run_cycle_lock_status(args, environment),
     }
@@ -641,17 +671,49 @@ fn run_cycle_lock_acquire(
     render_result(result, format, lease_text)
 }
 
+fn run_cycle_lock_renew(
+    args: CycleLockRenewArgs,
+    environment: &CliEnvironment,
+) -> CommandOutput {
+    let format = args.format;
+    let result = (|| -> anyhow::Result<LeaseOutput> {
+        let mut context = RuntimeContext::open(&args.runtime, environment, false)?;
+        let now_ms = timestamp_ms(args.timestamp.as_deref())?;
+        let lease = context.storage.renew_cycle_lease(
+            &args.cycle,
+            &args.owner,
+            args.fencing_token,
+            now_ms,
+            now_ms + args.lease_ms,
+        )?;
+        Ok(LeaseOutput::from(lease))
+    })();
+    render_result(result, format, lease_text)
+}
+
 fn run_cycle_lock_release(
     args: CycleLockReleaseArgs,
     environment: &CliEnvironment,
 ) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<CycleLockReleaseOutput> {
-        let context = RuntimeContext::open(&args.runtime, environment, false)?;
-        let released =
-            context
-                .storage
-                .release_cycle_lease(&args.cycle, &args.owner, args.fencing_token)?;
+        let mut context = RuntimeContext::open(&args.runtime, environment, false)?;
+        let command_id = format!("cycle.lock.release-{}", Uuid::new_v4().hyphenated());
+        let actor = args
+            .actor
+            .clone()
+            .or_else(|| environment.sddk_actor.clone())
+            .or_else(|| environment.user.clone())
+            .unwrap_or_else(|| "sddk-cli".into());
+        let released = context.storage.release_cycle_lease(
+            context.identity.project_id.as_str(),
+            &args.cycle,
+            &args.owner,
+            args.fencing_token,
+            &actor,
+            &command_id,
+            &default_timestamp(),
+        )?;
         Ok(CycleLockReleaseOutput { released })
     })();
     render_result(result, format, cycle_lock_release_text)
