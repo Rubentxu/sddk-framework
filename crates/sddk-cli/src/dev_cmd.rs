@@ -522,10 +522,30 @@ fn run_dev_install(args: InstallArgs) -> CommandOutput {
         let binary = std::env::current_exe()?;
         let bytes = std::fs::read(&binary)?;
         let digest = format!("sha256:{:x}", Sha256::digest(&bytes));
-        let bin_dir = args.prefix.join("bin");
-        std::fs::create_dir_all(&bin_dir)?;
-        let destination = bin_dir.join("sddk");
-        atomic_write(&destination, &bytes)?;
+        // Routing: if the prefix already terminates in `/bin`, install the
+        // binary directly under the prefix (no extra `bin/` segment); this
+        // matches the GNU autoconf/CMake convention of `--prefix=/opt/sdk/bin`
+        // meaning "the binary directory". Otherwise nest under `bin/`.
+        let ends_with_bin = args
+            .prefix
+            .file_name()
+            .and_then(|name| name.to_str())
+            == Some("bin");
+        let target_dir = if ends_with_bin {
+            args.prefix.clone()
+        } else {
+            args.prefix.join("bin")
+        };
+        std::fs::create_dir_all(&target_dir)?;
+        let destination = target_dir.join("sddk");
+        // Mode 0o755 BEFORE rename so the binary is born executable — fixes
+        // the chmod-less atomic write that left ELF files at 0644.
+        atomic_write(&destination, &bytes, Some(0o755))?;
+        let binary_path = if ends_with_bin {
+            "sddk".to_owned()
+        } else {
+            "bin/sddk".to_owned()
+        };
 
         let receipt = InstallReceipt {
             version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -538,12 +558,13 @@ fn run_dev_install(args: InstallArgs) -> CommandOutput {
             installed_at: args
                 .timestamp
                 .unwrap_or_else(crate::git_cmd::default_timestamp),
-            binary_path: "bin/sddk".to_owned(),
+            binary_path,
         };
         let receipt_path = args.prefix.join(RECEIPT_FILE);
         atomic_write(
             &receipt_path,
             serde_json::to_string_pretty(&receipt)?.as_bytes(),
+            None,
         )?;
         Ok(receipt)
     })();
@@ -659,7 +680,7 @@ fn tool_version(tool: &str) -> anyhow::Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
-fn atomic_write(destination: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+fn atomic_write(destination: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Result<()> {
     use std::io::Write;
     let parent = destination.parent().expect("destination has a parent");
     std::fs::create_dir_all(parent)?;
@@ -676,10 +697,19 @@ fn atomic_write(destination: &Path, bytes: &[u8]) -> anyhow::Result<()> {
             .open(&temporary)
         {
             Ok(mut file) => {
-                let result = (|| {
+                let result = (|| -> std::io::Result<()> {
                     file.write_all(bytes)?;
                     file.sync_all()?;
                     drop(file);
+                    // chmod BEFORE rename so the destination is born with
+                    // the requested mode (no 0644 window). Unix-only.
+                    #[cfg(unix)]
+                    {
+                        if let Some(bits) = mode {
+                            use std::os::unix::fs::PermissionsExt;
+                            std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(bits))?;
+                        }
+                    }
                     std::fs::rename(&temporary, destination)
                 })();
                 if let Err(source) = result {
@@ -1085,7 +1115,7 @@ fn write_manifest(root: &Path) -> anyhow::Result<usize> {
     let entries = manifest_entries(root)?;
     let content = manifest_lines(&entries);
     let target = root.join(MANIFEST_FILE);
-    atomic_write(&target, content.as_bytes())?;
+    atomic_write(&target, content.as_bytes(), None)?;
     Ok(entries.len())
 }
 

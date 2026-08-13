@@ -3515,6 +3515,230 @@ fn cli_dev_install_verify_uninstall_are_atomic() {
     );
 }
 
+/// Regression test for INC-003: when `--prefix` already terminates in `/bin`,
+/// the binary must be installed directly under the prefix (no `bin/bin/sddk`
+/// nesting) and the receipt's `binary_path` must match.
+#[test]
+fn cli_dev_install_with_bin_suffix_avoids_nesting_and_uses_executable_mode() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = CliFixture::new("dev-install-bin-suffix");
+    // The prefix itself ends in `/bin` — the user already pointed at the
+    // binary directory (e.g. `--prefix=/opt/sdk/bin`). Nesting again would
+    // produce `bin/bin/sddk`.
+    let prefix = fixture.root.join("opt/sdk/bin");
+    fs::create_dir_all(&prefix).unwrap();
+
+    let installed = run_from([
+        "sddk",
+        "dev",
+        "install",
+        "--prefix",
+        prefix.to_str().unwrap(),
+        "--channel",
+        "dev",
+        "--timestamp",
+        "2026-08-13T10:00:00Z",
+        "--format",
+        "json",
+    ]);
+    assert_eq!(installed.status, 0, "{}", installed.stderr);
+    let installed_json: serde_json::Value = serde_json::from_str(&installed.stdout).unwrap();
+    assert_eq!(installed_json["channel"], "dev");
+
+    // The binary lands at the prefix itself, NOT at prefix/bin/sddk.
+    let binary = prefix.join("sddk");
+    assert!(binary.exists(), "binary must exist at prefix/sddk");
+    assert!(
+        !prefix.join("bin/sddk").exists(),
+        "must not nest to prefix/bin/sddk when prefix already ends in /bin"
+    );
+    assert!(prefix.join("sddk-install.json").exists());
+
+    // Receipt's binary_path must agree with the actual location so that
+    // `dev verify` can resolve it back.
+    assert_eq!(installed_json["binary_path"], "sddk");
+
+    // The binary must be executable (mode 0o755), not the 0644 default that
+    // atomic_write would leave behind without an explicit chmod.
+    let mode = fs::metadata(&binary).unwrap().permissions().mode() & 0o7777;
+    assert_eq!(
+        mode, 0o755,
+        "installed binary must be executable (0o755), got {mode:o}"
+    );
+
+    // Receipt JSON stays at 0644 (it is metadata, not a binary).
+    let receipt_mode = fs::metadata(prefix.join("sddk-install.json"))
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o7777;
+    assert_eq!(receipt_mode, 0o644, "receipt JSON must remain 0o644");
+
+    // `dev verify` resolves binary_path correctly.
+    let verified = run_from([
+        "sddk",
+        "dev",
+        "verify",
+        "--prefix",
+        prefix.to_str().unwrap(),
+        "--format",
+        "json",
+    ]);
+    assert_eq!(verified.status, 0, "{}", verified.stderr);
+    let verified_json: serde_json::Value = serde_json::from_str(&verified.stdout).unwrap();
+    assert_eq!(verified_json["valid"], true);
+    assert_eq!(verified_json["binary_path"], "sddk");
+
+    // Tampering with the binary must invalidate the receipt.
+    let mut bytes = fs::read(&binary).unwrap();
+    bytes[0] ^= 0xFF;
+    fs::write(&binary, &bytes).unwrap();
+    let tampered = run_from([
+        "sddk",
+        "dev",
+        "verify",
+        "--prefix",
+        prefix.to_str().unwrap(),
+    ]);
+    assert_eq!(tampered.status, 1);
+
+    // Reinstall to restore a clean receipt before uninstall (otherwise
+    // uninstall refuses on a mismatched digest, which is the correct
+    // behaviour we just verified above).
+    let reinstalled = run_from([
+        "sddk",
+        "dev",
+        "install",
+        "--prefix",
+        prefix.to_str().unwrap(),
+        "--channel",
+        "dev",
+        "--timestamp",
+        "2026-08-13T10:00:01Z",
+    ]);
+    assert_eq!(reinstalled.status, 0, "{}", reinstalled.stderr);
+
+    // `dev uninstall` removes the binary at the prefix-relative path.
+    let uninstalled = run_from([
+        "sddk",
+        "dev",
+        "uninstall",
+        "--prefix",
+        prefix.to_str().unwrap(),
+    ]);
+    assert_eq!(uninstalled.status, 0, "{}", uninstalled.stderr);
+    assert!(!binary.exists());
+    assert!(!prefix.join("sddk-install.json").exists());
+}
+
+/// Regression test for INC-003 (mode half): the default layout
+/// (`--prefix=/opt/sdk` → `/opt/sdk/bin/sddk`) must also produce an
+/// executable binary, and `dev verify` must round-trip on it.
+#[test]
+fn cli_dev_install_default_layout_is_executable_and_verify_passes() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = CliFixture::new("dev-install-exec-mode");
+    let prefix = fixture.root.join("opt/sdk");
+    fs::create_dir_all(&prefix).unwrap();
+
+    let installed = run_from([
+        "sddk",
+        "dev",
+        "install",
+        "--prefix",
+        prefix.to_str().unwrap(),
+        "--channel",
+        "dev",
+        "--timestamp",
+        "2026-08-13T10:00:00Z",
+        "--format",
+        "json",
+    ]);
+    assert_eq!(installed.status, 0, "{}", installed.stderr);
+    let installed_json: serde_json::Value = serde_json::from_str(&installed.stdout).unwrap();
+
+    let binary = prefix.join("bin/sddk");
+    assert!(binary.exists(), "default layout places binary at prefix/bin/sddk");
+    assert_eq!(installed_json["binary_path"], "bin/sddk");
+
+    let mode = fs::metadata(&binary).unwrap().permissions().mode() & 0o7777;
+    assert_eq!(
+        mode, 0o755,
+        "default-layout binary must be executable (0o755), got {mode:o}"
+    );
+
+    // The newly installed binary must actually run — execve and read version.
+    let output = Command::new(&binary)
+        .arg("version")
+        .env("HOME", &fixture.home)
+        .env("XDG_DATA_HOME", &fixture.data)
+        .env("XDG_STATE_HOME", &fixture.state)
+        .env("XDG_CACHE_HOME", &fixture.cache)
+        .output()
+        .expect("installed binary must be executable");
+    assert!(
+        output.status.success(),
+        "installed binary version must succeed; stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("sddk"),
+        "version output should mention sddk; got {stdout:?}"
+    );
+
+    let verified = run_from([
+        "sddk",
+        "dev",
+        "verify",
+        "--prefix",
+        prefix.to_str().unwrap(),
+        "--format",
+        "json",
+    ]);
+    assert_eq!(verified.status, 0, "{}", verified.stderr);
+    let verified_json: serde_json::Value = serde_json::from_str(&verified.stdout).unwrap();
+    assert_eq!(verified_json["valid"], true);
+}
+
+/// Suffix check is exact-match, not "contains bin": `--prefix=.../bin-extra`
+/// must still nest under `bin/`. This protects the routing rule from being
+/// misimplemented as a substring check.
+#[test]
+fn cli_dev_install_suffix_check_is_exact_match() {
+    let fixture = CliFixture::new("dev-install-suffix-exact");
+    let prefix = fixture.root.join("opt/sdk/bin-extra");
+    fs::create_dir_all(&prefix).unwrap();
+
+    let installed = run_from([
+        "sddk",
+        "dev",
+        "install",
+        "--prefix",
+        prefix.to_str().unwrap(),
+        "--channel",
+        "dev",
+        "--timestamp",
+        "2026-08-13T10:00:00Z",
+        "--format",
+        "json",
+    ]);
+    assert_eq!(installed.status, 0, "{}", installed.stderr);
+    let installed_json: serde_json::Value = serde_json::from_str(&installed.stdout).unwrap();
+
+    let binary = prefix.join("bin/sddk");
+    assert!(
+        binary.exists(),
+        "prefix not exactly 'bin' must still nest under bin/"
+    );
+    assert_eq!(
+        installed_json["binary_path"], "bin/sddk",
+        "receipt must reflect default nesting when suffix is not exactly 'bin'"
+    );
+}
+
 #[test]
 fn cli_release_dist_and_verify_checksums_and_sbom() {
     let fixture = CliFixture::new("release-dist");
