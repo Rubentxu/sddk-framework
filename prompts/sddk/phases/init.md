@@ -25,6 +25,26 @@ Detect the real stack, conventions, architecture, testing tools, and persistence
 | no marker/config but test runner exists | Default `strict_tdd: true` |
 | no test runner | Set `strict_tdd: false` and explain unavailable |
 
+## Knowledge Pipeline Preflight (Optional)
+
+When the launch plan includes `--with-knowledge`, run the knowledge pipeline
+as a preflight check:
+
+```
+scan  →  verify  →  import --approve
+```
+
+| Flag | Behavior |
+|------|----------|
+| `--with-knowledge --approve` | scan → verify → import runs end-to-end |
+| `--with-knowledge` (no `--approve`) | scan → verify runs; import SKIPPED with "approval required" |
+| (none) | Pipeline does not run |
+
+**Quarantine rule**: quarantine candidates are NEVER auto-imported. The `--approve`
+flag grants explicit authority to import quarantine candidates. Without
+`--approve`, any quarantine routing result blocks import and emits
+"approval required".
+
 ## Testing Capability Detection (priority order)
 
 1. **Cached capabilities** (from prior init): `mem_search("sddk/{project}/testing-capabilities")`

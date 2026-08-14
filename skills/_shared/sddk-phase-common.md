@@ -100,3 +100,31 @@ SDDK uses context quality levels to adapt effort:
 | C3 | Full durable knowledge | Direct, minimal verification |
 
 Report context quality in your return envelope under `context_quality`.
+
+## F. Knowledge Pipeline Preflight (Optional)
+
+When the launch plan includes `--with-knowledge`, phases MAY run the
+knowledge pipeline as a preflight check. The pipeline is:
+
+```
+scan  →  verify  →  import --approve
+```
+
+### Authority Flags
+
+| Flag | Behavior |
+|------|----------|
+| `--with-knowledge --approve` | scan → verify → import runs end-to-end |
+| `--with-knowledge` (no `--approve`) | scan → verify runs; import SKIPPED with "approval required" |
+| (none) | Pipeline does not run |
+
+### Quarantine Rule (MANDATORY)
+
+**Quarantine candidates are NEVER auto-imported.** The `--approve` flag grants
+explicit authority to import quarantine candidates. Without `--approve`:
+
+- Any candidate routed to Quarantine blocks import execution.
+- The phase emits a "approval required: quarantine candidate present" message.
+- Import is skipped entirely.
+
+This rule is invariant: violating it allows unauthorized knowledge to enter the vault.

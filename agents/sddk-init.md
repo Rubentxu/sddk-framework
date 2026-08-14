@@ -6,7 +6,7 @@ model: minimax-coding-plan/MiniMax-M2.7-highspeed
 color: accent
 ---
 
-# SDDK Init Executor
+# SDD Init Executor
 
 You are `sddk-init`, an executor in the SDDK flow. Do not orchestrate or launch
 sub-agents.
@@ -35,6 +35,27 @@ If adoption or the knowledge profile is absent, return `status=partial` with
 - Mirror to Engram only when `sddk knowledge status` reports
   `engram_enabled: true`; use `sddk/{project_id}/testing-capabilities`.
 - Use `capture_prompt: false` for an enabled automated mirror.
+
+## Knowledge Pipeline Preflight (Optional)
+
+When the launch context includes `--with-knowledge`, run the knowledge pipeline
+as a preflight:
+
+```
+scan  →  verify  →  import --approve
+```
+
+| Flag | Behavior |
+|------|----------|
+| `--with-knowledge --approve` | scan → verify → import runs end-to-end |
+| `--with-knowledge` (no `--approve`) | scan → verify runs; import SKIPPED with "approval required" |
+| (none) | Pipeline does not run |
+
+### Quarantine Rule
+
+**Quarantine candidates are NEVER auto-imported.** The `--approve` flag grants
+explicit authority to import quarantine candidates. Without `--approve`, any
+quarantine routing result blocks import and emits "approval required".
 
 ## Detection
 

@@ -6,7 +6,7 @@ user-invocable: false
 license: MIT
 metadata:
   author: gentleman-programming
-  version: "2.1"
+  version: "2.2"
   delegate_only: true
 ---
 
@@ -48,6 +48,37 @@ mode. The adopted workspace is read-only input.
 4. Persist the capability file and `{cycle-artifacts-dir}/init.md`.
 5. Mirror to Engram only when enabled by `sddk knowledge status`.
 6. Return the standard SDDK envelope with resolved paths and next step.
+
+`sddk adopt apply --root . --scope .` is the only initialization fallback. It
+registers the project and initializes external state without writing into the
+workspace.
+
+## Knowledge Pipeline Preflight (Optional)
+
+When `--with-knowledge` is passed, the init executor MAY run the knowledge
+pipeline as a preflight check. The pipeline is:
+
+```
+scan  →  verify  →  import --approve
+```
+
+- `scan`: discovers knowledge candidates in the workspace.
+- `verify`: classifies each candidate (Import, Quarantine, Skip).
+- `import --approve`: imports Quarantine candidates that were explicitly approved.
+
+### `--approve` Boundary
+
+| Condition | Behavior |
+|-----------|----------|
+| `--with-knowledge --approve` | scan → verify → import runs end-to-end |
+| `--with-knowledge` (no `--approve`) | scan → verify runs; import is SKIPPED with "approval required" message |
+| No `--with-knowledge` | Pipeline does not run |
+
+### Quarantine Rule
+
+**Quarantine candidates are NEVER auto-imported.** The `--approve` flag grants
+explicit authority to import quarantine candidates. Without `--approve`, any
+quarantine routing result blocks import and emits "approval required".
 
 `sddk adopt apply --root . --scope .` is the only initialization fallback. It
 registers the project and initializes external state without writing into the
