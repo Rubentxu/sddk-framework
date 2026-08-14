@@ -5242,7 +5242,13 @@ fn cli_dev_manifest_verify_detects_duplicate_entries() {
     );
     fs::write(fixture.root.join("MANIFEST.sha256"), duplicate_manifest).unwrap();
     // Verify must fail with duplicate mismatch
-    let result = fixture.run(&["dev", "manifest", "--root", fixture.root.to_str().unwrap(), "--verify"]);
+    let result = fixture.run(&[
+        "dev",
+        "manifest",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--verify",
+    ]);
     assert!(
         !result.status.success(),
         "manifest verify should fail on duplicate entries"
@@ -5265,9 +5271,21 @@ fn cli_dev_manifest_verify_detects_duplicate_entries() {
 fn cli_dev_manifest_canonical_clean_archive_verifies() {
     let repo_dir = tempfile::tempdir().unwrap();
     let repo_root = repo_dir.path();
-    std::process::Command::new("git").args(["init", "-q"]).current_dir(repo_root).output().unwrap();
-    std::process::Command::new("git").args(["config", "user.email", "test@sddk.dev"]).current_dir(repo_root).output().unwrap();
-    std::process::Command::new("git").args(["config", "user.name", "SDDK Test"]).current_dir(repo_root).output().unwrap();
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(repo_root)
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.email", "test@sddk.dev"])
+        .current_dir(repo_root)
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.name", "SDDK Test"])
+        .current_dir(repo_root)
+        .output()
+        .unwrap();
 
     // Create and commit files
     std::fs::create_dir_all(repo_root.join("agents")).unwrap();
@@ -5277,43 +5295,93 @@ fn cli_dev_manifest_canonical_clean_archive_verifies() {
     std::fs::create_dir_all(repo_root.join("prompts/sddk/workflows")).unwrap();
     std::fs::write(repo_root.join("prompts/sddk/workflows/w.yaml"), "name: w\n").unwrap();
     let add_and_commit = |msg: &str| {
-        std::process::Command::new("git").args(["-C", &repo_root.to_string_lossy()]).args(["add", "agents/a.md", "skills/s/SKILL.md", "prompts/sddk/workflows/w.yaml"]).output().unwrap();
-        std::process::Command::new("git").args(["-C", &repo_root.to_string_lossy()]).args(["commit", "-m", msg]).output().unwrap();
+        std::process::Command::new("git")
+            .args(["-C", &repo_root.to_string_lossy()])
+            .args([
+                "add",
+                "agents/a.md",
+                "skills/s/SKILL.md",
+                "prompts/sddk/workflows/w.yaml",
+            ])
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["-C", &repo_root.to_string_lossy()])
+            .args(["commit", "-m", msg])
+            .output()
+            .unwrap();
     };
     add_and_commit("add files");
 
     // Generate manifest
     let home_dir = tempfile::tempdir().unwrap();
     let manifest_result = std::process::Command::new(env!("CARGO_BIN_EXE_sddk"))
-        .current_dir(repo_root).env("HOME", home_dir.path())
-        .args(["dev", "manifest"]).output().unwrap();
-    assert!(manifest_result.status.success(), "manifest generation failed");
+        .current_dir(repo_root)
+        .env("HOME", home_dir.path())
+        .args(["dev", "manifest"])
+        .output()
+        .unwrap();
+    assert!(
+        manifest_result.status.success(),
+        "manifest generation failed"
+    );
 
     let manifest_content = std::fs::read_to_string(repo_root.join("MANIFEST.sha256")).unwrap();
-    std::process::Command::new("git").args(["-C", &repo_root.to_string_lossy()]).args(["add", "MANIFEST.sha256"]).output().unwrap();
-    std::process::Command::new("git").args(["-C", &repo_root.to_string_lossy()]).args(["commit", "-m", "manifest"]).output().unwrap();
+    std::process::Command::new("git")
+        .args(["-C", &repo_root.to_string_lossy()])
+        .args(["add", "MANIFEST.sha256"])
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["-C", &repo_root.to_string_lossy()])
+        .args(["commit", "-m", "manifest"])
+        .output()
+        .unwrap();
 
     // Archive and extract outside worktree
-    let archive = std::process::Command::new("git").args(["-C", &repo_root.to_string_lossy()]).args(["archive", "HEAD"]).output().unwrap();
+    let archive = std::process::Command::new("git")
+        .args(["-C", &repo_root.to_string_lossy()])
+        .args(["archive", "HEAD"])
+        .output()
+        .unwrap();
     assert!(archive.status.success());
     let extract_dir = tempfile::tempdir().unwrap();
     let mut tar = std::process::Command::new("tar");
-    tar.current_dir(extract_dir.path()).arg("-x").arg("-f").arg("-").stdin(std::process::Stdio::piped());
+    tar.current_dir(extract_dir.path())
+        .arg("-x")
+        .arg("-f")
+        .arg("-")
+        .stdin(std::process::Stdio::piped());
     let mut tar_child = tar.spawn().unwrap();
     use std::io::Write;
-    if let Some(ref mut stdin) = tar_child.stdin { stdin.write_all(&archive.stdout).unwrap(); }
+    if let Some(ref mut stdin) = tar_child.stdin {
+        stdin.write_all(&archive.stdout).unwrap();
+    }
     assert!(tar_child.wait_with_output().unwrap().status.success());
 
     // Verify manifest matches
-    let extracted_manifest = std::fs::read_to_string(extract_dir.path().join("MANIFEST.sha256")).unwrap();
+    let extracted_manifest =
+        std::fs::read_to_string(extract_dir.path().join("MANIFEST.sha256")).unwrap();
     assert_eq!(extracted_manifest, manifest_content);
 
     // Verify using CLI
     let verify_result = std::process::Command::new(env!("CARGO_BIN_EXE_sddk"))
-        .current_dir(extract_dir.path()).env("HOME", home_dir.path())
-        .args(["dev", "manifest", "--root", extract_dir.path().to_str().unwrap(), "--verify"])
-        .output().unwrap();
-    assert!(verify_result.status.success(), "verify failed: {}", String::from_utf8_lossy(&verify_result.stderr));
+        .current_dir(extract_dir.path())
+        .env("HOME", home_dir.path())
+        .args([
+            "dev",
+            "manifest",
+            "--root",
+            extract_dir.path().to_str().unwrap(),
+            "--verify",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        verify_result.status.success(),
+        "verify failed: {}",
+        String::from_utf8_lossy(&verify_result.stderr)
+    );
 }
 
 fn sha256_of_file(path: &Path) -> String {

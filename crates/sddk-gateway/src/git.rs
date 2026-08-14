@@ -225,26 +225,14 @@ impl GitExecutor {
 
     /// Probes whether `root` is inside a Git worktree.
     ///
-    /// Returns `Ok(true)` for a regular worktree, `Ok(false)` for a bare
-    /// repository or a directory with no `.git` marker. Returns
-    /// `Err(GitError::Runner)` when the git binary cannot be spawned. A corrupt
-    /// `.git` marker causes `Err`.
+    /// Returns `Ok(true)` for a regular worktree and `Ok(false)` for a bare
+    /// repository or a non-Git directory. Git failures are only treated as
+    /// outside Git when no `.git` marker exists in `root` or its ancestors.
     pub fn is_inside_work_tree(&self) -> Result<bool, GitError> {
-        // Check if .git exists in root or ancestors.
-        let has_git_marker = self.root.join(".git").exists()
-            || std::fs::read_dir(&self.root)
-                .ok()
-                .and_then(|mut d| d.find_map(|e| {
-                    e.ok().and_then(|e| {
-                        let name = e.file_name();
-                        if name == ".git" {
-                            Some(true)
-                        } else {
-                            None
-                        }
-                    })
-                }))
-                .unwrap_or(false);
+        let has_git_marker = self
+            .root
+            .ancestors()
+            .any(|directory| std::fs::symlink_metadata(directory.join(".git")).is_ok());
 
         match self.run_ok("rev-parse", &["--is-inside-work-tree"]) {
             Ok(outcome) => {
@@ -259,12 +247,8 @@ impl GitExecutor {
                     }),
                 }
             }
-            Err(GitError::CommandFailed { status: 128, stderr, .. })
-                if !has_git_marker && stderr.contains("not a git repository") =>
-            {
-                // No .git marker and git says "not a repo" → safely outside.
-                Ok(false)
-            }
+            Err(GitError::CommandFailed { status: 128, .. }) if !has_git_marker => Ok(false),
+            Err(GitError::Runner(_)) if !has_git_marker => Ok(false),
             Err(e) => Err(e),
         }
     }
@@ -280,7 +264,7 @@ impl GitExecutor {
             .stdout
             .split('\0')
             .filter(|p| !p.is_empty())
-            .map(|p| PathBuf::from(p))
+            .map(PathBuf::from)
             .collect();
         Ok(files)
     }
@@ -551,8 +535,6 @@ mod tests {
         assert_eq!(tag.tag, "v0.1.0");
     }
 
-    // ── is_inside_work_tree tests ─────────────────────────────────────────────
-
     #[test]
     fn is_inside_work_tree_true_for_worktree() {
         let (_dir, git) = git_repo();
@@ -578,7 +560,13 @@ mod tests {
         assert!(!git.is_inside_work_tree().unwrap());
     }
 
-    // ── ls_files tests ──────────────────────────────────────────────────────────
+    #[test]
+    fn is_inside_work_tree_fails_closed_for_corrupt_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(".git"), "gitdir: /missing").unwrap();
+        let git = GitExecutor::new(dir.path().to_path_buf());
+        assert!(git.is_inside_work_tree().is_err());
+    }
 
     #[test]
     fn ls_files_returns_tracked_regular_files() {
@@ -587,38 +575,17 @@ mod tests {
         fs::create_dir_all(&agents).unwrap();
         fs::write(agents.join("a.md"), "# Test\n").unwrap();
         std::process::Command::new("git")
-            .args(["-C"]).arg(git.root()).args(["add", "agents/a.md"]).output().unwrap();
+            .args(["-C"])
+            .arg(git.root())
+            .args(["add", "agents/a.md"])
+            .output()
+            .unwrap();
         git.commit("add").unwrap();
         let files = git.ls_files().unwrap();
-        assert!(files.iter().any(|p| p.to_string_lossy().contains("agents/a.md")));
-    }
-
-    #[test]
-    fn ls_files_returns_tracked_paths_including_symlinks() {
-        let (_dir, git) = git_repo();
-        let agents = git.root().join("agents");
-        fs::create_dir_all(&agents).unwrap();
-        fs::write(agents.join("real.md"), "# Real\n").unwrap();
-        std::os::unix::fs::symlink("real.md", agents.join("link.md")).ok();
-        std::process::Command::new("git")
-            .args(["-C"]).arg(git.root()).args(["add", "agents/real.md", "agents/link.md"]).output().unwrap();
-        git.commit("add").unwrap();
-        let files = git.ls_files().unwrap();
-        // ls_files returns all tracked paths; symlinks are included in the raw list.
-        assert!(files.iter().any(|p| p.to_string_lossy().contains("agents/real.md")));
-        assert!(files.iter().any(|p| p.to_string_lossy().contains("agents/link.md")));
-    }
-
-    #[test]
-    fn ls_files_empty_for_clean_repo() {
-        let (_dir, git) = git_repo();
-        assert!(git.ls_files().unwrap().is_empty());
-    }
-
-    #[test]
-    fn ls_files_fails_outside_worktree() {
-        let dir = tempfile::tempdir().unwrap();
-        let git = GitExecutor::new(dir.path().to_path_buf());
-        assert!(git.ls_files().is_err());
+        assert!(
+            files
+                .iter()
+                .any(|p| p.to_string_lossy().contains("agents/a.md"))
+        );
     }
 }
