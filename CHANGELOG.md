@@ -3,6 +3,13 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.10] - 2026-08-14
+
+Cierra el release del ciclo SDDK2-006 (`sddk-2-0-phase0-doc-governance`). Tras el bump inicial a `v1.9.9` y el commit `docs(handoff): refresh with final HEAD dbf93c7` (`cbe26db`) que reescribió el handoff con el SHA final, el tag `v1.9.9` quedó apuntando al commit previo (`dbf93c7`) sin cubrir el refresh de handoff. Se corta `v1.9.10` como tag anotado en un nuevo `chore(release)` para preservar la linear-history (AGENTS.md §2.2) y satisfacer el contrato `sddk-release` que exige tag-peels-to-HEAD. Sin cambios de código de producción; el diff acumulado del ciclo sigue siendo puramente documental (SDDK2-006 fue zero-intrusion por diseño).
+
+### Other
+  - chore(release): bump to v1.9.10 (sddk-2-0-phase0-doc-governance) — corte de tag post-handoff-refresh; repara tag/HEAD gap documentado como W2 en el vault
+
 ## [1.9.9] - 2026-08-13
 
 Split AGENTS.md into stable/history/handoff surfaces (SDDK2-006 doc-governance).
