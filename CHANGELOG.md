@@ -3,6 +3,19 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.13] - 2026-08-14
+
+Corrige la integridad del bundle de release: el manifest se genera desde rutas
+tracked publicables, falla cerrado ante errores Git y rutas no UTF-8, conserva
+rutas UTF-8 especiales y se verifica en staging antes de actualizar el runtime.
+
+### Fixes
+  - fix(manifest): enumera `git ls-files` limitado a superficies publicables y hashea bytes actuales
+  - fix(manifest): drena salida Git concurrentemente y rechaza rutas tracked publicables no UTF-8
+  - fix(manifest): serializa rutas UTF-8 especiales con escape reversible
+  - fix(dev): verifica bundles descargados en staging antes de tocar el destino
+  - fix(release): empaqueta el manifest canónico comprometido y elimina cuatro rutas phantom
+
 ## [1.9.12]
 
 Cierra el ciclo SDDK2-009 (phase.build.complete). Cinco work units resueltas: U1+U2 bundle seam (dev install --source + skill-registry writer), U3 knowledge pipeline prefight (-with-knowledge --approve con quarantine rule), U4 --outcome passed en todos los evaluate-gate, U5 bump 1.9.12 + BACKLOG + CHANGELOG.
