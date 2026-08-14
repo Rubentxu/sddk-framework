@@ -564,6 +564,44 @@ mod tests {
     }
 
     #[test]
+    fn is_inside_work_tree_true_for_linked_worktree_and_subdirectory() {
+        let (_dir, git) = git_repo();
+        git.commit("initial").unwrap();
+        let linked_parent = tempfile::tempdir().unwrap();
+        let linked = linked_parent.path().join("linked");
+        let output = std::process::Command::new("git")
+            .args(["-C"])
+            .arg(git.root())
+            .args(["worktree", "add", "--detach"])
+            .arg(&linked)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let nested = linked.join("nested");
+        fs::create_dir_all(&nested).unwrap();
+        assert!(GitExecutor::new(linked).is_inside_work_tree().unwrap());
+        assert!(GitExecutor::new(nested).is_inside_work_tree().unwrap());
+    }
+
+    #[test]
+    fn is_inside_work_tree_false_for_bare_repository() {
+        let directory = tempfile::tempdir().unwrap();
+        let output = std::process::Command::new("git")
+            .args(["init", "--bare", "-q"])
+            .current_dir(directory.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let git = GitExecutor::new(directory.path().to_path_buf());
+        assert!(!git.is_inside_work_tree().unwrap());
+    }
+
+    #[test]
     fn ls_files_returns_tracked_regular_files() {
         let (_dir, git) = git_repo();
         let agents = git.root().join("agents");
