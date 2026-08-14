@@ -7,7 +7,7 @@
 //! remains stable across renames of the checkout directory.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand, ValueEnum};
 use sddk_domain::KnowledgeProfile as PersistedKnowledgeProfile;
@@ -24,6 +24,12 @@ pub(crate) enum KnowledgeCommand {
     Status(KnowledgeStatusArgs),
     /// Configure the knowledge profile (e.g., --engram enabled).
     Configure(KnowledgeConfigureArgs),
+    /// Detect and classify unregistered repository knowledge into an import plan.
+    Scan(KnowledgeScanArgs),
+    /// Import one reviewed knowledge plan into the managed vault.
+    Import(KnowledgeImportArgs),
+    /// Compare registered knowledge provenance with the current repository.
+    Verify(KnowledgeVerifyArgs),
 }
 
 // ---------------------------------------------------------------------------
@@ -90,6 +96,69 @@ pub(crate) struct KnowledgeConfigureArgs {
     pub(crate) format: OutputFormat,
 }
 
+#[derive(Debug, Clone, Args)]
+pub(crate) struct KnowledgeImportArgs {
+    /// Checkout or worktree root.
+    #[arg(long, default_value = ".")]
+    pub(crate) root: PathBuf,
+    /// Required monorepo scope, using `.` for the repository root.
+    #[arg(long, default_value = ".")]
+    pub(crate) scope: String,
+    /// Explicit remote URL instead of read-only Git discovery.
+    #[arg(long)]
+    pub(crate) remote: Option<String>,
+    /// Stable UUID for a repository without a remote.
+    #[arg(long)]
+    pub(crate) fallback_seed: Option<String>,
+    /// Identifier emitted by `sddk knowledge scan`.
+    #[arg(long)]
+    pub(crate) plan: String,
+    /// Reviewed existing entries whose changed version is compatible and may be trusted.
+    #[arg(long, value_delimiter = ',')]
+    pub(crate) approve: Vec<String>,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct KnowledgeScanArgs {
+    /// Checkout or worktree root.
+    #[arg(long, default_value = ".")]
+    pub(crate) root: PathBuf,
+    /// Required monorepo scope, using `.` for the repository root.
+    #[arg(long, default_value = ".")]
+    pub(crate) scope: String,
+    /// Explicit remote URL instead of read-only Git discovery.
+    #[arg(long)]
+    pub(crate) remote: Option<String>,
+    /// Stable UUID for a repository without a remote.
+    #[arg(long)]
+    pub(crate) fallback_seed: Option<String>,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct KnowledgeVerifyArgs {
+    /// Checkout or worktree root.
+    #[arg(long, default_value = ".")]
+    pub(crate) root: PathBuf,
+    /// Required monorepo scope, using `.` for the repository root.
+    #[arg(long, default_value = ".")]
+    pub(crate) scope: String,
+    /// Explicit remote URL instead of read-only Git discovery.
+    #[arg(long)]
+    pub(crate) remote: Option<String>,
+    /// Stable UUID for a repository without a remote.
+    #[arg(long)]
+    pub(crate) fallback_seed: Option<String>,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub(crate) enum EngramSetting {
     Enabled,
@@ -128,6 +197,13 @@ struct ProfileContext {
     xdg_profile_path: PathBuf,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct ManagedKnowledgeContext {
+    pub(crate) project_id: String,
+    pub(crate) root: PathBuf,
+    pub(crate) vault_path: PathBuf,
+}
+
 // ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
@@ -138,6 +214,9 @@ pub fn run_knowledge(command: KnowledgeCommand, environment: &CliEnvironment) ->
         KnowledgeCommand::Path(args) => run_knowledge_path(args, environment),
         KnowledgeCommand::Status(args) => run_knowledge_status(args, environment),
         KnowledgeCommand::Configure(args) => run_knowledge_configure(args, environment),
+        KnowledgeCommand::Scan(args) => crate::knowledge_ingest::run_scan(args, environment),
+        KnowledgeCommand::Import(args) => crate::knowledge_ingest::run_import(args, environment),
+        KnowledgeCommand::Verify(args) => crate::knowledge_ingest::run_verify(args, environment),
     }
 }
 
@@ -285,6 +364,33 @@ fn resolve_profile_context(
     })
 }
 
+pub(crate) fn resolve_managed_knowledge(
+    root: &Path,
+    scope: &str,
+    remote: Option<String>,
+    fallback_seed: Option<String>,
+    environment: &CliEnvironment,
+) -> anyhow::Result<ManagedKnowledgeContext> {
+    let root = crate::canonical_root(root)?;
+    let ctx = resolve_profile_context(
+        &PathArgs {
+            root: root.clone(),
+            scope: scope.to_owned(),
+            remote,
+            fallback_seed,
+        },
+        environment,
+    )?;
+    let profile = ctx
+        .profile
+        .ok_or_else(|| anyhow::anyhow!("project is not adopted; run `sddk adopt apply` first"))?;
+    Ok(ManagedKnowledgeContext {
+        project_id: ctx.project_id,
+        root,
+        vault_path: profile.vault_path,
+    })
+}
+
 /// Returns the stable default vault path, preserving an existing legacy
 /// basename vault when one is already present.
 fn compute_default_vault_path(
@@ -348,6 +454,39 @@ impl From<KnowledgeStatusArgs> for PathArgs {
 
 impl From<KnowledgeConfigureArgs> for PathArgs {
     fn from(args: KnowledgeConfigureArgs) -> Self {
+        Self {
+            root: args.root,
+            scope: args.scope,
+            remote: args.remote,
+            fallback_seed: args.fallback_seed,
+        }
+    }
+}
+
+impl From<KnowledgeImportArgs> for PathArgs {
+    fn from(args: KnowledgeImportArgs) -> Self {
+        Self {
+            root: args.root,
+            scope: args.scope,
+            remote: args.remote,
+            fallback_seed: args.fallback_seed,
+        }
+    }
+}
+
+impl From<KnowledgeScanArgs> for PathArgs {
+    fn from(args: KnowledgeScanArgs) -> Self {
+        Self {
+            root: args.root,
+            scope: args.scope,
+            remote: args.remote,
+            fallback_seed: args.fallback_seed,
+        }
+    }
+}
+
+impl From<KnowledgeVerifyArgs> for PathArgs {
+    fn from(args: KnowledgeVerifyArgs) -> Self {
         Self {
             root: args.root,
             scope: args.scope,

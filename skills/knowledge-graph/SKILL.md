@@ -37,6 +37,43 @@ the workspace is read-only evidence, not knowledge authority. `sddk adopt
 apply` initializes the configured vault from the runtime bundle without
 planting files in the workspace.
 
+## Repository Knowledge Import
+
+After adoption, ingest repository-owned evidence through the governed pipeline:
+
+```bash
+sddk knowledge scan --root . --scope . --format json
+sddk knowledge import --root . --scope . --plan <plan-id>
+sddk knowledge verify --root . --scope .
+```
+
+`scan` reads the checkout without modifying it, classifies known ADRs, specs,
+terms, incidences, roadmaps, manifests, baselines, rule catalogs, and root
+context documents, then writes a reviewable plan to the external vault. The
+plan records source path, Git commit, line range, SHA-256, owner, relation,
+links, existing entry, proposed disposition, and quarantine reason.
+
+`import --plan` is the explicit promotion boundary. Versioned sources with an
+owner and unambiguous relation become trusted versions in the append-only
+registry. Ambiguous, unowned, unversioned, changed, or contradictory sources
+enter `needs_review`; contradictions create open registry incidences. Content
+is stored by hash under `ingestion/objects/`, never as an untracked copy tree.
+
+`verify` compares registered provenance with the current checkout and reports
+current, changed, missing, and newly untracked evidence. Re-scan and review a
+new plan before promoting a changed source.
+
+For a reviewed compatible change to an existing entry, pass its plan
+`entry_id` explicitly: `sddk knowledge import --plan <plan-id> --approve
+<entry-id>`. Approval cannot promote unversioned, unowned, new ambiguous, or
+contradictory sources.
+
+`sddk rules check` resolves only the governed capability registry. It never
+discovers arbitrary checkout files. If no complete trusted/current
+catalog+baseline capability exists, the
+architecture gate returns `not_applicable` with a traceable receipt; local
+files alone never activate the gate.
+
 ## Node Types
 
 | Type | Directory | Naming | Created by |
@@ -231,3 +268,4 @@ copy templates manually and do not create fallback state in the workspace.
 - The vault is separate from the adopted workspace
 - Read templates from `$VAULT/templates/` before creating nodes
 - Adoption creates XDG operational state and the vault, never workspace files
+- Ingest repository evidence with scan → review → import → verify; never copy it manually

@@ -13,6 +13,7 @@ mod docs;
 mod git_cmd;
 mod inventory;
 mod knowledge_cmd;
+mod knowledge_ingest;
 mod ledger;
 mod lint;
 mod metrics;
@@ -500,7 +501,7 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         Command::Analytics { command } => analytics::run_analytics(command, environment),
         Command::Telemetry { command } => telemetry::run_telemetry(command, environment),
         Command::Uat { command } => uat::run_uat(command, environment),
-        Command::Rules { command } => rules_cmd::run_rules(command),
+        Command::Rules { command } => rules_cmd::run_rules(command, environment),
         Command::Completion { command } => run_completion(command),
     }
 }
