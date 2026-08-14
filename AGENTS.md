@@ -53,6 +53,19 @@ y se actualiza con `sddk dev install`.
   accomplished, next steps, relevant files). Sobrevive compactaciones. Reglas en
   `~/.config/opencode/skills/...`.
 
+### 2.5. CI local-first, cloud async
+
+- **El gate de verificación es LOCAL**: `cargo test --workspace` + `cargo clippy
+  --workspace` + fmt antes de commitear (ver checklist §5). GitHub Actions cloud
+  **NO bloquea**: sin required status checks, runs = evidencia asíncrona.
+- **Prohibido** esperar runs de la nube (`gh pr checks --watch`, retrasar
+  push/merge por CI) o "arreglar CI" sin reproducir en local primero.
+- **Workflows en local**: `act` v0.2.89 (`/usr/local/bin/act`) + podman;
+  `ubuntu-latest` mapeado a `catthehacker/ubuntu:rust-latest` vía
+  `~/.config/act/actrc`. Ejemplo: `act pull_request -W .github/workflows/<wf>.yml`.
+- Los minutos del plan free de GitHub están agotados — el cloud puede ni
+  ejecutar; confía en el gate local.
+
 ---
 
 ## 3. Layout de directorios (modelo asdf-vm)
