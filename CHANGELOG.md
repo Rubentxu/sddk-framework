@@ -3,6 +3,26 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.11]
+
+Cierra el ciclo SDDK2-008 (phase0-knowledge-ingestion). El pipeline `scan → plan → import → verify` con CAS, provenance, authority y quarantine está gobernado por la knowledge vault en `~/.sddk-knowledge/`. Tres negative tests aseguran que `--approve` en candidatos Quarantine (R10) o con razón "relation conflicts" (R5 surface) son rechazados por `is_approvable_change()`. Distribución corregida: 7 crates en `version.workspace = true` alineados a 1.9.11.
+
+### Features
+  - feat(knowledge): scan → plan kp-<hex16> → import → verify governed pipeline
+  - feat(knowledge): TOCTOU cerrada por re-hash en import
+  - feat(knowledge): Authority::Trusted exige disposition=Import o --approve + is_approvable_change
+  - feat(knowledge): receipt kr-<hex16> determinista para not_applicable
+  - feat(knowledge): CliFixture + git_commit_all scaffolding para integración tests
+
+### Fixes
+  - fix(dist): 7 crates con version.workspace=true alineados a 1.9.11
+
+### Other
+  - test(knowledge): approve_quarantine_candidate_fails — R10 negative test
+  - test(knowledge): approve_relation_conflict_candidate_fails — R5 surface negative test
+  - test(knowledge): relation_key_is_deterministic_for_path_invariants — case normalization invariant
+  - docs(BACKLOG): SDDK2-008 y SDDK2-008.DEBT insertados entre SDDK2-007 y SDDK2-101
+
 ## [1.9.10] - 2026-08-14
 
 Cierra el release del ciclo SDDK2-006 (`sddk-2-0-phase0-doc-governance`). Tras el bump inicial a `v1.9.9` y el commit `docs(handoff): refresh with final HEAD dbf93c7` (`cbe26db`) que reescribió el handoff con el SHA final, el tag `v1.9.9` quedó apuntando al commit previo (`dbf93c7`) sin cubrir el refresh de handoff. Se corta `v1.9.10` como tag anotado en un nuevo `chore(release)` para preservar la linear-history (AGENTS.md §2.2) y satisfacer el contrato `sddk-release` que exige tag-peels-to-HEAD. Sin cambios de código de producción; el diff acumulado del ciclo sigue siendo puramente documental (SDDK2-006 fue zero-intrusion por diseño).
