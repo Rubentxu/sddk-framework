@@ -47,6 +47,32 @@ pub struct RunOutcome {
     pub timed_out: bool,
 }
 
+/// Raw process output retained for typed binary consumers inside the gateway.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RawRunOutcome {
+    pub(crate) exit_status: Option<i32>,
+    pub(crate) stdout: Vec<u8>,
+    pub(crate) stderr: Vec<u8>,
+    pub(crate) timed_out: bool,
+}
+
+impl RawRunOutcome {
+    pub(crate) fn into_lossy(self, output_max_bytes: usize) -> RunOutcome {
+        RunOutcome {
+            exit_status: self.exit_status,
+            stdout: truncate(
+                String::from_utf8_lossy(&self.stdout).into_owned(),
+                output_max_bytes,
+            ),
+            stderr: truncate(
+                String::from_utf8_lossy(&self.stderr).into_owned(),
+                output_max_bytes,
+            ),
+            timed_out: self.timed_out,
+        }
+    }
+}
+
 /// Failures while spawning or polling a typed run.
 #[derive(Debug, Error)]
 pub enum RunnerError {
@@ -70,6 +96,11 @@ pub enum RunnerError {
 
 /// Runs a spec with separated argv, allowlisted environment, limits, and timeout.
 pub fn run(spec: &RunSpec) -> Result<RunOutcome, RunnerError> {
+    Ok(run_raw(spec)?.into_lossy(spec.output_max_bytes))
+}
+
+/// Runs a spec while preserving raw output bytes for typed internal consumers.
+pub(crate) fn run_raw(spec: &RunSpec) -> Result<RawRunOutcome, RunnerError> {
     use std::io::Read;
 
     let mut command = Command::new(&spec.program);
@@ -136,16 +167,10 @@ pub fn run(spec: &RunSpec) -> Result<RunOutcome, RunnerError> {
         source,
     })?;
 
-    Ok(RunOutcome {
+    Ok(RawRunOutcome {
         exit_status,
-        stdout: truncate(
-            String::from_utf8_lossy(&stdout_bytes).into_owned(),
-            spec.output_max_bytes,
-        ),
-        stderr: truncate(
-            String::from_utf8_lossy(&stderr_bytes).into_owned(),
-            spec.output_max_bytes,
-        ),
+        stdout: stdout_bytes,
+        stderr: stderr_bytes,
         timed_out,
     })
 }

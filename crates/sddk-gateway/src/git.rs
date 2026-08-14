@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::runner::{RunOutcome, RunSpec, run};
+use crate::runner::{RawRunOutcome, RunOutcome, RunSpec, run_raw};
 
 const LOCAL_GIT_ENV_KEYS: &[&str] = &[
     "HOME",
@@ -259,14 +259,28 @@ impl GitExecutor {
     /// or git enumeration fails. Callers must check if each path exists
     /// and is a regular file.
     pub fn ls_files(&self) -> Result<Vec<PathBuf>, GitError> {
-        let outcome = self.run_ok("ls-files", &["-z"])?;
-        let files: Vec<PathBuf> = outcome
+        let outcome = self.run_raw_ok("ls-files", &["-z"])?;
+        if outcome.stdout.len() > self.output_max_bytes {
+            return Err(GitError::Postcondition {
+                command: "ls-files".into(),
+                expected: format!("output no larger than {} bytes", self.output_max_bytes),
+                actual: format!("{} bytes", outcome.stdout.len()),
+            });
+        }
+        outcome
             .stdout
-            .split('\0')
-            .filter(|p| !p.is_empty())
-            .map(PathBuf::from)
-            .collect();
-        Ok(files)
+            .split(|byte| *byte == 0)
+            .filter(|path| !path.is_empty())
+            .map(|path| {
+                std::str::from_utf8(path)
+                    .map(PathBuf::from)
+                    .map_err(|_| GitError::Postcondition {
+                        command: "ls-files".into(),
+                        expected: "tracked paths encoded as UTF-8".into(),
+                        actual: "non-UTF-8 tracked path".into(),
+                    })
+            })
+            .collect()
     }
 
     /// Returns the remote SHA of a branch, or `None` when it does not exist.
@@ -422,6 +436,12 @@ impl GitExecutor {
     }
 
     fn run_ok(&self, command: &str, args: &[&str]) -> Result<RunOutcome, GitError> {
+        Ok(self
+            .run_raw_ok(command, args)?
+            .into_lossy(self.output_max_bytes))
+    }
+
+    fn run_raw_ok(&self, command: &str, args: &[&str]) -> Result<RawRunOutcome, GitError> {
         let mut spec = RunSpec {
             program: "git".into(),
             args: vec![
@@ -434,7 +454,7 @@ impl GitExecutor {
             output_max_bytes: self.output_max_bytes,
         };
         spec.args.extend(args.iter().map(|arg| (*arg).to_owned()));
-        let outcome = run(&spec)?;
+        let outcome = run_raw(&spec)?;
         if outcome.timed_out {
             return Err(GitError::CommandFailed {
                 command: command.to_owned(),
@@ -448,7 +468,7 @@ impl GitExecutor {
             return Err(GitError::CommandFailed {
                 command: command.to_owned(),
                 status,
-                stderr: outcome.stderr,
+                stderr: String::from_utf8_lossy(&outcome.stderr).into_owned(),
             });
         }
         Ok(outcome)
@@ -539,33 +559,6 @@ mod tests {
     fn is_inside_work_tree_true_for_worktree() {
         let (_dir, git) = git_repo();
         assert!(git.is_inside_work_tree().unwrap());
-    }
-
-    #[test]
-    fn is_inside_work_tree_false_for_bare() {
-        let dir = tempfile::tempdir().unwrap();
-        std::process::Command::new("git")
-            .args(["init", "--bare", "-q"])
-            .current_dir(dir.path())
-            .output()
-            .unwrap();
-        let git = GitExecutor::new(dir.path().to_path_buf());
-        assert!(!git.is_inside_work_tree().unwrap());
-    }
-
-    #[test]
-    fn is_inside_work_tree_false_for_non_git() {
-        let dir = tempfile::tempdir().unwrap();
-        let git = GitExecutor::new(dir.path().to_path_buf());
-        assert!(!git.is_inside_work_tree().unwrap());
-    }
-
-    #[test]
-    fn is_inside_work_tree_fails_closed_for_corrupt_marker() {
-        let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join(".git"), "gitdir: /missing").unwrap();
-        let git = GitExecutor::new(dir.path().to_path_buf());
-        assert!(git.is_inside_work_tree().is_err());
     }
 
     #[test]

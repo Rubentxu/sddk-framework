@@ -2543,6 +2543,22 @@ mod manifest_tests {
         assert!(!root.join(MANIFEST_FILE).exists());
         std::fs::remove_dir_all(root).ok();
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn manifest_fails_closed_for_non_utf8_tracked_path() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let (_dir, root) = git_test_root();
+        std::fs::create_dir_all(root.join("agents")).unwrap();
+        let name = std::ffi::OsString::from_vec(vec![0xff, b'.', b'm', b'd']);
+        std::fs::write(root.join("agents").join(name), "content").unwrap();
+        git_add_and_commit(&root, &["."], "non-utf8");
+
+        let error = write_manifest(&root).unwrap_err().to_string();
+        assert!(error.contains("UTF-8"), "{error}");
+        assert!(!root.join(MANIFEST_FILE).exists());
+    }
 }
 
 #[cfg(test)]

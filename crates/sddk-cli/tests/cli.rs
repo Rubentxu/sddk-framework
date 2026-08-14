@@ -5271,49 +5271,14 @@ fn cli_dev_manifest_verify_detects_duplicate_entries() {
 fn cli_dev_manifest_canonical_clean_archive_verifies() {
     let repo_dir = tempfile::tempdir().unwrap();
     let repo_root = repo_dir.path();
-    std::process::Command::new("git")
-        .args(["init", "-q"])
-        .current_dir(repo_root)
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["config", "user.email", "test@sddk.dev"])
-        .current_dir(repo_root)
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["config", "user.name", "SDDK Test"])
-        .current_dir(repo_root)
-        .output()
-        .unwrap();
-
-    // Create and commit files
     std::fs::create_dir_all(repo_root.join("agents")).unwrap();
     std::fs::write(repo_root.join("agents/a.md"), "# A\n").unwrap();
     std::fs::create_dir_all(repo_root.join("skills/s")).unwrap();
     std::fs::write(repo_root.join("skills/s/SKILL.md"), "---").unwrap();
     std::fs::create_dir_all(repo_root.join("prompts/sddk/workflows")).unwrap();
     std::fs::write(repo_root.join("prompts/sddk/workflows/w.yaml"), "name: w\n").unwrap();
-    let add_and_commit = |msg: &str| {
-        std::process::Command::new("git")
-            .args(["-C", &repo_root.to_string_lossy()])
-            .args([
-                "add",
-                "agents/a.md",
-                "skills/s/SKILL.md",
-                "prompts/sddk/workflows/w.yaml",
-            ])
-            .output()
-            .unwrap();
-        std::process::Command::new("git")
-            .args(["-C", &repo_root.to_string_lossy()])
-            .args(["commit", "-m", msg])
-            .output()
-            .unwrap();
-    };
-    add_and_commit("add files");
+    git_commit_all(repo_root);
 
-    // Generate manifest
     let home_dir = tempfile::tempdir().unwrap();
     let manifest_result = std::process::Command::new(env!("CARGO_BIN_EXE_sddk"))
         .current_dir(repo_root)
@@ -5327,16 +5292,7 @@ fn cli_dev_manifest_canonical_clean_archive_verifies() {
     );
 
     let manifest_content = std::fs::read_to_string(repo_root.join("MANIFEST.sha256")).unwrap();
-    std::process::Command::new("git")
-        .args(["-C", &repo_root.to_string_lossy()])
-        .args(["add", "MANIFEST.sha256"])
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["-C", &repo_root.to_string_lossy()])
-        .args(["commit", "-m", "manifest"])
-        .output()
-        .unwrap();
+    git_commit_changes(repo_root, "manifest");
 
     // Archive and extract outside worktree
     let archive = std::process::Command::new("git")
