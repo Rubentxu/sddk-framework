@@ -62,7 +62,7 @@ transitions its XDG artifact, then verifies the ledger:
 ```bash
 sddk cycle status --root . --scope . --cycle {cycle_id}
 sddk cycle evaluate-gate --root . --scope . --cycle {cycle_id} \
-  --transition {phase-transition} --gate {gate} \
+  --transition {phase-transition} --gate {gate} --outcome passed \
   --evaluator sddk.cli --evidence '{"checked": true}'
 sddk cycle transition --root . --scope . --cycle {cycle_id} \
   --transition {phase-transition} --artifact {artifact-name}={artifact-path} \

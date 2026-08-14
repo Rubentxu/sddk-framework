@@ -126,7 +126,7 @@ The change has been planned, implemented, verified, and archived. The cycle rema
 When the project is adopted (`sddk cycle status --root . --scope .` exits 0), record the archive in the cycle ledger BEFORE returning:
 
 1. Evaluate the archive gate:
-   `sddk cycle evaluate-gate --root . --scope . --cycle {cycle_id} --transition archive.complete --gate ledger-valid --evaluator sddk.cli --evidence '{"checked": true}' --timestamp {now} --actor sddk-kernel`
+   `sddk cycle evaluate-gate --root . --scope . --cycle {cycle_id} --transition archive.complete --gate ledger-valid --outcome passed --evaluator sddk.cli --evidence '{"checked": true}' --timestamp {now} --actor sddk-kernel`
 2. Transition with the archive manifest:
    `sddk cycle transition --root . --scope . --cycle {cycle_id} --transition archive.complete --artifact archive-manifest={path} --gate-receipt {receipt_id} --lease-owner {lease_owner} --fencing-token {fencing_token}`
 3. Verify ledger integrity: `sddk ledger verify --root . --scope .`

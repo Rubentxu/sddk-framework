@@ -108,7 +108,7 @@ Plus the standard envelope:
 When the project is adopted (`sddk cycle status --root . --scope .` exits 0), record this phase in the cycle ledger BEFORE returning:
 
 1. Evaluate the phase gate:
-   `sddk cycle evaluate-gate --root . --scope . --cycle {cycle_id} --transition phase.explore.complete --gate exploration-sufficient --evaluator sddk.cli --evidence '{"checked": true}' --timestamp {now} --actor sddk-kernel`
+   `sddk cycle evaluate-gate --root . --scope . --cycle {cycle_id} --transition phase.explore.complete --gate exploration-sufficient --outcome passed --evaluator sddk.cli --evidence '{"checked": true}' --timestamp {now} --actor sddk-kernel`
 2. Transition with the phase artifact (`explore-report.md`; in `engram` mode materialize it to a temp file first):
    `sddk cycle transition --root . --scope . --cycle {cycle_id} --transition phase.explore.complete --artifact exploration-report={path} --gate-receipt {receipt_id} --lease-owner {lease_owner} --fencing-token {fencing_token}`
 3. Verify ledger integrity: `sddk ledger verify --root . --scope .`
