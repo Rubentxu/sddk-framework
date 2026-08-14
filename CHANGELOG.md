@@ -3,6 +3,21 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.12]
+
+Cierra el ciclo SDDK2-009 (phase.build.complete). Cinco work units resueltas: U1+U2 bundle seam (dev install --source + skill-registry writer), U3 knowledge pipeline prefight (-with-knowledge --approve con quarantine rule), U4 --outcome passed en todos los evaluate-gate, U5 bump 1.9.12 + BACKLOG + CHANGELOG.
+
+### Features
+  - feat(dev): add --source flag to dev install — copies MANIFEST and verifies SHA256
+  - feat(dev): add --write-registry to dev link — writes skill-registry.md to XDG project dir
+  - feat(dev): write_skill_registry() — scans skills/*/SKILL.md, skips _shared, writes sorted markdown table
+  - feat(agent): init knowledge preflight with --with-knowledge --approve pipeline
+  - feat(cli): add --outcome passed to all evaluate-gate calls (8 SKILL.md files)
+
+### Fixes
+  - fix(cli): --outcome passed added to evaluate-gate in all phase SKILLs
+  - fix(backlog): SDDK2-009 inserted after SDDK2-008.DEBT
+
 ## [1.9.11]
 
 Cierra el ciclo SDDK2-008 (phase0-knowledge-ingestion). El pipeline `scan → plan → import → verify` con CAS, provenance, authority y quarantine está gobernado por la knowledge vault en `~/.sddk-knowledge/`. Tres negative tests aseguran que `--approve` en candidatos Quarantine (R10) o con razón "relation conflicts" (R5 surface) son rechazados por `is_approvable_change()`. Distribución corregida: 7 crates en `version.workspace = true` alineados a 1.9.11.

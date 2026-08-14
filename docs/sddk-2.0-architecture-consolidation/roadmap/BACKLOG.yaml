@@ -76,6 +76,19 @@ tasks:
   acceptance_criteria:
   - knowledge_ingest.rs split into scan.rs/import.rs/verify.rs/capability.rs/io.rs/git.rs ≤300 LOC each
   - Unit tests for classify/relation_key/safe_relative/is_approvable_change
+- id: SDDK2-009
+  phase: 0
+  priority: MUST
+  title: Fix binary-only bundle, add skill-registry, wire knowledge pipeline, remove obsolete aliases, fix release/archive docs order
+  depends_on: []
+  spec: SPEC-018
+  acceptance_criteria:
+  - dev install --source copies MANIFEST and verifies SHA256
+  - dev link --write-registry writes skill-registry.md to XDG project dir
+  - init phases document --with-knowledge --approve pipeline with quarantine rule
+  - all evaluate-gate calls include --outcome passed
+  - obsolete sddk-* aliases removed from docs and prompts
+  - release precedes archive in phase ordering
 - id: SDDK2-101
   phase: 1
   priority: MUST
