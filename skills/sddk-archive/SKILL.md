@@ -59,7 +59,7 @@ The delta spec IS a full spec (not a delta). Copy it directly to `$SDDK_DATA_DIR
 4. **Move to archive** at `$SDDK_DATA_DIR/projects/{project_id}/archive/YYYY-MM-DD-{change_name}/`
 5. Verify archive completeness.
 6. Persist archive report.
-7. Return envelope with the **release-handoff envelope**: `{ "ready_for_release": true, "change": "{name}", "branch": "{type}/{description}", "merge_policy": "{auto|guided|strict|null}" }`. The orchestrator MUST launch `sddk-release` on the next tick — no opt-in, no user prompt.
+7. Return envelope with `archive-manifest` artifact. `sddk-archive` runs AFTER `sddk-release` — it consumes `release-receipt` and produces `archive-manifest`. The orchestrator launches `sddk-archive` on the next tick after `sddk-release` completes — no opt-in, no user prompt.
 
 ### Step 3 — Move to Archive
 
@@ -117,8 +117,8 @@ The following specs now reflect the new behavior:
 - ADRs superseded: {list}
 - Jurisprudence candidate: {yes/no, topic_key if yes}
 
-### Archive Complete — Release Required
-The change has been planned, implemented, verified, and archived. The cycle remains open until mandatory release completes.
+### Archive Complete
+The change has been planned, implemented, verified, released, and archived. The cycle is closed.
 ```
 
 ## CLI Contract (sddk ledger)

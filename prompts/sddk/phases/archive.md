@@ -30,10 +30,10 @@ Merge delta specs into main specs (source of truth) in the knowledge vault, then
 ## Execution Steps
 
 1. Load skills per `skills/_shared/sddk-phase-common.md` Section A.
-2. Verify passing `verify-report` exists.
+2. Verify passing `verify-report` exists and `release-receipt` is present (release runs BEFORE archive).
 3. **Sync delta specs to main specs** in the knowledge vault.
 4. **Persist archive report** to the knowledge vault.
-5. Return the **release-handoff envelope**: emit `ready_for_release=true` with `{change, tag, route: local}`. The orchestrator treats this as a hard obligation: the next phase is `sddk-release`, which closes through local main SHA plus annotated remote tag with no PR or CI/CD gate.
+5. Transition `archive.complete` with `archive-manifest`. Archive runs AFTER release and consumes the `release-receipt`.
 
 ## Required Router Context
 

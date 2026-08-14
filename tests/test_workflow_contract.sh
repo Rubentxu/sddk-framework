@@ -253,11 +253,12 @@ else
   inc_fail "Release-lock failure policy is inconsistent"
 fi
 
-if grep -q 'ready_for_release: true' "$SDDK_ROOT/agents/sddk-archive.md" \
-  && grep -q 'next_recommended: /sddk-release' "$SDDK_ROOT/agents/sddk-archive.md"; then
-  inc_pass "Archive hands off to mandatory release instead of closing the cycle"
+# Archive runs AFTER release; it must NOT claim it hands off to release.
+if ! grep -q 'ready_for_release: true' "$SDDK_ROOT/agents/sddk-archive.md" \
+  && ! grep -q 'next_recommended: /sddk-release' "$SDDK_ROOT/agents/sddk-archive.md"; then
+  inc_pass "Archive does not claim to hand off to release (correct: release before archive)"
 else
-  inc_fail "Archive still claims the cycle is complete before release"
+  inc_fail "Archive still claims it hands off to release (wrong order)"
 fi
 
 if grep -q 'git push origin main' "$SDDK_ROOT/prompts/sddk/phases/release.md" \
@@ -299,6 +300,147 @@ if grep -q 'CI/CD.*excluded\|excluded.*CI/CD' "$SDDK_ROOT/prompts/sddk/phases/re
 else
   inc_fail "Release policy does not explicitly exclude CI/CD from local release gates"
 fi
+
+banner "REGRESSION 4: evaluate-gate calls include --outcome passed"
+
+AGENT_SKILL_PROMPT_FILES=(
+  "$SDDK_ROOT/agents/sddk-explore.md"
+  "$SDDK_ROOT/agents/sddk-propose.md"
+  "$SDDK_ROOT/agents/sddk-spec.md"
+  "$SDDK_ROOT/agents/sddk-design.md"
+  "$SDDK_ROOT/agents/sddk-tasks.md"
+  "$SDDK_ROOT/agents/sddk-apply.md"
+  "$SDDK_ROOT/agents/sddk-verify.md"
+  "$SDDK_ROOT/agents/sddk-archive.md"
+  "$SDDK_ROOT/agents/sddk-debt-verify.md"
+  "$SDDK_ROOT/skills/sddk-release/SKILL.md"
+)
+
+for file in "${AGENT_SKILL_PROMPT_FILES[@]}"; do
+  if [ -f "$file" ]; then
+    fname=$(basename "$file")
+    if grep -E 'evaluate-gate.*--transition' "$file" 2>/dev/null | grep -vq '\-\-outcome passed'; then
+      inc_fail "$fname: evaluate-gate call missing --outcome passed"
+    else
+      inc_pass "$fname: evaluate-gate calls include --outcome passed"
+    fi
+  fi
+done
+
+banner "REGRESSION 5: No obsolete --artifact phase aliases"
+
+OBSOLETE_ALIASES=(
+  '--artifact explore='
+  '--artifact propose='
+  '--artifact spec='
+  '--artifact apply='
+  '--artifact verify='
+  '--artifact tasks='
+  '--artifact debt-verify='
+)
+
+ALIAS_FILES=(
+  "$SDDK_ROOT/agents/sddk-explore.md"
+  "$SDDK_ROOT/agents/sddk-propose.md"
+  "$SDDK_ROOT/agents/sddk-spec.md"
+  "$SDDK_ROOT/agents/sddk-design.md"
+  "$SDDK_ROOT/agents/sddk-tasks.md"
+  "$SDDK_ROOT/agents/sddk-apply.md"
+  "$SDDK_ROOT/agents/sddk-verify.md"
+  "$SDDK_ROOT/agents/sddk-archive.md"
+  "$SDDK_ROOT/agents/sddk-debt-verify.md"
+)
+
+for alias in "${OBSOLETE_ALIASES[@]}"; do
+  found=0
+  for file in "${ALIAS_FILES[@]}"; do
+    if [ -f "$file" ] && grep -qF "$alias" "$file" 2>/dev/null; then
+      inc_fail "$(basename "$file"): contains obsolete alias $alias"
+      found=1
+      break
+    fi
+  done
+  if [ "$found" -eq 0 ]; then
+    inc_pass "No obsolete alias $alias"
+  fi
+done
+
+banner "REGRESSION 6: Release-before-archive ordering (no archive→release)"
+
+ARCHIVE_ORDER_FILES=(
+  "$SDDK_ROOT/agents/sddk-archive.md"
+  "$SDDK_ROOT/agents/sddk-release.md"
+  "$SDDK_ROOT/skills/sddk-archive/SKILL.md"
+  "$SDDK_ROOT/skills/sddk-release/SKILL.md"
+  "$SDDK_ROOT/prompts/sddk/phases/archive.md"
+  "$SDDK_ROOT/prompts/sddk/phases/release.md"
+)
+
+ARCHIVE_WRONG_PATTERNS=(
+  'ready_for_release'
+  'release-handoff'
+  'archive.*then.*release'
+  'archived.*release completes'
+)
+
+for file in "${ARCHIVE_ORDER_FILES[@]}"; do
+  if [ -f "$file" ]; then
+    fname=$(basename "$file")
+    bad=0
+    for pat in "${ARCHIVE_WRONG_PATTERNS[@]}"; do
+      if grep -qiE "$pat" "$file" 2>/dev/null; then
+        inc_fail "$fname: contains wrong-order pattern: $pat"
+        bad=1
+        break
+      fi
+    done
+    if [ "$bad" -eq 0 ]; then
+      inc_pass "$fname: no archive→release ordering claim"
+    fi
+  fi
+done
+
+banner "REGRESSION 7: Knowledge pipeline — with_knowledge, knowledge_approved, quarantine guard"
+
+KNOWLEDGE_PIPELINE_FILES=(
+  "$SDDK_ROOT/prompts/sddk/orchestrator.md"
+  "$SDDK_ROOT/prompts/sddk/dynamic-workflow.md"
+  "$SDDK_ROOT/prompts/sddk/launch-plan-helper.md"
+)
+
+for file in "${KNOWLEDGE_PIPELINE_FILES[@]}"; do
+  if [ -f "$file" ]; then
+    fname=$(basename "$file")
+    if grep -q 'with_knowledge' "$file" 2>/dev/null; then
+      inc_pass "$fname: contains with_knowledge"
+    else
+      inc_fail "$fname: missing with_knowledge"
+    fi
+    if grep -q 'knowledge_approved' "$file" 2>/dev/null; then
+      inc_pass "$fname: contains knowledge_approved"
+    else
+      inc_fail "$fname: missing knowledge_approved"
+    fi
+  fi
+done
+
+QUARANTINE_FILES=(
+  "$SDDK_ROOT/skills/sddk-init/SKILL.md"
+  "$SDDK_ROOT/agents/sddk-init.md"
+  "$SDDK_ROOT/prompts/sddk/phases/init.md"
+  "$SDDK_ROOT/skills/_shared/sddk-phase-common.md"
+)
+
+for file in "${QUARANTINE_FILES[@]}"; do
+  if [ -f "$file" ]; then
+    fname=$(basename "$file")
+    if grep -qiE 'quarantine.*auto-import\|quarantine.*auto-approve\|auto.*quarantine' "$file" 2>/dev/null; then
+      inc_fail "$fname: quarantine auto-import/approve claim found"
+    else
+      inc_pass "$fname: no quarantine auto-import/approve"
+    fi
+  fi
+done
 
 banner "SUMMARY"
 echo "  PASSED: $PASS"

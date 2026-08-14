@@ -105,7 +105,7 @@ Plus standard envelope:
 
 ## CLI Ledger Duty (sddk)
 
-Execute the `## CLI Contract (sddk ledger)` section of `skills/sddk-explore/SKILL.md` before returning: check `sddk cycle status --root . --scope .`, evaluate the phase gate with `sddk cycle evaluate-gate`, transition with the phase artifact (`sddk cycle transition --artifact explore={path} --gate-receipt {id}`), and verify with `sddk ledger verify --root . --scope .`. A failed evaluate-gate or transition is a BLOCKER — report it in your envelope and stop. Full protocol: `skills/_shared/persistence-contract.md` → CLI Ledger Channel.
+Execute the `## CLI Contract (sddk ledger)` section of `skills/sddk-explore/SKILL.md` before returning: check `sddk cycle status --root . --scope .`, evaluate the phase gate with `sddk cycle evaluate-gate --outcome passed`, transition with the phase artifact (`sddk cycle transition --artifact exploration-report={path} --gate-receipt {id}`), and verify with `sddk ledger verify --root . --scope .`. A failed evaluate-gate or transition is a BLOCKER — report it in your envelope and stop. Full protocol: `skills/_shared/persistence-contract.md` → CLI Ledger Channel.
 ## References
 
 - `skills/sddk-explore/SKILL.md` — full SKILL contract

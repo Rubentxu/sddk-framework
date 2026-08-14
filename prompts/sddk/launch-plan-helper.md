@@ -16,6 +16,8 @@ Every launch plan MUST contain:
 | `taxonomy.dominant_axes` | Yes | array | domain_modeling, boundary_seam, coupling_connascence, api_contract, refactor_legacy, event_cqrs, testing, security_operations, socio_technical |
 | `recommended_effort` | Yes | enum | skip, verify, deepen, recommend-lenses |
 | `engram_memory` | No | boolean | Enable Engram as optional cross-session memory. Default: false |
+| `with_knowledge` | No | boolean | Run knowledge pipeline (scan → verify → import) as preflight. Agents execute verify → scan and only import reviewed plan. Default: false |
+| `knowledge_approved` | No | boolean | Explicit approval for quarantine candidates. Required for import step. When `with_knowledge: true` but `knowledge_approved: false`, import is skipped with "approval required". Default: false |
 | `plan_version` | Yes | string | v1, v2, ... |
 
 ## Example: Minimal Valid Plan

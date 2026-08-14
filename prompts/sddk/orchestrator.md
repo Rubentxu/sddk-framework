@@ -390,6 +390,7 @@ When dispatching via `task()`, the prompt to the subagent should include:
 - Phase-specific gate requirement (e.g., "PASS or PASS_WITH_WARNINGS required")
 - Phase-specific failure mode (e.g., "FAIL → return to apply, correction cycle max 2")
 - Strict TDD flag if launch plan says `strict_tdd_mode: true`
+- Knowledge pipeline flags if launch plan says `with_knowledge: true` and `knowledge_approved: true/false`
 - Capability injections (CogniCode, Chronos, Engram, etc.) per launch plan
 
 ### Debt-verify handling (v3.3 — no opt-in, depth derived from path)

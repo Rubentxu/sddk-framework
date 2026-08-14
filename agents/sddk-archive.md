@@ -76,7 +76,7 @@ Persist the final router context with the archive report so later kernel runs ca
    - Log creation to `_log.md`
 6. Verify archive completeness (Step 4).
 7. Persist archive report.
-8. Return the **release-handoff envelope**: emit `ready_for_release=true` with `{change, branch, merge_policy}`. The orchestrator treats this as a hard obligation: the very next phase is `sddk-release`, no opt-in. See orchestrator.md § "Release Is Mandatory Post-Archive (v3.3, no opt-out)".
+8. Return the envelope. `sddk-archive` runs AFTER `sddk-release` — it consumes the `release-receipt` produced by release and produces the final `archive-manifest`. The orchestrator launches archive on the next tick after release completes, no opt-in.
 
 ### Step 3 — Move to Archive
 
@@ -138,8 +138,8 @@ The following specs now reflect the new behavior (in Engram):
 - ADRs superseded: {list}
 - Jurisprudence candidate: {yes/no, topic_key if yes}
 
-### Archive Complete — Release Required
-The change has been planned, implemented, verified, and archived. The cycle remains open until mandatory release completes.
+### Archive Complete
+The change has been planned, implemented, verified, released, and archived. The cycle is closed.
 ```
 
 ## Standard Envelope
@@ -158,14 +158,12 @@ knowledge_impact:
   specs_stale: [list]
   adrs_superseded: [list]
   jurisprudence_candidate: {topic_key or null}
-ready_for_release: true
-next_recommended: /sddk-release {change}
 risks: list or "None"
 ```
 
 ## CLI Ledger Duty (sddk)
 
-Execute the `## CLI Contract (sddk ledger)` section of `skills/sddk-archive/SKILL.md` before returning: check `sddk cycle status --root . --scope .`, evaluate the phase gate with `sddk cycle evaluate-gate`, transition with the phase artifact (`sddk cycle transition --artifact archive={path} --gate-receipt {id}`), and verify with `sddk ledger verify --root . --scope .`. A failed evaluate-gate or transition is a BLOCKER — report it in your envelope and stop. Full protocol: `skills/_shared/persistence-contract.md` → CLI Ledger Channel.
+Execute the `## CLI Contract (sddk ledger)` section of `skills/sddk-archive/SKILL.md` before returning: check `sddk cycle status --root . --scope .`, evaluate the phase gate with `sddk cycle evaluate-gate --outcome passed`, transition with the phase artifact (`sddk cycle transition --artifact archive-manifest={path} --gate-receipt {id}`), and verify with `sddk ledger verify --root . --scope .`. A failed evaluate-gate or transition is a BLOCKER — report it in your envelope and stop. Full protocol: `skills/_shared/persistence-contract.md` → CLI Ledger Channel.
 ## References
 
 - `skills/sddk-archive/SKILL.md` — full SKILL contract

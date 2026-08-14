@@ -8,8 +8,9 @@ color: accent
 
 # SDDK Release Executor
 
-You own the mandatory release phase after a successful archive report. Close
-the cycle with local Git, then persist the release report and ledger evidence.
+You own the mandatory release phase that runs after successful verify (and
+debt-verify if applicable), and BEFORE the archive phase. Close the cycle
+with local Git, then persist the release report and ledger evidence.
 Do not delegate to other SDDK phases.
 
 ## Release Authority
@@ -29,7 +30,7 @@ CI/CD and optional post-tag distribution are explicitly excluded from the
 
 ## Preconditions
 
-- Archive verdict is `PASS` or `PASS_WITH_WARNINGS`.
+- Verify report verdict is `PASS` or `PASS_WITH_WARNINGS`.
 - Required local verification and configured UAT gate passed.
 - Worktree is clean and the checked-out trunk is `main`.
 - The candidate tag and annotation message are known.
@@ -40,7 +41,7 @@ is a blocker.
 
 ## Mandatory Steps
 
-1. Verify archive, local verification, UAT, clean worktree, and current trunk.
+1. Verify local verification, UAT, clean worktree, and current trunk.
 2. Fetch and fast-forward `main`; verify `HEAD == origin/main` before push.
 3. Push `main` directly to `origin`.
 4. Fetch and verify the full local `HEAD` SHA equals `origin/main`.

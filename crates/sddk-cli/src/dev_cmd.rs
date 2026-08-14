@@ -228,6 +228,14 @@ pub(crate) struct InstallReceipt {
     pub installed_at: String,
     /// Binary path relative to the prefix.
     pub binary_path: String,
+    /// Whether this install included the full bundle (agents/skills/prompts/assets).
+    /// When true, `dev verify` checks installed surfaces against the manifest.
+    #[serde(default = "default_bundle_true")]
+    pub bundle: bool,
+}
+
+fn default_bundle_true() -> bool {
+    true
 }
 
 pub(crate) fn run_dev(command: DevCommand, environment: &CliEnvironment) -> CommandOutput {
@@ -531,9 +539,26 @@ fn run_dev_check(args: CheckArgs) -> CommandOutput {
 fn run_dev_install(args: InstallArgs) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<InstallReceipt> {
+        // FAIL-CLOSED: when --source is provided, verify the source MANIFEST
+        // BEFORE any writes to the prefix. A tampered source cannot corrupt an
+        // existing installation.
+        if let Some(source) = &args.source {
+            let source = std::fs::canonicalize(source)?;
+            let mismatches = verify_manifest(&source)?;
+            if !mismatches.is_empty() {
+                anyhow::bail!(
+                    "manifest verification FAILED ({} mismatch(es)):\n  {}",
+                    mismatches.len(),
+                    mismatches.join("\n  ")
+                );
+            }
+        }
+
+        // NOW safe to write: compute binary digest after manifest verified.
         let binary = std::env::current_exe()?;
         let bytes = std::fs::read(&binary)?;
         let digest = format!("sha256:{:x}", Sha256::digest(&bytes));
+
         // Routing: if the prefix already terminates in `/bin`, install the
         // binary directly under the prefix (no extra `bin/` segment); this
         // matches the GNU autoconf/CMake convention of `--prefix=/opt/sdk/bin`
@@ -559,12 +584,10 @@ fn run_dev_install(args: InstallArgs) -> CommandOutput {
             "bin/sddk".to_owned()
         };
 
-        // Bundle surface copy: when --source is provided, copy agents/skills/
-        // prompts/workflows/assets and verify against MANIFEST.sha256.
-        // Binary-only install (no --source) is the backward-compatible default.
+        // Bundle surface copy: when --source is provided, copy surfaces AFTER
+        // manifest verified. Binary-only (no --source) skips this block.
         if let Some(source) = &args.source {
             let source = std::fs::canonicalize(source)?;
-            // Copy each manifest surface into the prefix, preserving relative paths.
             for surface in MANIFEST_SURFACES {
                 let src_dir = source.join(surface);
                 if !src_dir.is_dir() {
@@ -592,15 +615,12 @@ fn run_dev_install(args: InstallArgs) -> CommandOutput {
                     }
                 }
             }
-            // Verify the installed surfaces against the bundle's MANIFEST.sha256.
-            // A digest mismatch aborts the install (fail-closed).
-            let mismatches = verify_manifest(&source)?;
-            if !mismatches.is_empty() {
-                anyhow::bail!(
-                    "manifest verification FAILED ({} mismatch(es)):\n  {}",
-                    mismatches.len(),
-                    mismatches.join("\n  ")
-                );
+            // Also copy the MANIFEST.sha256 itself to the prefix so `dev verify`
+            // can re-check installed surfaces against it.
+            let manifest_src = source.join(MANIFEST_FILE);
+            if manifest_src.is_file() {
+                let manifest_dest = args.prefix.join(MANIFEST_FILE);
+                std::fs::copy(&manifest_src, &manifest_dest)?;
             }
         }
 
@@ -616,6 +636,7 @@ fn run_dev_install(args: InstallArgs) -> CommandOutput {
                 .timestamp
                 .unwrap_or_else(crate::git_cmd::default_timestamp),
             binary_path,
+            bundle: args.source.is_some(),
         };
         let receipt_path = args.prefix.join(RECEIPT_FILE);
         atomic_write(
@@ -641,6 +662,18 @@ fn run_dev_verify(args: VerifyArgs) -> CommandOutput {
                 receipt.binary_sha256,
                 digest
             );
+        }
+        // When the receipt indicates a full bundle install, verify the installed
+        // surfaces against the manifest (fail-closed on any mismatch).
+        if receipt.bundle {
+            let mismatches = verify_manifest(&args.prefix)?;
+            if !mismatches.is_empty() {
+                anyhow::bail!(
+                    "manifest verification FAILED ({} mismatch(es)):\n  {}",
+                    mismatches.len(),
+                    mismatches.join("\n  ")
+                );
+            }
         }
         Ok(receipt)
     })();
@@ -801,13 +834,14 @@ fn doctor_text(output: &DoctorOutput) -> String {
 
 fn receipt_text(receipt: &InstallReceipt) -> String {
     format!(
-        "version: {}\ncommit: {}\nbinary_sha256: {}\nchannel: {}\ninstalled_at: {}\nbinary_path: {}\n",
+        "version: {}\ncommit: {}\nbinary_sha256: {}\nchannel: {}\ninstalled_at: {}\nbinary_path: {}\nbundle: {}\n",
         receipt.version,
         receipt.commit,
         receipt.binary_sha256,
         receipt.channel,
         receipt.installed_at,
-        receipt.binary_path
+        receipt.binary_path,
+        receipt.bundle
     )
 }
 
@@ -2208,6 +2242,50 @@ mod manifest_tests {
         assert_eq!(mismatches.len(), 1);
         assert!(mismatches[0].contains("missing"));
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn install_fails_on_manifest_mismatch_and_leaves_prefix_clean() {
+        // Source: a bundle with MANIFEST_SURFACES.
+        let source = temp_root("mismatch-source");
+        std::fs::create_dir_all(source.join("agents")).unwrap();
+        std::fs::write(source.join("agents/a.md"), "content-a").unwrap();
+        std::fs::create_dir_all(source.join("skills/sddk-x")).unwrap();
+        std::fs::write(source.join("skills/sddk-x/SKILL.md"), "skill content").unwrap();
+        write_manifest(&source).unwrap();
+        // Tamper: change a file after manifest was generated.
+        std::fs::write(source.join("agents/a.md"), "TAMPERED").unwrap();
+
+        // Prefix: empty temp dir.
+        let prefix = temp_root("mismatch-prefix");
+
+        let args = InstallArgs {
+            prefix: prefix.clone(),
+            channel: "dev".to_owned(),
+            timestamp: None,
+            commit: None,
+            source: Some(source.clone()),
+            format: OutputFormat::Json,
+        };
+        let result = run_dev_install(args);
+        assert!(
+            result.status != 0,
+            "install should fail on manifest mismatch, got status={} stderr={}",
+            result.status,
+            result.stderr
+        );
+        // FAIL-CLOSED: nothing must be written to prefix when manifest verification
+        // fails — not binary, not surfaces. A tampered source corrupts nothing.
+        let has_bin = prefix.join("bin/sddk").exists();
+        let has_agents = prefix.join("agents").exists();
+        let has_skills = prefix.join("skills").exists();
+        assert!(
+            !has_bin && !has_agents && !has_skills,
+            "fail-closed: nothing must be written on manifest mismatch; \
+             bin={has_bin}, agents={has_agents}, skills={has_skills}"
+        );
+        std::fs::remove_dir_all(&source).ok();
+        std::fs::remove_dir_all(&prefix).ok();
     }
 }
 
