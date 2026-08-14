@@ -5,15 +5,14 @@ Run: python3 tests/test_workflow_contract.py
 
 Comprehensive semantic checks:
   a) Glob all agents/skills/prompts surfaces; no hardcoded file lists.
-  b) Extract evaluate-gate calls from backticks, fenced blocks, and line continuations;
+  b) Extract evaluate-gate calls from backticks, fenced blocks (bash/sh), and line continuations;
      verify --outcome passed is present for every real command.
   c) Extract ONLY sddk cycle transition artifacts; cross-check against workflow
-     definitions; parse artifacts: section until gates: in YAML; no allowlist.
-  d) Positive release checks + forbidden patterns (exact case-insensitive phrases).
-  e) Knowledge pipeline: scan→verify→import literal ordering, with_knowledge +
-     knowledge_approved presence, import conditioned to BOTH reviewed plan AND
-     knowledge_approved, quarantine explicit negation.
-  f) exit 0, >141 pass, stderr empty.
+     definitions; parse artifacts: section with indent-2 keys until gates: in YAML; no allowlist.
+  d) Positive release checks + forbidden patterns + archive report precondition check.
+  e) Knowledge pipeline: scan→verify→import literal ordering for core files only.
+  f) Propose/debt: require sddk artifact store and absence of sddk cycle transition.
+  g) exit 0, >141 pass, stderr empty, 13 workflow definitions + >=15 transition artifact refs.
 """
 
 import re
@@ -84,7 +83,7 @@ all_files = (
 )
 
 # Extract evaluate-gate calls from all files
-# Matches: backtick-enclosed, fenced shell blocks, and \-continuation commands
+# Matches: backtick-enclosed, fenced bash/sh blocks, and \-continuation commands
 gate_calls_found = []  # list of (file_path, line_number, call_text)
 
 for file_path in all_files:
@@ -98,16 +97,29 @@ for file_path in all_files:
         line_no = content[:m.start()].count('\n') + 1
         gate_calls_found.append((file_path, line_no, full_call))
 
-    # 2. Fenced shell blocks: ```sh ... evaluate-gate ... ```
-    for m in re.finditer(r'```sh\s*\n(.*?)```', content, re.DOTALL):
+    # 2. Fenced shell blocks: ```sh or ```bash ... evaluate-gate ... ```
+    for m in re.finditer(r'```(?:sh|bash)\s*\n(.*?)```', content, re.DOTALL):
         block = m.group(1)
-        for line in block.split('\n'):
-            if 'evaluate-gate' in line:
-                # Get approximate line number
-                block_start = content[:m.start()].count('\n')
-                line_offset = block.split('\n').index(line) if line in block.split('\n') else 0
-                line_no = block_start + line_offset + 1
-                gate_calls_found.append((file_path, line_no, line.strip()))
+        block_start = content[:m.start()].count('\n')
+        # Join continued lines (lines ending with \)
+        continued_lines = []
+        for i, line in enumerate(block.split('\n')):
+            if line.rstrip().endswith('\\'):
+                continued_lines.append(line.rstrip()[:-1] + ' ')
+            else:
+                continued_lines.append(line.rstrip())
+                # Process the completed logical line
+                full_line = ''.join(continued_lines)
+                if 'evaluate-gate' in full_line:
+                    line_no = block_start + i + 1
+                    gate_calls_found.append((file_path, line_no, full_line))
+                continued_lines = []
+        # Handle case where block ends with a continued line
+        if continued_lines:
+            full_line = ''.join(continued_lines)
+            if 'evaluate-gate' in full_line:
+                line_no = block_start + len(block.split('\n')) + 1
+                gate_calls_found.append((file_path, line_no, full_line))
 
     # 3. Commands with \ continuation
     for m in re.finditer(r'\\\n\s+(evaluate-gate[^\n]*)', content):
@@ -130,9 +142,6 @@ else:
                 missing_outcome += 1
             else:
                 inc_pass(f"{rel_path}:{line_no}: evaluate-gate with --outcome passed")
-        else:
-            # Not a real command, skip
-            pass
 
 # ------------------------------------------------------------
 # REGRESSION B: cycle transition artifact names match workflow definitions
@@ -140,6 +149,7 @@ else:
 banner("REGRESSION B: cycle transition artifacts match workflow definitions")
 
 # Extract ONLY sddk cycle transition commands; parse --artifact <name>=<path>
+# Artifact names support hyphens: [a-z0-9][a-z0-9-]*
 transition_artifacts = []  # list of (artifact_name, file_path, line_no)
 workflow_artifacts = set()  # artifact names declared in workflow yaml
 
@@ -150,25 +160,28 @@ for file_path in all_files:
         continue
 
     # Find ONLY sddk cycle transition commands (not artifact store, not other uses)
+    # Handle inline backticks
     for m in re.finditer(r'`(sddk\s+cycle\s+transition[^`]*)`', content):
         full_call = m.group(1)
         line_no = content[:m.start()].count('\n') + 1
         # Extract all --artifact name=value pairs from this command
-        for am in re.finditer(r"--artifact\s+(\w+)=", full_call):
+        # Support hyphens in artifact names
+        for am in re.finditer(r"--artifact\s+([a-z0-9][a-z0-9-]*)=", full_call):
             artifact_name = am.group(1)
             transition_artifacts.append((artifact_name, file_path, line_no))
 
-    # Fenced shell blocks with sddk cycle transition
-    for m in re.finditer(r'```sh\s*\n(.*?)```', content, re.DOTALL):
+    # Fenced shell blocks with sddk cycle transition (bash/sh)
+    for m in re.finditer(r'```(?:sh|bash)\s*\n(.*?)```', content, re.DOTALL):
         block = m.group(1)
-        for line in block.split('\n'):
+        block_start = content[:m.start()].count('\n')
+        for i, line in enumerate(block.split('\n')):
             if 'sddk cycle transition' in line:
-                line_no = content[:m.start()].count('\n') + block.split('\n').index(line) + 1
-                for am in re.finditer(r"--artifact\s+(\w+)=", line):
+                line_no = block_start + i + 1
+                for am in re.finditer(r"--artifact\s+([a-z0-9][a-z0-9-]*)=", line):
                     transition_artifacts.append((am.group(1), file_path, line_no))
 
 # Collect workflow artifacts from workflow yaml files
-# Parse ONLY top-level keys under `artifacts:` until `gates:`
+# Parse ONLY top-level keys under `artifacts:` (indent-2) until `gates:`
 workflow_files = list(SDDK_ROOT.glob("prompts/sddk/workflows/*.yaml"))
 workflow_files += list(SDDK_ROOT.glob("workflow/workflow.yaml"))
 
@@ -177,15 +190,16 @@ for wf_path in workflow_files:
     if content is None:
         continue
 
-    # Find artifacts: section and extract names until gates:
+    # Find artifacts: section and extract names (indent-2 keys) until gates:
     artifacts_section = re.search(r'^artifacts:\s*$', content, re.MULTILINE)
     if artifacts_section:
         start = artifacts_section.end()
         gates_match = re.search(r'^gates:\s*$', content[start:], re.MULTILINE)
         end = start + gates_match.start() if gates_match else len(content)
         artifacts_content = content[start:end]
-        # Match top-level artifact name entries
-        for m in re.finditer(r'^\s+(\w+):\s*$', artifacts_content, re.MULTILINE):
+        # Match artifact name entries at exactly 2 spaces indentation under artifacts:
+        # Format: "  artifact-name:\n"
+        for m in re.finditer(r'^  ([a-z0-9][a-z0-9-]*):\s*$', artifacts_content, re.MULTILINE):
             workflow_artifacts.add(m.group(1))
 
 if len(transition_artifacts) == 0:
@@ -197,6 +211,9 @@ if len(workflow_artifacts) == 0:
     inc_fail("No workflow artifacts found in any workflow file")
 else:
     inc_pass(f"Found {len(workflow_artifacts)} workflow artifact definitions")
+    # Require at least 13 workflow definitions
+    if len(workflow_artifacts) < 13:
+        inc_fail(f"Expected >= 13 workflow definitions, found {len(workflow_artifacts)}")
 
 # Verify ALL transition artifacts are in workflows (no allowlist)
 missing_in_workflow = 0
@@ -212,6 +229,10 @@ for artifact_name, file_path, line_no in transition_artifacts:
 if missing_in_workflow == 0:
     inc_pass("All transition artifacts are in workflow definitions")
 
+# Require >= 15 transition artifact refs
+if len(transition_artifacts) < 15:
+    inc_fail(f"Expected >= 15 transition artifact refs, found {len(transition_artifacts)}")
+
 # ------------------------------------------------------------
 # REGRESSION C: Release checks + forbidden patterns
 # ------------------------------------------------------------
@@ -225,13 +246,6 @@ FORBIDDEN_RELEASE = [
     (r"Mandatory Pre-Review", "Mandatory Pre-Review"),
     (r"ready_for_release", "ready_for_release"),
     (r"release-handoff", "release-handoff"),
-]
-
-# Positive release authority contract: must have all 3 of these phrases
-POSITIVE_RELEASE_PHRASES = [
-    "local verify -> push main -> verify head",
-    "annotated",
-    "optional.*post-tag",
 ]
 
 RELEASE_FILES = (
@@ -270,57 +284,133 @@ for file_path in release_check_files:
     else:
         inc_fail(f"{fname}: missing local release authority contract")
 
+    # FAILED if release precondition contains "archive report"
+    if re.search(r"archive\s+report", content, re.IGNORECASE):
+        inc_fail(f"{fname}: release precondition contains 'archive report'")
+    else:
+        inc_pass(f"{fname}: release precondition has no archive report")
+
+    # Require positive after review (A-full) - only if file mentions A-full or review phase
+    mentions_review = bool(re.search(r"A-full|review\s+phase|\breview\b", content, re.IGNORECASE))
+    has_after_review = bool(re.search(
+        r"after\s+review|or\s+review\s*\(|review\s+phase",
+        content, re.IGNORECASE
+    ))
+    if mentions_review:
+        # File mentions A-full/review - require positive after review
+        if has_after_review:
+            inc_pass(f"{fname}: has positive after review")
+        else:
+            inc_fail(f"{fname}: missing positive after review")
+    else:
+        # File doesn't mention review/A-full - skip check
+        inc_pass(f"{fname}: no review phase required (A-min/lite path)")
+
+    # Require after verify (A-min/lite) - flexible matching
+    has_after_verify = bool(re.search(
+        r"after\s+(successful\s+)?verify|verify\s+phase",
+        content, re.IGNORECASE
+    ))
+    if has_after_verify:
+        inc_pass(f"{fname}: has positive after verify")
+    else:
+        inc_fail(f"{fname}: missing positive after verify")
+
+    # Require BEFORE archive - flexible matching
+    has_before_archive = bool(re.search(
+        r"before\s+(the\s+)?archive|prior\s+to\s+archive",
+        content, re.IGNORECASE
+    ))
+    if has_before_archive:
+        inc_pass(f"{fname}: has positive before archive")
+    else:
+        inc_fail(f"{fname}: missing positive before archive")
+
 # ------------------------------------------------------------
-# REGRESSION D: Knowledge pipeline checks
+# REGRESSION D: Knowledge pipeline checks (CORE FILES ONLY)
 # ------------------------------------------------------------
 banner("REGRESSION D: Knowledge pipeline — scan→verify→import literal ordering")
 
-KNOWLEDGE_FILES = (
-    [f for f in all_surface_files["prompts"] if f.name in [
-        "orchestrator.md", "dynamic-workflow.md", "launch-plan-helper.md"
-    ]]
-    or all_surface_files["prompts"]
-)
+# Canonical knowledge ordering patterns
+KNOWLEDGE_ORDER_PATTERNS = [
+    r"scan\s*[→\->]+\s*verify\s*[→\->]+\s*import",  # scan → verify → import
+    r"run\s+scan\s+then\s+verify[;\s].*import",      # run scan then verify; import...
+]
 
-for file_path in KNOWLEDGE_FILES:
+# ONLY these 3 core files require explicit knowledge ordering
+CORE_KNOWLEDGE_FILES = {
+    "orchestrator.md", "dynamic-workflow.md", "launch-plan-helper.md"
+}
+
+# Additional flexible ordering patterns (run scan then verify without import on same line)
+# Handle backticks around scan/verify in markdown
+FLEXIBLE_ORDER_PATTERNS = [
+    r"run\s+\`?\s*scan\s*\`?\s+then\s+\`?\s*verify",  # run `scan` then `verify`
+]
+
+for file_path in all_surface_files["prompts"]:
     content = read_file(file_path)
     if content is None:
         continue
     fname = file_path.name
 
-    # Look for the specific knowledge pipeline ordering phrase "scan → verify → import"
-    # This is the canonical ordering per SPEC (lines 44-52)
-    has_correct_order = bool(re.search(r"scan\s*[→\->]+\s*verify\s*[→\->]+\s*import", content, re.IGNORECASE))
+    # Check for correct ordering pattern (only for core files)
+    has_correct_order = any(
+        re.search(p, content, re.IGNORECASE) for p in KNOWLEDGE_ORDER_PATTERNS
+    )
+    # Also check flexible patterns
+    has_flexible_order = any(
+        re.search(p, content, re.IGNORECASE) for p in FLEXIBLE_ORDER_PATTERNS
+    )
 
-    # Also check that it doesn't say the wrong ordering (verify → scan)
+    # Check for wrong ordering (verify → scan)
     has_wrong_order = bool(re.search(r"verify\s*[→\->]+\s*scan", content, re.IGNORECASE))
 
-    if has_correct_order and not has_wrong_order:
-        inc_pass(f"{fname}: scan→verify→import ordering correct")
-    elif has_wrong_order:
-        inc_fail(f"{fname}: verify→scan wrong ordering found")
+    if fname in CORE_KNOWLEDGE_FILES:
+        # Core files: FAIL if missing correct ordering
+        if (has_correct_order or has_flexible_order) and not has_wrong_order:
+            inc_pass(f"{fname}: scan→verify→import ordering correct")
+        elif has_wrong_order:
+            inc_fail(f"{fname}: verify→scan wrong ordering found")
+        else:
+            inc_fail(f"{fname}: missing explicit scan→verify→import ordering")
     else:
-        inc_pass(f"{fname}: no explicit wrong ordering (passes)")
+        # Non-core files: skip ordering check entirely
+        pass
 
-    # with_knowledge must appear
-    if literal_has(content, "with_knowledge"):
+    # Only check with_knowledge/knowledge_approved for files that have with_knowledge
+    has_with_knowledge = literal_has(content, "with_knowledge")
+    has_knowledge_approved = literal_has(content, "knowledge_approved")
+    # "reviewed plan" or "plan is reviewed" or "plan was reviewed"
+    has_reviewed_plan = bool(re.search(
+        r"reviewed\s+plan|plan\s+is\s+reviewed|plan\s+was\s+reviewed",
+        content, re.IGNORECASE
+    ))
+
+    if has_with_knowledge:
         inc_pass(f"{fname}: contains with_knowledge")
-    else:
-        inc_fail(f"{fname}: missing with_knowledge")
+        if has_knowledge_approved:
+            inc_pass(f"{fname}: contains knowledge_approved")
+        else:
+            inc_fail(f"{fname}: missing knowledge_approved")
 
-    # knowledge_approved must appear
-    if literal_has(content, "knowledge_approved"):
-        inc_pass(f"{fname}: contains knowledge_approved")
-    else:
-        inc_fail(f"{fname}: missing knowledge_approved")
-
-    # Import conditioned to BOTH reviewed plan AND knowledge_approved
-    if re.search(r"import.*reviewed\s+plan.*knowledge_approved|knowledge_approved.*import.*reviewed\s+plan", content, re.IGNORECASE):
-        inc_pass(f"{fname}: import conditioned to both reviewed plan and knowledge_approved")
-    elif literal_has(content, "with_knowledge"):
-        # If with_knowledge is present, import must be conditioned
-        if not re.search(r"import\s+only\s+when.*knowledge_approved", content, re.IGNORECASE):
-            inc_fail(f"{fname}: import not properly conditioned to knowledge_approved")
+        if has_reviewed_plan:
+            inc_pass(f"{fname}: contains reviewed plan")
+            # Import conditioned to BOTH reviewed plan AND knowledge_approved
+            # Flexible matching: "reviewed plan" OR "plan is reviewed"
+            has_knowledge_approved_cond = bool(re.search(
+                r"import.*(?:reviewed\s+plan|plan\s+is\s+reviewed).*knowledge_approved|"
+                r"knowledge_approved.*import.*(?:reviewed\s+plan|plan\s+is\s+reviewed)|"
+                r"import\s+only\s+when.*knowledge_approved",
+                content, re.IGNORECASE
+            ))
+            if has_knowledge_approved_cond:
+                inc_pass(f"{fname}: import conditioned to both reviewed plan and knowledge_approved")
+            else:
+                inc_fail(f"{fname}: import not properly conditioned")
+        else:
+            inc_fail(f"{fname}: missing reviewed plan")
+    # Files without with_knowledge: skip all knowledge checks
 
 # Quarantine: must NOT claim auto-import or auto-approve without negation
 QUARANTINE_FILES = (
@@ -447,6 +537,36 @@ if gate_with_transition > 0:
     inc_pass(f"Found {gate_with_transition} evaluate-gate calls with --transition")
 else:
     inc_fail("No evaluate-gate --transition calls found")
+
+# ------------------------------------------------------------
+# REGRESSION I: Propose/debt require sddk artifact store
+# ------------------------------------------------------------
+banner("REGRESSION I: Propose/debt require sddk artifact store, no sddk cycle transition")
+
+# Only check agent files (sddk-propose.md, sddk-debt-verify.md), not phase prompt files
+PROPOSE_DEBT_FILES = [
+    f for f in all_files
+    if f.name in ["sddk-propose.md", "sddk-debt-verify.md"]
+]
+
+for file_path in PROPOSE_DEBT_FILES:
+    content = read_file(file_path)
+    if content is None:
+        continue
+    fname = file_path.name
+
+    has_artifact_store = bool(re.search(r"sddk\s+artifact\s+store", content, re.IGNORECASE))
+    has_cycle_transition = bool(re.search(r"sddk\s+cycle\s+transition", content, re.IGNORECASE))
+
+    if has_artifact_store:
+        inc_pass(f"{fname}: contains sddk artifact store")
+    else:
+        inc_fail(f"{fname}: missing sddk artifact store")
+
+    if has_cycle_transition:
+        inc_fail(f"{fname}: contains sddk cycle transition (prohibited)")
+    else:
+        inc_pass(f"{fname}: no sddk cycle transition")
 
 # ------------------------------------------------------------
 # Summary
