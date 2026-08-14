@@ -33,7 +33,7 @@ tasks:
   acceptance_criteria:
   - ARCH001-ARCH005 represented
   - Baseline waivers explicit
-- id: SDDK2-004
+- id: SDDK2-006
   phase: 0
   priority: MUST
   title: Split AGENTS normative/history/handoff roles
@@ -43,7 +43,7 @@ tasks:
   - AGENTS contains stable invariants/navigation
   - History archived
   - Ephemeral handoff path documented
-- id: SDDK2-005
+- id: SDDK2-007
   phase: 0
   priority: MUST
   title: Add deferred-idea revisit-trigger convention

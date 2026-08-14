@@ -17,7 +17,7 @@ During phases 0–4, do not add a new top-level product domain. New ideas are ca
 - Pin current behavior with regression/CLI contract tests.
 - Record current crate dependency graph and large-module baseline.
 - Introduce architecture rule registry (`ARCH001..`).
-- Split `AGENTS.md` normative content from historical/handoff content.
+- Split `AGENTS.md` normative content from historical/handoff content (SDDK2-006).
 - Establish `ROADMAP.md`, ADR index and deferred-idea governance.
 - Add `sddk dev entropy` in advisory mode or, minimally, generate its baseline metrics.
 

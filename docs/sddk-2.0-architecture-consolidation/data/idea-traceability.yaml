@@ -41,4 +41,4 @@ traceability:
   document_governance:
     specs: [SPEC-018]
     adrs: [ADR-018]
-    roadmap_tasks: [SDDK2-004, SDDK2-005, SDDK2-905]
+    roadmap_tasks: [SDDK2-006, SDDK2-007, SDDK2-905]
