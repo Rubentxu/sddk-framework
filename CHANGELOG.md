@@ -3,6 +3,13 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.9] - 2026-08-13
+
+Split AGENTS.md into stable/history/handoff surfaces (SDDK2-006 doc-governance).
+
+### Other
+  - feat(docs): split AGENTS.md — stable ≤150 LOC + history archived + handoff; renumber BACKLOG SDDK2-004→006 / SDDK2-005→007; reconcile vault ID collision
+
 ## [1.9.1] - 2026-08-11
 
 Cosmetic fixes and documentation improvements from post-release cleanup.
