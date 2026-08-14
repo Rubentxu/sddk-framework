@@ -236,8 +236,8 @@ impl GitExecutor {
 
         match self.run_ok("rev-parse", &["--is-inside-work-tree"]) {
             Ok(outcome) => {
-                let v = outcome.stdout.trim();
-                match v {
+                let membership = outcome.stdout.trim();
+                match membership {
                     "true" => Ok(true),
                     "false" => Ok(false),
                     other => Err(GitError::Postcondition {
@@ -253,13 +253,15 @@ impl GitExecutor {
         }
     }
 
-    /// Lists all tracked paths under the repository root.
+    /// Lists tracked paths matching the supplied Git pathspecs.
     ///
     /// Returns `Err(GitError::CommandFailed)` when root is not in a worktree
     /// or git enumeration fails. Callers must check if each path exists
     /// and is a regular file.
-    pub fn ls_files(&self) -> Result<Vec<PathBuf>, GitError> {
-        let outcome = self.run_raw_ok("ls-files", &["-z"])?;
+    pub fn ls_files(&self, pathspecs: &[&str]) -> Result<Vec<PathBuf>, GitError> {
+        let mut args = vec!["-z", "--"];
+        args.extend(pathspecs.iter().copied());
+        let outcome = self.run_raw_ok("ls-files", &args)?;
         if outcome.stdout.len() > self.output_max_bytes {
             return Err(GitError::Postcondition {
                 command: "ls-files".into(),
@@ -574,7 +576,7 @@ mod tests {
             .output()
             .unwrap();
         git.commit("add").unwrap();
-        let files = git.ls_files().unwrap();
+        let files = git.ls_files(&["agents"]).unwrap();
         assert!(
             files
                 .iter()

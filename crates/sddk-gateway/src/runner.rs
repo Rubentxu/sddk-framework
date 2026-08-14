@@ -119,9 +119,24 @@ pub(crate) fn run_raw(spec: &RunSpec) -> Result<RawRunOutcome, RunnerError> {
     })?;
     let mut stdout = child.stdout.take();
     let mut stderr = child.stderr.take();
+    let stdout_reader = std::thread::spawn(move || {
+        let mut buffer = Vec::new();
+        if let Some(stream) = stdout.as_mut() {
+            stream.read_to_end(&mut buffer)?;
+        }
+        Ok::<_, std::io::Error>(buffer)
+    });
+    let stderr_reader = std::thread::spawn(move || {
+        let mut buffer = Vec::new();
+        if let Some(stream) = stderr.as_mut() {
+            stream.read_to_end(&mut buffer)?;
+        }
+        Ok::<_, std::io::Error>(buffer)
+    });
 
     let deadline = std::time::Instant::now() + Duration::from_millis(spec.timeout_ms);
     let mut timed_out = false;
+    let mut wait_error = None;
     let exit_status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status.code(),
@@ -135,37 +150,31 @@ pub(crate) fn run_raw(spec: &RunSpec) -> Result<RawRunOutcome, RunnerError> {
                 std::thread::sleep(Duration::from_millis(10));
             }
             Err(error) => {
-                return Err(RunnerError::Read {
-                    program: spec.program.clone(),
-                    source: error,
-                });
+                let _ = child.kill();
+                let _ = child.wait();
+                wait_error = Some(error);
+                break None;
             }
         }
     };
 
-    let read_output = |stream: &mut Option<std::process::ChildStdout>| {
-        let mut buffer = Vec::new();
-        if let Some(stream) = stream.as_mut() {
-            stream.read_to_end(&mut buffer)?;
-        }
-        Ok::<_, std::io::Error>(buffer)
+    let join_reader = |result: std::thread::Result<std::io::Result<Vec<u8>>>| {
+        result.map_err(|_| std::io::Error::other("output reader thread panicked"))?
     };
-    let read_error = |stream: &mut Option<std::process::ChildStderr>| {
-        let mut buffer = Vec::new();
-        if let Some(stream) = stream.as_mut() {
-            stream.read_to_end(&mut buffer)?;
-        }
-        Ok::<_, std::io::Error>(buffer)
-    };
-
-    let stdout_bytes = read_output(&mut stdout).map_err(|source| RunnerError::Read {
+    let stdout_bytes = join_reader(stdout_reader.join()).map_err(|source| RunnerError::Read {
         program: spec.program.clone(),
         source,
     })?;
-    let stderr_bytes = read_error(&mut stderr).map_err(|source| RunnerError::Read {
+    let stderr_bytes = join_reader(stderr_reader.join()).map_err(|source| RunnerError::Read {
         program: spec.program.clone(),
         source,
     })?;
+    if let Some(source) = wait_error {
+        return Err(RunnerError::Read {
+            program: spec.program.clone(),
+            source,
+        });
+    }
 
     Ok(RawRunOutcome {
         exit_status,
@@ -246,6 +255,23 @@ mod tests {
         };
         let outcome = run(&spec).unwrap();
         assert!(outcome.stdout.len() < 30);
+        assert!(outcome.stdout.contains("truncated"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn large_output_is_drained_before_process_exit() {
+        let spec = RunSpec {
+            program: "seq".into(),
+            args: vec!["1".into(), "200000".into()],
+            env: BTreeMap::new(),
+            timeout_ms: 5_000,
+            output_max_bytes: 1_024,
+        };
+
+        let outcome = run(&spec).unwrap();
+        assert_eq!(outcome.exit_status, Some(0));
+        assert!(!outcome.timed_out);
         assert!(outcome.stdout.contains("truncated"));
     }
 }

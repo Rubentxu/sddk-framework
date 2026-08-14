@@ -1204,14 +1204,19 @@ fn git_tracked_manifest_entries(
     git: &GitExecutor,
 ) -> anyhow::Result<Vec<(String, String)>> {
     let tracked = git
-        .ls_files()
+        .ls_files(&MANIFEST_SURFACES)
         .map_err(|error| anyhow::anyhow!("git ls-files failed: {error}"))?;
     let surfaces: Vec<_> = MANIFEST_SURFACES.iter().map(Path::new).collect();
     let mut entries = Vec::new();
     for path in tracked {
-        let path_str = path.to_string_lossy().replace('\\', "/");
-        let p = Path::new(&path_str);
-        if !surfaces.iter().any(|s| p.starts_with(s)) {
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("git returned a non-UTF-8 tracked path"))?;
+        let relative_path = Path::new(path_str);
+        if !surfaces
+            .iter()
+            .any(|surface| relative_path.starts_with(surface))
+        {
             continue;
         }
         let abs = root.join(&path);
@@ -1222,19 +1227,43 @@ fn git_tracked_manifest_entries(
             Err(_) => anyhow::bail!("tracked file missing from working tree: {}", path_str),
         }
         let digest = sha256_hex(&abs)?;
-        entries.push((path_str, digest));
+        entries.push((path_str.to_owned(), digest));
     }
     entries.sort_by(|a, b| a.0.cmp(&b.0));
     entries.dedup_by(|a, b| a.0 == b.0);
     Ok(entries)
 }
 
-/// Serialize manifest entries as `sha256  relative-path` lines (sha256sum
-/// compatible, one entry per line).
+fn encode_manifest_path(path: &str) -> String {
+    path.replace('\\', "\\\\")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+}
+
+fn decode_manifest_path(path: &str) -> anyhow::Result<String> {
+    let mut decoded = String::with_capacity(path.len());
+    let mut chars = path.chars();
+    while let Some(character) = chars.next() {
+        if character != '\\' {
+            decoded.push(character);
+            continue;
+        }
+        match chars.next() {
+            Some('\\') => decoded.push('\\'),
+            Some('n') => decoded.push('\n'),
+            Some('r') => decoded.push('\r'),
+            Some(other) => anyhow::bail!("unsupported manifest path escape: \\{other}"),
+            None => anyhow::bail!("unterminated manifest path escape"),
+        }
+    }
+    Ok(decoded)
+}
+
+/// Serialize manifest entries as escaped `sha256  relative-path` lines.
 fn manifest_lines(entries: &[(String, String)]) -> String {
     entries
         .iter()
-        .map(|(path, digest)| format!("{digest}  {path}"))
+        .map(|(path, digest)| format!("{digest}  {}", encode_manifest_path(path)))
         .collect::<Vec<_>>()
         .join("\n")
         + "\n"
@@ -1482,21 +1511,21 @@ pub(crate) fn verify_manifest(root: &Path) -> anyhow::Result<Vec<String>> {
     let mut mismatches = Vec::new();
     let mut seen_paths = std::collections::HashSet::new();
     for line in raw.lines() {
-        let line = line.trim();
         if line.is_empty() {
             continue;
         }
-        let (expected, relative) = line
+        let (expected, encoded_relative) = line
             .split_once("  ")
             .ok_or_else(|| anyhow::anyhow!("malformed manifest line: {line}"))?;
+        let relative = decode_manifest_path(encoded_relative)?;
 
         // Detect duplicate manifest entries
-        if !seen_paths.insert(relative.to_string()) {
+        if !seen_paths.insert(relative.clone()) {
             mismatches.push(format!("{relative}: duplicate manifest entry"));
             continue;
         }
 
-        let file = root.join(relative);
+        let file = root.join(&relative);
         if !file.is_file() {
             mismatches.push(format!("{relative}: missing"));
             continue;
@@ -2127,11 +2156,15 @@ fn update_bundle(root: &Path, args: &UpdateArgs) -> anyhow::Result<String> {
         format!("{base_url}/download/{version}/{asset}")
     };
 
-    let tmp = std::env::temp_dir().join(format!("sddk-update-{}", std::process::id()));
+    static NEXT_UPDATE_TEMP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let sequence = NEXT_UPDATE_TEMP.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = std::env::temp_dir().join(format!("sddk-update-{}-{sequence}", std::process::id()));
     let tmp_dir = tmp.join("dl");
+    let staged_bundle = tmp.join("bundle");
     let bundle = tmp_dir.join(asset);
     let checksum = tmp_dir.join(format!("{asset}.sha256"));
     std::fs::create_dir_all(&tmp_dir)?;
+    std::fs::create_dir_all(&staged_bundle)?;
 
     download_to(&url, &bundle)?;
     download_to(&format!("{url}.sha256"), &checksum)?;
@@ -2151,7 +2184,7 @@ fn update_bundle(root: &Path, args: &UpdateArgs) -> anyhow::Result<String> {
             "xzf",
             bundle.to_str().unwrap_or_default(),
             "-C",
-            root.to_str().unwrap_or_default(),
+            staged_bundle.to_str().unwrap_or_default(),
         ])
         .output()?;
     if !extract.status.success() {
@@ -2160,35 +2193,53 @@ fn update_bundle(root: &Path, args: &UpdateArgs) -> anyhow::Result<String> {
             String::from_utf8_lossy(&extract.stderr).trim()
         );
     }
-    // Post-extract integrity: verify every file of the extracted bundle
-    // against the manifest that SHIPPED INSIDE the tarball. The tarball
+    // Post-extract integrity: verify every file against the manifest that
+    // SHIPPED INSIDE the tarball before touching the target. The tarball
     // checksum proves transport integrity; the internal manifest proves
     // content integrity of each framework surface (agents, skills, prompts,
     // workflows, assets) — no repository clone involved, only the release
     // surfaces (ADR-011).
-    let manifest_path = root.join(MANIFEST_FILE);
-    if manifest_path.is_file() {
-        match verify_manifest(root) {
-            Ok(mismatches) if mismatches.is_empty() => {}
-            Ok(mismatches) => {
-                let _ = std::fs::remove_dir_all(&tmp);
-                anyhow::bail!(
-                    "bundle content verification FAILED ({} mismatch(es)):\n  {}",
-                    mismatches.len(),
-                    mismatches.join("\n  ")
-                );
-            }
-            Err(e) => {
-                let _ = std::fs::remove_dir_all(&tmp);
-                anyhow::bail!("bundle manifest unreadable: {e}");
-            }
+    let manifest_path = staged_bundle.join(MANIFEST_FILE);
+    if !manifest_path.is_file() {
+        let _ = std::fs::remove_dir_all(&tmp);
+        anyhow::bail!("bundle is missing required {MANIFEST_FILE}");
+    }
+    match verify_manifest(&staged_bundle) {
+        Ok(mismatches) if mismatches.is_empty() => {}
+        Ok(mismatches) => {
+            let _ = std::fs::remove_dir_all(&tmp);
+            anyhow::bail!(
+                "bundle content verification FAILED ({} mismatch(es)):\n  {}",
+                mismatches.len(),
+                mismatches.join("\n  ")
+            );
+        }
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&tmp);
+            anyhow::bail!("bundle manifest unreadable: {e}");
         }
     }
+    copy_bundle_tree(&staged_bundle, root)?;
     let _ = std::fs::remove_dir_all(&tmp);
     Ok(format!(
         "framework: {version} ({asset}) sha256 verified: {actual}; {} files content-verified via {MANIFEST_FILE}\n",
         count_manifest_entries(root).unwrap_or(0)
     ))
+}
+
+fn copy_bundle_tree(source: &Path, target: &Path) -> anyhow::Result<()> {
+    for file in walk_dir(source) {
+        if !file.is_file() {
+            continue;
+        }
+        let relative = file.strip_prefix(source)?;
+        let destination = target.join(relative);
+        if let Some(parent) = destination.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::copy(file, destination)?;
+    }
+    Ok(())
 }
 
 /// Count entries in a root's MANIFEST.sha256 (0 when absent).
@@ -2441,6 +2492,97 @@ mod manifest_tests {
         std::fs::remove_dir_all(&prefix).ok();
     }
 
+    fn release_bundle(source: &Path, version: &str) -> (std::path::PathBuf, UpdateArgs) {
+        let releases = temp_root("update-releases");
+        let release_dir = releases.join("download").join(version);
+        std::fs::create_dir_all(&release_dir).unwrap();
+        let bundle = release_dir.join("sddk-framework.tar.gz");
+        let status = std::process::Command::new("tar")
+            .args(["czf"])
+            .arg(&bundle)
+            .args(["-C"])
+            .arg(source)
+            .arg(".")
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let checksum = sha256_hex(&bundle).unwrap();
+        std::fs::write(
+            release_dir.join("sddk-framework.tar.gz.sha256"),
+            format!("{checksum}  sddk-framework.tar.gz\n"),
+        )
+        .unwrap();
+        let args = UpdateArgs {
+            root: PathBuf::new(),
+            version: Some(version.to_owned()),
+            repo: "unused/for-file-url".to_owned(),
+            base_url: Some(format!("file://{}", releases.display())),
+            editor: LinkEditor::All,
+            format: OutputFormat::Text,
+        };
+        (releases, args)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn update_rejects_mismatch_before_touching_target() {
+        let source = temp_root("update-mismatch-source");
+        std::fs::create_dir_all(source.join("agents")).unwrap();
+        std::fs::write(source.join("agents/a.md"), "original").unwrap();
+        write_manifest(&source).unwrap();
+        std::fs::write(source.join("agents/a.md"), "tampered").unwrap();
+        let (_releases, args) = release_bundle(&source, "v-test-mismatch");
+        let target = temp_root("update-mismatch-target");
+        std::fs::write(target.join("sentinel"), "keep").unwrap();
+
+        let error = update_bundle(&target, &args).unwrap_err().to_string();
+        assert!(error.contains("content verification FAILED"), "{error}");
+        assert_eq!(
+            std::fs::read_to_string(target.join("sentinel")).unwrap(),
+            "keep"
+        );
+        assert!(!target.join("agents").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn update_requires_manifest_before_touching_target() {
+        let source = temp_root("update-no-manifest-source");
+        std::fs::create_dir_all(source.join("agents")).unwrap();
+        std::fs::write(source.join("agents/a.md"), "content").unwrap();
+        let (_releases, args) = release_bundle(&source, "v-test-no-manifest");
+        let target = temp_root("update-no-manifest-target");
+        std::fs::write(target.join("sentinel"), "keep").unwrap();
+
+        let error = update_bundle(&target, &args).unwrap_err().to_string();
+        assert!(error.contains("MANIFEST.sha256"), "{error}");
+        assert_eq!(
+            std::fs::read_to_string(target.join("sentinel")).unwrap(),
+            "keep"
+        );
+        assert!(!target.join("agents").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn update_installs_verified_staged_bundle() {
+        let source = temp_root("update-valid-source");
+        std::fs::create_dir_all(source.join("agents")).unwrap();
+        std::fs::write(source.join("agents/a.md"), "content").unwrap();
+        write_manifest(&source).unwrap();
+        let (_releases, args) = release_bundle(&source, "v-test-valid");
+        let target = temp_root("update-valid-target");
+
+        update_bundle(&target, &args).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(target.join("agents/a.md")).unwrap(),
+            "content"
+        );
+        assert!(target.join(MANIFEST_FILE).is_file());
+        assert!(verify_manifest(&target).unwrap().is_empty());
+    }
+
     fn git_test_root() -> (tempfile::TempDir, std::path::PathBuf) {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_path_buf();
@@ -2558,6 +2700,40 @@ mod manifest_tests {
         let error = write_manifest(&root).unwrap_err().to_string();
         assert!(error.contains("UTF-8"), "{error}");
         assert!(!root.join(MANIFEST_FILE).exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn manifest_ignores_non_utf8_tracked_path_outside_surfaces() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let (_dir, root) = git_test_root();
+        std::fs::create_dir_all(root.join("agents")).unwrap();
+        std::fs::write(root.join("agents/a.md"), "content").unwrap();
+        std::fs::create_dir_all(root.join("docs")).unwrap();
+        let name = std::ffi::OsString::from_vec(vec![0xff, b'.', b'm', b'd']);
+        std::fs::write(root.join("docs").join(name), "ignored").unwrap();
+        git_add_and_commit(&root, &["."], "outside surface");
+
+        assert_eq!(write_manifest(&root).unwrap(), 1);
+        assert!(verify_manifest(&root).unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn manifest_round_trips_special_utf8_paths() {
+        let (_dir, root) = git_test_root();
+        std::fs::create_dir_all(root.join("agents")).unwrap();
+        std::fs::write(root.join("agents/line\nbreak.md"), "content").unwrap();
+        std::fs::write(root.join("agents/back\\slash.md"), "content").unwrap();
+        std::fs::write(root.join("agents/trailing-space "), "content").unwrap();
+        git_add_and_commit(&root, &["."], "special paths");
+
+        assert_eq!(write_manifest(&root).unwrap(), 3);
+        let manifest = std::fs::read_to_string(root.join(MANIFEST_FILE)).unwrap();
+        assert!(manifest.contains("agents/line\\nbreak.md"), "{manifest:?}");
+        assert!(manifest.contains("agents/back\\\\slash.md"), "{manifest:?}");
+        assert!(verify_manifest(&root).unwrap().is_empty());
     }
 }
 
