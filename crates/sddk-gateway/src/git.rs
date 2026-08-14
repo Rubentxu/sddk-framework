@@ -8,6 +8,28 @@ use thiserror::Error;
 
 use crate::runner::{RunOutcome, RunSpec, run};
 
+const LOCAL_GIT_ENV_KEYS: &[&str] = &[
+    "HOME",
+    "PATH",
+    "USER",
+    "LOGNAME",
+    "XDG_CONFIG_HOME",
+    "GH_CONFIG_DIR",
+    "SSH_AUTH_SOCK",
+    "GIT_ASKPASS",
+    "SSH_ASKPASS",
+];
+
+fn local_git_env() -> BTreeMap<String, String> {
+    LOCAL_GIT_ENV_KEYS
+        .iter()
+        .filter_map(|key| {
+            std::env::var_os(key)
+                .map(|value| ((*key).to_owned(), value.to_string_lossy().into_owned()))
+        })
+        .collect()
+}
+
 /// Errors emitted by typed Git operations.
 #[derive(Debug, Error)]
 pub enum GitError {
@@ -87,7 +109,7 @@ impl GitExecutor {
     pub fn new(root: PathBuf) -> Self {
         Self {
             root,
-            env: BTreeMap::new(),
+            env: local_git_env(),
             timeout_ms: 30_000,
             output_max_bytes: 1_048_576,
         }
@@ -408,6 +430,22 @@ mod tests {
         env.insert("GIT_COMMITTER_NAME".into(), "SDDK Test".into());
         env.insert("GIT_COMMITTER_EMAIL".into(), "test@sddk.dev".into());
         (directory, GitExecutor::new(root).with_env(env))
+    }
+
+    #[test]
+    fn new_inherits_environment_required_by_local_git_credentials() {
+        let directory = tempfile::tempdir().unwrap();
+        let git = GitExecutor::new(directory.path().to_path_buf());
+
+        for key in ["HOME", "PATH", "USER"] {
+            if let Some(value) = std::env::var_os(key) {
+                assert_eq!(
+                    git.env.get(key).map(String::as_str),
+                    Some(value.to_string_lossy().as_ref()),
+                    "GitExecutor must preserve {key} for local credential helpers"
+                );
+            }
+        }
     }
 
     #[test]
