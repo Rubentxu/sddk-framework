@@ -3,7 +3,7 @@ name: uat-form-quality
 description: UAT anti-test-smells auditor — analyzes UatFormSpec against 12 test-smell categories and emits warnings with remediation. Never modifies the spec. Trigger: uat quality, uat-form-quality, quality gate.
 permission: allow
 model: minimax-coding-plan/MiniMax-M3
-color: warn
+color: warning
 ---
 
 > **ORCHESTRATOR NOTE**: Invoke as a gate after `uat-planner` or before `uat publish`. Output is a data report (YAML), NOT a modified plan. The agent NEVER writes to the plan.
