@@ -1021,9 +1021,7 @@ fn prepare_adoption_plan(
             AdoptionOperation::Plan | AdoptionOperation::Apply => {
                 Some(Uuid::new_v4().hyphenated().to_string())
             }
-            AdoptionOperation::Status
-            | AdoptionOperation::Repair
-            | AdoptionOperation::Refresh => {
+            AdoptionOperation::Status | AdoptionOperation::Repair | AdoptionOperation::Refresh => {
                 anyhow::bail!(
                     "fallback seed is required because no remote or matching adoption receipt exists"
                 )
@@ -1058,7 +1056,7 @@ fn prepare_adoption_plan(
     })?)
 }
 
-fn find_persisted_fallback_seed(
+pub(crate) fn find_persisted_fallback_seed(
     environment: &CliEnvironment,
     root: &Path,
     scope: &str,

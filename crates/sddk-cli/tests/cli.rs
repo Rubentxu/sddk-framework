@@ -4044,7 +4044,10 @@ fn cli_dev_install_default_layout_is_executable_and_verify_passes() {
     let installed_json: serde_json::Value = serde_json::from_str(&installed.stdout).unwrap();
 
     let binary = prefix.join("bin/sddk");
-    assert!(binary.exists(), "default layout places binary at prefix/bin/sddk");
+    assert!(
+        binary.exists(),
+        "default layout places binary at prefix/bin/sddk"
+    );
     assert_eq!(installed_json["binary_path"], "bin/sddk");
 
     let mode = fs::metadata(&binary).unwrap().permissions().mode() & 0o7777;
@@ -4877,12 +4880,27 @@ fn to_command_output(output: std::process::Output) -> sddk_cli::CommandOutput {
     }
 }
 
-fn run_doctor_from(root: &Path, args: &[&str]) -> std::process::Output {
-    std::process::Command::new(env!("CARGO_BIN_EXE_sddk"))
+/// Run `sddk dev doctor` from a fixture root, hermetically isolated from the
+/// real user's editor/bundle dirs. Creates ONLY the env-root dirs (no skeleton).
+/// Doctor will skip external editor/bundle checks and only measure fixture CWD.
+fn run_doctor_from(root: &Path, args: &[&str]) -> sddk_cli::CommandOutput {
+    let test_home = root.join(".test-home");
+    let test_data = root.join(".test-data");
+    std::fs::create_dir_all(&test_home).unwrap();
+    std::fs::create_dir_all(&test_data).unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sddk"))
         .args(args)
         .current_dir(root)
+        .env("HOME", &test_home)
+        .env("SDDK_DATA_DIR", &test_data)
+        .env("XDG_DATA_HOME", &test_data)
+        .env("XDG_STATE_HOME", &test_data)
+        .env("XDG_CACHE_HOME", &test_data)
+        .env("XDG_CONFIG_HOME", &test_data)
         .output()
-        .unwrap()
+        .unwrap();
+    to_command_output(output)
 }
 
 #[test]
@@ -4918,10 +4936,7 @@ fn cli_dev_doctor_surface_briefness() {
     write(root.join("agents/_fixture_briefness.md"), &lines);
 
     // Advisory mode: should report present=false but exit 0.
-    let doctor = to_command_output(run_doctor_from(
-        &root,
-        &["dev", "doctor", "--format", "json"],
-    ));
+    let doctor = run_doctor_from(&root, &["dev", "doctor", "--format", "json"]);
     let output: serde_json::Value = serde_json::from_str(&doctor.stdout).unwrap();
     let checks = output["checks"].as_array().unwrap();
     let brevity_check = checks
@@ -4938,10 +4953,7 @@ fn cli_dev_doctor_surface_briefness() {
     );
 
     // Strict mode: must exit 1 when any surface.briefness is present=false.
-    let doctor_strict = to_command_output(run_doctor_from(
-        &root,
-        &["dev", "doctor", "--strict", "--format", "json"],
-    ));
+    let doctor_strict = run_doctor_from(&root, &["dev", "doctor", "--strict", "--format", "json"]);
     assert_eq!(
         doctor_strict.status, 1,
         "--strict must exit 1 when surface.briefness check reports present=false"
@@ -4956,10 +4968,7 @@ fn cli_dev_doctor_surface_briefness() {
     }
     write(root.join("agents/_fixture_small.md"), &small_lines);
 
-    let doctor2 = to_command_output(run_doctor_from(
-        &root,
-        &["dev", "doctor", "--format", "json"],
-    ));
+    let doctor2 = run_doctor_from(&root, &["dev", "doctor", "--format", "json"]);
     let output2: serde_json::Value = serde_json::from_str(&doctor2.stdout).unwrap();
     let checks2 = output2["checks"].as_array().unwrap();
     let small_check = checks2
@@ -4995,10 +5004,7 @@ fn cli_dev_doctor_surface_empty_dirs() {
     std::fs::create_dir_all(root.join("agents/_empty/")).unwrap();
 
     // Advisory: empty dirs should be flagged as present=false.
-    let doctor = to_command_output(run_doctor_from(
-        &root,
-        &["dev", "doctor", "--format", "json"],
-    ));
+    let doctor = run_doctor_from(&root, &["dev", "doctor", "--format", "json"]);
     let output: serde_json::Value = serde_json::from_str(&doctor.stdout).unwrap();
     let checks = output["checks"].as_array().unwrap();
     let empty_check = checks
@@ -5020,10 +5026,7 @@ fn cli_dev_doctor_surface_empty_dirs() {
     );
 
     // Strict mode: must exit 0 (empty-dirs is advisory-only, not promoted by --strict).
-    let doctor_strict = to_command_output(run_doctor_from(
-        &root,
-        &["dev", "doctor", "--strict", "--format", "json"],
-    ));
+    let doctor_strict = run_doctor_from(&root, &["dev", "doctor", "--strict", "--format", "json"]);
     assert_eq!(
         doctor_strict.status, 0,
         "--strict must NOT promote surface.empty_dirs to exit 1 (advisory only)"
@@ -5031,10 +5034,7 @@ fn cli_dev_doctor_surface_empty_dirs() {
 
     // Non-empty directory must report present=true.
     std::fs::write(root.join("agents/_empty/file.md"), "# not empty\n").unwrap();
-    let doctor2 = to_command_output(run_doctor_from(
-        &root,
-        &["dev", "doctor", "--format", "json"],
-    ));
+    let doctor2 = run_doctor_from(&root, &["dev", "doctor", "--format", "json"]);
     let output2: serde_json::Value = serde_json::from_str(&doctor2.stdout).unwrap();
     let checks2 = output2["checks"].as_array().unwrap();
     let non_empty_check = checks2
@@ -5745,12 +5745,18 @@ fn approve_quarantine_candidate_fails() {
 
     // Adopt the project first (required for knowledge vault).
     let applied = fixture.run(&[
-        "adopt", "apply",
-        "--root", root,
-        "--scope", ".",
-        "--remote", remote,
-        "--timestamp", "2026-08-14T08:00:00Z",
-        "--actor", "cli-test",
+        "adopt",
+        "apply",
+        "--root",
+        root,
+        "--scope",
+        ".",
+        "--remote",
+        remote,
+        "--timestamp",
+        "2026-08-14T08:00:00Z",
+        "--actor",
+        "cli-test",
     ]);
     assert!(applied.status.success());
 
@@ -5763,10 +5769,14 @@ fn approve_quarantine_candidate_fails() {
 
     // Scan → creates plan with one candidate (Import disposition).
     let scanned = fixture.run(&[
-        "knowledge", "scan",
-        "--root", root,
-        "--remote", remote,
-        "--format", "json",
+        "knowledge",
+        "scan",
+        "--root",
+        root,
+        "--remote",
+        remote,
+        "--format",
+        "json",
     ]);
     assert!(scanned.status.success());
     let scan: serde_json::Value = serde_json::from_slice(&scanned.stdout).unwrap();
@@ -5784,14 +5794,22 @@ fn approve_quarantine_candidate_fails() {
 
     // Rescan — now we have 2 candidates: 1 Import + 1 Quarantine.
     let rescanned = fixture.run(&[
-        "knowledge", "scan",
-        "--root", root,
-        "--remote", remote,
-        "--format", "json",
+        "knowledge",
+        "scan",
+        "--root",
+        root,
+        "--remote",
+        remote,
+        "--format",
+        "json",
     ]);
     assert!(rescanned.status.success());
     let rescan: serde_json::Value = serde_json::from_slice(&rescanned.stdout).unwrap();
-    assert_eq!(rescan["quarantined"].as_u64().unwrap(), 1, "must have one quarantined candidate");
+    assert_eq!(
+        rescan["quarantined"].as_u64().unwrap(),
+        1,
+        "must have one quarantined candidate"
+    );
     let quarantined = rescan["plan"]["candidates"]
         .as_array()
         .unwrap()
@@ -5802,11 +5820,16 @@ fn approve_quarantine_candidate_fails() {
 
     // Attempt to approve the quarantined candidate — MUST fail.
     let approved = fixture.run(&[
-        "knowledge", "import",
-        "--root", root,
-        "--remote", remote,
-        "--plan", plan_id,
-        "--approve", q_entry_id,
+        "knowledge",
+        "import",
+        "--root",
+        root,
+        "--remote",
+        remote,
+        "--plan",
+        plan_id,
+        "--approve",
+        q_entry_id,
     ]);
     assert!(
         !approved.status.success(),
@@ -5831,12 +5854,18 @@ fn approve_relation_conflict_candidate_fails() {
     let remote = "https://example.com/acme/approve-relation-conflict.git";
 
     let applied = fixture.run(&[
-        "adopt", "apply",
-        "--root", root,
-        "--scope", ".",
-        "--remote", remote,
-        "--timestamp", "2026-08-14T08:00:00Z",
-        "--actor", "cli-test",
+        "adopt",
+        "apply",
+        "--root",
+        root,
+        "--scope",
+        ".",
+        "--remote",
+        remote,
+        "--timestamp",
+        "2026-08-14T08:00:00Z",
+        "--actor",
+        "cli-test",
     ]);
     assert!(applied.status.success());
 
@@ -5848,20 +5877,28 @@ fn approve_relation_conflict_candidate_fails() {
     git_commit_all(&fixture.root);
 
     let scanned = fixture.run(&[
-        "knowledge", "scan",
-        "--root", root,
-        "--remote", remote,
-        "--format", "json",
+        "knowledge",
+        "scan",
+        "--root",
+        root,
+        "--remote",
+        remote,
+        "--format",
+        "json",
     ]);
     assert!(scanned.status.success());
     let scan: serde_json::Value = serde_json::from_slice(&scanned.stdout).unwrap();
     let plan_id = scan["plan_id"].as_str().unwrap();
 
     let imported = fixture.run(&[
-        "knowledge", "import",
-        "--root", root,
-        "--remote", remote,
-        "--plan", plan_id,
+        "knowledge",
+        "import",
+        "--root",
+        root,
+        "--remote",
+        remote,
+        "--plan",
+        plan_id,
     ]);
     assert!(imported.status.success());
 
@@ -5876,10 +5913,14 @@ fn approve_relation_conflict_candidate_fails() {
     git_commit_all(&fixture.root);
 
     let rescanned = fixture.run(&[
-        "knowledge", "scan",
-        "--root", root,
-        "--remote", remote,
-        "--format", "json",
+        "knowledge",
+        "scan",
+        "--root",
+        root,
+        "--remote",
+        remote,
+        "--format",
+        "json",
     ]);
     assert!(rescanned.status.success());
     let rescan: serde_json::Value = serde_json::from_slice(&rescanned.stdout).unwrap();
@@ -5925,11 +5966,16 @@ fn approve_relation_conflict_candidate_fails() {
     // (On case-sensitive Linux, two files with different paths never have relation conflict,
     // but is_approvable_change still enforces its 3-condition guard.)
     let approved = fixture.run(&[
-        "knowledge", "import",
-        "--root", root,
-        "--remote", remote,
-        "--plan", new_plan_id,
-        "--approve", conflict_entry_id,
+        "knowledge",
+        "import",
+        "--root",
+        root,
+        "--remote",
+        remote,
+        "--plan",
+        new_plan_id,
+        "--approve",
+        conflict_entry_id,
     ]);
     assert!(
         !approved.status.success(),
@@ -5955,12 +6001,18 @@ fn relation_key_is_deterministic_for_path_invariants() {
     let remote = "https://example.com/acme/relation-key-determinism.git";
 
     let applied = fixture.run(&[
-        "adopt", "apply",
-        "--root", root,
-        "--scope", ".",
-        "--remote", remote,
-        "--timestamp", "2026-08-14T08:00:00Z",
-        "--actor", "cli-test",
+        "adopt",
+        "apply",
+        "--root",
+        root,
+        "--scope",
+        ".",
+        "--remote",
+        remote,
+        "--timestamp",
+        "2026-08-14T08:00:00Z",
+        "--actor",
+        "cli-test",
     ]);
     assert!(applied.status.success());
 
@@ -5976,16 +6028,24 @@ fn relation_key_is_deterministic_for_path_invariants() {
     git_commit_all(&fixture.root);
 
     let scanned = fixture.run(&[
-        "knowledge", "scan",
-        "--root", root,
-        "--remote", remote,
-        "--format", "json",
+        "knowledge",
+        "scan",
+        "--root",
+        root,
+        "--remote",
+        remote,
+        "--format",
+        "json",
     ]);
     assert!(scanned.status.success());
     let scan: serde_json::Value = serde_json::from_slice(&scanned.stdout).unwrap();
 
     // Both files are detected (tracked by git, have owner).
-    assert_eq!(scan["candidates"].as_u64().unwrap(), 2, "must detect both files");
+    assert_eq!(
+        scan["candidates"].as_u64().unwrap(),
+        2,
+        "must detect both files"
+    );
 
     // Both files must have the EXACT SAME relation key.
     // This is the core invariant: case normalization means ADR-003 and adr-003
@@ -5997,10 +6057,7 @@ fn relation_key_is_deterministic_for_path_invariants() {
         .map(|c| c["relation"].as_str().unwrap())
         .collect::<Vec<_>>();
     relations.sort();
-    assert_eq!(
-        relations.len(), 2,
-        "must have exactly 2 relations"
-    );
+    assert_eq!(relations.len(), 2, "must have exactly 2 relations");
     assert_eq!(
         relations[0], relations[1],
         "case-different paths must produce identical relation keys; got: {relations:?}"

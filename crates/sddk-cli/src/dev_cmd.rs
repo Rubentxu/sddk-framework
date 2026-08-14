@@ -563,11 +563,7 @@ fn run_dev_install(args: InstallArgs) -> CommandOutput {
         // binary directly under the prefix (no extra `bin/` segment); this
         // matches the GNU autoconf/CMake convention of `--prefix=/opt/sdk/bin`
         // meaning "the binary directory". Otherwise nest under `bin/`.
-        let ends_with_bin = args
-            .prefix
-            .file_name()
-            .and_then(|name| name.to_str())
-            == Some("bin");
+        let ends_with_bin = args.prefix.file_name().and_then(|name| name.to_str()) == Some("bin");
         let target_dir = if ends_with_bin {
             args.prefix.clone()
         } else {
@@ -797,7 +793,10 @@ fn atomic_write(destination: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::
                     {
                         if let Some(bits) = mode {
                             use std::os::unix::fs::PermissionsExt;
-                            std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(bits))?;
+                            std::fs::set_permissions(
+                                &temporary,
+                                std::fs::Permissions::from_mode(bits),
+                            )?;
                         }
                     }
                     std::fs::rename(&temporary, destination)
@@ -1268,30 +1267,42 @@ fn write_skill_registry(
     framework_root: &Path,
 ) -> anyhow::Result<(PathBuf, usize)> {
     let project_id = resolve_project_id_for_registry(environment, project_root)?;
-    let registry_dir = sddk_data_dir(environment)?.join("projects").join(&project_id);
+    let registry_dir = sddk_data_dir(environment)?
+        .join("projects")
+        .join(&project_id);
     let registry_path = registry_dir.join("skill-registry.md");
     std::fs::create_dir_all(&registry_dir)?;
 
     // Determine home dir for user-level scans.
     // Prefer environment.home when set (tests, isolated environments);
     // fall back to the system HOME variable.
-    let home = environment
-        .home
-        .clone()
-        .unwrap_or_else(|| std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp")));
+    let home = environment.home.clone().unwrap_or_else(|| {
+        std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/tmp"))
+    });
 
     // Define all scopes with their search paths in precedence order.
     // Each entry: (scope_label, base_dir).
+    // User-level: documented editor config dirs (AGENTS/layout supports zcode + others from bundle).
+    // Project-level: project-root-relative dirs for adopted projects.
+    // Framework-level: skills/ inside the active framework bundle.
     let scopes: Vec<(&str, PathBuf)> = vec![
         // Project-level dirs under the adopted project root.
         ("project", project_root.join(".opencode/skills")),
         ("project", project_root.join(".agents/skills")),
         ("project", project_root.join(".claude/skills")),
         ("project", project_root.join(".zcode/skills")),
-        // User-level dirs under XDG config home.
+        ("project", project_root.join(".kilo/skills")),
+        ("project", project_root.join(".codex/skills")),
+        // User-level dirs (XDG_CONFIG_HOME and HOME-relative documented paths).
         ("user", home.join(".config/opencode/skills")),
-        ("user", home.join(".config/claude/skills")),
-        ("user", home.join(".config/zcode/skills")),
+        ("user", home.join(".agents/skills")),
+        ("user", home.join(".claude/skills")),
+        ("user", home.join(".zcode/skills")),
+        ("user", home.join(".opencode/skills")),
+        ("user", home.join(".config/kilo/skills")),
+        ("user", home.join(".codex/skills")),
         // Framework-level dirs under the framework root.
         ("framework", framework_root.join("skills")),
     ];
@@ -1301,7 +1312,10 @@ fn write_skill_registry(
 
     for (scope, skills_base) in scopes {
         if let Ok(skill_dirs) = std::fs::read_dir(&skills_base) {
-            for skill_dir in skill_dirs.flatten() {
+            // Collect and sort for deterministic processing order.
+            let mut dirs: Vec<_> = skill_dirs.flatten().collect();
+            dirs.sort_by_key(|e| e.file_name());
+            for skill_dir in dirs {
                 let dir_name = skill_dir.file_name();
                 let dir_name_str = dir_name.to_string_lossy();
                 // Skip internal entries that are not user-facing skills.
@@ -1377,56 +1391,45 @@ fn write_skill_registry(
 
 /// Resolve project_id for the skill registry writer.
 ///
-/// Uses ONLY `sddk_domain::resolve_project_identity` — no custom `proj-*`
-/// fallback. When a git remote is available, derives from it for stable identity.
-/// When no remote exists, derives a deterministic UUID seed from the canonical
-/// root and uses the resolver's fallback path, which also produces a `p-*` ID.
+/// Uses ONLY `crate::resolve_remote` (git command), `crate::find_persisted_fallback_seed`
+/// (adoption receipt), and `sddk_domain::resolve_project_identity` — never fabricates
+/// a UUID from a hash.
+///
+/// Priority:
+///  1. Git remote URL → canonical resolver (stable p-* across machines)
+///  2. Persisted adoption receipt seed → seeded fallback (stable p-* for adopted dirs)
+///  3. Neither → explicit error with instructions to run `sddk adopt`
 fn resolve_project_id_for_registry(
-    _environment: &CliEnvironment,
+    environment: &CliEnvironment,
     project_root: &Path,
 ) -> anyhow::Result<String> {
     let canonical = std::fs::canonicalize(project_root)?;
-    let root_str = canonical.to_string_lossy();
-    let remote = git_remote_url(project_root);
+    let root_display = canonical.to_string_lossy().to_string();
 
-    let identity = if let Some(remote_url) = remote {
-        // Remote available — derive p-* from canonical resolver using remote URL.
-        sddk_domain::resolve_project_identity(Some(&remote_url), root_str.as_ref(), None)
-    } else {
-        // No remote — derive a deterministic UUID seed from the canonical path
-        // and use the resolver's fallback path (produces p-* identically).
-        let hash = Sha256::digest(root_str.as_bytes());
-        // Format first 16 bytes as a hyphenated UUID (8-4-4-4-12).
-        let hex = format!("{:032x}", u128::from_le_bytes(
-            <[u8; 16]>::try_from(&hash[..16]).unwrap(),
-        ));
-        let fallback_seed = format!(
-            "{}-{}-{}-{}-{}",
-            &hex[0..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..32]
-        );
-        // Use "." as scope for absolute-path roots (temp dirs, tests) since
-        // normalize_scope rejects absolute paths. This still produces a stable
-        // p-* via the seeded fallback path.
-        let scope = if root_str.starts_with('/') { "." } else { root_str.as_ref() };
-        sddk_domain::resolve_project_identity(None, scope, Some(&fallback_seed))
-    };
-
-    identity
-        .map(|id| id.project_id.to_string())
-        .map_err(|e| anyhow::anyhow!("{e}"))
-}
-
-/// Read the remote URL from git config of a working tree root.
-fn git_remote_url(root: &Path) -> Option<String> {
-    let config_path = root.join(".git").join("config");
-    let content = std::fs::read_to_string(&config_path).ok()?;
-    for line in content.lines() {
-        let line = line.trim();
-        if let Some(stripped) = line.strip_prefix("url = ") {
-            return Some(stripped.to_string());
-        }
+    // Try git remote first.
+    if let Some(remote_url) = crate::resolve_remote(project_root, None)? {
+        // Use "." as scope (the CLI default) — remote already provides uniqueness.
+        let identity = sddk_domain::resolve_project_identity(Some(&remote_url), ".", None);
+        return identity
+            .map(|id| id.project_id.to_string())
+            .map_err(|e| anyhow::anyhow!("{e}"));
     }
-    None
+
+    // No remote — look for a persisted adoption receipt for this workspace.
+    if let Some(seed) = crate::find_persisted_fallback_seed(environment, &canonical, ".")? {
+        let identity = sddk_domain::resolve_project_identity(None, ".", Some(&seed));
+        return identity
+            .map(|id| id.project_id.to_string())
+            .map_err(|e| anyhow::anyhow!("{e}"));
+    }
+
+    // Neither remote nor adoption receipt found — require explicit adoption.
+    anyhow::bail!(
+        "cannot resolve project identity for registry: \
+         no git remote found in {root_display} and no adoption receipt exists. \
+         Run `sddk adopt --scope .` first to create a persistent project identity, \
+         then retry `sddk dev link --write-registry`."
+    );
 }
 
 /// Verify a framework root against its MANIFEST.sha256. Returns the list of
@@ -1543,8 +1546,8 @@ fn run_dev_link(args: LinkArgs, environment: &CliEnvironment) -> CommandOutput {
 
         // Write idempotent, deduplicated skill registry to XDG project state.
         // project_root = adopted workspace (CWD); framework_root = this framework.
-        let project_root_for_registry = std::env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("."));
+        let project_root_for_registry =
+            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         if args.write_registry {
             match write_skill_registry(environment, &project_root_for_registry, &root) {
                 Ok((path, count)) => {
@@ -2397,10 +2400,8 @@ mod skill_registry_tests {
     fn temp_project(tag: &str) -> std::path::PathBuf {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "sddk-reg-prj-{tag}-{n}-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("sddk-reg-prj-{tag}-{n}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -2408,10 +2409,8 @@ mod skill_registry_tests {
     fn temp_framework(tag: &str) -> std::path::PathBuf {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "sddk-reg-frm-{tag}-{n}-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("sddk-reg-frm-{tag}-{n}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -2432,11 +2431,30 @@ mod skill_registry_tests {
 
     /// Create a minimal SKILL.md with name and description frontmatter.
     fn make_skill(dir: &std::path::Path, name: &str, description: &str) {
-        let content = format!(
-            "---\nname: {name}\ndescription: \"{description}\"\n---\n",
-        );
+        let content = format!("---\nname: {name}\ndescription: \"{description}\"\n---\n",);
         std::fs::create_dir_all(dir).unwrap();
         std::fs::write(dir.join("SKILL.md"), content).unwrap();
+    }
+
+    /// Initialize a fake git repo with a fake remote so `crate::resolve_remote`
+    /// returns a deterministic URL and the registry identity resolver produces a
+    /// stable p-*. Uses `git init` so the git command succeeds.
+    fn init_fake_git_remote(dir: &std::path::Path) {
+        // Run `git init` so git commands work in this temp dir.
+        let init_output = std::process::Command::new("git")
+            .args(["init", "--initial-branch=main"])
+            .current_dir(dir)
+            .output();
+        if init_output.map(|o| !o.status.success()).unwrap_or(true) {
+            // git not available or failed — skip.
+            return;
+        }
+        // Use a fixed remote URL so the p-* ID is deterministic for the same dir path.
+        let remote_url = "https://test.example.com/sddk-framework.git";
+        let _ = std::process::Command::new("git")
+            .args(["remote", "add", "origin", remote_url])
+            .current_dir(dir)
+            .output();
     }
 
     #[test]
@@ -2447,11 +2465,26 @@ mod skill_registry_tests {
         let framework = temp_framework("idempotent");
         let env = test_environment(&project);
 
+        // Initialize a fake git remote so resolve_remote returns a deterministic URL.
+        init_fake_git_remote(&framework);
+
         // Skills live in framework scope (mirrors real dogfooding: sddk-framework IS the adopted workspace).
-        make_skill(&framework.join("skills/sddk-apply"), "sddk-apply", "Apply SDD tasks");
-        make_skill(&framework.join("skills/sddk-design"), "sddk-design", "Design SDD solutions");
+        make_skill(
+            &framework.join("skills/sddk-apply"),
+            "sddk-apply",
+            "Apply SDD tasks",
+        );
+        make_skill(
+            &framework.join("skills/sddk-design"),
+            "sddk-design",
+            "Design SDD solutions",
+        );
         // _shared should be skipped.
-        make_skill(&framework.join("skills/_shared"), "_shared", "Shared internal");
+        make_skill(
+            &framework.join("skills/_shared"),
+            "_shared",
+            "Shared internal",
+        );
         // skill-registry should be skipped.
         make_skill(
             &framework.join("skills/skill-registry"),
@@ -2460,16 +2493,14 @@ mod skill_registry_tests {
         );
 
         // Pass framework as project_root so project-ID derives from the dir that holds the skills.
-        let (path1, count1) =
-            write_skill_registry(&env, &framework, &framework).unwrap();
+        let (path1, count1) = write_skill_registry(&env, &framework, &framework).unwrap();
         assert_eq!(
             count1, 2,
             "only sddk-apply and sddk-design should be included"
         );
 
         // Second invocation must produce byte-identical output (idempotent).
-        let (path2, count2) =
-            write_skill_registry(&env, &framework, &framework).unwrap();
+        let (path2, count2) = write_skill_registry(&env, &framework, &framework).unwrap();
         assert_eq!(count2, 2);
         let content1 = std::fs::read_to_string(&path1).unwrap();
         let content2 = std::fs::read_to_string(&path2).unwrap();
@@ -2493,6 +2524,7 @@ mod skill_registry_tests {
         let project = temp_project("skip");
         let framework = temp_framework("skip");
         let env = test_environment(&project);
+        init_fake_git_remote(&framework);
 
         // Create a valid skill in framework scope.
         make_skill(
@@ -2505,8 +2537,7 @@ mod skill_registry_tests {
         // A regular file in skills/ should be skipped.
         std::fs::write(framework.join("skills/README.md"), "# readme\n").unwrap();
 
-        let (_, count) =
-            write_skill_registry(&env, &framework, &framework).unwrap();
+        let (_, count) = write_skill_registry(&env, &framework, &framework).unwrap();
         assert_eq!(
             count, 1,
             "only sddk-verify with SKILL.md should be included"
@@ -2522,11 +2553,20 @@ mod skill_registry_tests {
         let project = temp_project("proj-only");
         let framework = temp_framework("proj-only");
         let env = test_environment(&project);
+        init_fake_git_remote(&framework);
 
         // Project skill must be in a project-scope dir under project_root (framework here).
-        make_skill(&framework.join(".opencode/skills/sddk-apply"), "sddk-apply", "Apply");
+        make_skill(
+            &framework.join(".opencode/skills/sddk-apply"),
+            "sddk-apply",
+            "Apply",
+        );
         // Framework skill in the framework scope.
-        make_skill(&framework.join("skills/sddk-design"), "sddk-design", "Design");
+        make_skill(
+            &framework.join("skills/sddk-design"),
+            "sddk-design",
+            "Design",
+        );
 
         let (_, count) = write_skill_registry(&env, &framework, &framework).unwrap();
         assert_eq!(count, 2, "skills from both scopes should appear");
@@ -2541,6 +2581,7 @@ mod skill_registry_tests {
         let project = temp_project("precedence");
         let framework = temp_framework("precedence");
         let env = test_environment(&project);
+        init_fake_git_remote(&framework);
 
         // Skill in framework scope at `framework/skills/sddk-apply`.
         make_skill(
@@ -2556,8 +2597,7 @@ mod skill_registry_tests {
             "Project-level apply skill",
         );
 
-        let (_, count) =
-            write_skill_registry(&env, &framework, &framework).unwrap();
+        let (_, count) = write_skill_registry(&env, &framework, &framework).unwrap();
         assert_eq!(count, 1, "only one sddk-apply should appear (project wins)");
 
         std::fs::remove_dir_all(&project).ok();
@@ -2569,6 +2609,7 @@ mod skill_registry_tests {
         // Same skill name in user and framework scopes; user must win.
         let project = temp_project("user-precedence");
         let framework = temp_framework("user-precedence");
+        init_fake_git_remote(&framework);
 
         // Skill in framework scope.
         make_skill(
@@ -2586,8 +2627,7 @@ mod skill_registry_tests {
 
         let mut env_with_home = test_environment(&project);
         env_with_home.home = Some(fake_home.clone());
-        let (_, count) =
-            write_skill_registry(&env_with_home, &framework, &framework).unwrap();
+        let (_, count) = write_skill_registry(&env_with_home, &framework, &framework).unwrap();
         assert_eq!(count, 1, "only one sddk-design should appear (user wins)");
 
         std::fs::remove_dir_all(&project).ok();
@@ -2600,9 +2640,9 @@ mod skill_registry_tests {
         let project = temp_project("empty");
         let framework = temp_framework("empty");
         let env = test_environment(&project);
+        init_fake_git_remote(&framework);
 
-        let (_, count) =
-            write_skill_registry(&env, &framework, &framework).unwrap();
+        let (_, count) = write_skill_registry(&env, &framework, &framework).unwrap();
         assert_eq!(count, 0, "no skills means empty registry");
 
         std::fs::remove_dir_all(&project).ok();
@@ -2615,6 +2655,7 @@ mod skill_registry_tests {
         let project = temp_project("det-id");
         let framework = temp_framework("det-id");
         let env = test_environment(&project);
+        init_fake_git_remote(&framework);
 
         make_skill(
             &framework.join("skills/sddk-apply"),
@@ -2622,10 +2663,8 @@ mod skill_registry_tests {
             "Test skill",
         );
 
-        let (path1, _) =
-            write_skill_registry(&env, &framework, &framework).unwrap();
-        let (path2, _) =
-            write_skill_registry(&env, &framework, &framework).unwrap();
+        let (path1, _) = write_skill_registry(&env, &framework, &framework).unwrap();
+        let (path2, _) = write_skill_registry(&env, &framework, &framework).unwrap();
 
         // The registry path contains the project ID; both calls must write to same location.
         assert_eq!(

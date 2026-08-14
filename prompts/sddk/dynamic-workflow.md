@@ -50,7 +50,7 @@ If you can match a canonical path, **always prefer it** — generated workflows 
    - Include `debt-verify` (depth derived from path; mandatory — NOT opt-in) for SDD-style changes; skip ONLY when path is B-direct (hotfix)
    - Include `update-knowledge-graph` if milestone tracking is enabled
    - Include `release` (mandatory before archive, NOT opt-in) if git workflow applies
-   - Knowledge pipeline preflight (`with_knowledge: true`): agents run verify → scan and only import reviewed plans. Requires explicit `knowledge_approved: true` in trigger context for import step; quarantine candidates are NEVER auto-imported.
+   - Knowledge pipeline preflight (`with_knowledge: true`): run scan then verify; import only when `knowledge_approved true AND reviewed plan`; quarantine candidates are NEVER auto-imported or auto-approved.
 
 5. **YAML composition**: emit workflow YAML following the schema in `~/.config/opencode/workflows/README.md`. Required fields:
    - `name` (kebab-case, descriptive)

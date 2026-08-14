@@ -393,6 +393,16 @@ When dispatching via `task()`, the prompt to the subagent should include:
 - Knowledge pipeline flags if launch plan says `with_knowledge: true` and `knowledge_approved: true/false`
 - Capability injections (CogniCode, Chronos, Engram, etc.) per launch plan
 
+### Knowledge Pipeline Rule (MANDATORY when `with_knowledge: true`)
+
+When a launch plan specifies `with_knowledge: true`:
+
+1. **Propagation**: propagate the flag to all agents in the pipeline
+2. **Execution order**: run `scan` then `verify` — NOT verify then scan
+3. **Import condition**: import ONLY when BOTH `knowledge_approved: true` AND the plan is reviewed
+4. **Quarantine**: quarantine candidates are NEVER auto-imported or auto-approved; explicit `--approve` required
+5. **No silent pass**: if `with_knowledge: true` but `knowledge_approved: false`, the import step MUST be skipped with "approval required" message
+
 ### Debt-verify handling (v3.3 — no opt-in, depth derived from path)
 
 The `debt-verify-opt-in` phase is **removed**. Depth is derived from path and locked: `A-full → deep (5 clusters)`, `A-lite → standard (4)`, `A-min → smoke (2)`, `B-direct → not invoked`. Dispatch via the cluster list declared in `phase.clusters` (not via `clusters_by_depth`). The user is NEVER asked which depth to use; the user NEVER chooses to skip; the only legitimate way to avoid debt-verify is to triage into B-direct.
