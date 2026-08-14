@@ -38,11 +38,12 @@ pub(crate) enum DevCommand {
 
 /// Framework surfaces covered by the manifest (agents, skills, prompts,
 /// workflows, assets). Relative to the framework root.
-const MANIFEST_SURFACES: [&str; 5] = [
+/// NOTE: prompts/sddk already recurses into prompts/sddk/workflows; do NOT
+/// add it as a separate entry or files will be hashed twice.
+const MANIFEST_SURFACES: [&str; 4] = [
     "agents",
     "skills",
     "prompts/sddk",
-    "prompts/sddk/workflows",
     "assets",
 ];
 
@@ -1434,11 +1435,12 @@ fn resolve_project_id_for_registry(
 
 /// Verify a framework root against its MANIFEST.sha256. Returns the list of
 /// mismatches (empty = intact). A missing manifest is reported as a single
-/// entry.
+/// entry. Duplicate manifest entries are reported as mismatch.
 pub(crate) fn verify_manifest(root: &Path) -> anyhow::Result<Vec<String>> {
     let manifest_path = root.join(MANIFEST_FILE);
     let raw = std::fs::read_to_string(&manifest_path)?;
     let mut mismatches = Vec::new();
+    let mut seen_paths = std::collections::HashSet::new();
     for line in raw.lines() {
         let line = line.trim();
         if line.is_empty() {
@@ -1447,6 +1449,13 @@ pub(crate) fn verify_manifest(root: &Path) -> anyhow::Result<Vec<String>> {
         let (expected, relative) = line
             .split_once("  ")
             .ok_or_else(|| anyhow::anyhow!("malformed manifest line: {line}"))?;
+
+        // Detect duplicate manifest entries
+        if !seen_paths.insert(relative.to_string()) {
+            mismatches.push(format!("{relative}: duplicate manifest entry"));
+            continue;
+        }
+
         let file = root.join(relative);
         if !file.is_file() {
             mismatches.push(format!("{relative}: missing"));

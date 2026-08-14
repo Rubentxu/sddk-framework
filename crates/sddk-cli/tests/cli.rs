@@ -7,6 +7,7 @@ use sddk_cli::{
     generate_inventory, generate_workflow_docs, lint_repository, run_from,
 };
 use sddk_testkit::TestRepository;
+use sha2::Digest;
 use tempfile::TempDir;
 
 const WORKFLOW: &str = include_str!("fixtures/workflow.yaml");
@@ -5223,6 +5224,49 @@ paths = ["tests/a.sh"]
             .iter()
             .any(|diagnostic| diagnostic.code == "SDDK014")
     );
+}
+
+#[test]
+fn cli_dev_manifest_verify_detects_duplicate_entries() {
+    // Create a fixture with a manifest containing duplicate entries
+    let fixture = CliFixture::new("manifest-dup");
+    // Create a minimal file to hash
+    let test_file = fixture.root.join("agents/test-agent.md");
+    fs::create_dir_all(test_file.parent().unwrap()).unwrap();
+    fs::write(&test_file, "# Test Agent\n").unwrap();
+    // Create a manifest with duplicate entries for the same file
+    let duplicate_manifest = format!(
+        "{}  agents/test-agent.md\n{}  agents/test-agent.md\n",
+        sha256_of_file(&test_file),
+        sha256_of_file(&test_file)
+    );
+    fs::write(fixture.root.join("MANIFEST.sha256"), duplicate_manifest).unwrap();
+    // Verify must fail with duplicate mismatch
+    let result = fixture.run(&["dev", "manifest", "--root", fixture.root.to_str().unwrap(), "--verify"]);
+    assert!(
+        !result.status.success(),
+        "manifest verify should fail on duplicate entries"
+    );
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    let output = if stderr.contains("duplicate") {
+        stderr
+    } else {
+        stdout
+    };
+    assert!(
+        output.contains("duplicate"),
+        "error should mention 'duplicate': {output}"
+    );
+}
+
+fn sha256_of_file(path: &Path) -> String {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).unwrap();
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer).unwrap();
+    let digest = sha2::Sha256::digest(&buffer);
+    format!("{:x}", digest)
 }
 
 #[test]

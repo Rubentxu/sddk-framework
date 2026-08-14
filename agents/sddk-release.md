@@ -1,6 +1,6 @@
 ---
 name: sddk-release
-description: SDDK release executor - closes an archived cycle through verified local main SHA and an annotated remote tag; optional distribution is post-tag only.
+description: SDDK release executor — runs after verify/review, before archive — closes through verified local SHA and annotated tag; distribution post-tag only.
 permission: allow
 model: minimax-coding-plan/MiniMax-M3
 color: accent

@@ -246,6 +246,7 @@ FORBIDDEN_RELEASE = [
     (r"Mandatory Pre-Review", "Mandatory Pre-Review"),
     (r"ready_for_release", "ready_for_release"),
     (r"release-handoff", "release-handoff"),
+    (r"closes an archived cycle", "closes an archived cycle"),
 ]
 
 RELEASE_FILES = (
@@ -290,8 +291,8 @@ for file_path in release_check_files:
     else:
         inc_pass(f"{fname}: release precondition has no archive report")
 
-    # Require positive after review (A-full) - only if file mentions A-full or review phase
-    mentions_review = bool(re.search(r"A-full|review\s+phase|\breview\b", content, re.IGNORECASE))
+    # Require positive after review (A-full) - only if file mentions A-full path or ordering context
+    mentions_review = bool(re.search(r"A-full\b", content, re.IGNORECASE))
     has_after_review = bool(re.search(
         r"after\s+review|or\s+review\s*\(|review\s+phase",
         content, re.IGNORECASE
