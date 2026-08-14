@@ -52,6 +52,30 @@ tasks:
   acceptance_criteria:
   - Future idea template exists
   - Roadmap references it
+- id: SDDK2-008
+  phase: 0
+  priority: MUST
+  title: Govern repository knowledge through scan → plan → import → verify
+  depends_on:
+  - SDDK2-003
+  spec: SPEC-018
+  acceptance_criteria:
+  - scan emits kp-<hex16>; re-run yields Unchanged
+  - import rehashes source at import; mismatch hard-fails (TOCTOU closed)
+  - import --approve on Quarantine candidate fails (R10)
+  - rules check without capability returns not_applicable
+  - stale source → capability Stale; re-approve restores Current
+  - Zero writes inside workspace repo; BACKLOG has SDDK2-008
+- id: SDDK2-008.DEBT
+  phase: 0
+  priority: DEFERRED
+  title: "[DEBT] Split knowledge_ingest.rs monolith (R9)"
+  depends_on:
+  - SDDK2-008
+  spec: SPEC-018
+  acceptance_criteria:
+  - knowledge_ingest.rs split into scan.rs/import.rs/verify.rs/capability.rs/io.rs/git.rs ≤300 LOC each
+  - Unit tests for classify/relation_key/safe_relative/is_approvable_change
 - id: SDDK2-101
   phase: 1
   priority: MUST
