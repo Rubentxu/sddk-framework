@@ -17,9 +17,9 @@ metadata:
 
 If you ARE the `sddk-release` sub-agent, continue. Run the **SDDK Release Checklist** end-to-end. Do NOT delegate further. Do NOT loop back to other SDDK phases.
 
-## Mandatory Pre-Review
+## Mandatory Pre-Archive
 
-`sddk-release` is **mandatory** before `sddk-archive`. There is no opt-out. The release phase creates the annotated tag and release receipts that archive later references. Without release, semver tags are missed and the ROADMAP drifts from reality.
+`sddk-release` is **mandatory** before `sddk-archive`. There is no opt-out. The release phase runs after successful verify (A-min/lite) or review (A-full), and BEFORE archive. It creates the annotated tag and release receipts that archive later references. Without release, semver tags are missed and the ROADMAP drifts from reality.
 
 `prompts/sddk/git-contract.md` is the **single source of truth** for git invariants. This skill references it; do not duplicate its rules.
 
@@ -37,8 +37,8 @@ distribution only.
 CI/CD and optional post-tag distribution are explicitly excluded from the
 `no-pending-effects` gate.
 
-1. Confirm the archive report, local verification, UAT gate, clean worktree,
-   and trunk checkout.
+1. Confirm the verification report (A-min/lite) or review report (A-full),
+   local verification, UAT gate, clean worktree, and trunk checkout.
 2. Fast-forward `main`, push it directly, and verify full `HEAD == origin/main`.
 3. Create or verify an annotated semver tag that peels to that SHA; push it and
    verify the remote peeled SHA.

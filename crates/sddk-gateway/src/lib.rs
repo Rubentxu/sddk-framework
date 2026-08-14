@@ -82,13 +82,22 @@ pub fn resolve_uat_driver(name: &str) -> std::path::PathBuf {
             return candidate;
         }
     }
-    // 2. Repository checkout (dogfooding / tests).
+    // 2. Dogfooding: compiled crate manifest dir (stable at compile time).
+    //    From crates/sddk-gateway/ go up two levels to the workspace root.
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let dogfood = manifest_dir
+        .join("../../assets/uat-driver")
+        .join(name);
+    if dogfood.is_file() {
+        return dogfood;
+    }
+    // 3. Current working directory fallback (for dev/link scenarios).
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let candidate = cwd.join("assets/uat-driver").join(name);
     if candidate.is_file() {
         return candidate;
     }
-    // 3. Relative default (caller context).
+    // 4. Relative default (caller context).
     std::path::PathBuf::from("assets/uat-driver").join(name)
 }
 
