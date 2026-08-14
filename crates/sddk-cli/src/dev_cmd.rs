@@ -2519,6 +2519,7 @@ mod manifest_tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn manifest_inside_worktree_excludes_symlinks() {
         let (_dir, root) = git_test_root();
         let agents = root.join("agents");
