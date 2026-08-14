@@ -132,7 +132,7 @@ If you detect a violation of trunk-based (e.g., cluster reports debt that was in
 
 ## CLI Ledger Duty (sddk)
 
-Execute the `## CLI Contract (sddk ledger)` section of `skills/sddk-debt-verify/SKILL.md` before returning: check `sddk cycle status --root . --scope .`, evaluate the phase gate with `sddk cycle evaluate-gate --outcome passed`, transition with the phase artifact (`sddk cycle transition --artifact debt-report={path} --gate-receipt {id}`), and verify with `sddk ledger verify --root . --scope .`. A failed evaluate-gate or transition is a BLOCKER — report it in your envelope and stop. Full protocol: `skills/_shared/persistence-contract.md` → CLI Ledger Channel.
+Execute the `## CLI Contract (sddk ledger)` section of `skills/sddk-debt-verify/SKILL.md` before returning: check `sddk cycle status --root . --scope .`, evaluate the phase gate with `sddk cycle evaluate-gate --outcome passed`, store the debt report artifact (`sddk artifact store --root . --scope . --file {debt-report-file} --kind verification-report --cycle {cycle_id} --producer sddk-kernel`), and verify with `sddk ledger verify --root . --scope .`. A failed evaluate-gate or store is a BLOCKER — report it in your envelope and stop. Full protocol: `skills/_shared/persistence-contract.md` → CLI Ledger Channel.
 ## References
 
 - `skills/sddk-debt-verify/SKILL.md` — full SKILL contract

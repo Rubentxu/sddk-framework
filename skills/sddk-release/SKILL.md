@@ -1,6 +1,6 @@
 ---
 name: sddk-release
-description: "Trigger: sddk-release. Release an archived SDDK change through local Git: verify, push main, verify SHA, tag, and record local receipts. CI/CD distribution is optional post-tag work."
+description: "Trigger: sddk-release. Release an SDDK change through local Git before archive: verify, push main, verify SHA, tag, and record local receipts. CI/CD distribution is optional post-tag work."
 disable-model-invocation: true
 user-invocable: false
 license: MIT
@@ -17,9 +17,9 @@ metadata:
 
 If you ARE the `sddk-release` sub-agent, continue. Run the **SDDK Release Checklist** end-to-end. Do NOT delegate further. Do NOT loop back to other SDDK phases.
 
-## Mandatory Post-Archive
+## Mandatory Pre-Review
 
-`sddk-release` is **mandatory** after a successful `sddk-archive`. There is no opt-out. The release phase is what closes the loop back to `main` — without it, feature branches rot, semver tags are missed, and the ROADMAP drifts from reality.
+`sddk-release` is **mandatory** before `sddk-archive`. There is no opt-out. The release phase creates the annotated tag and release receipts that archive later references. Without release, semver tags are missed and the ROADMAP drifts from reality.
 
 `prompts/sddk/git-contract.md` is the **single source of truth** for git invariants. This skill references it; do not duplicate its rules.
 
@@ -70,16 +70,15 @@ main_sha: <full-sha>
 tag: v<major>.<minor>.<patch>
 merge_receipt: <path-or-receipt-id>
 release_receipt: <path-or-receipt-id>
-archive_manifest: <path-or-receipt-id>   # produced by sddk-archive, references release_receipt
 knowledge_graph_updated: bool
 lock_released: bool
 optional_distribution: not_requested | pending | completed | failed
 blockers: []
 ```
 
-The `release-report` is mandatory even on block. The `archive-manifest` MUST
-reference the `release-receipt` so that the cycle closure is traceable back to
-the verified trunk SHA + tag.
+The `release-report` is mandatory even on block. The `merge-receipt` and
+`release-receipt` are the artifacts that `sddk-archive` later references
+when creating the `archive-manifest` to close the cycle.
 
 ## CLI Contract (sddk ledger)
 
@@ -100,5 +99,5 @@ A failed evaluate-gate or transition is a BLOCKER: report it in the envelope and
 - `prompts/sddk/git-contract.md` — git invariants (source of truth)
 - `prompts/sddk/HTML-REPORT.md` — HTML report format
 - `prompts/sddk/roadmap-template.md` — ROADMAP update format
-- `skills/sddk-archive/SKILL.md` — successor, closes the cycle via archive-manifest linked to release-receipt
+- `skills/sddk-archive/SKILL.md` — runs after release, closes the cycle by linking archive-manifest to release-receipt
 - `prompts/sddk/phases/release.md` — full agent prompt

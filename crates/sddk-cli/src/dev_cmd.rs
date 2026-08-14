@@ -1210,13 +1210,35 @@ fn write_manifest(root: &Path) -> anyhow::Result<usize> {
     Ok(entries.len())
 }
 
-/// Skill registry entry: name, scope, and path of one framework skill.
+/// Skill registry entry: name, trigger/description, scope, and path of one skill.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 struct SkillRegistryEntry {
     name: String,
+    trigger: String,
+    description: String,
     scope: String,
     path: String,
+}
+
+/// Minimal frontmatter extraction (description) from a skill SKILL.md.
+struct SkillFrontmatter {
+    description: String,
+}
+
+fn parse_skill_frontmatter(path: &Path) -> Option<SkillFrontmatter> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let block = content.strip_prefix("---")?.split_once("---")?.0;
+    let mut description = String::new();
+    for line in block.lines() {
+        if let Some(value) = line.strip_prefix("description:") {
+            description = value.trim().trim_matches('"').to_owned();
+        }
+    }
+    if description.is_empty() {
+        return None;
+    }
+    Some(SkillFrontmatter { description })
 }
 
 /// Write an idempotent, deduplicated skill registry to
@@ -1266,9 +1288,26 @@ fn write_skill_registry(
                 continue;
             }
             seen_names.insert(name_string.clone());
+
+            // Parse frontmatter for trigger and description.
+            let (trigger, description) = if let Some(fm) = parse_skill_frontmatter(&skl_md) {
+                // Extract trigger: text before ". " or first period in description.
+                let trigger = fm
+                    .description
+                    .split_once(". ")
+                    .map(|(t, _)| t.to_string())
+                    .or_else(|| fm.description.split_once('.').map(|(t, _)| t.to_string()))
+                    .unwrap_or_else(|| fm.description.clone());
+                (trigger, fm.description)
+            } else {
+                (String::new(), String::new())
+            };
+
             entries.push(SkillRegistryEntry {
                 name: name_string,
-                scope: "project".to_string(),
+                trigger,
+                description,
+                scope: "framework".to_string(),
                 path: skl_md.to_string_lossy().replace('\\', "/"),
             });
         }
@@ -1280,12 +1319,16 @@ fn write_skill_registry(
     // Render as markdown table.
     let mut content = String::new();
     content.push_str("# Skill Registry\n\n");
-    content.push_str("| Name | Scope | Path |\n");
-    content.push_str("|------|--------|------|\n");
+    content.push_str("| Name | Trigger | Description | Scope | Path |\n");
+    content.push_str("|------|---------|-------------|--------|------|\n");
     for entry in &entries {
         content.push_str(&format!(
-            "| {} | {} | {} |\n",
-            entry.name, entry.scope, entry.path
+            "| {} | {} | {} | {} | {} |\n",
+            entry.name,
+            entry.trigger,
+            entry.description,
+            entry.scope,
+            entry.path
         ));
     }
 
@@ -1306,12 +1349,11 @@ fn resolve_project_id_for_registry(
     let root_str = canonical.to_string_lossy();
     // Try to find remote from git config.
     let remote = git_remote_url(project_root);
-    if let Some(remote_url) = remote {
-        if let Ok(identity) =
+    if let Some(remote_url) = remote
+        && let Ok(identity) =
             sddk_domain::resolve_project_identity(Some(&remote_url), root_str.as_ref(), None)
-        {
-            return Ok(identity.project_id.to_string());
-        }
+    {
+        return Ok(identity.project_id.to_string());
     }
     // Fallback: stable hash of the canonical path (no remote required).
     let hash = format!("{:x}", Sha256::digest(root_str.as_bytes()));
@@ -1324,8 +1366,8 @@ fn git_remote_url(root: &Path) -> Option<String> {
     let content = std::fs::read_to_string(&config_path).ok()?;
     for line in content.lines() {
         let line = line.trim();
-        if line.starts_with("url = ") {
-            return Some(line[6..].to_string());
+        if let Some(stripped) = line.strip_prefix("url = ") {
+            return Some(stripped.to_string());
         }
     }
     None
