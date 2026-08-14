@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand, ValueEnum};
-use sddk_gateway::{PermissionPolicy, RunSpec, run};
+use sddk_gateway::{PermissionPolicy, RunSpec, GitExecutor, run};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -1165,7 +1165,20 @@ fn sync_assets(source: &Path, target: &Path) -> anyhow::Result<usize> {
 
 /// Collect every managed file of the framework (surfaces in
 /// `MANIFEST_SURFACES`) as `(relative_path, sha256_hex)`.
+///
+/// Inside a Git worktree: uses `git ls-files` for tracked files only,
+/// hashes current bytes, fails closed on missing tracked files.
+/// Outside: filesystem walk (preserves existing behavior).
 fn manifest_entries(root: &Path) -> anyhow::Result<Vec<(String, String)>> {
+    let git = GitExecutor::new(root.to_path_buf());
+    match git.is_inside_work_tree() {
+        Ok(true) => git_tracked_manifest_entries(root, &git),
+        Ok(false) => filesystem_manifest_entries(root),
+        Err(_) => filesystem_manifest_entries(root),
+    }
+}
+
+fn filesystem_manifest_entries(root: &Path) -> anyhow::Result<Vec<(String, String)>> {
     let mut entries = Vec::new();
     for surface in MANIFEST_SURFACES {
         let dir = root.join(surface);
@@ -1186,6 +1199,31 @@ fn manifest_entries(root: &Path) -> anyhow::Result<Vec<(String, String)>> {
         }
     }
     entries.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(entries)
+}
+
+fn git_tracked_manifest_entries(root: &Path, git: &GitExecutor) -> anyhow::Result<Vec<(String, String)>> {
+    let tracked = git.ls_files().map_err(|e| anyhow::anyhow!("git ls-files failed: {e}"))?;
+    let surfaces: Vec<_> = MANIFEST_SURFACES.iter().map(|s| Path::new(s)).collect();
+    let mut entries = Vec::new();
+    for path in tracked {
+        let path_str = path.to_string_lossy().replace('\\', "/");
+        let p = Path::new(&path_str);
+        if !surfaces.iter().any(|s| p.starts_with(s)) {
+            continue;
+        }
+        let abs = root.join(&path);
+        // Check: must be a regular file (not symlink, submodule, or missing).
+        match std::fs::symlink_metadata(&abs).map(|m| m.file_type().is_file()) {
+            Ok(true) => {}
+            Ok(false) => continue, // symlink or other non-regular - skip
+            Err(_) => anyhow::bail!("tracked file missing from working tree: {}", path_str),
+        }
+        let digest = sha256_hex(&abs)?;
+        entries.push((path_str, digest));
+    }
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    entries.dedup_by(|a, b| a.0 == b.0);
     Ok(entries)
 }
 
@@ -2399,6 +2437,88 @@ mod manifest_tests {
         );
         std::fs::remove_dir_all(&source).ok();
         std::fs::remove_dir_all(&prefix).ok();
+    }
+
+    // ── Git-aware manifest_entries tests ──────────────────────────────────────
+
+    fn git_test_root(tag: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        std::process::Command::new("git")
+            .args(["init", "-q"]).current_dir(&root).output().unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@sddk.dev"]).current_dir(&root).output().unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.name", "SDDK Test"]).current_dir(&root).output().unwrap();
+        (dir, root)
+    }
+
+    fn git_add_and_commit(root: &std::path::Path, files: &[&str], msg: &str) {
+        std::process::Command::new("git")
+            .args(["-C", &root.to_string_lossy()]).args(["add"]).args(files).output().unwrap();
+        std::process::Command::new("git")
+            .args(["-C", &root.to_string_lossy()]).args(["commit", "-m", msg]).output().unwrap();
+    }
+
+    #[test]
+    fn manifest_outside_worktree_uses_filesystem() {
+        // Non-git temp dir → filesystem walk.
+        let root = temp_root("outside");
+        std::fs::create_dir_all(root.join("agents")).unwrap();
+        std::fs::write(root.join("agents/a.md"), "content").unwrap();
+        let entries = manifest_entries(&root).unwrap();
+        assert!(entries.iter().any(|(p, _)| p.contains("agents/a.md")));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn manifest_inside_worktree_excludes_untracked() {
+        let (_dir, root) = git_test_root("untracked");
+        std::fs::create_dir_all(root.join("agents")).unwrap();
+        std::fs::write(root.join("agents/tracked.md"), "# Tracked\n").unwrap();
+        std::fs::write(root.join("agents/untracked.md"), "# Untracked\n").unwrap();
+        git_add_and_commit(&root, &["agents/tracked.md"], "tracked");
+        let entries = manifest_entries(&root).unwrap();
+        assert!(entries.iter().any(|(p, _)| p.contains("tracked.md")));
+        assert!(!entries.iter().any(|(p, _)| p.contains("untracked.md")));
+    }
+
+    #[test]
+    fn manifest_inside_worktree_fails_on_missing_tracked() {
+        let (_dir, root) = git_test_root("missing");
+        std::fs::create_dir_all(root.join("agents")).unwrap();
+        std::fs::write(root.join("agents/to-delete.md"), "# Delete me\n").unwrap();
+        git_add_and_commit(&root, &["agents/to-delete.md"], "add");
+        std::fs::remove_file(root.join("agents/to-delete.md")).unwrap();
+        let result = manifest_entries(&root);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("to-delete"));
+    }
+
+    #[test]
+    fn manifest_inside_worktree_hashes_current_bytes() {
+        let (_dir, root) = git_test_root("modified");
+        std::fs::create_dir_all(root.join("agents")).unwrap();
+        std::fs::write(root.join("agents/modified.md"), "original").unwrap();
+        git_add_and_commit(&root, &["agents/modified.md"], "initial");
+        std::fs::write(root.join("agents/modified.md"), "modified").unwrap();
+        let entries = manifest_entries(&root).unwrap();
+        let entry = entries.iter().find(|(p, _)| p.contains("modified.md")).unwrap();
+        let expected = format!("{:x}", Sha256::digest(b"modified"));
+        assert_eq!(entry.1, expected);
+    }
+
+    #[test]
+    fn manifest_inside_worktree_excludes_symlinks() {
+        let (_dir, root) = git_test_root("symlink");
+        let agents = root.join("agents");
+        std::fs::create_dir_all(&agents).unwrap();
+        std::fs::write(agents.join("real.md"), "# Real\n").unwrap();
+        std::os::unix::fs::symlink("real.md", agents.join("link.md")).ok();
+        git_add_and_commit(&root, &["agents/real.md", "agents/link.md"], "add");
+        let entries = manifest_entries(&root).unwrap();
+        assert!(entries.iter().any(|(p, _)| p.contains("real.md")));
+        assert!(!entries.iter().any(|(p, _)| p.contains("link.md")));
     }
 }
 
