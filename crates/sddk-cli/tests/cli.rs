@@ -5340,6 +5340,13 @@ fn cli_dev_manifest_canonical_clean_archive_verifies() {
     );
 }
 
+#[test]
+fn release_workflow_packages_the_committed_manifest() {
+    let workflow = include_str!("../../../.github/workflows/release.yml");
+    assert!(workflow.contains("test -f MANIFEST.sha256"));
+    assert!(!workflow.contains("find agents skills prompts/sddk assets"));
+}
+
 fn sha256_of_file(path: &Path) -> String {
     use std::io::Read;
     let mut file = std::fs::File::open(path).unwrap();
