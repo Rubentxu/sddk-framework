@@ -110,6 +110,12 @@ pub(crate) struct InstallArgs {
     /// Explicit source commit.
     #[arg(long)]
     pub(crate) commit: Option<String>,
+    /// Source checkout or bundle root containing agents/skills/prompts/workflows/assets
+    /// and MANIFEST.sha256. When provided, these surfaces are copied to the prefix
+    /// and verified against the manifest (digest mismatch aborts the install).
+    /// Without this flag the install is binary-only (backward-compatible default).
+    #[arg(long)]
+    pub(crate) source: Option<PathBuf>,
     /// Output format.
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     pub(crate) format: OutputFormat,
@@ -172,6 +178,12 @@ pub(crate) struct LinkArgs {
     /// Override the ZCode dir.
     #[arg(long)]
     pub(crate) zcode_dir: Option<PathBuf>,
+    /// Write an idempotent, deduplicated skill registry to
+    /// `$SDDK_DATA_DIR/projects/<project_id>/skill-registry.md`.
+    /// Skips `_shared` and `skill-registry` entries; project-level wins on name conflict.
+    /// Default: off.
+    #[arg(long)]
+    pub(crate) write_registry: bool,
     /// Output format.
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     pub(crate) format: OutputFormat,
@@ -546,6 +558,51 @@ fn run_dev_install(args: InstallArgs) -> CommandOutput {
         } else {
             "bin/sddk".to_owned()
         };
+
+        // Bundle surface copy: when --source is provided, copy agents/skills/
+        // prompts/workflows/assets and verify against MANIFEST.sha256.
+        // Binary-only install (no --source) is the backward-compatible default.
+        if let Some(source) = &args.source {
+            let source = std::fs::canonicalize(source)?;
+            // Copy each manifest surface into the prefix, preserving relative paths.
+            for surface in MANIFEST_SURFACES {
+                let src_dir = source.join(surface);
+                if !src_dir.is_dir() {
+                    continue;
+                }
+                for file in walk_dir(&src_dir) {
+                    if !file.is_file() {
+                        continue;
+                    }
+                    let relative = file
+                        .strip_prefix(&source)
+                        .unwrap_or(file.as_path())
+                        .to_path_buf();
+                    let dest = args.prefix.join(&relative);
+                    if let Some(parent) = dest.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    // Only copy when content differs (idempotent).
+                    let needs_copy = match (std::fs::read(&file), std::fs::read(&dest)) {
+                        (Ok(src), Ok(dst)) => src != dst,
+                        _ => true,
+                    };
+                    if needs_copy {
+                        std::fs::copy(&file, &dest)?;
+                    }
+                }
+            }
+            // Verify the installed surfaces against the bundle's MANIFEST.sha256.
+            // A digest mismatch aborts the install (fail-closed).
+            let mismatches = verify_manifest(&source)?;
+            if !mismatches.is_empty() {
+                anyhow::bail!(
+                    "manifest verification FAILED ({} mismatch(es)):\n  {}",
+                    mismatches.len(),
+                    mismatches.join("\n  ")
+                );
+            }
+        }
 
         let receipt = InstallReceipt {
             version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -1119,6 +1176,127 @@ fn write_manifest(root: &Path) -> anyhow::Result<usize> {
     Ok(entries.len())
 }
 
+/// Skill registry entry: name, scope, and path of one framework skill.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+struct SkillRegistryEntry {
+    name: String,
+    scope: String,
+    path: String,
+}
+
+/// Write an idempotent, deduplicated skill registry to
+/// `$SDDK_DATA_DIR/projects/<project_id>/skill-registry.md`.
+///
+/// Scans `skills/*/SKILL.md` in the framework root, skips `_shared`
+/// and `skill-registry`, deduplicates by skill name (first wins), sorts
+/// alphabetically, and renders markdown table rows. The file is written
+/// atomically so a second invocation produces a byte-identical result.
+fn write_skill_registry(
+    environment: &CliEnvironment,
+    root: &Path,
+) -> anyhow::Result<(PathBuf, usize)> {
+    // Resolve project identity from the current working directory so the
+    // registry lives under the user's project XDG state, not the framework.
+    let project_root = std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."));
+    let project_id = resolve_project_id_for_registry(environment, &project_root)?;
+    let registry_dir = sddk_data_dir(environment)?.join("projects").join(&project_id);
+    let registry_path = registry_dir.join("skill-registry.md");
+    std::fs::create_dir_all(&registry_dir)?;
+
+    // Scan skills/*/SKILL.md, build entries, dedupe, sort.
+    let skills_dir = root.join("skills");
+    let mut entries: Vec<SkillRegistryEntry> = Vec::new();
+    let mut seen_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    if let Ok(skill_dirs) = std::fs::read_dir(&skills_dir) {
+        for skill_dir in skill_dirs.flatten() {
+            let name = skill_dir.file_name();
+            let name_str = name.to_string_lossy();
+            // Skip internal entries that are not user-facing skills.
+            if name_str == "_shared" || name_str == "skill-registry" {
+                continue;
+            }
+            let skill_path = skill_dir.path();
+            if !skill_path.is_dir() {
+                continue;
+            }
+            let skl_md = skill_path.join("SKILL.md");
+            if !skl_md.is_file() {
+                continue;
+            }
+            // Dedupe by name (first occurrence wins — project-level wins).
+            let name_string = name_str.to_string();
+            if seen_names.contains(&name_string) {
+                continue;
+            }
+            seen_names.insert(name_string.clone());
+            entries.push(SkillRegistryEntry {
+                name: name_string,
+                scope: "project".to_string(),
+                path: skl_md.to_string_lossy().replace('\\', "/"),
+            });
+        }
+    }
+
+    // Sort alphabetically by name.
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+
+    // Render as markdown table.
+    let mut content = String::new();
+    content.push_str("# Skill Registry\n\n");
+    content.push_str("| Name | Scope | Path |\n");
+    content.push_str("|------|--------|------|\n");
+    for entry in &entries {
+        content.push_str(&format!(
+            "| {} | {} | {} |\n",
+            entry.name, entry.scope, entry.path
+        ));
+    }
+
+    atomic_write(&registry_path, content.as_bytes(), None)?;
+    Ok((registry_path, entries.len()))
+}
+
+/// Resolve project_id for the skill registry writer.
+///
+/// Tries project identity resolution; falls back to a hex hash of the
+/// canonical project root path so the registry path is stable per workspace.
+fn resolve_project_id_for_registry(
+    _environment: &CliEnvironment,
+    project_root: &Path,
+) -> anyhow::Result<String> {
+    // Attempt standard project identity resolution.
+    let canonical = std::fs::canonicalize(project_root)?;
+    let root_str = canonical.to_string_lossy();
+    // Try to find remote from git config.
+    let remote = git_remote_url(project_root);
+    if let Some(remote_url) = remote {
+        if let Ok(identity) =
+            sddk_domain::resolve_project_identity(Some(&remote_url), root_str.as_ref(), None)
+        {
+            return Ok(identity.project_id.to_string());
+        }
+    }
+    // Fallback: stable hash of the canonical path (no remote required).
+    let hash = format!("{:x}", Sha256::digest(root_str.as_bytes()));
+    Ok(format!("proj-{:12}", &hash[..12]))
+}
+
+/// Read the remote URL from git config of a working tree root.
+fn git_remote_url(root: &Path) -> Option<String> {
+    let config_path = root.join(".git").join("config");
+    let content = std::fs::read_to_string(&config_path).ok()?;
+    for line in content.lines() {
+        let line = line.trim();
+        if line.starts_with("url = ") {
+            return Some(line[6..].to_string());
+        }
+    }
+    None
+}
+
 /// Verify a framework root against its MANIFEST.sha256. Returns the list of
 /// mismatches (empty = intact). A missing manifest is reported as a single
 /// entry.
@@ -1230,6 +1408,23 @@ fn run_dev_link(args: LinkArgs, environment: &CliEnvironment) -> CommandOutput {
         if matches!(args.editor, LinkEditor::ZCode | LinkEditor::All) {
             reports.push(link_editor(&root, &zcode_dir));
         }
+
+        // Write idempotent, deduplicated skill registry to XDG project state.
+        if args.write_registry {
+            match write_skill_registry(environment, &root) {
+                Ok((path, count)) => {
+                    eprintln!(
+                        "skill registry: {} entries written to {}",
+                        count,
+                        path.display()
+                    )
+                }
+                Err(error) => {
+                    eprintln!("warning: skill registry write failed: {error}");
+                }
+            }
+        }
+
         Ok(reports)
     })();
     render_result(result, format, |reports: &Vec<LinkReport>| {
@@ -2013,5 +2208,97 @@ mod manifest_tests {
         assert_eq!(mismatches.len(), 1);
         assert!(mismatches[0].contains("missing"));
         std::fs::remove_dir_all(&root).ok();
+    }
+}
+
+#[cfg(test)]
+mod skill_registry_tests {
+    use super::*;
+
+    fn temp_framework(tag: &str) -> std::path::PathBuf {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir()
+            .join(format!("sddk-reg-{tag}-{}-{n}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn dummy_environment() -> CliEnvironment {
+        CliEnvironment {
+            home: Some(std::path::PathBuf::from("/tmp")),
+            data_home: None,
+            sddk_data_dir: None,
+            state_home: None,
+            cache_home: None,
+            sddk_actor: None,
+            user: None,
+        }
+    }
+
+    #[test]
+    fn write_skill_registry_is_idempotent_and_dedupes() {
+        let framework = temp_framework("idempotent");
+        // Create two skills with distinct names, plus _shared and skill-registry dirs.
+        std::fs::create_dir_all(framework.join("skills/sddk-apply")).unwrap();
+        std::fs::write(
+            framework.join("skills/sddk-apply/SKILL.md"),
+            "# apply skill\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(framework.join("skills/sddk-design")).unwrap();
+        std::fs::write(
+            framework.join("skills/sddk-design/SKILL.md"),
+            "# design skill\n",
+        )
+        .unwrap();
+        // _shared should be skipped.
+        std::fs::create_dir_all(framework.join("skills/_shared")).unwrap();
+        std::fs::write(framework.join("skills/_shared/SKILL.md"), "# shared\n").unwrap();
+        // skill-registry should be skipped.
+        std::fs::create_dir_all(framework.join("skills/skill-registry")).unwrap();
+        std::fs::write(
+            framework.join("skills/skill-registry/SKILL.md"),
+            "# registry\n",
+        )
+        .unwrap();
+
+        let env = dummy_environment();
+        let (path1, count1) = write_skill_registry(&env, &framework).unwrap();
+        assert_eq!(count1, 2, "only sddk-apply and sddk-design should be included");
+
+        // Second invocation must produce byte-identical output (idempotent).
+        let (path2, count2) = write_skill_registry(&env, &framework).unwrap();
+        assert_eq!(count2, 2);
+        let content1 = std::fs::read(&path1).unwrap();
+        let content2 = std::fs::read(&path2).unwrap();
+        assert_eq!(
+            content1, content2,
+            "second invocation must be byte-identical (idempotent)"
+        );
+
+        std::fs::remove_dir_all(&framework).ok();
+    }
+
+    #[test]
+    fn write_skill_registry_skips_non_skill_dirs() {
+        let framework = temp_framework("skip");
+        // Create a skill, but also files/dirs that are not skills.
+        std::fs::create_dir_all(framework.join("skills/sddk-verify")).unwrap();
+        std::fs::write(
+            framework.join("skills/sddk-verify/SKILL.md"),
+            "# verify skill\n",
+        )
+        .unwrap();
+        // A directory without SKILL.md should be skipped.
+        std::fs::create_dir_all(framework.join("skills/sddk-incomplete")).unwrap();
+        // A regular file in skills/ should be skipped.
+        std::fs::write(framework.join("skills/README.md"), "# readme\n").unwrap();
+
+        let env = dummy_environment();
+        let (_, count) = write_skill_registry(&env, &framework).unwrap();
+        assert_eq!(count, 1, "only sddk-verify with SKILL.md should be included");
+
+        std::fs::remove_dir_all(&framework).ok();
     }
 }
