@@ -2,7 +2,7 @@
 
 > **Cycle:** `sddk-2-0-phase0-doc-governance` (SDDK2-006)
 > **Released as:** v1.9.9
-> **HEAD:** `13f6028` (pre-cycle base) → final cycle-close SHA
+> **HEAD:** `13f6028` (pre-cycle base) → `dbf93c7` (cycle-close, v1.9.9 tagged)
 > **Tag:** v1.9.9
 
 ## Drift carry-over (not resolved in this cycle)
