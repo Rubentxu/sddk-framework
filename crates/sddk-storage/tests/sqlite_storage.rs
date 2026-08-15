@@ -1,8 +1,8 @@
 use rusqlite::Connection;
 use sddk_domain::{CycleId, CycleManifest, CycleStatus};
 use sddk_storage::{
-    ArtifactRecord, CapabilityReceiptInput, CapabilityStatus, CycleRecord, LedgerEventInput,
-    ProjectRecord, Storage, StorageError, WorkspaceRecord,
+    ArtifactRecord, CapabilityReceiptInput, CapabilityStatus, CycleRecord, GateOutcomeStatus,
+    GateReceiptInput, LedgerEventInput, ProjectRecord, Storage, StorageError, WorkspaceRecord,
 };
 use serde_json::json;
 use tempfile::tempdir;
@@ -564,4 +564,388 @@ fn capability_receipt(receipt_id: &str, request: serde_json::Value) -> Capabilit
         started_at: CREATED_AT.into(),
         completed_at: None,
     }
+}
+
+fn gate_receipt_input(
+    receipt_id: &str,
+    gate: &str,
+    plan_hash: &str,
+    outcome: GateOutcomeStatus,
+) -> GateReceiptInput {
+    GateReceiptInput {
+        receipt_id: receipt_id.into(),
+        project_id: "project-1".into(),
+        cycle_id: Some("cycle-1".into()),
+        gate: gate.into(),
+        evaluator: "sddk.cli".into(),
+        transition_id: "phase.explore.complete".into(),
+        plan_hash: plan_hash.into(),
+        outcome,
+        evidence: json!({"verified": true}),
+        actor: "test-runtime".into(),
+        command_id: "cmd-1".into(),
+        frame_id: "frame-1".into(),
+        evaluated_at: CREATED_AT.into(),
+        seq: 1,
+    }
+}
+
+#[test]
+fn storage_insert_gate_receipt_allocates_seq_per_group() {
+    let mut storage = Storage::open_in_memory().unwrap();
+    storage.insert_project(&project_record()).unwrap();
+    storage.insert_workspace(&workspace_record()).unwrap();
+    storage.insert_cycle(&cycle_record()).unwrap();
+
+    let plan_hash = "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
+
+    // First insert for (gate, plan_hash) yields seq=1
+    let first = storage
+        .insert_gate_receipt(&gate_receipt_input(
+            "gate-exploration-sufficient-abcdef12-1",
+            "exploration-sufficient",
+            plan_hash,
+            GateOutcomeStatus::Passed,
+        ))
+        .unwrap();
+    assert_eq!(first.seq, 1);
+
+    // Allocate seq for second insert
+    let seq2 = storage
+        .allocate_gate_receipt_seq("exploration-sufficient", plan_hash)
+        .unwrap();
+    assert_eq!(seq2, 2);
+
+    let second = storage
+        .insert_gate_receipt(&GateReceiptInput {
+            receipt_id: format!("gate-exploration-sufficient-abcdef12-{}", seq2),
+            project_id: "project-1".into(),
+            cycle_id: Some("cycle-1".into()),
+            gate: "exploration-sufficient".into(),
+            evaluator: "sddk.cli".into(),
+            transition_id: "phase.explore.complete".into(),
+            plan_hash: plan_hash.into(),
+            outcome: GateOutcomeStatus::Failed,
+            evidence: json!({"verified": false}),
+            actor: "test-runtime".into(),
+            command_id: "cmd-2".into(),
+            frame_id: "frame-2".into(),
+            evaluated_at: CREATED_AT.into(),
+            seq: seq2,
+        })
+        .unwrap();
+    assert_eq!(second.seq, 2);
+
+    // Both rows readable via list_gate_receipts
+    let receipts = storage.list_gate_receipts("cycle-1").unwrap();
+    assert_eq!(receipts.len(), 2);
+    assert_eq!(receipts[0].seq, 1);
+    assert_eq!(receipts[1].seq, 2);
+}
+
+#[test]
+fn storage_insert_gate_receipt_concurrent_allocations_observe_distinct_seq() {
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+
+    let directory = tempfile::tempdir().unwrap();
+    let database_path = directory.path().join("ledger.sqlite");
+
+    // Setup: create storage, insert project/workspace/cycle, then drop storage
+    {
+        let mut storage = Storage::open(&database_path).unwrap();
+        storage.insert_project(&project_record()).unwrap();
+        storage.insert_workspace(&workspace_record()).unwrap();
+        storage.insert_cycle(&cycle_record()).unwrap();
+        // Insert first receipt with seq=1
+        storage
+            .insert_gate_receipt(&gate_receipt_input(
+                &format!("gate-{}-abcdef12-1", "exploration-sufficient"),
+                "exploration-sufficient",
+                "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+                GateOutcomeStatus::Passed,
+            ))
+            .unwrap();
+    }
+
+    let plan_hash = "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
+    let gate = "exploration-sufficient";
+    let database_path = Arc::new(database_path.clone());
+    let barrier = Arc::new(Barrier::new(2));
+    let plan_hash = plan_hash.to_string();
+    let gate = gate.to_string();
+
+    // Two threads each open their own Storage connection to the same database
+    let handle_a = {
+        let database_path = Arc::clone(&database_path);
+        let barrier = Arc::clone(&barrier);
+        let plan_hash = plan_hash.clone();
+        let gate = gate.clone();
+        thread::spawn(move || {
+            barrier.wait();
+            let mut storage = Storage::open(&*database_path).unwrap();
+            let seq = storage
+                .allocate_gate_receipt_seq(&gate, &plan_hash)
+                .unwrap();
+            storage
+                .insert_gate_receipt(&GateReceiptInput {
+                    receipt_id: format!("gate-{}-{}-{}", gate, "abcdef12", seq),
+                    project_id: "project-1".into(),
+                    cycle_id: Some("cycle-1".into()),
+                    gate: gate.clone(),
+                    evaluator: "sddk.cli".into(),
+                    transition_id: "phase.explore.complete".into(),
+                    plan_hash: plan_hash.clone(),
+                    outcome: GateOutcomeStatus::Passed,
+                    evidence: json!({"verified": true}),
+                    actor: "test-runtime".into(),
+                    command_id: "cmd-a".into(),
+                    frame_id: "frame-a".into(),
+                    evaluated_at: CREATED_AT.into(),
+                    seq,
+                })
+                .unwrap()
+        })
+    };
+
+    let handle_b = {
+        let database_path = Arc::clone(&database_path);
+        let barrier = Arc::clone(&barrier);
+        let plan_hash = plan_hash.clone();
+        let gate = gate.clone();
+        thread::spawn(move || {
+            barrier.wait();
+            let mut storage = Storage::open(&*database_path).unwrap();
+            let seq = storage
+                .allocate_gate_receipt_seq(&gate, &plan_hash)
+                .unwrap();
+            storage
+                .insert_gate_receipt(&GateReceiptInput {
+                    receipt_id: format!("gate-{}-{}-{}", gate, "abcdef12", seq),
+                    project_id: "project-1".into(),
+                    cycle_id: Some("cycle-1".into()),
+                    gate: gate.clone(),
+                    evaluator: "sddk.cli".into(),
+                    transition_id: "phase.explore.complete".into(),
+                    plan_hash: plan_hash.clone(),
+                    outcome: GateOutcomeStatus::Failed,
+                    evidence: json!({"verified": false}),
+                    actor: "test-runtime".into(),
+                    command_id: "cmd-b".into(),
+                    frame_id: "frame-b".into(),
+                    evaluated_at: CREATED_AT.into(),
+                    seq,
+                })
+                .unwrap()
+        })
+    };
+
+    handle_a.join().unwrap();
+    handle_b.join().unwrap();
+
+    // Final state has three rows: initial seq=1, plus two concurrent inserts
+    let storage = Storage::open(&*database_path).unwrap();
+    let receipts = storage.list_gate_receipts("cycle-1").unwrap();
+    assert_eq!(receipts.len(), 3); // 1 initial + 2 concurrent
+    let seqs: Vec<i64> = receipts.iter().map(|r| r.seq).collect();
+    assert!(seqs.contains(&1) && seqs.contains(&2) && seqs.contains(&3));
+}
+
+#[test]
+fn storage_migration_3_backfills_seq_default_one() {
+    let directory = tempfile::tempdir().unwrap();
+    let database_path = directory.path().join("ledger.sqlite");
+
+    // Create a v1.9.14-shaped database (schema v2, no seq column)
+    {
+        let conn = Connection::open(&database_path).unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE projects (
+                project_id TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL,
+                remote_url TEXT,
+                scope TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE workspaces (
+                workspace_id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL REFERENCES projects(project_id),
+                canonical_path TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE cycles (
+                cycle_id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                workspace_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                phase TEXT NOT NULL,
+                manifest_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE gate_receipts (
+                receipt_id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL REFERENCES projects(project_id),
+                cycle_id TEXT,
+                gate TEXT NOT NULL,
+                evaluator TEXT NOT NULL,
+                transition_id TEXT NOT NULL,
+                plan_hash TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                evidence TEXT NOT NULL,
+                actor TEXT NOT NULL,
+                command_id TEXT NOT NULL,
+                frame_id TEXT NOT NULL,
+                evaluated_at TEXT NOT NULL
+            );
+            "#,
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO projects VALUES ('project-1', 'Project One', 'https://example.com/owner/project', 'owner', '2026-08-03T12:00:00Z')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO workspaces VALUES ('workspace-1', 'project-1', '/work/project', '2026-08-03T12:00:00Z')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO cycles VALUES ('cycle-1', 'project-1', 'workspace-1', 'OPEN', 'explore', '{}', '2026-08-03T12:00:00Z', '2026-08-03T12:00:00Z')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO gate_receipts VALUES (
+                'gate-exploration-sufficient-abcdef12',
+                'project-1',
+                'cycle-1',
+                'exploration-sufficient',
+                'sddk.cli',
+                'phase.explore.complete',
+                'sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890',
+                'passed',
+                '{}',
+                'test-runtime',
+                'cmd-1',
+                'frame-1',
+                '2026-08-03T12:00:00Z'
+            )",
+            [],
+        )
+        .unwrap();
+        // Set schema version to 2 (pre-migration)
+        conn.pragma_update(None, "user_version", 2).unwrap();
+    }
+
+    // Open with v1.9.15 code — MIGRATION_3 runs
+    let storage = Storage::open(&database_path).unwrap();
+    assert_eq!(storage.schema_version().unwrap(), 3);
+
+    // The pre-existing row now carries seq = 1
+    let receipt = storage
+        .get_gate_receipt("gate-exploration-sufficient-abcdef12")
+        .unwrap();
+    assert_eq!(receipt.seq, 1);
+}
+
+#[test]
+fn storage_get_gate_receipt_handles_v1914_id_without_seq_suffix() {
+    let directory = tempfile::tempdir().unwrap();
+    let database_path = directory.path().join("ledger.sqlite");
+
+    // Create a v1.9.14-shaped database
+    {
+        let conn = Connection::open(&database_path).unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE projects (
+                project_id TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL,
+                remote_url TEXT,
+                scope TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE workspaces (
+                workspace_id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL REFERENCES projects(project_id),
+                canonical_path TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE cycles (
+                cycle_id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                workspace_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                phase TEXT NOT NULL,
+                manifest_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE gate_receipts (
+                receipt_id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL REFERENCES projects(project_id),
+                cycle_id TEXT,
+                gate TEXT NOT NULL,
+                evaluator TEXT NOT NULL,
+                transition_id TEXT NOT NULL,
+                plan_hash TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                evidence TEXT NOT NULL,
+                actor TEXT NOT NULL,
+                command_id TEXT NOT NULL,
+                frame_id TEXT NOT NULL,
+                evaluated_at TEXT NOT NULL
+            );
+            "#,
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO projects VALUES ('project-1', 'Project One', 'https://example.com/owner/project', 'owner', '2026-08-03T12:00:00Z')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO workspaces VALUES ('workspace-1', 'project-1', '/work/project', '2026-08-03T12:00:00Z')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO cycles VALUES ('cycle-1', 'project-1', 'workspace-1', 'OPEN', 'explore', '{}', '2026-08-03T12:00:00Z', '2026-08-03T12:00:00Z')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO gate_receipts VALUES (
+                'gate-exploration-sufficient-abcdef12',
+                'project-1',
+                'cycle-1',
+                'exploration-sufficient',
+                'sddk.cli',
+                'phase.explore.complete',
+                'sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890',
+                'passed',
+                '{}',
+                'test-runtime',
+                'cmd-1',
+                'frame-1',
+                '2026-08-03T12:00:00Z'
+            )",
+            [],
+        )
+        .unwrap();
+        conn.pragma_update(None, "user_version", 2).unwrap();
+    }
+
+    // Open with v1.9.15 code
+    let storage = Storage::open(&database_path).unwrap();
+
+    // get_gate_receipt accepts the v1.9.14 id (no -{seq} suffix)
+    let receipt = storage
+        .get_gate_receipt("gate-exploration-sufficient-abcdef12")
+        .unwrap();
+    assert_eq!(receipt.receipt_id, "gate-exploration-sufficient-abcdef12");
+    assert_eq!(receipt.seq, 1);
 }

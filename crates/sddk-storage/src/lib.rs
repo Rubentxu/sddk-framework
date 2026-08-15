@@ -14,7 +14,7 @@ mod models;
 use std::path::Path;
 use std::time::Duration;
 
-use migrations::{LATEST_SCHEMA_VERSION, MIGRATION_1, MIGRATION_2};
+use migrations::{LATEST_SCHEMA_VERSION, MIGRATION_1, MIGRATION_2, MIGRATION_3};
 pub use models::*;
 use rusqlite::{
     Connection, OpenFlags, OptionalExtension, Row, Transaction, TransactionBehavior, params,
@@ -943,13 +943,31 @@ impl Storage {
         Ok(true)
     }
 
+    /// Allocates the next sequence number for a (gate, plan_hash) group.
+    /// Uses an IMMEDIATE transaction to serialize concurrent allocations.
+    pub fn allocate_gate_receipt_seq(&mut self, gate: &str, plan_hash: &str) -> Result<i64> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let seq: i64 = transaction.query_row(
+            "SELECT COALESCE(MAX(seq) + 1, 1) FROM gate_receipts WHERE gate = ?1 AND plan_hash = ?2",
+            [gate, plan_hash],
+            |row| row.get(0),
+        )?;
+        transaction.commit()?;
+        Ok(seq)
+    }
+
     /// Persists one authorized gate evaluation receipt.
-    pub fn insert_gate_receipt(&self, input: &GateReceiptInput) -> Result<GateReceipt> {
-        self.connection.execute(
+    pub fn insert_gate_receipt(&mut self, input: &GateReceiptInput) -> Result<GateReceipt> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute(
             "INSERT INTO gate_receipts (
                 receipt_id, project_id, cycle_id, gate, evaluator, transition_id,
-                plan_hash, outcome, evidence, actor, command_id, frame_id, evaluated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                plan_hash, outcome, evidence, actor, command_id, frame_id, evaluated_at, seq
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 input.receipt_id,
                 input.project_id,
@@ -963,9 +981,11 @@ impl Storage {
                 input.actor,
                 input.command_id,
                 input.frame_id,
-                input.evaluated_at
+                input.evaluated_at,
+                input.seq
             ],
         )?;
+        transaction.commit()?;
         Ok(GateReceipt {
             receipt_id: input.receipt_id.clone(),
             project_id: input.project_id.clone(),
@@ -980,6 +1000,7 @@ impl Storage {
             command_id: input.command_id.clone(),
             frame_id: input.frame_id.clone(),
             evaluated_at: input.evaluated_at.clone(),
+            seq: input.seq,
         })
     }
 
@@ -988,7 +1009,7 @@ impl Storage {
         self.connection
             .query_row(
                 "SELECT receipt_id, project_id, cycle_id, gate, evaluator, transition_id,
-                        plan_hash, outcome, evidence, actor, command_id, frame_id, evaluated_at
+                        plan_hash, outcome, evidence, actor, command_id, frame_id, evaluated_at, seq
                  FROM gate_receipts WHERE receipt_id = ?1",
                 [receipt_id],
                 gate_receipt_from_row,
@@ -1001,7 +1022,7 @@ impl Storage {
     pub fn list_gate_receipts(&self, cycle_id: &str) -> Result<Vec<GateReceipt>> {
         let mut statement = self.connection.prepare(
             "SELECT receipt_id, project_id, cycle_id, gate, evaluator, transition_id,
-                    plan_hash, outcome, evidence, actor, command_id, frame_id, evaluated_at
+                    plan_hash, outcome, evidence, actor, command_id, frame_id, evaluated_at, seq
              FROM gate_receipts WHERE cycle_id = ?1 ORDER BY evaluated_at ASC",
         )?;
         let rows = statement.query_map([cycle_id], gate_receipt_from_row)?;
@@ -1039,6 +1060,12 @@ fn migrate(connection: &mut Connection) -> Result<()> {
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         transaction.execute_batch(MIGRATION_2)?;
         transaction.pragma_update(None, "user_version", 2)?;
+        transaction.commit()?;
+    }
+    if version < 3 {
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute_batch(MIGRATION_3)?;
+        transaction.pragma_update(None, "user_version", 3)?;
         transaction.commit()?;
     }
     Ok(())
@@ -1358,6 +1385,7 @@ fn gate_receipt_from_row(row: &Row<'_>) -> rusqlite::Result<GateReceipt> {
         command_id: row.get(10)?,
         frame_id: row.get(11)?,
         evaluated_at: row.get(12)?,
+        seq: row.get(13)?,
     })
 }
 

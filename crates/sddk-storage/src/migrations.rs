@@ -1,4 +1,4 @@
-pub(crate) const LATEST_SCHEMA_VERSION: i32 = 2;
+pub(crate) const LATEST_SCHEMA_VERSION: i32 = 3;
 
 pub(crate) const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -151,4 +151,11 @@ CREATE TABLE gate_receipts (
 
 CREATE INDEX gate_receipts_cycle_idx ON gate_receipts(cycle_id);
 CREATE INDEX gate_receipts_plan_hash_idx ON gate_receipts(plan_hash);
+"#;
+
+pub(crate) const MIGRATION_3: &str = r#"
+ALTER TABLE gate_receipts ADD COLUMN seq INTEGER NOT NULL DEFAULT 1;
+
+CREATE UNIQUE INDEX gate_receipts_gate_plan_seq_uniq
+    ON gate_receipts(gate, plan_hash, seq);
 "#;

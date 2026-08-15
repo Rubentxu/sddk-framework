@@ -262,6 +262,8 @@ pub struct GateReceiptInput {
     pub frame_id: String,
     /// Caller-supplied evaluation timestamp.
     pub evaluated_at: String,
+    /// Sequence number within the (gate, plan_hash) group.
+    pub seq: i64,
 }
 
 /// An authorized, persisted gate evaluation receipt.
@@ -293,4 +295,6 @@ pub struct GateReceipt {
     pub frame_id: String,
     /// Caller-supplied evaluation timestamp.
     pub evaluated_at: String,
+    /// Sequence number within the (gate, plan_hash) group.
+    pub seq: i64,
 }

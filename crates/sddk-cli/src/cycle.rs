@@ -270,10 +270,10 @@ pub(crate) struct CycleEvaluateGateArgs {
     /// Sanitized evaluation evidence as JSON.
     #[arg(long, default_value = "{}")]
     pub(crate) evidence: String,
-    /// Gate outcome. Defaults to `failed` (fail-closed). Callers must pass
-    /// `--outcome passed` explicitly to advance the workflow.
+    /// Required. The gate outcome (passed | failed). Must be passed explicitly.
+    /// See CHANGELOG.md v1.9.15 for details on this breaking change.
     #[arg(long, value_enum)]
-    pub(crate) outcome: Option<GateOutcomeArg>,
+    pub(crate) outcome: GateOutcomeArg,
     /// Explicit RFC 3339 timestamp for deterministic execution.
     #[arg(long)]
     pub(crate) timestamp: Option<String>,
@@ -1035,10 +1035,7 @@ fn run_cycle_evaluate_gate(
         // Fail-closed: when --outcome is omitted we record `Failed`, so a
         // caller that wants to advance the workflow MUST pass
         // `--outcome passed` explicitly.
-        let outcome = args
-            .outcome
-            .map(GateOutcomeArg::into)
-            .unwrap_or(sddk_storage::GateOutcomeStatus::Failed);
+        let outcome = args.outcome.into();
         let receipt = context.engine.evaluate_gate(&GateEvaluationInput {
             cycle_id: args.cycle.clone(),
             transition_id: args.transition.clone(),

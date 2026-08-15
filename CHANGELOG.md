@@ -3,6 +3,27 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.15] - 2026-08-15
+
+Corrige la evaluación de gate receipts: INC-DEBT-001 evita colisión UNIQUE en re-evaluación
+agregando columna `seq` por grupo (gate, plan_hash); INC-DEBT-002 exige `--outcome` explícito.
+
+### Fixes
+  - fix(storage): secuencia receipts de gate y colisión UNIQUE — MIGRATION_3 añade columna
+    `seq INTEGER NOT NULL DEFAULT 1` y índice único parcial `(gate, plan_hash, seq)`.
+    `Storage::allocate_gate_receipt_seq` usa `TransactionBehavior::Immediate` para serializar
+    asignaciones concurrentes.
+  - fix(storage): `GateReceiptInput` y `GateReceipt` incluyen campo `seq`.
+  - fix(engine): `Engine::evaluate_gate` deriva receipt_id como
+    `gate-{gate}-{plan_hash[7..23]}-{seq}` y persiste `seq` en la fila.
+  - fix(cli): `--outcome <passed|failed>` es ahora argumento requerido en
+    `sddk cycle evaluate-gate`. Recetas que omiten la bandera deben actualizarse.
+    El silent `Failed` default es eliminado. (Breaking change.)
+
+### Breaking Changes
+  - `sddk cycle evaluate-gate --outcome <passed|failed>` es ahora obligatorio.
+    Recetas existentes que omiten `--outcome` producirán error de parsing.
+
 ## [1.9.13] - 2026-08-14
 
 Corrige la integridad del bundle de release: el manifest se genera desde rutas

@@ -7607,3 +7607,331 @@ fn relation_key_is_deterministic_for_path_invariants() {
         relations[0]
     );
 }
+
+#[test]
+fn cli_cycle_evaluate_gate_requires_outcome_flag() {
+    // G5.REQ-1: Omitted --outcome is a clap-level error; nothing is persisted.
+    let fixture = CliFixture::new("evaluate-gate-required-outcome");
+
+    // Set up the project
+    let adopted = fixture.run_adopt(
+        "apply",
+        &[
+            "--root",
+            fixture.root.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            "https://example.com/acme/repo.git",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(
+        adopted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&adopted.stderr)
+    );
+
+    let started = fixture.run(&[
+        "cycle",
+        "start",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--name",
+        "gate-outcome-test",
+        "--path",
+        "a-full",
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+        "--lease-owner",
+        "agent-a",
+        "--lease-ms",
+        "3600000",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        started.status.success(),
+        "{}",
+        String::from_utf8_lossy(&started.stderr)
+    );
+    let started_json: serde_json::Value = serde_json::from_slice(&started.stdout).unwrap();
+    let _cycle_id = started_json["cycle_id"].as_str().unwrap().to_owned();
+
+    // Call evaluate-gate WITHOUT --outcome — must fail at clap level
+    let no_outcome = fixture.run(&[
+        "cycle",
+        "evaluate-gate",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--cycle",
+        &_cycle_id,
+        "--transition",
+        "phase.explore.complete",
+        "--gate",
+        "exploration-sufficient",
+        "--evaluator",
+        "sddk.cli",
+        "--evidence",
+        r#"{"checked": true}"#,
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+    ]);
+    assert!(
+        !no_outcome.status.success(),
+        "evaluate-gate without --outcome must fail"
+    );
+    let stderr = String::from_utf8_lossy(&no_outcome.stderr);
+    assert!(
+        stderr.contains("the following required arguments were not provided"),
+        "error must mention missing --outcome: {}",
+        stderr
+    );
+}
+
+#[test]
+fn cli_cycle_evaluate_gate_explicit_failed_persists_failed_receipt() {
+    // G5.REQ-2: --outcome failed persists a failed receipt with seq=1.
+    let fixture = CliFixture::new("evaluate-gate-failed");
+
+    let adopted = fixture.run_adopt(
+        "apply",
+        &[
+            "--root",
+            fixture.root.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            "https://example.com/acme/repo.git",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(adopted.status.success());
+
+    let started = fixture.run(&[
+        "cycle",
+        "start",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--name",
+        "gate-outcome-test",
+        "--path",
+        "a-full",
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+        "--lease-owner",
+        "agent-a",
+        "--lease-ms",
+        "3600000",
+        "--format",
+        "json",
+    ]);
+    assert!(started.status.success());
+    let started_json: serde_json::Value = serde_json::from_slice(&started.stdout).unwrap();
+    let _cycle_id = started_json["cycle_id"].as_str().unwrap().to_owned();
+
+    // Evaluate gate with --outcome failed
+    let failed = fixture.run(&[
+        "cycle",
+        "evaluate-gate",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--cycle",
+        &_cycle_id,
+        "--transition",
+        "phase.explore.complete",
+        "--gate",
+        "exploration-sufficient",
+        "--evaluator",
+        "sddk.cli",
+        "--outcome",
+        "failed",
+        "--evidence",
+        r#"{"reason": "not ready"}"#,
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        failed.status.success(),
+        "evaluate-gate with --outcome failed must succeed: {}",
+        String::from_utf8_lossy(&failed.stderr)
+    );
+    let failed_json: serde_json::Value = serde_json::from_slice(&failed.stdout).unwrap();
+    assert_eq!(failed_json["gate"], "exploration-sufficient");
+    // First receipt in group should have receipt_id ending with -1
+    assert!(
+        failed_json["receipt_id"].as_str().unwrap().ends_with("-1"),
+        "receipt_id should end with -1 for first receipt in group"
+    );
+}
+
+#[test]
+fn cli_cycle_evaluate_gate_reevaluation_after_failed_emits_new_seq() {
+    // G5.REQ-3: --outcome failed then --outcome passed produces two rows: seq=1 and seq=2.
+    let fixture = CliFixture::new("evaluate-gate-reeval");
+
+    let adopted = fixture.run_adopt(
+        "apply",
+        &[
+            "--root",
+            fixture.root.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            "https://example.com/acme/repo.git",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(adopted.status.success());
+
+    let started = fixture.run(&[
+        "cycle",
+        "start",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--name",
+        "gate-outcome-test",
+        "--path",
+        "a-full",
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+        "--lease-owner",
+        "agent-a",
+        "--lease-ms",
+        "3600000",
+        "--format",
+        "json",
+    ]);
+    assert!(started.status.success());
+    let started_json: serde_json::Value = serde_json::from_slice(&started.stdout).unwrap();
+    let _cycle_id = started_json["cycle_id"].as_str().unwrap().to_owned();
+
+    // First: --outcome failed
+    let first = fixture.run(&[
+        "cycle",
+        "evaluate-gate",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--cycle",
+        &_cycle_id,
+        "--transition",
+        "phase.explore.complete",
+        "--gate",
+        "exploration-sufficient",
+        "--evaluator",
+        "sddk.cli",
+        "--outcome",
+        "failed",
+        "--evidence",
+        r#"{"reason": "not ready"}"#,
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+        "--format",
+        "json",
+    ]);
+    assert!(first.status.success());
+    let first_json: serde_json::Value = serde_json::from_slice(&first.stdout).unwrap();
+    let first_receipt_id = first_json["receipt_id"].as_str().unwrap().to_owned();
+    assert!(
+        first_receipt_id.ends_with("-1"),
+        "first receipt_id must end with -1"
+    );
+
+    // Second: --outcome passed (same state, no apply_transition in between)
+    let second = fixture.run(&[
+        "cycle",
+        "evaluate-gate",
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+        "--cycle",
+        &_cycle_id,
+        "--transition",
+        "phase.explore.complete",
+        "--gate",
+        "exploration-sufficient",
+        "--evaluator",
+        "sddk.cli",
+        "--outcome",
+        "passed",
+        "--evidence",
+        r#"{"reason": "now ready"}"#,
+        "--timestamp",
+        "2026-08-04T10:01:00Z",
+        "--actor",
+        "cli-test",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        second.status.success(),
+        "second evaluate-gate must succeed: {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let second_json: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
+    let second_receipt_id = second_json["receipt_id"].as_str().unwrap().to_owned();
+    assert!(
+        second_receipt_id.ends_with("-2"),
+        "second receipt_id must end with -2"
+    );
+    assert_ne!(
+        first_receipt_id, second_receipt_id,
+        "receipt_ids must be distinct"
+    );
+}
