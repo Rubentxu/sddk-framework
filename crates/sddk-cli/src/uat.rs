@@ -4732,6 +4732,31 @@ mod uat_stale_tests {
         }
     }
 
+    /// RAII guard: kills + reaps the python http.server child on drop.
+    /// Covers every exit path — normal return, `?`-propagation, panic unwind,
+    /// and `Ctrl-C` cancellation. Idempotent via `Option::take()`.
+    struct ServerGuard(Option<std::process::Child>);
+
+    impl ServerGuard {
+        fn new(child: std::process::Child) -> Self {
+            ServerGuard(Some(child))
+        }
+
+        /// Transfer ownership of the child out of the guard (avoids double-kill).
+        fn take(&mut self) -> Option<std::process::Child> {
+            self.0.take()
+        }
+    }
+
+    impl Drop for ServerGuard {
+        fn drop(&mut self) {
+            if let Some(mut child) = self.0.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+
     /// Full stale detection: previous geometry stored, current geometry differs.
     #[test]
     fn stale_detects_geometry_change() {
@@ -4745,6 +4770,17 @@ mod uat_stale_tests {
             return;
         }
 
+        // Check if python3 is available (prerequisite for local HTTP server).
+        // Mirrors the node probe above; skip cleanly before any spawn.
+        let python_check = std::process::Command::new("python3")
+            .arg("--version")
+            .output()
+            .ok();
+        if python_check.map(|o| o.status.success()) != Some(true) {
+            eprintln!("skipping: python3 unavailable");
+            return;
+        }
+
         let dir = tempfile::tempdir().unwrap();
 
         // Write a minimal HTML page with a button for Playwright to inspect.
@@ -4755,15 +4791,58 @@ mod uat_stale_tests {
         )
         .unwrap();
 
-        // Spin up a local HTTP server on a random port.
-        let port: u16 = std::sync::atomic::AtomicU16::new(0)
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-            .wrapping_add(49152);
-        let server = std::process::Command::new("python3")
-            .args(["-m", "http.server", &port.to_string()])
+        // Spin up a local HTTP server on an ephemeral port (0 = kernel assigns).
+        // python's http.server prints "Serving HTTP on 127.0.0.1 port NNNNN ..." to stdout.
+        // We parse the port with \bport (\d+)\b (Python 3.0+ documented format).
+        let mut child = std::process::Command::new("python3")
+            .args(["-u", "-m", "http.server", "0", "--bind", "127.0.0.1"])
             .current_dir(dir.path())
-            .spawn();
-        std::thread::sleep(std::time::Duration::from_millis(500));
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .expect("failed to spawn python3 http.server");
+
+        let port = {
+            let stdout = child.stdout.take().expect("stdout captured");
+            use std::io::{BufRead, BufReader};
+            let mut lines = BufReader::new(stdout).lines();
+            let first = lines
+                .next()
+                .expect("python http.server produced no output")
+                .expect("python http.server stdout read error");
+            // Regex \bport (\d+)\b captures the port number from the first line.
+            let re = regex::Regex::new(r"\bport (\d+)\b").expect("regex is valid");
+            let caps = re.captures(&first).expect("python output format changed");
+            caps.get(1)
+                .expect("port number missing from python output")
+                .as_str()
+                .parse::<u16>()
+                .expect("port number is not a valid u16")
+        };
+
+        // ServerGuard RAII wrapper: kills + reaps child on any exit path.
+        let _server_guard = ServerGuard::new(child);
+
+        // Readiness poll: replace blind 500ms sleep with TcpStream::connect_timeout.
+        // 50ms per attempt, 1s total deadline.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        loop {
+            if std::net::TcpStream::connect_timeout(
+                &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+                std::time::Duration::from_millis(50),
+            )
+            .is_ok()
+            {
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                panic!(
+                    "server not ready on 127.0.0.1:{} after 1s deadline",
+                    port
+                );
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+
         let url = format!("http://127.0.0.1:{}/index.html", port);
 
         // Plan with a geometry oracle selector.
@@ -4810,11 +4889,7 @@ features:
         };
         let out = run_uat_stale(args, &env);
 
-        // Cleanup server.
-        if let Ok(mut s) = server {
-            let _ = s.kill();
-        }
-
+        // ServerGuard Drop runs here on scope exit — no manual kill needed.
         assert_eq!(out.status, 0, "command failed: {}", out.stderr);
 
         // Parse report from stdout.
