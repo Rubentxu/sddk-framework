@@ -2,48 +2,21 @@
 
 use super::LinkEditor;
 use super::manifest::MANIFEST_FILE;
-use crate::dev::common::{sha256_hex, walk_dir};
+use crate::dev::common::walk_dir;
+use crate::dev::framework_check::{
+    LinkReport, framework_agent_names, link_report_text, register_opencode_agents, sync_assets,
+};
 use crate::dev::manifest::verify_manifest;
 use crate::dev::paths::resolve_active_framework_root;
 use crate::dev::registry::write_skill_registry;
 use crate::{CliEnvironment, CommandOutput, OutputFormat, render_result};
-use sddk_gateway::{GitExecutor, PermissionPolicy};
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-// ── Private helpers ────────────────────────────────────────────────────────────
-
-/// Agents that should be marked as "primary" (visible by default) in opencode.json.
-const PRIMARY_AGENTS: [&str; 2] = ["orchestrator", "book-orchestrator"];
-
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-struct LinkReport {
-    editor: String,
-    agents_linked: usize,
-    skills_linked: usize,
-    prompts_linked: usize,
-    workflows_linked: usize,
-    stale_replaced: usize,
-    pruned: usize,
-    errors: Vec<String>,
-}
-
-fn link_text(report: &LinkReport) -> String {
-    format!(
-        "editor: {}\nagents: {}\nskills: {}\nprompts: {}\nworkflows: {}\nstale_replaced: {}\npruned: {}\nerrors: {}\n",
-        report.editor,
-        report.agents_linked,
-        report.skills_linked,
-        report.prompts_linked,
-        report.workflows_linked,
-        report.stale_replaced,
-        report.pruned,
-        report.errors.len()
-    )
-}
-
-fn link_file(source: &Path, target: &Path, stale_replaced: &mut usize) -> std::io::Result<()> {
+pub(crate) fn link_file(
+    source: &Path,
+    target: &Path,
+    stale_replaced: &mut usize,
+) -> std::io::Result<()> {
     if let Ok(metadata) = std::fs::symlink_metadata(target) {
         if metadata.file_type().is_symlink() {
             if let Ok(current) = std::fs::read_link(target) {
@@ -88,7 +61,7 @@ fn link_file(source: &Path, target: &Path, stale_replaced: &mut usize) -> std::i
 }
 
 /// Prune editor entries that the framework no longer ships.
-fn prune_editor(root: &Path, editor_dir: &Path) -> usize {
+pub(crate) fn prune_editor(root: &Path, editor_dir: &Path) -> usize {
     let framework_namespace = |name: &std::ffi::OsStr| {
         let name = name.to_string_lossy();
         name.starts_with("sddk-")
@@ -256,141 +229,6 @@ fn link_editor(root: &Path, editor_dir: &Path) -> LinkReport {
     report
 }
 
-/// Sync the framework assets tree from source into target (idempotent).
-fn sync_assets(source: &Path, target: &Path) -> anyhow::Result<usize> {
-    let mut copied = 0usize;
-    std::fs::create_dir_all(target)?;
-    for entry in walk_dir(source) {
-        let relative = entry
-            .strip_prefix(source)
-            .unwrap_or(entry.as_path())
-            .to_path_buf();
-        let destination = target.join(&relative);
-        if let Some(parent) = destination.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let needs_copy = match (std::fs::read(&entry), std::fs::read(&destination)) {
-            (Ok(src), Ok(dst)) => src != dst,
-            _ => true,
-        };
-        if needs_copy {
-            std::fs::copy(&entry, &destination)?;
-        }
-        copied += 1;
-    }
-    Ok(copied)
-}
-
-/// Names of framework agents from permissions.yaml or filesystem.
-fn framework_agent_names(root: &Path) -> Vec<String> {
-    let agents_dir = root.join("agents");
-    if let Ok(policy) = PermissionPolicy::from_file(root.join("permissions.yaml")) {
-        let mut names: Vec<String> = policy
-            .agents()
-            .filter(|name| agents_dir.join(format!("{name}.md")).exists())
-            .map(str::to_owned)
-            .collect();
-        names.sort();
-        return names;
-    }
-    let mut names: Vec<String> = std::fs::read_dir(&agents_dir)
-        .map(|entries| {
-            entries
-                .flatten()
-                .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("md"))
-                .filter_map(|entry| {
-                    entry
-                        .path()
-                        .file_stem()
-                        .map(|stem| stem.to_string_lossy().into_owned())
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    names.sort();
-    names
-}
-
-struct AgentFrontmatter {
-    description: String,
-    model: Option<String>,
-}
-
-fn parse_frontmatter(path: &Path) -> Option<AgentFrontmatter> {
-    let content = std::fs::read_to_string(path).ok()?;
-    let block = content.strip_prefix("---")?.split_once("---")?.0;
-    let mut description = String::new();
-    let mut model = None;
-    for line in block.lines() {
-        if let Some(value) = line.strip_prefix("description:") {
-            description = value.trim().trim_matches('"').to_owned();
-        } else if let Some(value) = line.strip_prefix("model:") {
-            model = Some(value.trim().trim_matches('"').to_owned());
-        }
-    }
-    if description.is_empty() {
-        return None;
-    }
-    Some(AgentFrontmatter { description, model })
-}
-
-/// Upsert framework agent entries into opencode.json.
-fn register_opencode_agents(root: &Path, opencode_json: &Path) -> anyhow::Result<usize> {
-    let mut config: serde_json::Value = if opencode_json.exists() {
-        serde_json::from_str(&std::fs::read_to_string(opencode_json)?)
-            .map_err(|e| anyhow::anyhow!("opencode.json invalid: {e}"))?
-    } else {
-        serde_json::json!({
-            "$schema": "https://opencode.ai/config.json",
-            "agent": {},
-            "mcp": {}
-        })
-    };
-    let agents = config
-        .get_mut("agent")
-        .and_then(|value| value.as_object_mut())
-        .ok_or_else(|| anyhow::anyhow!("opencode.json has no agent map"))?;
-    let mut registered = 0usize;
-    for name in framework_agent_names(root) {
-        let md_path = root.join("agents").join(format!("{name}.md"));
-        let Some(frontmatter) = parse_frontmatter(&md_path) else {
-            continue;
-        };
-        let model = frontmatter
-            .model
-            .clone()
-            .unwrap_or_else(|| "minimax-coding-plan/MiniMax-M3".to_owned());
-        let primary = PRIMARY_AGENTS.contains(&name.as_str());
-        let mut entry = serde_json::json!({
-            "description": frontmatter.description,
-            "mode": if primary { "primary" } else { "subagent" },
-            "model": model,
-            "prompt": format!("{{file:{}}}", md_path.to_string_lossy()),
-        });
-        if !primary {
-            entry["hidden"] = serde_json::Value::Bool(true);
-        }
-        agents.insert(name, entry);
-        registered += 1;
-    }
-    let source_agent_names: HashSet<String> = framework_agent_names(root).into_iter().collect();
-    let orphans: Vec<String> = agents
-        .keys()
-        .filter(|name| {
-            let name = name.as_str();
-            (name.starts_with("sddk-") || name.starts_with("sdd-") || name.starts_with("gentle-"))
-                && !source_agent_names.contains(name)
-        })
-        .cloned()
-        .collect();
-    for orphan in orphans {
-        agents.remove(&orphan);
-    }
-    let serialized = serde_json::to_string_pretty(&config)?;
-    std::fs::write(opencode_json, serialized)?;
-    Ok(registered)
-}
-
 // ── Public subcommand ──────────────────────────────────────────────────────────
 
 pub(super) fn run_dev_link(args: super::LinkArgs, environment: &CliEnvironment) -> CommandOutput {
@@ -460,115 +298,14 @@ pub(super) fn run_dev_link(args: super::LinkArgs, environment: &CliEnvironment) 
     render_result(result, format, |reports: &Vec<LinkReport>| {
         let mut text = String::new();
         for report in reports {
-            text.push_str(&link_text(report));
+            text.push_str(&link_report_text(report));
         }
         text
     })
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────────
+// ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-mod reconciliation_tests {
-    use super::*;
-
-    fn temp_tree(tag: &str) -> std::path::PathBuf {
-        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("sddk-link-{tag}-{}-{n}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    #[test]
-    fn prune_removes_framework_deprecated_but_keeps_foreign() {
-        let root = temp_tree("root");
-        let editor = temp_tree("editor");
-        // Framework source: one agent + one skill.
-        std::fs::create_dir_all(root.join("agents")).unwrap();
-        std::fs::write(
-            root.join("agents/orchestrator.md"),
-            "---\nname: orchestrator\n---\n",
-        )
-        .unwrap();
-        std::fs::create_dir_all(root.join("skills")).unwrap();
-        std::fs::create_dir_all(root.join("skills/sddk-apply")).unwrap();
-        std::fs::write(root.join("skills/sddk-apply/SKILL.md"), "# apply\n").unwrap();
-
-        // Editor state: broken framework link, orphan namespaced skill,
-        // stale backup, and a foreign (arch-stack) skill that must survive.
-        std::fs::create_dir_all(editor.join("agents")).unwrap();
-        std::fs::create_dir_all(editor.join("skills")).unwrap();
-        std::fs::create_dir_all(editor.join("workflows")).unwrap();
-        std::os::unix::fs::symlink(
-            "/nonexistent/sddk-deprecated.md",
-            editor.join("agents/sddk-deprecated.md"),
-        )
-        .unwrap();
-        std::fs::create_dir_all(editor.join("skills/sddk-continue-options")).unwrap();
-        std::fs::write(
-            editor.join("skills/sddk-continue-options/SKILL.md"),
-            "# orphan\n",
-        )
-        .unwrap();
-        std::fs::write(editor.join("workflows/sddk-a-full.sddk-stale"), "stale\n").unwrap();
-        std::fs::create_dir_all(editor.join("skills/architecture-discovery")).unwrap();
-        std::fs::write(
-            editor.join("skills/architecture-discovery/SKILL.md"),
-            "# foreign\n",
-        )
-        .unwrap();
-
-        let pruned = prune_editor(&root, &editor);
-        // 1 broken agent + 1 orphan skill + 1 stale workflow = 3.
-        assert_eq!(pruned, 3);
-        assert!(!editor.join("agents/sddk-deprecated.md").exists());
-        assert!(!editor.join("skills/sddk-continue-options").exists());
-        assert!(!editor.join("workflows/sddk-a-full.sddk-stale").exists());
-        // Foreign surface untouched.
-        assert!(
-            editor
-                .join("skills/architecture-discovery/SKILL.md")
-                .exists()
-        );
-
-        std::fs::remove_dir_all(&root).ok();
-        std::fs::remove_dir_all(&editor).ok();
-    }
-
-    #[test]
-    fn link_file_is_idempotent_when_target_matches() {
-        let dir = temp_tree("link");
-        let source = dir.join("source.md");
-        let target = dir.join("target.md");
-        std::fs::write(&source, "content").unwrap();
-        let mut stale = 0usize;
-        link_file(&source, &target, &mut stale).unwrap();
-        let mtime1 = std::fs::metadata(&target).unwrap().modified().unwrap();
-        link_file(&source, &target, &mut stale).unwrap();
-        let mtime2 = std::fs::metadata(&target).unwrap().modified().unwrap();
-        assert_eq!(mtime1, mtime2, "correct symlink must not be recreated");
-        assert_eq!(stale, 0);
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn link_file_replaces_stale_copy_with_backup() {
-        let dir = temp_tree("stale");
-        let source = dir.join("source.md");
-        let target = dir.join("target.md");
-        std::fs::write(&source, "new").unwrap();
-        std::fs::write(&target, "old copy").unwrap();
-        let mut stale = 0usize;
-        link_file(&source, &target, &mut stale).unwrap();
-        assert_eq!(stale, 1);
-        assert!(dir.join("target.sddk-stale").exists());
-        assert!(
-            std::fs::symlink_metadata(&target)
-                .unwrap()
-                .file_type()
-                .is_symlink()
-        );
-        std::fs::remove_dir_all(&dir).ok();
-    }
-}
+#[path = "tests/reconciliation_tests.rs"]
+mod reconciliation_tests;

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 mod check;
 pub mod common;
 mod doctor;
+mod framework_check;
 mod install;
 pub mod manifest;
 pub mod registry;
