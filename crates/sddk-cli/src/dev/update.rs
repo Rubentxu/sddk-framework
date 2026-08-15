@@ -7,7 +7,7 @@ use crate::dev::paths::framework_dir;
 use crate::{CliEnvironment, CommandOutput, OutputFormat, render_result};
 use std::path::Path;
 
-fn update_bundle(root: &Path, args: &super::UpdateArgs) -> anyhow::Result<String> {
+pub(crate) fn update_bundle(root: &Path, args: &super::UpdateArgs) -> anyhow::Result<String> {
     let version = args.version.as_deref().unwrap_or("latest");
     let base_url = match &args.base_url {
         Some(base) => base.clone(),

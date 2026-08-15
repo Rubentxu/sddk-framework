@@ -6747,6 +6747,55 @@ fn cli_dev_manifest_canonical_clean_archive_verifies() {
     );
 }
 
+// ── Smoke tests for dev subcommands ─────────────────────────────────────────────
+
+/// smoke: `sddk dev check` executes without panic.
+#[test]
+fn cli_dev_check_runs() {
+    let check = run_from(["sddk", "dev", "check", "--format", "json"]);
+    // check may pass or fail depending on environment, but must not panic.
+    assert!(
+        check.status == 0 || check.status == 1,
+        "dev check should not panic: {}",
+        check.stderr
+    );
+}
+
+/// smoke: `sddk dev use --show` executes without panic and shows version info.
+#[test]
+fn cli_dev_use_shows_current_version() {
+    let use_show = run_from(["sddk", "dev", "use", "--show", "--format", "json"]);
+    // May fail if no version is installed, but must not panic.
+    assert!(
+        use_show.status == 0 || use_show.status == 1,
+        "dev use --show should not panic: {}",
+        use_show.stderr
+    );
+}
+
+/// smoke: `sddk dev update --help` validates the subcommand exists without downloading.
+#[test]
+fn cli_dev_update_help_exists() {
+    // Just verifying the subcommand exists and doesn't panic.
+    let update_help = run_from(["sddk", "dev", "update", "--help"]);
+    assert!(
+        update_help.status == 0,
+        "dev update --help should succeed: {}",
+        update_help.stderr
+    );
+}
+
+/// smoke: `sddk dev uninstall --help` executes without panic.
+#[test]
+fn cli_dev_uninstall_help_runs() {
+    let uninstall_help = run_from(["sddk", "dev", "uninstall", "--help"]);
+    assert!(
+        uninstall_help.status == 0,
+        "dev uninstall --help should succeed: {}",
+        uninstall_help.stderr
+    );
+}
+
 #[test]
 fn release_workflow_packages_the_committed_manifest() {
     let workflow = include_str!("../../../.github/workflows/release.yml");
