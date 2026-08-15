@@ -18,6 +18,7 @@ const LOCAL_GIT_ENV_KEYS: &[&str] = &[
     "SSH_AUTH_SOCK",
     "GIT_ASKPASS",
     "SSH_ASKPASS",
+    "GIT_TERMINAL_PROMPT",
 ];
 
 /// Returns the environment allowlist for `git.*` capabilities.
@@ -59,6 +60,48 @@ pub enum GitError {
         /// Observed state.
         actual: String,
     },
+    /// The git command failed due to missing or invalid credentials.
+    #[error("git {command} auth failure: {stderr}\n{hint}")]
+    AuthFailed {
+        /// Executed git subcommand.
+        command: String,
+        /// Captured standard error.
+        stderr: String,
+        /// Actionable remediation hint.
+        hint: String,
+    },
+}
+
+/// Hint emitted when `git push` fails due to missing credentials.
+const AUTH_HINT: &str = r#"credentials not available to the typed runner.
+The runner has no TTY and uses an env allowlist that excludes GH_TOKEN/GITHUB_TOKEN.
+To fix, choose ONE of:
+  1. gh auth login                       # interactive, requires TTY
+  2. gh auth setup-git                   # configure git credential helper via gh
+  3. git config --global credential.helper store
+     git push                            # one-time cache"#;
+
+/// Returns `Some(AuthFailed)` if `stderr` matches a known auth-failure marker,
+/// or `None` for non-auth failures.
+pub(crate) fn classify_auth_failure(command: &str, stderr: &str) -> Option<GitError> {
+    let lower = stderr.to_lowercase();
+    let markers = [
+        "could not read username",
+        "terminal prompts disabled",
+        "403 forbidden",
+        "bad credentials",
+        "failed to authenticate",
+        "fatal: authentication failed",
+    ];
+    if markers.iter().any(|m| lower.contains(m)) {
+        Some(GitError::AuthFailed {
+            command: command.to_owned(),
+            stderr: stderr.to_owned(),
+            hint: AUTH_HINT.to_owned(),
+        })
+    } else {
+        None
+    }
 }
 
 /// Read-only snapshot of repository state.
@@ -298,7 +341,7 @@ impl GitExecutor {
     /// Pushes a branch and verifies that its remote SHA equals the local HEAD.
     pub fn push_and_verify_branch(&self, branch: &str) -> Result<String, GitError> {
         let head = self.head_sha()?;
-        self.run_ok("push", &["origin", branch])?;
+        self.run_push_raw(branch)?; // propagates AuthFailed on credential errors
         let remote = self.remote_branch_sha(branch)?.unwrap_or_default();
         if remote != head {
             return Err(GitError::Postcondition {
@@ -428,7 +471,7 @@ impl GitExecutor {
             });
         }
         let reference = format!("refs/tags/{tag}");
-        self.run_ok("push", &["origin", &reference])?;
+        self.run_push_ref_raw(&reference)?; // propagates AuthFailed on credential errors
         let remote = self.remote_annotated_tag_target(tag)?.unwrap_or_default();
         if remote != target {
             return Err(GitError::Postcondition {
@@ -478,6 +521,87 @@ impl GitExecutor {
         }
         Ok(outcome)
     }
+
+    /// Like `run_raw_ok` but specialised for pushing tag references where we need
+    /// to inspect the raw exit status before classifying auth failures.
+    fn run_push_ref_raw(&self, reference: &str) -> Result<RawRunOutcome, GitError> {
+        let spec = RunSpec {
+            program: "git".into(),
+            args: vec![
+                "-C".into(),
+                self.root.to_string_lossy().into_owned(),
+                "push".into(),
+                "origin".into(),
+                reference.into(),
+            ],
+            env: self.env.clone(),
+            timeout_ms: self.timeout_ms,
+            output_max_bytes: self.output_max_bytes,
+        };
+        let outcome = run_raw(&spec)?;
+        if outcome.timed_out {
+            return Err(GitError::CommandFailed {
+                command: "push".into(),
+                status: -1,
+                stderr: "timed out".into(),
+            });
+        }
+        if let Some(status) = outcome.exit_status
+            && status != 0
+        {
+            let stderr = String::from_utf8_lossy(&outcome.stderr).into_owned();
+            if let Some(auth) = classify_auth_failure("push", &stderr) {
+                return Err(auth);
+            }
+            return Err(GitError::CommandFailed {
+                command: "push".into(),
+                status,
+                stderr,
+            });
+        }
+        Ok(outcome)
+    }
+
+    /// Like `run_raw_ok` but specialised for push operations where we need
+    /// to inspect the raw exit status before classifying auth failures.
+    fn run_push_raw(&self, branch: &str) -> Result<RawRunOutcome, GitError> {
+        let spec = RunSpec {
+            program: "git".into(),
+            args: vec![
+                "-C".into(),
+                self.root.to_string_lossy().into_owned(),
+                "push".into(),
+                "origin".into(),
+                branch.into(),
+            ],
+            env: self.env.clone(),
+            timeout_ms: self.timeout_ms,
+            output_max_bytes: self.output_max_bytes,
+        };
+        let outcome = run_raw(&spec)?;
+        if outcome.timed_out {
+            return Err(GitError::CommandFailed {
+                command: "push".into(),
+                status: -1,
+                stderr: "timed out".into(),
+            });
+        }
+        if let Some(status) = outcome.exit_status
+            && status != 0
+        {
+            let stderr = String::from_utf8_lossy(&outcome.stderr).into_owned();
+            // Try to classify as auth failure first; fall back to generic CommandFailed.
+            if let Some(auth) = classify_auth_failure("push", &stderr) {
+                return Err(auth);
+            }
+            return Err(GitError::CommandFailed {
+                command: "push".into(),
+                status,
+                stderr,
+            });
+        }
+        Ok(outcome)
+    }
 }
 
 #[cfg(test)]
@@ -485,7 +609,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::fs;
 
-    use super::GitExecutor;
+    use super::{GitError, GitExecutor, LOCAL_GIT_ENV_KEYS, classify_auth_failure};
 
     fn git_repo() -> (tempfile::TempDir, GitExecutor) {
         let directory = tempfile::tempdir().unwrap();
@@ -622,6 +746,72 @@ mod tests {
             files
                 .iter()
                 .any(|p| p.to_string_lossy().contains("agents/a.md"))
+        );
+    }
+
+    #[test]
+    fn local_git_env_keys_includes_git_terminal_prompt() {
+        assert!(
+            LOCAL_GIT_ENV_KEYS.contains(&"GIT_TERMINAL_PROMPT"),
+            "LOCAL_GIT_ENV_KEYS must contain GIT_TERMINAL_PROMPT"
+        );
+    }
+
+    #[test]
+    fn local_git_env_keys_excludes_gh_token() {
+        assert!(
+            !LOCAL_GIT_ENV_KEYS.contains(&"GH_TOKEN"),
+            "LOCAL_GIT_ENV_KEYS must NOT contain GH_TOKEN"
+        );
+        assert!(
+            !LOCAL_GIT_ENV_KEYS.contains(&"GITHUB_TOKEN"),
+            "LOCAL_GIT_ENV_KEYS must NOT contain GITHUB_TOKEN"
+        );
+    }
+
+    #[test]
+    fn git_push_auth_failure_classifies_stderr() {
+        use super::classify_auth_failure;
+
+        // Positive cases — four markers that MUST classify as AuthFailed.
+        let cases = [
+            (
+                "could not read Username",
+                "could not read Username for 'https://github.com': terminal prompts disabled",
+            ),
+            (
+                "terminal prompts disabled",
+                "fatal: terminal prompts disabled",
+            ),
+            ("403 Forbidden", "remote: GitHub API error: 403 Forbidden"),
+            ("Bad credentials", "remote: Bad credentials"),
+            ("failed to authenticate", "error: failed to authenticate"),
+            (
+                "fatal: Authentication failed",
+                "fatal: Authentication failed.",
+            ),
+        ];
+        for (marker, stderr) in cases {
+            let result = classify_auth_failure("push", stderr);
+            let err = result.expect(&format!(
+                "stderr containing '{marker}' should be classified as AuthFailed"
+            ));
+            match err {
+                GitError::AuthFailed { hint, .. } => {
+                    assert!(
+                        hint.contains("gh auth login"),
+                        "AuthFailed hint must contain 'gh auth login'"
+                    );
+                }
+                other => panic!("Expected AuthFailed for marker '{marker}', got {:?}", other),
+            }
+        }
+
+        // Negative case — non-auth stderr must NOT be classified.
+        let result = classify_auth_failure("push", "error: src refspec main does not match any");
+        assert!(
+            result.is_none(),
+            "non-auth stderr should not be classified as AuthFailed"
         );
     }
 }
