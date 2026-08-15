@@ -4743,6 +4743,7 @@ mod uat_stale_tests {
         }
 
         /// Transfer ownership of the child out of the guard (avoids double-kill).
+        #[allow(dead_code)]
         fn take(&mut self) -> Option<std::process::Child> {
             self.0.take()
         }
@@ -4835,10 +4836,7 @@ mod uat_stale_tests {
                 break;
             }
             if std::time::Instant::now() >= deadline {
-                panic!(
-                    "server not ready on 127.0.0.1:{} after 1s deadline",
-                    port
-                );
+                panic!("server not ready on 127.0.0.1:{} after 1s deadline", port);
             }
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
