@@ -4,11 +4,11 @@ use std::path::{Path, PathBuf};
 
 use crate::CommandOutput;
 
-pub(super) const RECEIPT_FILE: &str = "sddk-install.json";
+pub const RECEIPT_FILE: &str = "sddk-install.json";
 
-pub(super) const MANIFEST_SURFACES: [&str; 4] = ["agents", "skills", "prompts/sddk", "assets"];
+pub const MANIFEST_SURFACES: [&str; 4] = ["agents", "skills", "prompts/sddk", "assets"];
 
-pub(super) fn read_receipt(prefix: &Path) -> anyhow::Result<super::InstallReceipt> {
+pub fn read_receipt(prefix: &Path) -> anyhow::Result<super::InstallReceipt> {
     let path = prefix.join(RECEIPT_FILE);
     if !path.exists() {
         anyhow::bail!("no installation receipt at {path:?}");
@@ -16,7 +16,7 @@ pub(super) fn read_receipt(prefix: &Path) -> anyhow::Result<super::InstallReceip
     Ok(serde_json::from_str(&std::fs::read_to_string(path)?)?)
 }
 
-pub(super) fn tool_version(tool: &str) -> anyhow::Result<String> {
+pub fn tool_version(tool: &str) -> anyhow::Result<String> {
     let output = std::process::Command::new(tool).arg("--version").output()?;
     if !output.status.success() {
         anyhow::bail!("{tool} exited {}", output.status);
@@ -24,7 +24,7 @@ pub(super) fn tool_version(tool: &str) -> anyhow::Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
-pub(super) fn atomic_write(
+pub fn atomic_write(
     destination: &Path,
     bytes: &[u8],
     mode: Option<u32>,
@@ -81,7 +81,7 @@ pub(super) fn atomic_write(
         .into())
 }
 
-pub(super) fn failure_status(message: String) -> CommandOutput {
+pub fn failure_status(message: String) -> CommandOutput {
     CommandOutput {
         status: 1,
         stdout: String::new(),
@@ -89,7 +89,7 @@ pub(super) fn failure_status(message: String) -> CommandOutput {
     }
 }
 
-pub(super) fn walk_dir(dir: &Path) -> Vec<PathBuf> {
+pub fn walk_dir(dir: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
@@ -105,7 +105,7 @@ pub(super) fn walk_dir(dir: &Path) -> Vec<PathBuf> {
 }
 
 /// Compute the plain lowercase hex SHA-256 of a file.
-pub(super) fn sha256_hex(path: &Path) -> anyhow::Result<String> {
+pub fn sha256_hex(path: &Path) -> anyhow::Result<String> {
     use sha2::{Digest, Sha256};
     let bytes = std::fs::read(path)?;
     Ok(format!("{:x}", Sha256::digest(&bytes)))

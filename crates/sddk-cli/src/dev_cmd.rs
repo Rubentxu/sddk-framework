@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{CliEnvironment, CommandOutput, OutputFormat, render_result};
-
-const RECEIPT_FILE: &str = "sddk-install.json";
+use crate::dev::common::{MANIFEST_SURFACES, RECEIPT_FILE, read_receipt, tool_version, atomic_write, failure_status, walk_dir, sha256_hex};
+use crate::dev::InstallReceipt;
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum DevCommand {
@@ -40,7 +40,7 @@ pub(crate) enum DevCommand {
 /// workflows, assets). Relative to the framework root.
 /// NOTE: prompts/sddk already recurses into prompts/sddk/workflows; do NOT
 /// add it as a separate entry or files will be hashed twice.
-const MANIFEST_SURFACES: [&str; 4] = ["agents", "skills", "prompts/sddk", "assets"];
+/// MANIFEST_SURFACES moved to dev::common.rs (C2) — accessed via crate::dev::common::MANIFEST_SURFACES
 
 /// Manifest file name, written at the framework root (and shipped in the
 /// release bundle).
@@ -206,32 +206,6 @@ pub(crate) struct UpdateArgs {
     /// Output format.
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     pub(crate) format: OutputFormat,
-}
-
-/// Persisted installation receipt for side-by-side prefixes.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) struct InstallReceipt {
-    /// Installed version.
-    pub version: String,
-    /// Source commit.
-    pub commit: String,
-    /// SHA-256 of the installed binary.
-    pub binary_sha256: String,
-    /// Release channel.
-    pub channel: String,
-    /// Installation timestamp.
-    pub installed_at: String,
-    /// Binary path relative to the prefix.
-    pub binary_path: String,
-    /// Whether this install included the full bundle (agents/skills/prompts/assets).
-    /// When true, `dev verify` checks installed surfaces against the manifest.
-    #[serde(default = "default_bundle_true")]
-    pub bundle: bool,
-}
-
-fn default_bundle_true() -> bool {
-    true
 }
 
 pub(crate) fn run_dev(command: DevCommand, environment: &CliEnvironment) -> CommandOutput {
@@ -746,74 +720,6 @@ fn run_dev_uninstall(args: UninstallArgs) -> CommandOutput {
     render_result(result, format, |output: &String| output.clone())
 }
 
-fn read_receipt(prefix: &Path) -> anyhow::Result<InstallReceipt> {
-    let path = prefix.join(RECEIPT_FILE);
-    if !path.exists() {
-        anyhow::bail!("no installation receipt at {path:?}");
-    }
-    Ok(serde_json::from_str(&std::fs::read_to_string(path)?)?)
-}
-
-fn tool_version(tool: &str) -> anyhow::Result<String> {
-    let output = std::process::Command::new(tool).arg("--version").output()?;
-    if !output.status.success() {
-        anyhow::bail!("{tool} exited {}", output.status);
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
-}
-
-fn atomic_write(destination: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Result<()> {
-    use std::io::Write;
-    let parent = destination.parent().expect("destination has a parent");
-    std::fs::create_dir_all(parent)?;
-    let file_name = destination
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("artifact");
-    let mut last_error = None;
-    for attempt in 0..100 {
-        let temporary = parent.join(format!(".{file_name}.tmp-{}-{attempt}", std::process::id()));
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)
-        {
-            Ok(mut file) => {
-                let result = (|| -> std::io::Result<()> {
-                    file.write_all(bytes)?;
-                    file.sync_all()?;
-                    drop(file);
-                    // chmod BEFORE rename so the destination is born with
-                    // the requested mode (no 0644 window). Unix-only.
-                    #[cfg(unix)]
-                    {
-                        if let Some(bits) = mode {
-                            use std::os::unix::fs::PermissionsExt;
-                            std::fs::set_permissions(
-                                &temporary,
-                                std::fs::Permissions::from_mode(bits),
-                            )?;
-                        }
-                    }
-                    std::fs::rename(&temporary, destination)
-                })();
-                if let Err(source) = result {
-                    let _ = std::fs::remove_file(&temporary);
-                    return Err(source.into());
-                }
-                return Ok(());
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                last_error = Some(error);
-            }
-            Err(source) => return Err(source.into()),
-        }
-    }
-    Err(last_error
-        .unwrap_or_else(|| std::io::Error::other("no temporary path available"))
-        .into())
-}
-
 fn doctor_text(output: &DoctorOutput) -> String {
     let mut text = String::new();
     for check in &output.checks {
@@ -838,14 +744,6 @@ fn receipt_text(receipt: &InstallReceipt) -> String {
         receipt.binary_path,
         receipt.bundle
     )
-}
-
-fn failure_status(message: String) -> CommandOutput {
-    CommandOutput {
-        status: 1,
-        stdout: String::new(),
-        stderr: format!("error: {message}\n"),
-    }
 }
 
 // --- Framework linking (agents/skills/prompts/workflows) ---
@@ -1112,22 +1010,6 @@ fn link_editor(root: &Path, editor_dir: &Path) -> LinkReport {
     // touching entries namespaced by other systems (arch-stack, books...).
     report.pruned = prune_editor(root, editor_dir);
     report
-}
-
-/// Recursively list files under a directory.
-fn walk_dir(dir: &Path) -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                files.extend(walk_dir(&path));
-            } else {
-                files.push(path);
-            }
-        }
-    }
-    files
 }
 
 /// Copy the framework assets tree (kit, drivers, themes) from `source` into
@@ -2275,12 +2157,6 @@ fn download_to(url: &str, destination: &Path) -> anyhow::Result<()> {
             }
         }
     }
-}
-
-/// Compute the plain lowercase hex SHA-256 of a file.
-fn sha256_hex(path: &Path) -> anyhow::Result<String> {
-    let bytes = std::fs::read(path)?;
-    Ok(format!("{:x}", Sha256::digest(&bytes)))
 }
 
 #[cfg(test)]

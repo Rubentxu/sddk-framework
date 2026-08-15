@@ -3,7 +3,7 @@
 use crate::CliEnvironment;
 use std::path::PathBuf;
 
-pub(super) fn sddk_data_dir(environment: &CliEnvironment) -> anyhow::Result<PathBuf> {
+pub fn sddk_data_dir(environment: &CliEnvironment) -> anyhow::Result<PathBuf> {
     if let Some(dir) = &environment.sddk_data_dir {
         return Ok(dir.clone());
     }
@@ -18,13 +18,13 @@ pub(super) fn sddk_data_dir(environment: &CliEnvironment) -> anyhow::Result<Path
 }
 
 /// The `framework/` dir inside the data root (bundles per version + `current`).
-pub(super) fn framework_dir(environment: &CliEnvironment) -> anyhow::Result<PathBuf> {
+pub fn framework_dir(environment: &CliEnvironment) -> anyhow::Result<PathBuf> {
     Ok(sddk_data_dir(environment)?.join("framework"))
 }
 
 /// Resolve the active framework root: `current` symlink target, else the
 /// latest installed version, else the data dir (empty).
-pub(super) fn resolve_active_framework_root(
+pub fn resolve_active_framework_root(
     environment: &CliEnvironment,
 ) -> anyhow::Result<PathBuf> {
     let dir = framework_dir(environment)?;
@@ -60,7 +60,7 @@ pub(super) fn resolve_active_framework_root(
 /// Resolve the static `assets/` directory of the active framework root
 /// (ADR-0013: dashboard kit shipped in the bundle). Returns `None` when the
 /// bundle has no assets (pre-1.5.0 bundles are still supported).
-pub(crate) fn resolve_assets_dir(
+pub fn resolve_assets_dir(
     environment: &CliEnvironment,
 ) -> anyhow::Result<Option<PathBuf>> {
     let root = resolve_active_framework_root(environment)?;

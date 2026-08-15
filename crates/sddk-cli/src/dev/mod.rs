@@ -3,7 +3,7 @@
 use clap::{Subcommand, Args, ValueEnum};
 use serde::{Serialize, Deserialize};
 
-mod common;
+pub mod common;
 mod doctor;
 mod check;
 mod install;
@@ -17,12 +17,6 @@ mod update;
 mod use_cmd;
 
 use crate::{CliEnvironment, CommandOutput, OutputFormat};
-
-/// Framework surfaces covered by the manifest (agents, skills, prompts,
-/// workflows, assets). Relative to the framework root.
-/// NOTE: prompts/sddk already recurses into prompts/sddk/workflows; do NOT
-/// add it as a separate entry or files will be hashed twice.
-pub(super) const MANIFEST_SURFACES: [&str; 4] = ["agents", "skills", "prompts/sddk", "assets"];
 
 /// Manifest file name, written at the framework root (and shipped in the
 /// release bundle).
