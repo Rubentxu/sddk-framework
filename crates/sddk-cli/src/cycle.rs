@@ -442,6 +442,7 @@ struct CycleStartOutput {
     status: String,
     phase: String,
     path: String,
+    branch: String,
     sequence: i64,
     event_id: String,
     event_hash: String,
@@ -468,9 +469,10 @@ fn run_cycle_start(args: CycleStartArgs, environment: &CliEnvironment) -> Comman
             context.workspace_id.clone(),
             cycle_id,
             args.name.clone(),
-            args.branch
-                .clone()
-                .unwrap_or_else(|| format!("feat/{}", args.name)),
+            args.branch.clone().unwrap_or_else(|| match args.path {
+                Some(CyclePathArg::AMin) | None => "main".to_owned(),
+                _ => format!("feat/{}", args.name),
+            }),
             args.base.clone().unwrap_or_else(|| "HEAD".to_owned()),
         );
         // Resolve the workflow path: explicit --path wins; otherwise the F3
@@ -521,6 +523,7 @@ fn run_cycle_start(args: CycleStartArgs, environment: &CliEnvironment) -> Comman
             status: wire(&started.manifest.status),
             phase: wire(&started.manifest.phase),
             path: cycle_path_text(&started.manifest.path),
+            branch: started.manifest.branch,
             sequence: started.event.sequence,
             event_id: started.event.event_id,
             event_hash: started.event.event_hash,

@@ -3,6 +3,41 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.16] - 2026-08-15
+
+Corrige la ergonomía de `cycle start` y `git push` para el path A-min en repos
+trunk-linear: INC-DEBT-003 cambia el default de `--branch` para A-min a `main`;
+INC-DEBT-004 añade `GIT_TERMINAL_PROMPT` al allowlist del runner y clasifica
+errores de autenticación de `git push` con hint accionable.
+
+### Fixes
+  - fix(cli): `cycle start --path a-min` (sin `--branch`) registra
+    `manifest.branch = "main"` en lugar de `feat/<name>`. A-lite, A-full,
+    B-direct mantienen el default `feat/<name>`. `--branch` explícito siempre
+    gana. (INC-DEBT-003, `crates/sddk-cli/src/cycle.rs:471-473`)
+  - fix(gateway): `GIT_TERMINAL_PROMPT` se añade a `LOCAL_GIT_ENV_KEYS` para
+    que los helper de credentials fallen rápido en lugar de bloquear en un TTY
+    inexistente. (INC-DEBT-004, `crates/sddk-gateway/src/git.rs:11-22`)
+  - fix(gateway): `git push` que falla con error de autenticación devuelve
+    `GitError::AuthFailed { stderr, hint }` con hint de cuatro líneas:
+    `gh auth login`, `gh auth setup-git`, o `git config credential.helper store`.
+    `apply_local_release` propaga el hint sin modificar el manifest.
+    Clasificador de marcadores: `could not read Username`, `terminal prompts
+    disabled`, `403 Forbidden`, `Bad credentials`, `failed to authenticate`,
+    `fatal: Authentication failed`. (INC-DEBT-004)
+
+### Tests
+  - test(cli): `cli_cycle_start_without_branch_for_a_min_uses_main_default`
+  - test(cli): `cli_start_with_explicit_branch_for_a_min_persists_value`
+  - test(cli): `cli_cycle_start_without_branch_for_a_full_uses_feat_default`
+  - test(cli): `cli_release_apply_rejects_a_min_when_manifest_branch_is_feat_x`
+  - test(cli): `cli_capability_apply_git_push_forwards_git_terminal_prompt`
+  - test(gateway): `local_git_env_keys_includes_git_terminal_prompt`
+  - test(gateway): `local_git_env_keys_excludes_gh_token`
+  - test(gateway): `git_push_auth_failure_classifies_stderr`
+  - test(gateway): `runner_run_forwards_git_terminal_prompt`
+  - test(gateway): `release_apply_local_emits_hint_on_auth_failure`
+
 ## [1.9.15] - 2026-08-15
 
 Corrige la evaluación de gate receipts: INC-DEBT-001 evita colisión UNIQUE en re-evaluación
