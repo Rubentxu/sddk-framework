@@ -676,6 +676,17 @@ fn storage_insert_gate_receipt_concurrent_allocations_observe_distinct_seq() {
     use std::sync::{Arc, Barrier};
     use std::thread;
 
+    // NOTE: The primary protection against the seq-split race is
+    // ARCHITECTURAL: `allocate_gate_receipt_seq` was removed in this
+    // branch so `seq` is always allocated inside the same IMMEDIATE
+    // transaction as the INSERT in `insert_gate_receipt_next_seq`.
+    // Reintroducing a separate `allocate_gate_receipt_seq` helper
+    // would be visible in code review and would re-open the race.
+    // This test only validates that the remaining invariant
+    // (contiguous 1..=201 sequence) holds under real thread
+    // contention (Barrier + file-backed SQLite + two concurrent
+    // connections).
+
     let directory = tempfile::tempdir().unwrap();
     let database_path = directory.path().join("ledger.sqlite");
 
@@ -687,10 +698,13 @@ fn storage_insert_gate_receipt_concurrent_allocations_observe_distinct_seq() {
         storage.insert_project(&project_record()).unwrap();
         storage.insert_workspace(&workspace_record()).unwrap();
         storage.insert_cycle(&cycle).unwrap();
-        // Insert first receipt with seq=1 (using old API to bootstrap)
+        // Insert first receipt with seq=1 (using old API to bootstrap).
+        // The rid uses the 16-hex slice [7..23] of the plan_hash, so it
+        // matches what `build_gate_receipt_id` would produce for seq=1
+        // (consistent with the concurrent inserts below).
         storage
             .insert_gate_receipt(&gate_receipt_input_full(
-                "gate-exploration-sufficient-abcdef12-1",
+                "gate-exploration-sufficient-abcdef1234567890-1",
                 "exploration-sufficient",
                 "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
                 GateOutcomeStatus::Passed,
@@ -1016,4 +1030,83 @@ fn storage_get_gate_receipt_handles_v1914_id_without_seq_suffix() {
         .unwrap();
     assert_eq!(receipt.receipt_id, "gate-exploration-sufficient-abcdef12");
     assert_eq!(receipt.seq, 1);
+}
+
+#[test]
+fn storage_build_gate_receipt_id_rejects_plan_hash_too_short() {
+    // plan_hash shorter than 23 chars must fail with PlanHashTooShort;
+    // the guard at `if plan_hash.len() < REQUIRED_LEN` exists precisely
+    // to prevent the `&plan_hash[7..23]` slice from panicking on inputs
+    // that cannot produce a valid receipt_id suffix.
+    const SHORT_PLAN_HASH: &str = "sha256:abc"; // 10 chars, < 23
+    assert_eq!(SHORT_PLAN_HASH.len(), 10);
+    let err =
+        Storage::build_gate_receipt_id("exploration-sufficient", SHORT_PLAN_HASH, 1).unwrap_err();
+    assert!(matches!(
+        err,
+        StorageError::PlanHashTooShort {
+            actual: 10,
+            required: 23,
+        }
+    ));
+}
+
+#[test]
+fn storage_build_gate_receipt_id_accepts_exact_border_plan_hash_length() {
+    // plan_hash exactly 23 chars (sha256: prefix + 16 hex digits) is the
+    // minimum slice length: [7..23] consumes exactly the 16 hex digits
+    // and must produce a receipt_id that matches RID_FORMAT_REGEX.
+    let plan_hash = "sha256:abcdef1234567890"; // 23 chars
+    assert_eq!(plan_hash.len(), 23);
+    let receipt_id =
+        Storage::build_gate_receipt_id("exploration-sufficient", plan_hash, 1).unwrap();
+    assert_eq!(receipt_id, "gate-exploration-sufficient-abcdef1234567890-1");
+    let rid_regex = regex::Regex::new(RID_FORMAT_REGEX).unwrap();
+    assert!(
+        rid_regex.is_match(&receipt_id),
+        "receipt_id '{receipt_id}' must match RID_FORMAT_REGEX"
+    );
+}
+
+#[test]
+fn storage_insert_gate_receipt_next_seq_rejects_short_plan_hash() {
+    // Full API path: even after the per-(gate, plan_hash) seq allocation
+    // inside the IMMEDIATE transaction, a short plan_hash must fail with
+    // PlanHashTooShort and roll back the transaction (no row is left
+    // behind in gate_receipts).
+    const SHORT_PLAN_HASH: &str = "sha256:abc"; // 10 chars, too short
+    assert_eq!(SHORT_PLAN_HASH.len(), 10);
+    let mut storage = Storage::open_in_memory().unwrap();
+    storage.insert_project(&project_record()).unwrap();
+    storage.insert_workspace(&workspace_record()).unwrap();
+    let cycle = cycle_record();
+    let cycle_id = cycle.manifest.cycle_id.as_str().to_string();
+    storage.insert_cycle(&cycle).unwrap();
+
+    let err = storage
+        .insert_gate_receipt_next_seq(&GateReceiptNextSeqInput {
+            project_id: "project-1".into(),
+            cycle_id: Some(cycle_id.clone()),
+            gate: "exploration-sufficient".into(),
+            evaluator: "sddk.cli".into(),
+            transition_id: "phase.explore.complete".into(),
+            plan_hash: SHORT_PLAN_HASH.into(),
+            outcome: GateOutcomeStatus::Passed,
+            evidence: json!({"verified": true}),
+            actor: "test-runtime".into(),
+            command_id: "cmd-1".into(),
+            frame_id: "frame-1".into(),
+            evaluated_at: CREATED_AT.into(),
+        })
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        StorageError::PlanHashTooShort {
+            actual: 10,
+            required: 23,
+        }
+    ));
+
+    // Transaction rolled back: no gate_receipt rows for this cycle.
+    assert!(storage.list_gate_receipts(&cycle_id).unwrap().is_empty());
 }

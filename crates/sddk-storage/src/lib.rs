@@ -1030,7 +1030,15 @@ impl Storage {
         })
     }
 
-    /// Persists one authorized gate evaluation receipt.
+    /// Persists one authorized gate evaluation receipt with a caller-supplied `seq`.
+    ///
+    /// Prefer [`Storage::insert_gate_receipt_next_seq`] for normal receipt
+    /// persistence: it allocates `seq` atomically inside the same IMMEDIATE
+    /// transaction as the INSERT, so concurrent callers are serialized by
+    /// SQLite's write lock and receive distinct sequences under real thread
+    /// contention. This method preserves the caller-supplied `seq` and is
+    /// kept only for bootstrap and test compatibility (e.g. legacy v1.9.14
+    /// rows from before `seq` existed); it does NOT assign `seq`.
     pub fn insert_gate_receipt(&mut self, input: &GateReceiptInput) -> Result<GateReceipt> {
         let transaction = self
             .connection
