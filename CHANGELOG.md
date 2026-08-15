@@ -26,12 +26,20 @@ o receipt_ids duplicados. INC-DEBT-007 (ponytail death).
     `insert_gate_receipt_next_seq` en lugar de allocate + insert separados.
     El formatter `gate-{gate}-{plan_hash[7..23]}-{seq}` se mueve al storage.
     (`crates/sddk-engine/src/lib.rs:882-896`)
+  - refactor(storage): `debug_assert!` en `build_gate_receipt_id` se sustituye
+    por guarda real que retorna `StorageError::PlanHashTooShort { actual, required }`
+    si `plan_hash.len() < 23`. Se extrae `pub fn Storage::build_gate_receipt_id`
+    (ahora retorna `Result<String>`) y `pub const RID_FORMAT_REGEX` a nivel de
+    módulo — el regex deja de duplicarse entre `cycle_authority.rs` y
+    `sqlite_storage.rs`. (`crates/sddk-storage/src/lib.rs:140-167`, `956-973`)
 
 ### Tests
   - test(storage): reescritura de `storage_insert_gate_receipt_concurrent_allocations_observe_distinct_seq`
     (100 iter × 2 threads, BD compartida, `Arc<Barrier>`, seq exactos 1..=201)
   - test(storage): nuevo `storage_insert_gate_receipt_next_seq_golden_rid_format`
     verifica formato byte-idéntico del `receipt_id`
+  - test(storage): nuevo `storage_insert_gate_receipt_next_seq_rejects_short_plan_hash`
+    verifica la guarda `PlanHashTooShort` (sustituye el `debug_assert!`)
   - test(engine): `engine_evaluate_gate_increments_seq_on_reevaluation` añade regex
     lock `^gate-.{1,128}-[0-9a-f]{16}-[0-9]+$` sobre el receipt_id
 
