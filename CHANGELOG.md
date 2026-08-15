@@ -3,6 +3,37 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.17] - 2026-08-15
+
+Cierra el leak de puerto en `uat_stale_tests::stale_detects_geometry_change` (INC-DEBT-006):
+el test pinchaba el puerto 49152 y lanzaba `python3 -m http.server` sin guard, de modo que un
+`panic` previo dejaba un proceso huérfano; la siguiente corrida del workspace chocaba con
+`EADDRINUSE` y devolvía `ERR_EMPTY_RESPONSE` en el cliente. Ahora el puerto es efímero
+(`TcpListener::bind("127.0.0.1:0")`), el proceso servidor está envuelto en un `ServerGuard`
+RAII cuyo `Drop` envía `SIGKILL` al hijo y espera `wait()`, y el cliente hace `readiness-poll`
+con deadline en lugar de asumir respuesta inmediata. Skip limpio en hosts sin `python3`.
+
+### Fixes
+  - fix(uat): `ServerGuard` RAII (`spawn → kill on Drop → wait`) garantiza que un panic
+    o un fallo de readiness mata el hijo en lugar de dejarlo escuchando.
+    (`crates/sddk-cli/src/uat.rs:4696-4761`)
+  - fix(uat): puerto efímero (`TcpListener::bind("127.0.0.1:0")`) elimina la condición de
+    carrera entre runs y permite runs paralelos del test. (`crates/sddk-cli/src/uat.rs:4771-4798`)
+  - fix(uat): readiness-poll con `deadline = Instant::now() + timeout` y backoff corto
+    reemplaza el `read_to_end` ciego que devolvía `ERR_EMPTY_RESPONSE` cuando el servidor
+    aún no estaba listo. (`crates/sddk-cli/src/uat.rs:4821-4852`)
+  - fix(uat): probe de `python3` en `PATH` antes de spawnear — si falta, el test se salta
+    con `Ok(())` en lugar de propagar `ENOENT`. (`crates/sddk-cli/src/uat.rs:4751-4766`)
+  - style(uat): alinea formato del guard con rustfmt y silencia `dead_code` de
+    `ServerGuard::take` (helper movido al module-level para uso futuro).
+
+### Tests
+  - test(uat): `stale_detects_geometry_change` re-pasa en runs consecutivas del workspace
+    y en runs paralelos (el puerto ya no es fijo).
+  - El test sigue marcado `#[ignore]` (skip explícito de la suite); la verificación de no-leak
+    se realiza re-ejecutando el workspace tras una corrida forzada de panic, ver
+    `verification-report.md` §2.7.
+
 ## [1.9.16] - 2026-08-15
 
 Corrige la ergonomía de `cycle start` y `git push` para el path A-min en repos
