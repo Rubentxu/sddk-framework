@@ -80,6 +80,17 @@ pub enum GatewayError {
     Serialization(#[from] serde_json::Error),
 }
 
+/// Returns the capability-specific environment allowlist.
+/// Caller-provided entries (merged at the call site) override these defaults
+/// on key collision.
+fn capability_default_env(capability: &str) -> BTreeMap<String, String> {
+    if capability.starts_with("git.") {
+        crate::git::git_capability_env()
+    } else {
+        BTreeMap::new()
+    }
+}
+
 /// Default-deny gateway combining policy, execution, and receipt persistence.
 pub struct CapabilityGateway {
     pub(crate) policy: CapabilityPolicy,
@@ -105,10 +116,17 @@ impl CapabilityGateway {
                 capability: input.capability.clone(),
             });
         }
+        // Merge capability-specific env defaults (git.* uses git_capability_env)
+        // with caller-provided env. Caller wins on key collision (Command::env semantics).
+        let defaults = capability_default_env(&input.capability);
+        let env = defaults
+            .into_iter()
+            .chain(input.env.clone())
+            .collect();
         let run_spec = RunSpec {
             program: input.program.clone(),
             args: input.args.clone(),
-            env: input.env.clone(),
+            env,
             timeout_ms: input.timeout_ms,
             output_max_bytes: input.output_max_bytes,
         };

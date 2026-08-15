@@ -274,4 +274,42 @@ mod tests {
         assert!(!outcome.timed_out);
         assert!(outcome.stdout.contains("truncated"));
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn runner_run_forwards_spec_env() {
+        // Verifies that the runner forwards spec.env to the child process,
+        // not env_clear() semantics. A RunSpec with a custom HOME, PATH, and
+        // SSH_AUTH_SOCK should have those values visible to the child.
+        let mut env = BTreeMap::new();
+        env.insert("HOME".to_owned(), "/tmp/test-home".to_owned());
+        env.insert("PATH".to_owned(), "/usr/bin:/bin".to_owned());
+        env.insert("SSH_AUTH_SOCK".to_owned(), "/tmp/ssh-agent.sock".to_owned());
+        let spec = RunSpec {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-c".into(),
+                "echo HOME=$HOME PATH=$PATH SSH_AUTH_SOCK=$SSH_AUTH_SOCK".into(),
+            ],
+            env,
+            timeout_ms: 5_000,
+            output_max_bytes: 1_024,
+        };
+        let outcome = run(&spec).unwrap();
+        assert_eq!(outcome.exit_status, Some(0));
+        // The output must contain the values we set, proving env is forwarded.
+        let output = outcome.stdout.trim();
+        assert!(
+            output.contains("HOME=/tmp/test-home"),
+            "expected HOME=/tmp/test-home in output, got: {output}"
+        );
+        assert!(
+            output.contains("PATH=/usr/bin:/bin"),
+            "expected PATH=/usr/bin:/bin in output, got: {output}"
+        );
+        assert!(
+            output.contains("SSH_AUTH_SOCK=/tmp/ssh-agent.sock"),
+            "expected SSH_AUTH_SOCK=/tmp/ssh-agent.sock in output, got: {output}"
+        );
+    }
 }

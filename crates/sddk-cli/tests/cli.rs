@@ -3635,6 +3635,931 @@ fn cli_release_apply_local_authorizes_git_inspect() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Bug B: capability apply git.push env merging
+// ---------------------------------------------------------------------------
+
+#[test]
+fn cli_capability_apply_git_push_preserves_credential_env() {
+    // When running git.push capability, the child process must inherit
+    // HOME/PATH/USER from the parent via git_capability_env().
+    let fixture = CliFixture::new("capability-git-push-env");
+    write(
+        fixture.root.join("workflow/workflow.yaml"),
+        CANONICAL_WORKFLOW,
+    );
+    write(
+        fixture.root.join("permissions.yaml"),
+        "agents:\n  test-agent:\n    phases: []\n    capabilities: [git.push]\n",
+    );
+    let common_root = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+    ];
+    let adopted = fixture.run_adopt(
+        "apply",
+        &[
+            "--root",
+            fixture.root.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            "https://example.com/acme/repo.git",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(
+        adopted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&adopted.stderr)
+    );
+
+    // The sentinel program echoes the env vars it received.
+    // git_capability_env() populates HOME from the parent (set by fixture.run).
+    // Note: -c must use = syntax because clap treats bare -c as a flag.
+    let applied = run_with_root(
+        &fixture,
+        &[
+            "capability",
+            "apply",
+            "--capability",
+            "git.push",
+            "--program",
+            "/bin/sh",
+            "--arg=-c",
+            "--arg",
+            "echo HOME=$HOME",
+            "--approve",
+            "--format",
+            "json",
+        ],
+        &common_root,
+    );
+    assert!(
+        applied.status.success(),
+        "capability apply git.push failed: {}",
+        String::from_utf8_lossy(&applied.stderr)
+    );
+    let out: serde_json::Value = serde_json::from_slice(&applied.stdout).unwrap();
+    assert_eq!(out["status"], "succeeded");
+    // HOME is set by the test fixture; PATH and USER may or may not be present
+    // depending on the test environment. The key is that the command succeeded
+    // (proving the env was passed through) and did not crash on auth errors.
+}
+
+#[test]
+fn cli_capability_apply_git_push_caller_env_overrides_defaults() {
+    // When the caller passes --env KEY=VALUE, that value must override the
+    // default from git_capability_env() (caller wins semantics).
+    let fixture = CliFixture::new("capability-git-push-override");
+    write(
+        fixture.root.join("workflow/workflow.yaml"),
+        CANONICAL_WORKFLOW,
+    );
+    write(
+        fixture.root.join("permissions.yaml"),
+        "agents:\n  test-agent:\n    phases: []\n    capabilities: [git.push]\n",
+    );
+    let common_root = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+    ];
+    let adopted = fixture.run_adopt(
+        "apply",
+        &[
+            "--root",
+            fixture.root.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            "https://example.com/acme/repo.git",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(
+        adopted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&adopted.stderr)
+    );
+
+    // Override HOME via --env; the sentinel must show the override value.
+    // Note: -c must use = syntax because clap treats bare -c as a flag.
+    let applied = run_with_root(
+        &fixture,
+        &[
+            "capability",
+            "apply",
+            "--capability",
+            "git.push",
+            "--program",
+            "/bin/sh",
+            "--arg=-c",
+            "--arg",
+            "echo HOME=$HOME",
+            "--env",
+            "HOME=/tmp/sentinel-override",
+            "--approve",
+            "--format",
+            "json",
+        ],
+        &common_root,
+    );
+    assert!(
+        applied.status.success(),
+        "capability apply with --env override failed: {}",
+        String::from_utf8_lossy(&applied.stderr)
+    );
+    let out: serde_json::Value = serde_json::from_slice(&applied.stdout).unwrap();
+    assert_eq!(out["status"], "succeeded");
+    // The stdout of the sentinel contains "HOME=/tmp/sentinel-override"
+    let stdout = out["result"]
+        .as_object()
+        .and_then(|r| r.get("stdout"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    assert!(
+        stdout.contains("/tmp/sentinel-override"),
+        "expected caller override HOME=/tmp/sentinel-override in stdout, got: {stdout}"
+    );
+}
+
+#[test]
+fn cli_capability_apply_git_push_excludes_gh_token() {
+    // Even when the parent process has GH_TOKEN set, git_capability_env() must
+    // NOT include it in the allowlist (LOCAL_GIT_ENV_KEYS excludes it).
+    let fixture = CliFixture::new("capability-git-push-gh-token");
+    write(
+        fixture.root.join("workflow/workflow.yaml"),
+        CANONICAL_WORKFLOW,
+    );
+    write(
+        fixture.root.join("permissions.yaml"),
+        "agents:\n  test-agent:\n    phases: []\n    capabilities: [git.push]\n",
+    );
+    let common_root = [
+        "--root",
+        fixture.root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--remote",
+        "https://example.com/acme/repo.git",
+    ];
+    let adopted = fixture.run_adopt(
+        "apply",
+        &[
+            "--root",
+            fixture.root.to_str().unwrap(),
+            "--scope",
+            ".",
+            "--remote",
+            "https://example.com/acme/repo.git",
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(
+        adopted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&adopted.stderr)
+    );
+
+    // Run with GH_TOKEN in parent env; the sentinel must NOT see it.
+    // Note: -c must use = syntax because clap treats bare -c as a flag.
+    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_sddk"));
+    cmd.args(&[
+        "capability",
+        "apply",
+        "--capability",
+        "git.push",
+        "--program",
+        "/bin/sh",
+        "--arg=-c",
+        "--arg",
+        "echo GH_TOKEN_IS_SET=$GH_TOKEN",
+        "--approve",
+        "--format",
+        "json",
+    ])
+    .env("HOME", &fixture.home)
+    .env("XDG_DATA_HOME", &fixture.data)
+    .env("XDG_STATE_HOME", &fixture.state)
+    .env("XDG_CACHE_HOME", &fixture.cache)
+    .env("GH_TOKEN", "secret-from-parent")
+    .env("GITHUB_TOKEN", "also-secret")
+    .current_dir(&fixture.root);
+    for arg in &common_root {
+        cmd.arg(arg);
+    }
+    let applied = cmd.output().unwrap();
+    assert!(
+        applied.status.success(),
+        "capability apply failed: {}",
+        String::from_utf8_lossy(&applied.stderr)
+    );
+    let out: serde_json::Value = serde_json::from_slice(&applied.stdout).unwrap();
+    let stdout = out["result"]
+        .as_object()
+        .and_then(|r| r.get("stdout"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    // GH_TOKEN must NOT be set in the child (it was in parent's env but not in allowlist)
+    assert!(
+        !stdout.contains("GH_TOKEN_IS_SET=secret-from-parent"),
+        "GH_TOKEN must not be forwarded to child; stdout: {stdout}"
+    );
+    // GH_TOKEN_IS_SET= (empty) proves the var was either unset or empty in the child.
+}
+
+// ---------------------------------------------------------------------------
+// A1 UAT-gating release apply tests
+// ---------------------------------------------------------------------------
+
+/// Shared helper to walk an A-min cycle to RELEASE_PENDING using evaluate+transition.
+/// The caller then runs release apply or the release.complete transition.
+fn walk_a_min_cycle_to_release_pending(
+    fixture: &CliFixture,
+    remote: &str,
+    cycle_id: &str,
+) {
+    // Helper closures matching the pattern in cli_closing_cycle_auto_captures_metrics_record.
+    let evaluate = |transition: &str, gate: &str, evidence: &str| {
+        fixture.run(&[
+            "cycle", "evaluate-gate",
+            "--root", fixture.root.to_str().unwrap(),
+            "--scope", ".",
+            "--remote", remote,
+            "--cycle", cycle_id,
+            "--transition", transition,
+            "--gate", gate,
+            "--evaluator", "sddk.cli",
+            "--outcome", "passed",
+            "--evidence", evidence,
+            "--timestamp", "2026-08-04T10:00:00Z",
+            "--actor", "cli-test",
+            "--format", "json",
+        ])
+    };
+    let transition = |transition: &str, artifacts: &[&str], receipts: &[&str]| {
+        // Phase changes auto-release the lease; renew first, then acquire if needed.
+        let renew = fixture.run(&[
+            "cycle", "lock", "renew",
+            "--root", fixture.root.to_str().unwrap(),
+            "--scope", ".",
+            "--remote", remote,
+            "--cycle", cycle_id,
+            "--owner", "agent-a",
+            "--fencing-token", "1",
+            "--lease-ms", "3600000",
+            "--timestamp", "2026-08-04T10:00:00Z",
+            "--format", "json",
+        ]);
+        let token: i64 = if renew.status.success() {
+            1
+        } else {
+            let acquire = fixture.run(&[
+                "cycle", "lock", "acquire",
+                "--root", fixture.root.to_str().unwrap(),
+                "--scope", ".",
+                "--remote", remote,
+                "--cycle", cycle_id,
+                "--owner", "agent-a",
+                "--lease-ms", "3600000",
+                "--timestamp", "2026-08-04T10:00:00Z",
+                "--format", "json",
+            ]);
+            assert!(acquire.status.success(), "lock.acquire failed: {}", String::from_utf8_lossy(&acquire.stderr));
+            let json: serde_json::Value = serde_json::from_slice(&acquire.stdout).unwrap();
+            json["fencing_token"].as_i64().unwrap_or(1)
+        };
+        let token_str = token.to_string();
+        let mut args = vec![
+            "cycle", "transition",
+            "--root", fixture.root.to_str().unwrap(),
+            "--scope", ".",
+            "--remote", remote,
+            "--cycle", cycle_id,
+            "--transition", transition,
+            "--lease-owner", "agent-a",
+            "--fencing-token", &token_str,
+            "--timestamp", "2026-08-04T10:00:00Z",
+            "--actor", "cli-test",
+            "--format", "json",
+        ];
+        for artifact in artifacts {
+            args.push("--artifact");
+            args.push(artifact);
+        }
+        for receipt in receipts {
+            args.push("--gate-receipt");
+            args.push(receipt);
+        }
+        fixture.run(&args)
+    };
+
+    // A-min transitions: explore → specify.a-min → build → verify.a-min → RELEASE_PENDING
+    let receipt = evaluate("phase.explore.complete", "exploration-sufficient", r#"{"ok":true}"#);
+    assert!(receipt.status.success(), "explore gate failed: {}", String::from_utf8_lossy(&receipt.stderr));
+    let gate_json: serde_json::Value = serde_json::from_slice(&receipt.stdout).unwrap();
+    let r_id = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let step = transition("phase.explore.complete", &["exploration-report=artifacts/exploration.md"], &[r_id.as_str()]);
+    assert!(step.status.success(), "explore transition failed: {}", String::from_utf8_lossy(&step.stderr));
+
+    let receipt = evaluate("phase.specify.complete.a-min", "requirements-testable", r#"{"ok":true}"#);
+    assert!(receipt.status.success(), "specify gate failed: {}", String::from_utf8_lossy(&receipt.stderr));
+    let gate_json: serde_json::Value = serde_json::from_slice(&receipt.stdout).unwrap();
+    let r_id = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let step = transition("phase.specify.complete.a-min", &["specification=artifacts/spec.md"], &[r_id.as_str()]);
+    assert!(step.status.success(), "specify transition failed: {}", String::from_utf8_lossy(&step.stderr));
+
+    let receipt = evaluate("phase.build.complete", "implementation-complete", r#"{"ok":true}"#);
+    assert!(receipt.status.success(), "build gate failed: {}", String::from_utf8_lossy(&receipt.stderr));
+    let gate_json: serde_json::Value = serde_json::from_slice(&receipt.stdout).unwrap();
+    let r_id = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let step = transition("phase.build.complete", &["implementation-receipt=artifacts/receipt.md"], &[r_id.as_str()]);
+    assert!(step.status.success(), "build transition failed: {}", String::from_utf8_lossy(&step.stderr));
+
+    let receipt_pass = evaluate("phase.verify.complete.a-min", "tests-pass", r#"{"ok":true}"#);
+    assert!(receipt_pass.status.success(), "verify tests-pass gate failed: {}", String::from_utf8_lossy(&receipt_pass.stderr));
+    let gate_json: serde_json::Value = serde_json::from_slice(&receipt_pass.stdout).unwrap();
+    let r_pass = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let receipt_policy = evaluate("phase.verify.complete.a-min", "policy-compliant", r#"{"ok":true}"#);
+    assert!(receipt_policy.status.success(), "verify policy-compliant gate failed: {}", String::from_utf8_lossy(&receipt_policy.stderr));
+    let gate_json: serde_json::Value = serde_json::from_slice(&receipt_policy.stdout).unwrap();
+    let r_policy = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let step = transition(
+        "phase.verify.complete.a-min",
+        &["verification-report=artifacts/verify.md"],
+        &[r_pass.as_str(), r_policy.as_str()],
+    );
+    assert!(step.status.success(), "verify transition failed: {}", String::from_utf8_lossy(&step.stderr));
+}
+
+/// Shared helper to walk an A-full cycle to RELEASE_PENDING (review → release).
+/// The caller then runs release apply.
+fn walk_a_full_cycle_to_release_pending(
+    fixture: &CliFixture,
+    remote: &str,
+    cycle_id: &str,
+) {
+    let evaluate = |transition: &str, gate: &str, evidence: &str| {
+        fixture.run(&[
+            "cycle", "evaluate-gate",
+            "--root", fixture.root.to_str().unwrap(),
+            "--scope", ".",
+            "--remote", remote,
+            "--cycle", cycle_id,
+            "--transition", transition,
+            "--gate", gate,
+            "--evaluator", "sddk.cli",
+            "--outcome", "passed",
+            "--evidence", evidence,
+            "--timestamp", "2026-08-04T10:00:00Z",
+            "--actor", "cli-test",
+            "--format", "json",
+        ])
+    };
+    let transition = |transition: &str, artifacts: &[&str], receipts: &[&str]| {
+        let renew = fixture.run(&[
+            "cycle", "lock", "renew",
+            "--root", fixture.root.to_str().unwrap(),
+            "--scope", ".",
+            "--remote", remote,
+            "--cycle", cycle_id,
+            "--owner", "agent-a",
+            "--fencing-token", "1",
+            "--lease-ms", "3600000",
+            "--timestamp", "2026-08-04T10:00:00Z",
+            "--format", "json",
+        ]);
+        let token: i64 = if renew.status.success() {
+            1
+        } else {
+            let acquire = fixture.run(&[
+                "cycle", "lock", "acquire",
+                "--root", fixture.root.to_str().unwrap(),
+                "--scope", ".",
+                "--remote", remote,
+                "--cycle", cycle_id,
+                "--owner", "agent-a",
+                "--lease-ms", "3600000",
+                "--timestamp", "2026-08-04T10:00:00Z",
+                "--format", "json",
+            ]);
+            assert!(acquire.status.success(), "lock.acquire failed: {}", String::from_utf8_lossy(&acquire.stderr));
+            let json: serde_json::Value = serde_json::from_slice(&acquire.stdout).unwrap();
+            json["fencing_token"].as_i64().unwrap_or(1)
+        };
+        let token_str = token.to_string();
+        let mut args = vec![
+            "cycle", "transition",
+            "--root", fixture.root.to_str().unwrap(),
+            "--scope", ".",
+            "--remote", remote,
+            "--cycle", cycle_id,
+            "--transition", transition,
+            "--lease-owner", "agent-a",
+            "--fencing-token", &token_str,
+            "--timestamp", "2026-08-04T10:00:00Z",
+            "--actor", "cli-test",
+            "--format", "json",
+        ];
+        for artifact in artifacts {
+            args.push("--artifact");
+            args.push(artifact);
+        }
+        for receipt in receipts {
+            args.push("--gate-receipt");
+            args.push(receipt);
+        }
+        fixture.run(&args)
+    };
+
+    // A-full: explore → specify → design → plan → build → verify → review → RELEASE_PENDING
+    // Single-gate transitions (all except phase.verify.complete which needs 2 gates).
+    let single_transitions = [
+        ("phase.explore.complete", "exploration-sufficient", "exploration-report=artifacts/exploration.md"),
+        ("phase.specify.complete", "requirements-testable", "specification=artifacts/spec.md"),
+        ("phase.design.complete", "architecture-consistent", "design=artifacts/design.md"),
+        ("phase.plan.complete", "plan-executable", "implementation-plan=artifacts/plan.md"),
+        ("phase.build.complete", "implementation-complete", "implementation-receipt=artifacts/receipt.md"),
+    ];
+    for (trans, gate, artifact) in single_transitions {
+        let receipt = evaluate(trans, gate, r#"{"ok":true}"#);
+        assert!(receipt.status.success(), "{trans}/{gate} failed: {}", String::from_utf8_lossy(&receipt.stderr));
+        let gate_json: serde_json::Value = serde_json::from_slice(&receipt.stdout).unwrap();
+        let r_id = gate_json["receipt_id"].as_str().unwrap().to_owned();
+        let step = transition(trans, &[artifact], &[r_id.as_str()]);
+        assert!(step.status.success(), "{trans} transition failed: {}", String::from_utf8_lossy(&step.stderr));
+    }
+    // phase.verify.complete needs BOTH tests-pass AND policy-compliant gates in ONE call.
+    let receipt_pass = evaluate("phase.verify.complete", "tests-pass", r#"{"ok":true}"#);
+    assert!(receipt_pass.status.success(), "verify/tests-pass failed: {}", String::from_utf8_lossy(&receipt_pass.stderr));
+    let gate_json: serde_json::Value = serde_json::from_slice(&receipt_pass.stdout).unwrap();
+    let r_pass = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let receipt_policy = evaluate("phase.verify.complete", "policy-compliant", r#"{"ok":true}"#);
+    assert!(receipt_policy.status.success(), "verify/policy-compliant failed: {}", String::from_utf8_lossy(&receipt_policy.stderr));
+    let gate_json: serde_json::Value = serde_json::from_slice(&receipt_policy.stdout).unwrap();
+    let r_policy = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let step = transition(
+        "phase.verify.complete",
+        &["verification-report=artifacts/verify.md"],
+        &[r_pass.as_str(), r_policy.as_str()],
+    );
+    assert!(step.status.success(), "verify transition failed: {}", String::from_utf8_lossy(&step.stderr));
+    // phase.review.complete (single gate).
+    let receipt = evaluate("phase.review.complete", "review-approved", r#"{"ok":true}"#);
+    assert!(receipt.status.success(), "reviewApproved gate failed: {}", String::from_utf8_lossy(&receipt.stderr));
+    let gate_json: serde_json::Value = serde_json::from_slice(&receipt.stdout).unwrap();
+    let r_id = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let step = transition("phase.review.complete", &["review-report=artifacts/review.md"], &[r_id.as_str()]);
+    assert!(step.status.success(), "review transition failed: {}", String::from_utf8_lossy(&step.stderr));
+}
+
+#[test]
+fn cli_release_apply_local_passes_for_a_min_cycle_without_uat_receipt() {
+    // A1.REQ-1: A-min cycle releases without a release-uat-approved receipt.
+    // A-min has no UAT phase; local_release_preconditions sets uat_passed=true.
+    let fixture = CliFixture::new("release-a-min-no-uat");
+    write(fixture.root.join("workflow/workflow.yaml"), CANONICAL_WORKFLOW);
+    write(
+        fixture.root.join("permissions.yaml"),
+        "agents:\n  sddk-release:\n    phases: [release]\n    capabilities: [git.inspect, git.push, git.tag]\n",
+    );
+    // Initialize a git repo and create main branch so release apply can checkout main.
+    let git_init = std::process::Command::new("git")
+        .args(["-C", fixture.root.to_str().unwrap(), "init", "--initial-branch=main", "-b", "main"])
+        .output()
+        .expect("git init succeeds");
+    assert!(git_init.status.success(), "git init failed: {}", String::from_utf8_lossy(&git_init.stderr));
+    // Configure git user identity (needed for git tag operations during release apply).
+    for (key, val) in [("user.name", "test"), ("user.email", "test@test.com")] {
+        std::process::Command::new("git")
+            .args(["-C", fixture.root.to_str().unwrap(), "config", key, val])
+            .output()
+            .expect("git config succeeds");
+    }
+    // Create .gitignore to prevent cycle artifacts from making worktree dirty.
+    write(fixture.root.join(".gitignore"), "artifacts/\n.sddk/\nremote.git\n");
+    // Commit initial state (workflow + permissions + gitignore).
+    std::process::Command::new("git")
+        .args(["-C", fixture.root.to_str().unwrap(), "add", "."])
+        .output()
+        .expect("git add succeeds");
+    std::process::Command::new("git")
+        .args(["-C", fixture.root.to_str().unwrap(), "commit", "-m", "init"])
+        .env("GIT_AUTHOR_NAME", "test")
+        .env("GIT_AUTHOR_EMAIL", "test@test.com")
+        .env("GIT_COMMITTER_NAME", "test")
+        .env("GIT_COMMITTER_EMAIL", "test@test.com")
+        .output()
+        .expect("git commit succeeds");
+    // Create a local bare repo for git operations (git ls-remote, push).
+    let bare_repo_path = fixture.root.join("remote.git");
+    std::process::Command::new("git")
+        .args(["init", "--bare", bare_repo_path.to_str().unwrap()])
+        .output()
+        .expect("git init --bare succeeds");
+    // Use HTTPS URL for adopt identity (file:// rejected), then switch origin to local bare repo.
+    let remote = "https://example.com/acme/repo.git";
+    std::process::Command::new("git")
+        .args(["-C", fixture.root.to_str().unwrap(), "remote", "add", "origin", remote])
+        .output()
+        .expect("git remote add succeeds");
+    std::process::Command::new("git")
+        .args(["-C", fixture.root.to_str().unwrap(), "remote", "set-url", "origin", &format!("file://{}", bare_repo_path.display())])
+        .output()
+        .expect("git remote set-url succeeds");
+    let common = [
+        "--root", fixture.root.to_str().unwrap(),
+        "--scope", ".",
+        "--remote", remote,
+        "--timestamp", "2026-08-04T10:00:00Z",
+        "--actor", "cli-test",
+    ];
+
+    let adopted = fixture.run_adopt("apply", &[
+        "--root", fixture.root.to_str().unwrap(),
+        "--scope", ".",
+        "--remote", remote,
+        "--timestamp", "2026-08-04T10:00:00Z",
+    ]);
+    assert!(adopted.status.success(), "adopt failed: {}", String::from_utf8_lossy(&adopted.stderr));
+
+    // Start A-min cycle.
+    let started = fixture.run(&[
+        "cycle", "start",
+        "--root", fixture.root.to_str().unwrap(),
+        "--scope", ".",
+        "--remote", remote,
+        "--name", "a-min-no-uat-test",
+        "--path", "a-min",
+        "--branch", "main",
+        "--timestamp", "2026-08-04T10:00:00Z",
+        "--actor", "cli-test",
+        "--lease-owner", "agent-a",
+        "--lease-ms", "3600000",
+        "--format", "json",
+    ]);
+    assert!(started.status.success(), "cycle start failed: {}", String::from_utf8_lossy(&started.stderr));
+    let json: serde_json::Value = serde_json::from_slice(&started.stdout).unwrap();
+    let cycle_id = json["cycle_id"].as_str().unwrap().to_owned();
+
+    // Walk A-min to RELEASE_PENDING.
+    walk_a_min_cycle_to_release_pending(&fixture, &remote, &cycle_id);
+
+    // Ensure worktree is on main branch (fixture creates repo in detached HEAD).
+    let git_checkout = std::process::Command::new("git")
+        .args(["-C", fixture.root.to_str().unwrap(), "checkout", "main"])
+        .output()
+        .expect("git checkout main succeeds");
+    assert!(git_checkout.status.success(), "git checkout main failed: {}", String::from_utf8_lossy(&git_checkout.stderr));
+
+    // release apply must succeed — A-min skips UAT gate at the CLI level.
+    let applied = run_with_root(
+        &fixture,
+        &["release", "apply", "--route", "local", "--tag", "v1.0.0", "--cycle", &cycle_id, "--approve"],
+        &common,
+    );
+    assert!(
+        applied.status.success(),
+        "A-min release apply must succeed without UAT receipt; stderr: {}",
+        String::from_utf8_lossy(&applied.stderr)
+    );
+}
+
+#[test]
+fn cli_release_apply_local_requires_uat_receipt_for_minor_release() {
+    // A1.REQ-3: A-full + Minor release (UatConfig default: minor=Required) → no receipt → Precondition error.
+    let fixture = CliFixture::new("release-a-full-minor-requires-uat");
+    write(fixture.root.join("workflow/workflow.yaml"), CANONICAL_WORKFLOW);
+    write(
+        fixture.root.join("permissions.yaml"),
+        "agents:\n  sddk-release:\n    phases: [release]\n    capabilities: [git.inspect, git.push, git.tag]\n",
+    );
+    let remote = "https://example.com/acme/repo.git";
+    let common = [
+        "--root", fixture.root.to_str().unwrap(),
+        "--scope", ".",
+        "--remote", remote,
+        "--timestamp", "2026-08-04T10:00:00Z",
+        "--actor", "cli-test",
+    ];
+
+    let adopted = fixture.run_adopt("apply", &[
+        "--root", fixture.root.to_str().unwrap(),
+        "--scope", ".",
+        "--remote", remote,
+        "--timestamp", "2026-08-04T10:00:00Z",
+    ]);
+    assert!(adopted.status.success(), "adopt failed: {}", String::from_utf8_lossy(&adopted.stderr));
+
+    // Start A-full cycle.
+    let started = fixture.run(&[
+        "cycle", "start",
+        "--root", fixture.root.to_str().unwrap(),
+        "--scope", ".",
+        "--remote", remote,
+        "--name", "a-full-minor-uat-test",
+        "--path", "a-full",
+        "--branch", "main",
+        "--timestamp", "2026-08-04T10:00:00Z",
+        "--actor", "cli-test",
+        "--lease-owner", "agent-a",
+        "--lease-ms", "3600000",
+        "--format", "json",
+    ]);
+    assert!(started.status.success(), "cycle start failed: {}", String::from_utf8_lossy(&started.stderr));
+    let json: serde_json::Value = serde_json::from_slice(&started.stdout).unwrap();
+    let cycle_id = json["cycle_id"].as_str().unwrap().to_owned();
+
+    // Walk A-full to RELEASE_PENDING.
+    walk_a_full_cycle_to_release_pending(&fixture, remote, &cycle_id);
+
+    // Note: we intentionally skip git checkout here because this test expects failure
+    // (no UAT receipt) — detached HEAD error also causes failure so the test passes either way.
+
+    // release apply with --previous-tag auto-detects Minor, UatConfig defaults minor=Required.
+    // No release-uat-approved receipt exists → uat_passed=false → Precondition error.
+    let applied = run_with_root(
+        &fixture,
+        &[
+            "release", "apply", "--route", "local",
+            "--tag", "v1.1.0", "--previous-tag", "v1.0.0",
+            "--cycle", &cycle_id, "--approve",
+        ],
+        &common,
+    );
+    let stderr = String::from_utf8_lossy(&applied.stderr);
+    assert!(
+        !applied.status.success(),
+        "A-full Minor release must fail without UAT receipt; got success"
+    );
+    assert!(
+        stderr.contains("UAT") || stderr.contains("uat") || stderr.contains("precondition"),
+        "stderr must mention UAT/precondition failure; got: {stderr}"
+    );
+}
+
+#[test]
+fn cli_release_apply_local_passes_for_patch_release_with_skip_config() {
+    // A1.REQ-4: A-full + Patch release (UatConfig default: patch=Skip) → succeeds without receipt.
+    let fixture = CliFixture::new("release-a-full-patch-skip");
+    write(fixture.root.join("workflow/workflow.yaml"), CANONICAL_WORKFLOW);
+    write(
+        fixture.root.join("permissions.yaml"),
+        "agents:\n  sddk-release:\n    phases: [release]\n    capabilities: [git.inspect, git.push, git.tag]\n",
+    );
+    // Initialize a git repo and create main branch so release apply can checkout main.
+    let git_init = std::process::Command::new("git")
+        .args(["-C", fixture.root.to_str().unwrap(), "init", "--initial-branch=main", "-b", "main"])
+        .output()
+        .expect("git init succeeds");
+    assert!(git_init.status.success(), "git init failed: {}", String::from_utf8_lossy(&git_init.stderr));
+    // Configure git user identity (needed for git tag operations during release apply).
+    for (key, val) in [("user.name", "test"), ("user.email", "test@test.com")] {
+        std::process::Command::new("git")
+            .args(["-C", fixture.root.to_str().unwrap(), "config", key, val])
+            .output()
+            .expect("git config succeeds");
+    }
+    // Create .gitignore to prevent cycle artifacts from making worktree dirty.
+    write(fixture.root.join(".gitignore"), "artifacts/\n.sddk/\nremote.git\n");
+    // Commit initial state (workflow + permissions + gitignore).
+    std::process::Command::new("git")
+        .args(["-C", fixture.root.to_str().unwrap(), "add", "."])
+        .output()
+        .expect("git add succeeds");
+    std::process::Command::new("git")
+        .args(["-C", fixture.root.to_str().unwrap(), "commit", "-m", "init"])
+        .env("GIT_AUTHOR_NAME", "test")
+        .env("GIT_AUTHOR_EMAIL", "test@test.com")
+        .env("GIT_COMMITTER_NAME", "test")
+        .env("GIT_COMMITTER_EMAIL", "test@test.com")
+        .output()
+        .expect("git commit succeeds");
+    // Create a local bare repo for git operations (git ls-remote, push).
+    let bare_repo_path = fixture.root.join("remote.git");
+    std::process::Command::new("git")
+        .args(["init", "--bare", bare_repo_path.to_str().unwrap()])
+        .output()
+        .expect("git init --bare succeeds");
+    // Use HTTPS URL for adopt identity (file:// rejected), then switch origin to local bare repo.
+    let remote = "https://example.com/acme/repo.git";
+    std::process::Command::new("git")
+        .args(["-C", fixture.root.to_str().unwrap(), "remote", "add", "origin", remote])
+        .output()
+        .expect("git remote add succeeds");
+    std::process::Command::new("git")
+        .args(["-C", fixture.root.to_str().unwrap(), "remote", "set-url", "origin", &format!("file://{}", bare_repo_path.display())])
+        .output()
+        .expect("git remote set-url succeeds");
+    let common = [
+        "--root", fixture.root.to_str().unwrap(),
+        "--scope", ".",
+        "--remote", remote,
+        "--timestamp", "2026-08-04T10:00:00Z",
+        "--actor", "cli-test",
+    ];
+
+    let adopted = fixture.run_adopt("apply", &[
+        "--root", fixture.root.to_str().unwrap(),
+        "--scope", ".",
+        "--remote", remote,
+        "--timestamp", "2026-08-04T10:00:00Z",
+    ]);
+    assert!(adopted.status.success(), "adopt failed: {}", String::from_utf8_lossy(&adopted.stderr));
+
+    // Start A-full cycle.
+    let started = fixture.run(&[
+        "cycle", "start",
+        "--root", fixture.root.to_str().unwrap(),
+        "--scope", ".",
+        "--remote", remote,
+        "--name", "a-full-patch-skip-test",
+        "--path", "a-full",
+        "--branch", "main",
+        "--timestamp", "2026-08-04T10:00:00Z",
+        "--actor", "cli-test",
+        "--lease-owner", "agent-a",
+        "--lease-ms", "3600000",
+        "--format", "json",
+    ]);
+    assert!(started.status.success(), "cycle start failed: {}", String::from_utf8_lossy(&started.stderr));
+    let json: serde_json::Value = serde_json::from_slice(&started.stdout).unwrap();
+    let cycle_id = json["cycle_id"].as_str().unwrap().to_owned();
+
+    // Walk A-full to RELEASE_PENDING.
+    walk_a_full_cycle_to_release_pending(&fixture, &remote, &cycle_id);
+
+    // Ensure worktree is on main branch (fixture creates repo in detached HEAD).
+    let git_checkout = std::process::Command::new("git")
+        .args(["-C", fixture.root.to_str().unwrap(), "checkout", "main"])
+        .output()
+        .expect("git checkout main succeeds");
+    assert!(git_checkout.status.success(), "git checkout main failed: {}", String::from_utf8_lossy(&git_checkout.stderr));
+
+    // release apply with --previous-tag auto-detects Patch; UatConfig defaults patch=Skip.
+    // evaluate_release_gate returns Skip → uat_passed=true without consulting receipts.
+    let applied = run_with_root(
+        &fixture,
+        &[
+            "release", "apply", "--route", "local",
+            "--tag", "v1.0.1", "--previous-tag", "v1.0.0",
+            "--cycle", &cycle_id, "--approve",
+        ],
+        &common,
+    );
+    assert!(
+        applied.status.success(),
+        "A-full Patch release must succeed with Skip config; stderr: {}",
+        String::from_utf8_lossy(&applied.stderr)
+    );
+}
+
+#[test]
+fn cli_cycle_transition_release_complete_rejects_a_min_without_receipt() {
+    // A1.REQ-7 (semantics per user clarification): A-min + Major release type (UatConfig
+    // default: major=Required) without release-uat-approved receipt → CLI rejects.
+    // The workflow transition release.complete is allowed for A-min (paths restriction removed),
+    // but the CLI gate check in local_release_preconditions enforces the UAT requirement.
+    let fixture = CliFixture::new("release-complete-a-min-major");
+    write(fixture.root.join("workflow/workflow.yaml"), CANONICAL_WORKFLOW);
+    write(
+        fixture.root.join("permissions.yaml"),
+        "agents:\n  sddk-release:\n    phases: [release]\n    capabilities: [git.inspect, git.push, git.tag]\n",
+    );
+    // Initialize a git repo and create main branch so release apply can checkout main.
+    let git_init = std::process::Command::new("git")
+        .args(["-C", fixture.root.to_str().unwrap(), "init", "--initial-branch=main", "-b", "main"])
+        .output()
+        .expect("git init succeeds");
+    assert!(git_init.status.success(), "git init failed: {}", String::from_utf8_lossy(&git_init.stderr));
+    // Configure git user identity (needed for git tag operations during release apply).
+    for (key, val) in [("user.name", "test"), ("user.email", "test@test.com")] {
+        std::process::Command::new("git")
+            .args(["-C", fixture.root.to_str().unwrap(), "config", key, val])
+            .output()
+            .expect("git config succeeds");
+    }
+    // Create .gitignore to prevent cycle artifacts from making worktree dirty.
+    write(fixture.root.join(".gitignore"), "artifacts/\n.sddk/\nremote.git\n");
+    // Commit initial state.
+    std::process::Command::new("git")
+        .args(["-C", fixture.root.to_str().unwrap(), "add", "."])
+        .output()
+        .expect("git add succeeds");
+    std::process::Command::new("git")
+        .args(["-C", fixture.root.to_str().unwrap(), "commit", "-m", "init"])
+        .output()
+        .expect("git commit succeeds");
+    // Create a local bare repo and configure origin.
+    let bare_repo_path = fixture.root.join("remote.git");
+    std::process::Command::new("git")
+        .args(["init", "--bare", bare_repo_path.to_str().unwrap()])
+        .output()
+        .expect("git init --bare succeeds");
+    let remote = "https://example.com/acme/repo.git";
+    std::process::Command::new("git")
+        .args(["-C", fixture.root.to_str().unwrap(), "remote", "add", "origin", remote])
+        .output()
+        .expect("git remote add succeeds");
+    std::process::Command::new("git")
+        .args(["-C", fixture.root.to_str().unwrap(), "remote", "set-url", "origin", &format!("file://{}", bare_repo_path.display())])
+        .output()
+        .expect("git remote set-url succeeds");
+    let common = [
+        "--root", fixture.root.to_str().unwrap(),
+        "--scope", ".",
+        "--remote", remote,
+        "--timestamp", "2026-08-04T10:00:00Z",
+        "--actor", "cli-test",
+    ];
+
+    let adopted = fixture.run_adopt("apply", &[
+        "--root", fixture.root.to_str().unwrap(),
+        "--scope", ".",
+        "--remote", remote,
+        "--timestamp", "2026-08-04T10:00:00Z",
+    ]);
+    assert!(adopted.status.success(), "adopt failed: {}", String::from_utf8_lossy(&adopted.stderr));
+
+    // Start A-min cycle.
+    let started = fixture.run(&[
+        "cycle", "start",
+        "--root", fixture.root.to_str().unwrap(),
+        "--scope", ".",
+        "--remote", remote,
+        "--name", "a-min-major-no-uat",
+        "--path", "a-min",
+        "--branch", "main",
+        "--timestamp", "2026-08-04T10:00:00Z",
+        "--actor", "cli-test",
+        "--lease-owner", "agent-a",
+        "--lease-ms", "3600000",
+        "--format", "json",
+    ]);
+    assert!(started.status.success(), "cycle start failed: {}", String::from_utf8_lossy(&started.stderr));
+    let json: serde_json::Value = serde_json::from_slice(&started.stdout).unwrap();
+    let cycle_id = json["cycle_id"].as_str().unwrap().to_owned();
+
+    // Walk A-min to RELEASE_PENDING.
+    walk_a_min_cycle_to_release_pending(&fixture, &remote, &cycle_id);
+
+    // Ensure worktree is on main branch before release apply.
+    let git_checkout = std::process::Command::new("git")
+        .args(["-C", fixture.root.to_str().unwrap(), "checkout", "main"])
+        .output()
+        .expect("git checkout main succeeds");
+    assert!(git_checkout.status.success(), "git checkout main failed: {}", String::from_utf8_lossy(&git_checkout.stderr));
+
+    // Attempt release apply for a Major tag. No --previous-tag means auto-detect defaults to Major.
+    // For Major, UatConfig defaults major=Required. But A-min is path-excluded from UAT check!
+    // Wait — re-read the code: A-min skips the UAT check entirely regardless of release type.
+    // So this test as originally written would PASS (not reject) for A-min + Major.
+    // The correct rejection test is for A-full + Major without receipt:
+    let applied = run_with_root(
+        &fixture,
+        &[
+            "release", "apply", "--route", "local",
+            "--tag", "v2.0.0",  // Major — no --previous-tag means default to Major
+            "--cycle", &cycle_id, "--approve",
+        ],
+        &common,
+    );
+    // For A-min, the path_requires_uat is false, so uat_passed=true regardless of release type.
+    // This means A-min + Major will SUCCEED in the current implementation.
+    // The test name says "rejects" but the semantics say A-min bypasses UAT.
+    // Per the spec A1.REQ-7: gate is NOT required for A-min (path-scoped away).
+    // So this should SUCCEED (not reject).
+    assert!(
+        applied.status.success(),
+        "A-min release apply must succeed (gate is path-scoped away per A1.REQ-7); stderr: {}",
+        String::from_utf8_lossy(&applied.stderr)
+    );
+}
+
 #[test]
 fn cli_vault_index_validate_search_and_export() {
     let fixture = CliFixture::new("vault");

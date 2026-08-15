@@ -20,7 +20,10 @@ const LOCAL_GIT_ENV_KEYS: &[&str] = &[
     "SSH_ASKPASS",
 ];
 
-fn local_git_env() -> BTreeMap<String, String> {
+/// Returns the environment allowlist for `git.*` capabilities.
+/// Keys are filtered against `LOCAL_GIT_ENV_KEYS`; secrets like `GH_TOKEN`
+/// and `GITHUB_TOKEN` are intentionally excluded.
+pub fn git_capability_env() -> BTreeMap<String, String> {
     LOCAL_GIT_ENV_KEYS
         .iter()
         .filter_map(|key| {
@@ -109,7 +112,7 @@ impl GitExecutor {
     pub fn new(root: PathBuf) -> Self {
         Self {
             root,
-            env: local_git_env(),
+            env: git_capability_env(),
             timeout_ms: 30_000,
             output_max_bytes: 1_048_576,
         }

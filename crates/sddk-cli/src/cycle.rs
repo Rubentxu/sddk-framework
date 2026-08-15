@@ -752,10 +752,7 @@ fn run_cycle_lock_acquire(
     render_result(result, format, lease_text)
 }
 
-fn run_cycle_lock_renew(
-    args: CycleLockRenewArgs,
-    environment: &CliEnvironment,
-) -> CommandOutput {
+fn run_cycle_lock_renew(args: CycleLockRenewArgs, environment: &CliEnvironment) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<LeaseOutput> {
         let mut context = RuntimeContext::open(&args.runtime, environment, false)?;
@@ -1038,9 +1035,10 @@ fn run_cycle_evaluate_gate(
         // Fail-closed: when --outcome is omitted we record `Failed`, so a
         // caller that wants to advance the workflow MUST pass
         // `--outcome passed` explicitly.
-        let outcome = args.outcome.map(GateOutcomeArg::into).unwrap_or(
-            sddk_storage::GateOutcomeStatus::Failed,
-        );
+        let outcome = args
+            .outcome
+            .map(GateOutcomeArg::into)
+            .unwrap_or(sddk_storage::GateOutcomeStatus::Failed);
         let receipt = context.engine.evaluate_gate(&GateEvaluationInput {
             cycle_id: args.cycle.clone(),
             transition_id: args.transition.clone(),

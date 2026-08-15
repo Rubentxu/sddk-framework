@@ -1277,7 +1277,7 @@ fn xdg_from_env(environment: &crate::CliEnvironment) -> sddk_engine::XdgEnvironm
     }
 }
 
-fn load_uat_config(
+pub(crate) fn load_uat_config(
     project_id: &str,
     environment: &crate::CliEnvironment,
 ) -> anyhow::Result<sddk_domain::UatConfig> {

@@ -85,9 +85,7 @@ pub fn resolve_uat_driver(name: &str) -> std::path::PathBuf {
     // 2. Dogfooding: compiled crate manifest dir (stable at compile time).
     //    From crates/sddk-gateway/ go up two levels to the workspace root.
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let dogfood = manifest_dir
-        .join("../../assets/uat-driver")
-        .join(name);
+    let dogfood = manifest_dir.join("../../assets/uat-driver").join(name);
     if dogfood.is_file() {
         return dogfood;
     }

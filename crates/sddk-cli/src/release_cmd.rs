@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     CliEnvironment, CommandOutput, OutputFormat, RuntimeArgs, RuntimeContext, render_result,
+    uat::ReleaseTypeArg,
 };
 
 #[derive(Debug, Subcommand)]
@@ -82,6 +83,13 @@ pub(crate) struct ReleaseArgs {
     /// Release cycle providing local verification and UAT evidence.
     #[arg(long)]
     pub(crate) cycle: Option<String>,
+    /// Previous tag for semver diff (alternative to `--release-type`).
+    /// When omitted the release type defaults to Major (fail-closed).
+    #[arg(long)]
+    pub(crate) previous_tag: Option<String>,
+    /// Explicit release type (overrides `--previous-tag` auto-detection).
+    #[arg(long, value_enum)]
+    pub(crate) release_type: Option<ReleaseTypeArg>,
     /// Release notes.
     #[arg(long, default_value = "")]
     pub(crate) notes: String,
@@ -333,7 +341,17 @@ fn run_release_apply(args: ReleaseArgs, environment: &CliEnvironment) -> Command
         let permissions = PermissionPolicy::from_file(root.join("permissions.yaml"))?;
         authorize_release(&permissions, route)?;
         let local_preconditions = matches!(route, ReleaseRoute::Local)
-            .then(|| local_release_preconditions(&context, &project_id, args.cycle.as_deref()))
+            .then(|| {
+                local_release_preconditions(
+                    &context,
+                    &project_id,
+                    args.cycle.as_deref(),
+                    args.previous_tag.as_deref(),
+                    args.release_type.map(|r| r.into()),
+                    &args.tag,
+                    environment,
+                )
+            })
             .transpose()?;
         let policy = CapabilityPolicy::from_workflow(context.engine.workflow());
         let gateway = CapabilityGateway::new(policy, context.storage);
@@ -440,6 +458,10 @@ fn local_release_preconditions(
     context: &RuntimeContext,
     project_id: &str,
     cycle_id: Option<&str>,
+    previous_tag: Option<&str>,
+    release_type_arg: Option<sddk_domain::ReleaseType>,
+    current_tag: &str,
+    environment: &CliEnvironment,
 ) -> anyhow::Result<LocalReleasePreconditions> {
     let cycle_id = cycle_id.ok_or_else(|| {
         anyhow::anyhow!("--cycle is required for --route local to verify local release evidence")
@@ -486,6 +508,43 @@ fn local_release_preconditions(
         }
     }
 
+    // UAT is not required for paths without a UAT phase (A-min, B-direct).
+    let path_requires_uat = !matches!(
+        manifest.path,
+        sddk_domain::CyclePath::AMin | sddk_domain::CyclePath::BDirect
+    );
+
+    let uat_passed = if path_requires_uat {
+        // Load UatConfig to evaluate the release gate.
+        let config = crate::uat::load_uat_config(project_id, environment)?;
+        let release_type = release_type_arg.unwrap_or_else(|| {
+            if let Some(prev) = previous_tag {
+                sddk_domain::release_type_from_diff(current_tag, prev)
+                    .unwrap_or(sddk_domain::ReleaseType::Major)
+            } else {
+                // No signal → fail-closed (default to Major, which requires UAT).
+                sddk_domain::ReleaseType::Major
+            }
+        });
+        let action = sddk_domain::evaluate_release_gate(&config, release_type);
+        if matches!(action, sddk_domain::ReleaseGateAction::Skip) {
+            // UAT gate is configured to skip for this release type.
+            true
+        } else {
+            // Consult the gate-receipts table.
+            let gates = context.storage.list_gate_receipts(cycle_id)?;
+            let passed = |gate: &str| {
+                gates.iter().any(|receipt| {
+                    receipt.gate == gate && receipt.outcome == GateOutcomeStatus::Passed
+                })
+            };
+            passed("release-uat-approved")
+        }
+    } else {
+        // A-min and B-direct paths have no UAT phase — precondition satisfied.
+        true
+    };
+
     let gates = context.storage.list_gate_receipts(cycle_id)?;
     let passed = |gate: &str| {
         gates
@@ -496,7 +555,7 @@ fn local_release_preconditions(
         verification_passed: manifest.artifacts.contains_key("verification-report")
             && passed("tests-pass")
             && passed("policy-compliant"),
-        uat_passed: passed("release-uat-approved"),
+        uat_passed,
     })
 }
 
