@@ -24,7 +24,9 @@ pub(super) fn framework_dir(environment: &CliEnvironment) -> anyhow::Result<Path
 
 /// Resolve the active framework root: `current` symlink target, else the
 /// latest installed version, else the data dir (empty).
-pub(super) fn resolve_active_framework_root(environment: &CliEnvironment) -> anyhow::Result<PathBuf> {
+pub(super) fn resolve_active_framework_root(
+    environment: &CliEnvironment,
+) -> anyhow::Result<PathBuf> {
     let dir = framework_dir(environment)?;
     let current = dir.join("current");
     if let Ok(target) = std::fs::read_link(&current) {
@@ -56,7 +58,7 @@ pub(super) fn resolve_active_framework_root(environment: &CliEnvironment) -> any
 /// Resolve the static `assets/` directory of the active framework root
 /// (ADR-0013: dashboard kit shipped in the bundle). Returns `None` when the
 /// bundle has no assets (pre-1.5.0 bundles are still supported).
-    pub fn resolve_assets_dir(environment: &CliEnvironment) -> anyhow::Result<Option<PathBuf>> {
+pub fn resolve_assets_dir(environment: &CliEnvironment) -> anyhow::Result<Option<PathBuf>> {
     let root = resolve_active_framework_root(environment)?;
     let assets = root.join("assets");
     if assets.is_dir() {
