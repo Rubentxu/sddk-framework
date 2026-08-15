@@ -9,7 +9,7 @@ mod artifact;
 mod capability;
 mod cycle;
 mod dev;
-mod dev_cmd;
+
 mod docs;
 mod git_cmd;
 mod inventory;
@@ -42,7 +42,7 @@ use artifact::ArtifactCommand;
 use capability::CapabilityCommand;
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 pub(crate) use cycle::{CycleCommand, RuntimeArgs, RuntimeContext};
-use dev_cmd::DevCommand;
+use dev::DevCommand;
 use git_cmd::GitCommand;
 use knowledge_cmd::KnowledgeCommand;
 use metrics::MetricsCommand;
@@ -496,7 +496,7 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         Command::Release { command } => release_cmd::run_release(command, environment),
         Command::Vault { command } => vault_cmd::run_vault(command, environment),
         Command::Knowledge { command } => knowledge_cmd::run_knowledge(command, environment),
-        Command::Dev { command } => dev_cmd::run_dev(command, environment),
+        Command::Dev { command } => dev::run_dev(command, environment),
         Command::Pack { command } => pack_cmd::run_pack(command),
         Command::Metrics { command } => metrics::run_metrics(command, environment),
         Command::Analytics { command } => analytics::run_analytics(command, environment),

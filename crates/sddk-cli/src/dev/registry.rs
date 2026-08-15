@@ -229,4 +229,3 @@ pub(crate) fn resolve_project_id_for_registry(
          then retry `sddk dev link --write-registry`."
     );
 }
-

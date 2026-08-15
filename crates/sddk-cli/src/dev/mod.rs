@@ -1,20 +1,21 @@
 //! Developer tooling: environment doctor, gates, and atomic install/verify.
 
-use clap::{Subcommand, Args, ValueEnum};
-use serde::{Serialize, Deserialize};
+use clap::{Args, Subcommand, ValueEnum};
+use serde::{Deserialize, Serialize};
 
+mod check;
 pub mod common;
+mod doctor;
+mod install;
 pub mod manifest;
 pub mod registry;
-mod doctor;
-mod check;
-mod install;
+pub(crate) use paths::resolve_assets_dir;
+mod link;
 mod paths;
 mod uninstall;
-mod verify;
-mod link;
 mod update;
 mod use_cmd;
+mod verify;
 
 use crate::{CliEnvironment, CommandOutput, OutputFormat};
 
@@ -241,5 +242,57 @@ pub(super) fn run_dev(command: DevCommand, environment: &CliEnvironment) -> Comm
         DevCommand::Use(args) => self::use_cmd::run_dev_use(args, environment),
         DevCommand::Update(args) => self::update::run_dev_update(args, environment),
         DevCommand::Manifest(args) => self::manifest::run_dev_manifest(args),
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Smoke tests — verify subcommand entry points do not panic
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod smoke_tests {
+    use super::*;
+
+    fn env() -> CliEnvironment {
+        CliEnvironment::default()
+    }
+
+    #[test]
+    fn dev_doctor_does_not_panic() {
+        let args = super::DoctorArgs {
+            format: OutputFormat::Text,
+            strict: false,
+        };
+        let _ = self::doctor::run_dev_doctor(args, &env());
+    }
+
+    #[test]
+    fn dev_check_does_not_panic() {
+        let args = super::CheckArgs {
+            root: std::path::PathBuf::from("."),
+            format: OutputFormat::Text,
+        };
+        let _ = self::check::run_dev_check(args);
+    }
+
+    #[test]
+    fn dev_use_show_does_not_panic() {
+        let args = super::UseArgs {
+            version: None,
+            show: true,
+            format: OutputFormat::Text,
+        };
+        let _ = self::use_cmd::run_dev_use(args, &env());
+    }
+
+    #[test]
+    fn dev_manifest_write_does_not_panic() {
+        let tmp = tempfile::tempdir().unwrap();
+        let args = super::ManifestArgs {
+            root: Some(tmp.path().to_path_buf()),
+            verify: false,
+            format: OutputFormat::Text,
+        };
+        let _ = self::manifest::run_dev_manifest(args);
     }
 }

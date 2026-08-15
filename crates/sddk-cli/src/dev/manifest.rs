@@ -2,12 +2,12 @@
 
 use std::path::{Path, PathBuf};
 
-use sha2::{Digest, Sha256};
 use sddk_gateway::GitExecutor;
+use sha2::{Digest, Sha256};
 
 use crate::CommandOutput;
 
-use super::common::{MANIFEST_SURFACES, sha256_hex, atomic_write};
+use super::common::{MANIFEST_SURFACES, atomic_write, sha256_hex};
 
 /// Manifest file name, written at the framework root (and shipped in the
 /// release bundle).
@@ -205,4 +205,3 @@ pub(crate) fn write_manifest(root: &Path) -> anyhow::Result<usize> {
     atomic_write(&target, content.as_bytes(), None)?;
     Ok(entries.len())
 }
-

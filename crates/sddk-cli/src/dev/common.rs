@@ -4,11 +4,11 @@ use std::path::{Path, PathBuf};
 
 use crate::CommandOutput;
 
-pub const RECEIPT_FILE: &str = "sddk-install.json";
+pub(super) const RECEIPT_FILE: &str = "sddk-install.json";
 
-pub const MANIFEST_SURFACES: [&str; 4] = ["agents", "skills", "prompts/sddk", "assets"];
+pub(super) const MANIFEST_SURFACES: [&str; 4] = ["agents", "skills", "prompts/sddk", "assets"];
 
-pub fn read_receipt(prefix: &Path) -> anyhow::Result<super::InstallReceipt> {
+pub(super) fn read_receipt(prefix: &Path) -> anyhow::Result<super::InstallReceipt> {
     let path = prefix.join(RECEIPT_FILE);
     if !path.exists() {
         anyhow::bail!("no installation receipt at {path:?}");
@@ -16,7 +16,7 @@ pub fn read_receipt(prefix: &Path) -> anyhow::Result<super::InstallReceipt> {
     Ok(serde_json::from_str(&std::fs::read_to_string(path)?)?)
 }
 
-pub fn tool_version(tool: &str) -> anyhow::Result<String> {
+pub(super) fn tool_version(tool: &str) -> anyhow::Result<String> {
     let output = std::process::Command::new(tool).arg("--version").output()?;
     if !output.status.success() {
         anyhow::bail!("{tool} exited {}", output.status);
@@ -24,7 +24,7 @@ pub fn tool_version(tool: &str) -> anyhow::Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
-pub fn atomic_write(
+pub(super) fn atomic_write(
     destination: &Path,
     bytes: &[u8],
     mode: Option<u32>,
@@ -38,8 +38,7 @@ pub fn atomic_write(
         .unwrap_or("artifact");
     let mut last_error = None;
     for attempt in 0..100 {
-        let temporary =
-            parent.join(format!(".{file_name}.tmp-{}-{attempt}", std::process::id()));
+        let temporary = parent.join(format!(".{file_name}.tmp-{}-{attempt}", std::process::id()));
         match std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -81,7 +80,7 @@ pub fn atomic_write(
         .into())
 }
 
-pub fn failure_status(message: String) -> CommandOutput {
+pub(super) fn failure_status(message: String) -> CommandOutput {
     CommandOutput {
         status: 1,
         stdout: String::new(),
@@ -89,7 +88,21 @@ pub fn failure_status(message: String) -> CommandOutput {
     }
 }
 
-pub fn walk_dir(dir: &Path) -> Vec<PathBuf> {
+/// Format an `InstallReceipt` as human-readable text.
+pub(super) fn receipt_text(receipt: &super::InstallReceipt) -> String {
+    format!(
+        "version: {}\ncommit: {}\nbinary_sha256: {}\nchannel: {}\ninstalled_at: {}\nbinary_path: {}\nbundle: {}\n",
+        receipt.version,
+        receipt.commit,
+        receipt.binary_sha256,
+        receipt.channel,
+        receipt.installed_at,
+        receipt.binary_path,
+        receipt.bundle
+    )
+}
+
+pub(super) fn walk_dir(dir: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
@@ -105,8 +118,58 @@ pub fn walk_dir(dir: &Path) -> Vec<PathBuf> {
 }
 
 /// Compute the plain lowercase hex SHA-256 of a file.
-pub fn sha256_hex(path: &Path) -> anyhow::Result<String> {
+pub(super) fn sha256_hex(path: &Path) -> anyhow::Result<String> {
     use sha2::{Digest, Sha256};
     let bytes = std::fs::read(path)?;
     Ok(format!("{:x}", Sha256::digest(&bytes)))
+}
+
+/// Download a URL to a destination via curl/wget, or copy from file://.
+pub(super) fn download_to(url: &str, destination: &Path) -> anyhow::Result<()> {
+    if let Some(source) = url.strip_prefix("file://") {
+        std::fs::copy(source, destination)?;
+        return Ok(());
+    }
+    let status = std::process::Command::new("curl")
+        .args(["-fsSL", "--retry", "3", "-o"])
+        .arg(destination)
+        .arg(url)
+        .status();
+    match status {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => anyhow::bail!("curl exited {status} for {url}"),
+        Err(_) => {
+            let status = std::process::Command::new("wget")
+                .args(["-qO"])
+                .arg(destination)
+                .arg(url)
+                .status()?;
+            if status.success() {
+                Ok(())
+            } else {
+                anyhow::bail!("wget exited {status} for {url}")
+            }
+        }
+    }
+}
+
+pub(super) fn copy_bundle_tree(source: &Path, target: &Path) -> anyhow::Result<()> {
+    for file in walk_dir(source) {
+        if !file.is_file() {
+            continue;
+        }
+        let relative = file.strip_prefix(source)?;
+        let destination = target.join(relative);
+        if let Some(parent) = destination.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::copy(file, destination)?;
+    }
+    Ok(())
+}
+
+/// Count entries in a root's MANIFEST.sha256 (0 when absent).
+pub(super) fn count_manifest_entries(root: &Path) -> anyhow::Result<usize> {
+    let raw = std::fs::read_to_string(root.join(super::manifest::MANIFEST_FILE))?;
+    Ok(raw.lines().filter(|l| !l.trim().is_empty()).count())
 }

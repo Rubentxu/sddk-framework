@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand};
 
-use crate::{CommandOutput, OutputFormat, dev_cmd, render_result};
+use crate::{CommandOutput, OutputFormat, render_result};
 
 use sddk_domain::{
     LATEST_PLAN_SCHEMA_VERSION, UatFeatureRollup, UatHistoryReport, UatIntegrityReport,
@@ -2264,7 +2264,7 @@ fn render_dashboard_html(
     theme: &str,
     environment: &crate::CliEnvironment,
 ) -> anyhow::Result<String> {
-    let assets = dev_cmd::resolve_assets_dir(environment)?;
+    let assets = crate::dev::resolve_assets_dir(environment)?;
     let kit = assets.map(|a| a.join("uat-dashboard")).unwrap_or_default();
 
     let tokens = read_asset(&kit.join("kit/tokens.css"))?;

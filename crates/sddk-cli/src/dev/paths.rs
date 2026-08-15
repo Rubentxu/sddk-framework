@@ -3,7 +3,7 @@
 use crate::CliEnvironment;
 use std::path::PathBuf;
 
-pub fn sddk_data_dir(environment: &CliEnvironment) -> anyhow::Result<PathBuf> {
+pub(super) fn sddk_data_dir(environment: &CliEnvironment) -> anyhow::Result<PathBuf> {
     if let Some(dir) = &environment.sddk_data_dir {
         return Ok(dir.clone());
     }
@@ -18,15 +18,13 @@ pub fn sddk_data_dir(environment: &CliEnvironment) -> anyhow::Result<PathBuf> {
 }
 
 /// The `framework/` dir inside the data root (bundles per version + `current`).
-pub fn framework_dir(environment: &CliEnvironment) -> anyhow::Result<PathBuf> {
+pub(super) fn framework_dir(environment: &CliEnvironment) -> anyhow::Result<PathBuf> {
     Ok(sddk_data_dir(environment)?.join("framework"))
 }
 
 /// Resolve the active framework root: `current` symlink target, else the
 /// latest installed version, else the data dir (empty).
-pub fn resolve_active_framework_root(
-    environment: &CliEnvironment,
-) -> anyhow::Result<PathBuf> {
+pub(super) fn resolve_active_framework_root(environment: &CliEnvironment) -> anyhow::Result<PathBuf> {
     let dir = framework_dir(environment)?;
     let current = dir.join("current");
     if let Ok(target) = std::fs::read_link(&current) {
@@ -51,18 +49,14 @@ pub fn resolve_active_framework_root(
         .last()
         .map(|version| dir.join(version))
         .ok_or_else(|| {
-            anyhow::anyhow!(
-                "no framework bundle installed; run `sddk dev update --root <dir>`"
-            )
+            anyhow::anyhow!("no framework bundle installed; run `sddk dev update --root <dir>`")
         })
 }
 
 /// Resolve the static `assets/` directory of the active framework root
 /// (ADR-0013: dashboard kit shipped in the bundle). Returns `None` when the
 /// bundle has no assets (pre-1.5.0 bundles are still supported).
-pub fn resolve_assets_dir(
-    environment: &CliEnvironment,
-) -> anyhow::Result<Option<PathBuf>> {
+    pub fn resolve_assets_dir(environment: &CliEnvironment) -> anyhow::Result<Option<PathBuf>> {
     let root = resolve_active_framework_root(environment)?;
     let assets = root.join("assets");
     if assets.is_dir() {
