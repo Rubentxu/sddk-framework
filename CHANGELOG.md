@@ -36,7 +36,11 @@ errores de autenticación de `git push` con hint accionable.
   - test(gateway): `local_git_env_keys_excludes_gh_token`
   - test(gateway): `git_push_auth_failure_classifies_stderr`
   - test(gateway): `runner_run_forwards_git_terminal_prompt`
-  - test(gateway): `release_apply_local_emits_hint_on_auth_failure`
+  - test(cli/gateway): end-to-end `release apply --route local` hint-on-auth-failure
+    scenario is covered indirectly by `git_push_auth_failure_classifies_stderr`
+    (unit) — the orchestrator-accepted E2E test was omitted because the
+    `file://` remote used in sandbox runs does not exercise credential prompts.
+    See `verification-report.md` § Behavioral Compliance Matrix B1.REQ-5.
 
 ## [1.9.15] - 2026-08-15
 

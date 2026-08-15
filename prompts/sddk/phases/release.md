@@ -60,7 +60,8 @@ GitHub API or CI/CD service does not.
     env allowlist. To fix:
 
     ```
-    git push failed: credentials not available to the typed runner.
+    git push auth failure: <stderr captured from the runner>
+    credentials not available to the typed runner.
     The runner has no TTY and uses an env allowlist that excludes GH_TOKEN/GITHUB_TOKEN.
     To fix, choose ONE of:
       1. gh auth login                       # interactive, requires TTY
