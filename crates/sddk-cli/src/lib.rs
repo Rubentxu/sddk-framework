@@ -8,6 +8,7 @@ mod analytics;
 mod artifact;
 mod capability;
 mod cycle;
+mod dev;
 mod dev_cmd;
 mod docs;
 mod git_cmd;
