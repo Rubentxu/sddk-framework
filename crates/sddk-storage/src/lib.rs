@@ -136,12 +136,25 @@ pub enum StorageError {
         /// Human-readable integrity failure.
         reason: String,
     },
+    /// The plan_hash is too short to slice for the receipt_id format.
+    #[error("plan_hash is too short: {actual} chars, need at least 23 (got {actual})")]
+    PlanHashTooShort {
+        /// Actual length of the provided plan_hash.
+        actual: usize,
+        /// Required minimum length.
+        required: usize,
+    },
 }
 
 /// SQLite-backed SDDK persistence.
 pub struct Storage {
     connection: Connection,
 }
+
+/// Canonical regex for a gate receipt identifier produced by
+/// [`Storage::insert_gate_receipt_next_seq`](Storage::insert_gate_receipt_next_seq).
+/// Format: `gate-{gate(1..128)}-{plan_hash[7..23]}-{seq}`.
+pub const RID_FORMAT_REGEX: &str = r"^gate-.{1,128}-[0-9a-f]{16}-[0-9]+$";
 
 impl Storage {
     /// Opens or creates a database and applies all pending migrations.
@@ -943,6 +956,21 @@ impl Storage {
         Ok(true)
     }
 
+    /// Builds a gate receipt identifier from its components.
+    ///
+    /// The plan_hash must be at least 23 characters (`sha256:` prefix + 16 hex
+    /// digits of the actual hash). Returns `PlanHashTooShort` if the guard fails.
+    pub fn build_gate_receipt_id(gate: &str, plan_hash: &str, seq: i64) -> Result<String> {
+        const REQUIRED_LEN: usize = 23;
+        if plan_hash.len() < REQUIRED_LEN {
+            return Err(StorageError::PlanHashTooShort {
+                actual: plan_hash.len(),
+                required: REQUIRED_LEN,
+            });
+        }
+        Ok(format!("gate-{}-{}-{}", gate, &plan_hash[7..23], seq))
+    }
+
     /// Persists one authorized gate evaluation receipt with atomic seq allocation.
     ///
     /// Computes `seq = COALESCE(MAX(seq)+1, 1)` and builds the `receipt_id`
@@ -960,11 +988,7 @@ impl Storage {
             [&input.gate, &input.plan_hash],
             |row| row.get(0),
         )?;
-        debug_assert!(
-            input.plan_hash.len() >= 23,
-            "plan_hash must be at least 23 chars (sha256: + 16 hex)",
-        );
-        let receipt_id = format!("gate-{}-{}-{}", input.gate, &input.plan_hash[7..23], seq);
+        let receipt_id = Self::build_gate_receipt_id(&input.gate, &input.plan_hash, seq)?;
         transaction.execute(
             "INSERT INTO gate_receipts (
                 receipt_id, project_id, cycle_id, gate, evaluator, transition_id,
@@ -1473,6 +1497,7 @@ impl sddk_domain::SddkErrorCode for StorageError {
             Self::RegistrationConflict { .. } => "STORAGE_REGISTRATION_CONFLICT",
             Self::SchemaVersion { .. } => "STORAGE_SCHEMA_VERSION",
             Self::LedgerIntegrity { .. } => "STORAGE_LEDGER_INTEGRITY",
+            Self::PlanHashTooShort { .. } => "STORAGE_PLAN_HASH_TOO_SHORT",
         }
     }
 
@@ -1500,6 +1525,9 @@ impl sddk_domain::SddkErrorCode for StorageError {
             Self::RegistrationConflict { .. } => "keep the existing identity data consistent",
             Self::SchemaVersion { .. } => "migrate the database to the supported schema version",
             Self::LedgerIntegrity { .. } => "restore the ledger from a verified backup",
+            Self::PlanHashTooShort { .. } => {
+                "supply a plan_hash of at least 23 characters (sha256: prefix + 16 hex digits)"
+            }
         }
     }
 }

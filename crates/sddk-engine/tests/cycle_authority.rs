@@ -2,12 +2,11 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use regex::Regex;
 use sddk_domain::{ArtifactRef, CycleManifest, CyclePath, CycleStatus, Phase};
 use sddk_engine::{
     CycleStartInput, Engine, EventContext, GateEvaluationInput, GateReceiptRef, TransitionEvidence,
 };
-use sddk_storage::{ProjectRecord, Storage, StorageError, WorkspaceRecord};
+use sddk_storage::{ProjectRecord, RID_FORMAT_REGEX, Storage, StorageError, WorkspaceRecord};
 
 const WORKFLOW_YAML: &str = include_str!("../../../workflow/workflow.yaml");
 const TIMESTAMP: &str = "2026-08-04T10:00:00Z";
@@ -589,11 +588,11 @@ fn engine_evaluate_gate_increments_seq_on_reevaluation() {
         first.receipt_id.ends_with("-1"),
         "first receipt_id should end with -1"
     );
-    // Regex: ^gate-.{1,128}-[0-9a-f]{16}-[0-9]+$
-    let rid_regex = regex::Regex::new(r"^gate-.{1,128}-[0-9a-f]{16}-[0-9]+$").unwrap();
+    // Canonical regex from sddk_storage::RID_FORMAT_REGEX
+    let rid_regex = regex::Regex::new(RID_FORMAT_REGEX).unwrap();
     assert!(
         rid_regex.is_match(&first.receipt_id),
-        "receipt_id '{}' must match regex",
+        "receipt_id '{}' must match RID_FORMAT_REGEX",
         first.receipt_id
     );
 
@@ -618,7 +617,7 @@ fn engine_evaluate_gate_increments_seq_on_reevaluation() {
     );
     assert!(
         rid_regex.is_match(&second.receipt_id),
-        "receipt_id '{}' must match regex",
+        "receipt_id '{}' must match RID_FORMAT_REGEX",
         second.receipt_id
     );
 

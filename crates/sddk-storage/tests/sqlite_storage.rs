@@ -2,8 +2,8 @@ use rusqlite::Connection;
 use sddk_domain::{CycleId, CycleManifest, CycleStatus};
 use sddk_storage::{
     ArtifactRecord, CapabilityReceiptInput, CapabilityStatus, CycleRecord, GateOutcomeStatus,
-    GateReceiptInput, GateReceiptNextSeqInput, LedgerEventInput, ProjectRecord, Storage,
-    StorageError, WorkspaceRecord,
+    GateReceiptInput, GateReceiptNextSeqInput, LedgerEventInput, ProjectRecord, RID_FORMAT_REGEX,
+    Storage, StorageError, WorkspaceRecord,
 };
 use serde_json::json;
 use tempfile::tempdir;
@@ -810,11 +810,11 @@ fn storage_insert_gate_receipt_next_seq_golden_rid_format() {
         receipt.receipt_id,
         "gate-exploration-sufficient-abcdef1234567890-1"
     );
-    // Regex: ^gate-.{1,128}-[0-9a-f]{16}-[0-9]+$
-    let rid_regex = regex::Regex::new(r"^gate-.{1,128}-[0-9a-f]{16}-[0-9]+$").unwrap();
+    // Canonical regex from sddk_storage::RID_FORMAT_REGEX
+    let rid_regex = regex::Regex::new(RID_FORMAT_REGEX).unwrap();
     assert!(
         rid_regex.is_match(&receipt.receipt_id),
-        "receipt_id '{}' must match regex",
+        "receipt_id '{}' must match RID_FORMAT_REGEX",
         receipt.receipt_id
     );
 }

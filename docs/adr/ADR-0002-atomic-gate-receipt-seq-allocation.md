@@ -49,7 +49,7 @@ Positivas:
 
 Negativas / costes:
 - El método内幕 una transacción de escritura completa; overhead marginal vs. dos llamadas
-- `Storage::insert_gate_receipt` existente queda huérfana para uso directo (pero la usan 3 tests de storage)
+- `Storage::insert_gate_receipt` existente queda huérfana para uso directo (pero la usa 1 test de storage como seed del bootstrap)
 
 ## Alternativas consideradas
 
