@@ -59,7 +59,7 @@ fn escape_md_cell(s: &str) -> String {
 /// Skips `_shared` and `skill-registry`. Parses frontmatter name + description.
 /// Extracts trigger from description (text before first ". "). Renders markdown table.
 /// File is written atomically so a second invocation produces byte-identical result.
-pub(crate) fn write_skill_registry(
+pub(super) fn write_skill_registry(
     environment: &CliEnvironment,
     project_root: &Path,
     framework_root: &Path,
@@ -197,7 +197,7 @@ pub(crate) fn write_skill_registry(
 ///  1. Git remote URL → canonical resolver (stable p-* across machines)
 ///  2. Persisted adoption receipt seed → seeded fallback (stable p-* for adopted dirs)
 ///  3. Neither → explicit error with instructions to run `sddk adopt`
-pub(crate) fn resolve_project_id_for_registry(
+pub(super) fn resolve_project_id_for_registry(
     environment: &CliEnvironment,
     project_root: &Path,
 ) -> anyhow::Result<String> {

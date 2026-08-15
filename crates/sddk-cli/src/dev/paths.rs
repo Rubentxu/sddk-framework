@@ -58,7 +58,7 @@ pub(super) fn resolve_active_framework_root(
 /// Resolve the static `assets/` directory of the active framework root
 /// (ADR-0013: dashboard kit shipped in the bundle). Returns `None` when the
 /// bundle has no assets (pre-1.5.0 bundles are still supported).
-pub fn resolve_assets_dir(environment: &CliEnvironment) -> anyhow::Result<Option<PathBuf>> {
+pub(crate) fn resolve_assets_dir(environment: &CliEnvironment) -> anyhow::Result<Option<PathBuf>> {
     let root = resolve_active_framework_root(environment)?;
     let assets = root.join("assets");
     if assets.is_dir() {

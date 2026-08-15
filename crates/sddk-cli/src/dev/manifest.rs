@@ -11,10 +11,10 @@ use super::common::{MANIFEST_SURFACES, atomic_write, sha256_hex};
 
 /// Manifest file name, written at the framework root (and shipped in the
 /// release bundle).
-pub(crate) const MANIFEST_FILE: &str = "MANIFEST.sha256";
+pub(super) const MANIFEST_FILE: &str = "MANIFEST.sha256";
 
 /// Run the `dev manifest` subcommand.
-pub(crate) fn run_dev_manifest(args: super::ManifestArgs) -> CommandOutput {
+pub(super) fn run_dev_manifest(args: super::ManifestArgs) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<String> {
         let root = args
@@ -49,7 +49,7 @@ pub(crate) fn run_dev_manifest(args: super::ManifestArgs) -> CommandOutput {
 /// Verify a framework root against its MANIFEST.sha256. Returns the list of
 /// mismatches (empty = intact). A missing manifest is reported as a single
 /// entry. Duplicate manifest entries are reported as mismatch.
-pub(crate) fn verify_manifest(root: &Path) -> anyhow::Result<Vec<String>> {
+pub(super) fn verify_manifest(root: &Path) -> anyhow::Result<Vec<String>> {
     let manifest_path = root.join(MANIFEST_FILE);
     let raw = std::fs::read_to_string(&manifest_path)?;
     let mut mismatches = Vec::new();
@@ -198,7 +198,7 @@ fn manifest_lines(entries: &[(String, String)]) -> String {
 
 /// Generate MANIFEST.sha256 at the framework root. Returns the number of
 /// hashed files.
-pub(crate) fn write_manifest(root: &Path) -> anyhow::Result<usize> {
+pub(super) fn write_manifest(root: &Path) -> anyhow::Result<usize> {
     let entries = manifest_entries(root)?;
     let content = manifest_lines(&entries);
     let target = root.join(MANIFEST_FILE);

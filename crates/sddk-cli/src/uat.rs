@@ -2264,7 +2264,7 @@ fn render_dashboard_html(
     theme: &str,
     environment: &crate::CliEnvironment,
 ) -> anyhow::Result<String> {
-    let assets = crate::dev::resolve_assets_dir(environment)?;
+    let assets = crate::dev::paths::resolve_assets_dir(environment)?;
     let kit = assets.map(|a| a.join("uat-dashboard")).unwrap_or_default();
 
     let tokens = read_asset(&kit.join("kit/tokens.css"))?;
