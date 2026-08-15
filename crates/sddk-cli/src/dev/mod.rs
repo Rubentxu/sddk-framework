@@ -4,12 +4,12 @@ use clap::{Subcommand, Args, ValueEnum};
 use serde::{Serialize, Deserialize};
 
 pub mod common;
+pub mod manifest;
+pub mod registry;
 mod doctor;
 mod check;
 mod install;
-mod manifest;
 mod paths;
-mod registry;
 mod uninstall;
 mod verify;
 mod link;

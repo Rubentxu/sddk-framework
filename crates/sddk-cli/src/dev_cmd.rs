@@ -10,6 +10,9 @@ use sha2::{Digest, Sha256};
 use crate::{CliEnvironment, CommandOutput, OutputFormat, render_result};
 use crate::dev::common::{MANIFEST_SURFACES, RECEIPT_FILE, read_receipt, tool_version, atomic_write, failure_status, walk_dir, sha256_hex};
 use crate::dev::InstallReceipt;
+use crate::dev::manifest::{MANIFEST_FILE, verify_manifest};
+use crate::dev::registry::write_skill_registry;
+// resolve_project_id_for_registry stays local in dev_cmd.rs for tests
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum DevCommand {
@@ -42,9 +45,6 @@ pub(crate) enum DevCommand {
 /// add it as a separate entry or files will be hashed twice.
 /// MANIFEST_SURFACES moved to dev::common.rs (C2) — accessed via crate::dev::common::MANIFEST_SURFACES
 
-/// Manifest file name, written at the framework root (and shipped in the
-/// release bundle).
-pub(crate) const MANIFEST_FILE: &str = "MANIFEST.sha256";
 
 #[derive(Debug, Clone, Args)]
 pub(crate) struct ManifestArgs {
@@ -1196,161 +1196,6 @@ fn parse_skill_frontmatter(path: &Path) -> Option<SkillFrontmatter> {
     Some(SkillFrontmatter { name, description })
 }
 
-/// Escape pipes and newlines in a markdown table cell so the table renders correctly.
-fn escape_md_cell(s: &str) -> String {
-    s.replace('|', "\\|").replace('\n', "\\n")
-}
-
-/// Write an idempotent, deduplicated skill registry to
-/// `$SDDK_DATA_DIR/projects/<project_id>/skill-registry.md`.
-///
-/// Scans skills from three scopes in precedence order (first wins dedupe):
-/// 1. Project-level: `{project_root}/.opencode/skills/`, `.agents/skills/`,
-///    `.claude/skills/`, `.zcode/skills/`
-/// 2. User-level: `$HOME/.config/opencode/skills/`, `claude/skills/`, `zcode/skills/`
-/// 3. Framework-level: `{framework_root}/skills/`
-///
-/// Skips `_shared` and `skill-registry`. Parses frontmatter name + description.
-/// Extracts trigger from description (text before first ". "). Renders markdown table.
-/// File is written atomically so a second invocation produces byte-identical result.
-fn write_skill_registry(
-    environment: &CliEnvironment,
-    project_root: &Path,
-    framework_root: &Path,
-) -> anyhow::Result<(PathBuf, usize)> {
-    let project_id = resolve_project_id_for_registry(environment, project_root)?;
-    let registry_dir = sddk_data_dir(environment)?
-        .join("projects")
-        .join(&project_id);
-    let registry_path = registry_dir.join("skill-registry.md");
-    std::fs::create_dir_all(&registry_dir)?;
-
-    // Determine home dir for user-level scans.
-    // Prefer environment.home when set (tests, isolated environments);
-    // fall back to the system HOME variable.
-    let home = environment.home.clone().unwrap_or_else(|| {
-        std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("/tmp"))
-    });
-
-    // Define all scopes with their search paths in precedence order.
-    // Each entry: (scope_label, base_dir).
-    // User-level: documented editor config dirs (AGENTS/layout supports zcode + others from bundle).
-    // Project-level: project-root-relative dirs for adopted projects.
-    // Framework-level: skills/ inside the active framework bundle.
-    let scopes: Vec<(&str, PathBuf)> = vec![
-        // Project-level dirs under the adopted project root.
-        ("project", project_root.join(".opencode/skills")),
-        ("project", project_root.join(".agents/skills")),
-        ("project", project_root.join(".claude/skills")),
-        ("project", project_root.join(".zcode/skills")),
-        ("project", project_root.join(".kilo/skills")),
-        ("project", project_root.join(".codex/skills")),
-        // User-level dirs (XDG_CONFIG_HOME and HOME-relative documented paths).
-        ("user", home.join(".config/opencode/skills")),
-        ("user", home.join(".agents/skills")),
-        ("user", home.join(".claude/skills")),
-        ("user", home.join(".zcode/skills")),
-        ("user", home.join(".opencode/skills")),
-        ("user", home.join(".config/kilo/skills")),
-        ("user", home.join(".codex/skills")),
-        // Framework-level dirs under the framework root.
-        ("framework", framework_root.join("skills")),
-    ];
-
-    let mut entries: Vec<SkillRegistryEntry> = Vec::new();
-    let mut seen_names: std::collections::HashSet<String> = std::collections::HashSet::new();
-
-    for (scope, skills_base) in scopes {
-        if let Ok(skill_dirs) = std::fs::read_dir(&skills_base) {
-            // Collect and sort for deterministic processing order.
-            let mut dirs: Vec<_> = skill_dirs.flatten().collect();
-            dirs.sort_by_key(|e| e.file_name());
-            for skill_dir in dirs {
-                let dir_name = skill_dir.file_name();
-                let dir_name_str = dir_name.to_string_lossy();
-                // Skip internal entries that are not user-facing skills.
-                if dir_name_str == "_shared" || dir_name_str == "skill-registry" {
-                    continue;
-                }
-                let skill_path = skill_dir.path();
-                if !skill_path.is_dir() {
-                    continue;
-                }
-                let skl_md = skill_path.join("SKILL.md");
-                if !skl_md.is_file() {
-                    continue;
-                }
-                // Dedupe by frontmatter name (first wins — higher precedence scope wins).
-                let frontmatter_name = if let Some(fm) = parse_skill_frontmatter(&skl_md) {
-                    fm.name.clone()
-                } else {
-                    dir_name_str.to_string()
-                };
-                if seen_names.contains(&frontmatter_name) {
-                    continue;
-                }
-                seen_names.insert(frontmatter_name.clone());
-
-                // Parse frontmatter for trigger and description.
-                let (trigger, description) = if let Some(fm) = parse_skill_frontmatter(&skl_md) {
-                    // Trigger: text before first ". " or first period in description.
-                    let trigger_text = fm
-                        .description
-                        .split_once(". ")
-                        .map(|(t, _)| t.to_string())
-                        .or_else(|| fm.description.split_once('.').map(|(t, _)| t.to_string()))
-                        .unwrap_or_else(|| fm.description.clone());
-                    (trigger_text, fm.description)
-                } else {
-                    (String::new(), String::new())
-                };
-
-                entries.push(SkillRegistryEntry {
-                    name: frontmatter_name,
-                    trigger,
-                    description,
-                    scope: scope.to_string(),
-                    path: skl_md.to_string_lossy().replace('\\', "/"),
-                });
-            }
-        }
-    }
-
-    // Sort alphabetically by name.
-    entries.sort_by(|a, b| a.name.cmp(&b.name));
-
-    // Render as markdown table with escaped cells.
-    let mut content = String::new();
-    content.push_str("# Skill Registry\n\n");
-    content.push_str("| Name | Trigger | Description | Scope | Path |\n");
-    content.push_str("|------|---------|-------------|-------|------|\n");
-    for entry in &entries {
-        content.push_str(&format!(
-            "| {} | {} | {} | {} | {} |\n",
-            escape_md_cell(&entry.name),
-            escape_md_cell(&entry.trigger),
-            escape_md_cell(&entry.description),
-            escape_md_cell(&entry.scope),
-            escape_md_cell(&entry.path),
-        ));
-    }
-
-    atomic_write(&registry_path, content.as_bytes(), None)?;
-    Ok((registry_path, entries.len()))
-}
-
-/// Resolve project_id for the skill registry writer.
-///
-/// Uses ONLY `crate::resolve_remote` (git command), `crate::find_persisted_fallback_seed`
-/// (adoption receipt), and `sddk_domain::resolve_project_identity` — never fabricates
-/// a UUID from a hash.
-///
-/// Priority:
-///  1. Git remote URL → canonical resolver (stable p-* across machines)
-///  2. Persisted adoption receipt seed → seeded fallback (stable p-* for adopted dirs)
-///  3. Neither → explicit error with instructions to run `sddk adopt`
 fn resolve_project_id_for_registry(
     environment: &CliEnvironment,
     project_root: &Path,
@@ -1387,40 +1232,6 @@ fn resolve_project_id_for_registry(
 /// Verify a framework root against its MANIFEST.sha256. Returns the list of
 /// mismatches (empty = intact). A missing manifest is reported as a single
 /// entry. Duplicate manifest entries are reported as mismatch.
-pub(crate) fn verify_manifest(root: &Path) -> anyhow::Result<Vec<String>> {
-    let manifest_path = root.join(MANIFEST_FILE);
-    let raw = std::fs::read_to_string(&manifest_path)?;
-    let mut mismatches = Vec::new();
-    let mut seen_paths = std::collections::HashSet::new();
-    for line in raw.lines() {
-        if line.is_empty() {
-            continue;
-        }
-        let (expected, encoded_relative) = line
-            .split_once("  ")
-            .ok_or_else(|| anyhow::anyhow!("malformed manifest line: {line}"))?;
-        let relative = decode_manifest_path(encoded_relative)?;
-
-        // Detect duplicate manifest entries
-        if !seen_paths.insert(relative.clone()) {
-            mismatches.push(format!("{relative}: duplicate manifest entry"));
-            continue;
-        }
-
-        let file = root.join(&relative);
-        if !file.is_file() {
-            mismatches.push(format!("{relative}: missing"));
-            continue;
-        }
-        let actual = sha256_hex(&file)?;
-        if actual != expected {
-            mismatches.push(format!("{relative}: hash mismatch"));
-        }
-    }
-    Ok(mismatches)
-}
-
-/// Run the `dev manifest` subcommand.
 fn run_dev_manifest(args: ManifestArgs) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<String> {
