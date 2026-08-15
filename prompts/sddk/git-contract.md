@@ -59,6 +59,21 @@ git push origin "refs/tags/$TAG"
 test "$(git ls-remote origin "refs/tags/$TAG^{}" | awk '{print $1}')" = "$SHA"
 ```
 
+**Branch convention for A-min cycles:** for A-min cycle paths, `cycle start`
+defaults `manifest.branch = "main"` (trunk-linear). Pass `--branch` explicitly
+only when the cycle uses a feature-branch-chain strategy.
+
+```bash
+# A-min: no --branch needed (defaults to main)
+sddk cycle start --name <X> --path a-min
+
+# A-min with explicit branch override (rare; only for feature-branch-chain)
+sddk cycle start --name <X> --path a-min --branch feat/<X>
+
+# A-full / A-lite / B-direct: still defaults to feat/<name>
+sddk cycle start --name <X> --path a-full
+```
+
 The typed equivalent is:
 
 ```bash
@@ -71,6 +86,24 @@ The local route reads the cycle's `verification-report`, `tests-pass`,
 `--route forge --repo owner/repo` remains available only for optional external
 integration. It must not read provider checks or become the authority for the
 main SHA or tag.
+
+### Troubleshooting
+
+**If `git push` fails with auth errors**, the runner surfaces a structured hint:
+
+```
+git push failed: credentials not available to the typed runner.
+The runner has no TTY and uses an env allowlist that excludes GH_TOKEN/GITHUB_TOKEN.
+To fix, choose ONE of:
+  1. gh auth login                       # interactive, requires TTY
+  2. gh auth setup-git                   # configure git credential helper via gh
+  3. git config --global credential.helper store
+     git push                            # one-time cache
+```
+
+The runner hermeticity invariant (`Stdio::null()` + `env_clear()`) is preserved;
+only `GIT_TERMINAL_PROMPT=0` is forwarded to make credential helpers fail fast
+instead of blocking on a non-existent TTY.
 
 ## Invariants
 

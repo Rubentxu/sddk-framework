@@ -41,9 +41,35 @@ GitHub API or CI/CD service does not.
    `git status --porcelain` is empty, and the checkout is `main`.
 2. **Synchronize and verify trunk.** Fetch and fast-forward from `origin/main`.
    Before changing the remote, the checked-out HEAD must equal `origin/main`.
-3. **Push direct trunk.** Push `main` directly. This is the only required
-   publication action.
-4. **Verify the remote SHA.** Fetch `origin/main` and prove that the full local
+ 3. **Push direct trunk.** Push `main` directly. This is the only required
+    publication action.
+
+    **Note on `cycle start` for A-min:** on trunk-linear repos (like
+    `sddk-framework` itself), A-min cycles default `manifest.branch = "main"`.
+    The correct invocation is:
+
+    ```bash
+    sddk cycle start --name <X> --path a-min   # no --branch needed
+    ```
+
+    Only add `--branch` when the cycle explicitly uses a feature-branch-chain
+    strategy.
+
+    **If `git push` fails with auth errors:** the runner surfaces a four-line
+    hint. The runner has no TTY and excludes `GH_TOKEN`/`GITHUB_TOKEN` from its
+    env allowlist. To fix:
+
+    ```
+    git push failed: credentials not available to the typed runner.
+    The runner has no TTY and uses an env allowlist that excludes GH_TOKEN/GITHUB_TOKEN.
+    To fix, choose ONE of:
+      1. gh auth login                       # interactive, requires TTY
+      2. gh auth setup-git                   # configure git credential helper via gh
+      3. git config --global credential.helper store
+         git push                            # one-time cache
+    ```
+
+ 4. **Verify the remote SHA.** Fetch `origin/main` and prove that the full local
    `HEAD` SHA equals the full `origin/main` SHA.
 5. **Create or verify the annotated tag.** A pre-existing tag is accepted only
    when it is annotated and peels to the verified main SHA. Otherwise create
