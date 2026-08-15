@@ -3,6 +3,38 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.18] - 2026-08-15
+
+Corrige el race condition en la asignación de `seq` para `GateReceipt`:
+`allocate_gate_receipt_seq` + `insert_gate_receipt` eran dos llamadas separadas;
+entre ellas otro thread podía allocatear el mismo seq, causando UNIQUE violation
+o receipt_ids duplicados. INC-DEBT-007 (ponytail death).
+
+### Fixed race
+  - fix(storage): `insert_gate_receipt_next_seq` colapsa allocate + format + insert
+    en una sola transacción `IMMEDIATE` SQLite. El lock de escritura serializa
+    las asignaciones concurrentes; `seq` y `receipt_id` se producen juntos.
+    (`crates/sddk-storage/src/lib.rs:946-1005`)
+
+### Removed
+  - remove(storage): `Storage::allocate_gate_receipt_seq` eliminado (INC-DEBT-007).
+    El método era el ponytail del race; no tiene más usuarios tras la migración.
+    (`crates/sddk-storage/src/lib.rs`)
+
+### Changed
+  - refactor(engine): `Engine::evaluate_gate` ahora llama una sola vez a
+    `insert_gate_receipt_next_seq` en lugar de allocate + insert separados.
+    El formatter `gate-{gate}-{plan_hash[7..23]}-{seq}` se mueve al storage.
+    (`crates/sddk-engine/src/lib.rs:882-896`)
+
+### Tests
+  - test(storage): reescritura de `storage_insert_gate_receipt_concurrent_allocations_observe_distinct_seq`
+    (100 iter × 2 threads, BD compartida, `Arc<Barrier>`, seq exactos 1..=201)
+  - test(storage): nuevo `storage_insert_gate_receipt_next_seq_golden_rid_format`
+    verifica formato byte-idéntico del `receipt_id`
+  - test(engine): `engine_evaluate_gate_increments_seq_on_reevaluation` añade regex
+    lock `^gate-.{1,128}-[0-9a-f]{16}-[0-9]+$` sobre el receipt_id
+
 ## [1.9.17] - 2026-08-15
 
 Cierra el leak de puerto en `uat_stale_tests::stale_detects_geometry_change` (INC-DEBT-006):

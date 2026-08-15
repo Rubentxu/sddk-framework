@@ -22,8 +22,8 @@ use sddk_domain::{
     WORKFLOW_SCHEMA_VERSION, WorkflowManifest,
 };
 use sddk_storage::{
-    CycleLease, CycleRecord, GateOutcomeStatus, GateReceipt, GateReceiptInput, LedgerEvent,
-    LedgerEventInput, Storage, StorageError,
+    CycleLease, CycleRecord, GateOutcomeStatus, GateReceipt, GateReceiptInput,
+    GateReceiptNextSeqInput, LedgerEvent, LedgerEventInput, Storage, StorageError,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -881,26 +881,23 @@ impl Engine {
         }
         let state_before = self.storage.get_cycle(&input.cycle_id)?.manifest;
         let plan_hash = self.plan_hash(&input.cycle_id, &input.transition_id, &state_before);
-        let seq = self
-            .storage
-            .allocate_gate_receipt_seq(&input.gate, &plan_hash)?;
         let frame_id = format!("frame:{}", input.command_id);
-        Ok(self.storage.insert_gate_receipt(&GateReceiptInput {
-            receipt_id: format!("gate-{}-{}-{}", input.gate, &plan_hash[7..23], seq),
-            project_id: state_before.project_id,
-            cycle_id: Some(input.cycle_id.clone()),
-            gate: input.gate.clone(),
-            evaluator: input.evaluator.clone(),
-            transition_id: input.transition_id.clone(),
-            plan_hash,
-            outcome: input.outcome,
-            evidence: input.evidence.clone(),
-            actor: input.actor.clone(),
-            command_id: input.command_id.clone(),
-            frame_id,
-            evaluated_at: input.evaluated_at.clone(),
-            seq,
-        })?)
+        Ok(self
+            .storage
+            .insert_gate_receipt_next_seq(&GateReceiptNextSeqInput {
+                project_id: state_before.project_id,
+                cycle_id: Some(input.cycle_id.clone()),
+                gate: input.gate.clone(),
+                evaluator: input.evaluator.clone(),
+                transition_id: input.transition_id.clone(),
+                plan_hash,
+                outcome: input.outcome,
+                evidence: input.evidence.clone(),
+                actor: input.actor.clone(),
+                command_id: input.command_id.clone(),
+                frame_id,
+                evaluated_at: input.evaluated_at.clone(),
+            })?)
     }
 
     /// Returns the validated workflow manifest.

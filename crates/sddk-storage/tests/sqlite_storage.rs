@@ -2,7 +2,8 @@ use rusqlite::Connection;
 use sddk_domain::{CycleId, CycleManifest, CycleStatus};
 use sddk_storage::{
     ArtifactRecord, CapabilityReceiptInput, CapabilityStatus, CycleRecord, GateOutcomeStatus,
-    GateReceiptInput, LedgerEventInput, ProjectRecord, Storage, StorageError, WorkspaceRecord,
+    GateReceiptInput, GateReceiptNextSeqInput, LedgerEventInput, ProjectRecord, Storage,
+    StorageError, WorkspaceRecord,
 };
 use serde_json::json;
 use tempfile::tempdir;
@@ -592,6 +593,28 @@ fn gate_receipt_input_full(
     }
 }
 
+fn gate_receipt_next_seq_input(
+    gate: &str,
+    plan_hash: &str,
+    outcome: GateOutcomeStatus,
+    cycle_id: &str,
+) -> GateReceiptNextSeqInput {
+    GateReceiptNextSeqInput {
+        project_id: "project-1".into(),
+        cycle_id: Some(cycle_id.into()),
+        gate: gate.into(),
+        evaluator: "sddk.cli".into(),
+        transition_id: "phase.explore.complete".into(),
+        plan_hash: plan_hash.into(),
+        outcome,
+        evidence: json!({"verified": true}),
+        actor: "test-runtime".into(),
+        command_id: "cmd-1".into(),
+        frame_id: "frame-1".into(),
+        evaluated_at: CREATED_AT.into(),
+    }
+}
+
 #[test]
 fn storage_insert_gate_receipt_allocates_seq_per_group() {
     let mut storage = Storage::open_in_memory().unwrap();
@@ -603,10 +626,9 @@ fn storage_insert_gate_receipt_allocates_seq_per_group() {
 
     let plan_hash = "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
 
-    // First insert for (gate, plan_hash) yields seq=1
+    // First insert for (gate, plan_hash) yields seq=1 and correct rid
     let first = storage
-        .insert_gate_receipt(&gate_receipt_input_full(
-            "gate-exploration-sufficient-abcdef12-1",
+        .insert_gate_receipt_next_seq(&gate_receipt_next_seq_input(
             "exploration-sufficient",
             plan_hash,
             GateOutcomeStatus::Passed,
@@ -614,16 +636,14 @@ fn storage_insert_gate_receipt_allocates_seq_per_group() {
         ))
         .unwrap();
     assert_eq!(first.seq, 1);
+    assert_eq!(
+        first.receipt_id,
+        "gate-exploration-sufficient-abcdef1234567890-1"
+    );
 
-    // Allocate seq for second insert
-    let seq2 = storage
-        .allocate_gate_receipt_seq("exploration-sufficient", plan_hash)
-        .unwrap();
-    assert_eq!(seq2, 2);
-
+    // Second insert yields seq=2 and correct rid
     let second = storage
-        .insert_gate_receipt(&GateReceiptInput {
-            receipt_id: format!("gate-exploration-sufficient-abcdef12-{}", seq2),
+        .insert_gate_receipt_next_seq(&GateReceiptNextSeqInput {
             project_id: "project-1".into(),
             cycle_id: Some(cycle_id.into()),
             gate: "exploration-sufficient".into(),
@@ -636,10 +656,13 @@ fn storage_insert_gate_receipt_allocates_seq_per_group() {
             command_id: "cmd-2".into(),
             frame_id: "frame-2".into(),
             evaluated_at: CREATED_AT.into(),
-            seq: seq2,
         })
         .unwrap();
     assert_eq!(second.seq, 2);
+    assert_eq!(
+        second.receipt_id,
+        "gate-exploration-sufficient-abcdef1234567890-2"
+    );
 
     // Both rows readable via list_gate_receipts
     let receipts = storage.list_gate_receipts(cycle_id).unwrap();
@@ -664,10 +687,10 @@ fn storage_insert_gate_receipt_concurrent_allocations_observe_distinct_seq() {
         storage.insert_project(&project_record()).unwrap();
         storage.insert_workspace(&workspace_record()).unwrap();
         storage.insert_cycle(&cycle).unwrap();
-        // Insert first receipt with seq=1
+        // Insert first receipt with seq=1 (using old API to bootstrap)
         storage
             .insert_gate_receipt(&gate_receipt_input_full(
-                &format!("gate-{}-abcdef12-1", "exploration-sufficient"),
+                "gate-exploration-sufficient-abcdef12-1",
                 "exploration-sufficient",
                 "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
                 GateOutcomeStatus::Passed,
@@ -685,6 +708,7 @@ fn storage_insert_gate_receipt_concurrent_allocations_observe_distinct_seq() {
     let cycle_id_thread = cycle_id.clone();
 
     // Two threads each open their own Storage connection to the same database
+    // Each thread inserts 100 times (total 200 inserts, seq 2..=201)
     let handle_a = {
         let database_path = Arc::clone(&database_path);
         let barrier = Arc::clone(&barrier);
@@ -694,27 +718,24 @@ fn storage_insert_gate_receipt_concurrent_allocations_observe_distinct_seq() {
         thread::spawn(move || {
             barrier.wait();
             let mut storage = Storage::open(&*database_path).unwrap();
-            let seq = storage
-                .allocate_gate_receipt_seq(&gate, &plan_hash)
-                .unwrap();
-            storage
-                .insert_gate_receipt(&GateReceiptInput {
-                    receipt_id: format!("gate-{}-{}-{}", gate, "abcdef12", seq),
-                    project_id: "project-1".into(),
-                    cycle_id: Some(cycle_id.clone()),
-                    gate: gate.clone(),
-                    evaluator: "sddk.cli".into(),
-                    transition_id: "phase.explore.complete".into(),
-                    plan_hash: plan_hash.clone(),
-                    outcome: GateOutcomeStatus::Passed,
-                    evidence: json!({"verified": true}),
-                    actor: "test-runtime".into(),
-                    command_id: "cmd-a".into(),
-                    frame_id: "frame-a".into(),
-                    evaluated_at: CREATED_AT.into(),
-                    seq,
-                })
-                .unwrap()
+            for i in 0..100 {
+                storage
+                    .insert_gate_receipt_next_seq(&GateReceiptNextSeqInput {
+                        project_id: "project-1".into(),
+                        cycle_id: Some(cycle_id.clone()),
+                        gate: gate.clone(),
+                        evaluator: "sddk.cli".into(),
+                        transition_id: "phase.explore.complete".into(),
+                        plan_hash: plan_hash.clone(),
+                        outcome: GateOutcomeStatus::Passed,
+                        evidence: json!({"verified": true}),
+                        actor: "test-runtime".into(),
+                        command_id: format!("cmd-a-{}", i),
+                        frame_id: format!("frame-a-{}", i),
+                        evaluated_at: CREATED_AT.into(),
+                    })
+                    .unwrap();
+            }
         })
     };
 
@@ -727,39 +748,75 @@ fn storage_insert_gate_receipt_concurrent_allocations_observe_distinct_seq() {
         thread::spawn(move || {
             barrier.wait();
             let mut storage = Storage::open(&*database_path).unwrap();
-            let seq = storage
-                .allocate_gate_receipt_seq(&gate, &plan_hash)
-                .unwrap();
-            storage
-                .insert_gate_receipt(&GateReceiptInput {
-                    receipt_id: format!("gate-{}-{}-{}", gate, "abcdef12", seq),
-                    project_id: "project-1".into(),
-                    cycle_id: Some(cycle_id.clone()),
-                    gate: gate.clone(),
-                    evaluator: "sddk.cli".into(),
-                    transition_id: "phase.explore.complete".into(),
-                    plan_hash: plan_hash.clone(),
-                    outcome: GateOutcomeStatus::Failed,
-                    evidence: json!({"verified": false}),
-                    actor: "test-runtime".into(),
-                    command_id: "cmd-b".into(),
-                    frame_id: "frame-b".into(),
-                    evaluated_at: CREATED_AT.into(),
-                    seq,
-                })
-                .unwrap()
+            for i in 0..100 {
+                storage
+                    .insert_gate_receipt_next_seq(&GateReceiptNextSeqInput {
+                        project_id: "project-1".into(),
+                        cycle_id: Some(cycle_id.clone()),
+                        gate: gate.clone(),
+                        evaluator: "sddk.cli".into(),
+                        transition_id: "phase.explore.complete".into(),
+                        plan_hash: plan_hash.clone(),
+                        outcome: GateOutcomeStatus::Failed,
+                        evidence: json!({"verified": false}),
+                        actor: "test-runtime".into(),
+                        command_id: format!("cmd-b-{}", i),
+                        frame_id: format!("frame-b-{}", i),
+                        evaluated_at: CREATED_AT.into(),
+                    })
+                    .unwrap();
+            }
         })
     };
 
     handle_a.join().unwrap();
     handle_b.join().unwrap();
 
-    // Final state has three rows: initial seq=1, plus two concurrent inserts
+    // Final state has 201 rows: initial seq=1, plus 200 concurrent inserts (seq 2..=201)
     let storage = Storage::open(&*database_path).unwrap();
     let receipts = storage.list_gate_receipts(&cycle_id).unwrap();
-    assert_eq!(receipts.len(), 3); // 1 initial + 2 concurrent
-    let seqs: Vec<i64> = receipts.iter().map(|r| r.seq).collect();
-    assert!(seqs.contains(&1) && seqs.contains(&2) && seqs.contains(&3));
+    assert_eq!(receipts.len(), 201);
+    let mut seqs: Vec<i64> = receipts.iter().map(|r| r.seq).collect();
+    seqs.sort_unstable();
+    // seqs must be exactly 1..=201 with no gaps and no duplicates
+    let expected: Vec<i64> = (1..=201).collect();
+    assert_eq!(seqs, expected);
+}
+
+#[test]
+fn storage_insert_gate_receipt_next_seq_golden_rid_format() {
+    // Golden byte-identical receipt_id: v1.9.17 compatible format
+    // rid = "gate-{gate}-{plan_hash[7..23]}-{seq}"
+    // plan_hash = "sha256:abcdef1234567890..." → [7..23] = "abcdef1234567890" (16 hex chars)
+    let mut storage = Storage::open_in_memory().unwrap();
+    storage.insert_project(&project_record()).unwrap();
+    storage.insert_workspace(&workspace_record()).unwrap();
+    let cycle = cycle_record();
+    let cycle_id = cycle.manifest.cycle_id.as_str();
+    storage.insert_cycle(&cycle).unwrap();
+
+    let plan_hash = "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
+    let receipt = storage
+        .insert_gate_receipt_next_seq(&gate_receipt_next_seq_input(
+            "exploration-sufficient",
+            plan_hash,
+            GateOutcomeStatus::Passed,
+            cycle_id,
+        ))
+        .unwrap();
+
+    // Byte-identical to v1.9.17 format
+    assert_eq!(
+        receipt.receipt_id,
+        "gate-exploration-sufficient-abcdef1234567890-1"
+    );
+    // Regex: ^gate-.{1,128}-[0-9a-f]{16}-[0-9]+$
+    let rid_regex = regex::Regex::new(r"^gate-.{1,128}-[0-9a-f]{16}-[0-9]+$").unwrap();
+    assert!(
+        rid_regex.is_match(&receipt.receipt_id),
+        "receipt_id '{}' must match regex",
+        receipt.receipt_id
+    );
 }
 
 #[test]

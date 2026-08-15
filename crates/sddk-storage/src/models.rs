@@ -266,6 +266,39 @@ pub struct GateReceiptInput {
     pub seq: i64,
 }
 
+/// Data required to persist one authorized gate receipt, with atomic seq allocation.
+///
+/// The `seq` number is computed inside the method and the `receipt_id` is
+/// built from it — both are **absent** from the input. This prevents split
+/// read-modify-write races between `allocate_gate_receipt_seq` and `insert_gate_receipt`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GateReceiptNextSeqInput {
+    /// Owning project identifier.
+    pub project_id: String,
+    /// Related cycle, when applicable.
+    pub cycle_id: Option<String>,
+    /// Evaluated gate name.
+    pub gate: String,
+    /// Registered evaluator identifier that issued the receipt.
+    pub evaluator: String,
+    /// Transition the gate belongs to.
+    pub transition_id: String,
+    /// Deterministic plan hash the receipt attests.
+    pub plan_hash: String,
+    /// Evaluation outcome.
+    pub outcome: GateOutcomeStatus,
+    /// Sanitized evaluation evidence.
+    pub evidence: Value,
+    /// Actor responsible for the evaluation.
+    pub actor: String,
+    /// Command invocation identifier.
+    pub command_id: String,
+    /// Frame shared by the command's events.
+    pub frame_id: String,
+    /// Caller-supplied evaluation timestamp.
+    pub evaluated_at: String,
+}
+
 /// An authorized, persisted gate evaluation receipt.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GateReceipt {

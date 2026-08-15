@@ -943,19 +943,67 @@ impl Storage {
         Ok(true)
     }
 
-    /// Allocates the next sequence number for a (gate, plan_hash) group.
-    /// Uses an IMMEDIATE transaction to serialize concurrent allocations.
-    pub fn allocate_gate_receipt_seq(&mut self, gate: &str, plan_hash: &str) -> Result<i64> {
+    /// Persists one authorized gate evaluation receipt with atomic seq allocation.
+    ///
+    /// Computes `seq = COALESCE(MAX(seq)+1, 1)` and builds the `receipt_id`
+    /// **inside the same IMMEDIATE transaction** as the `INSERT`, so concurrent
+    /// callers are serialized by SQLite's write lock and receive distinct sequences.
+    pub fn insert_gate_receipt_next_seq(
+        &mut self,
+        input: &GateReceiptNextSeqInput,
+    ) -> Result<GateReceipt> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let seq: i64 = transaction.query_row(
             "SELECT COALESCE(MAX(seq) + 1, 1) FROM gate_receipts WHERE gate = ?1 AND plan_hash = ?2",
-            [gate, plan_hash],
+            [&input.gate, &input.plan_hash],
             |row| row.get(0),
         )?;
+        debug_assert!(
+            input.plan_hash.len() >= 23,
+            "plan_hash must be at least 23 chars (sha256: + 16 hex)",
+        );
+        let receipt_id = format!("gate-{}-{}-{}", input.gate, &input.plan_hash[7..23], seq);
+        transaction.execute(
+            "INSERT INTO gate_receipts (
+                receipt_id, project_id, cycle_id, gate, evaluator, transition_id,
+                plan_hash, outcome, evidence, actor, command_id, frame_id, evaluated_at, seq
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            params![
+                receipt_id,
+                input.project_id,
+                input.cycle_id,
+                input.gate,
+                input.evaluator,
+                input.transition_id,
+                input.plan_hash,
+                enum_string(&input.outcome)?,
+                serde_json::to_string(&input.evidence)?,
+                input.actor,
+                input.command_id,
+                input.frame_id,
+                input.evaluated_at,
+                seq
+            ],
+        )?;
         transaction.commit()?;
-        Ok(seq)
+        Ok(GateReceipt {
+            receipt_id,
+            project_id: input.project_id.clone(),
+            cycle_id: input.cycle_id.clone(),
+            gate: input.gate.clone(),
+            evaluator: input.evaluator.clone(),
+            transition_id: input.transition_id.clone(),
+            plan_hash: input.plan_hash.clone(),
+            outcome: input.outcome,
+            evidence: input.evidence.clone(),
+            actor: input.actor.clone(),
+            command_id: input.command_id.clone(),
+            frame_id: input.frame_id.clone(),
+            evaluated_at: input.evaluated_at.clone(),
+            seq,
+        })
     }
 
     /// Persists one authorized gate evaluation receipt.

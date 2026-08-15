@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 
+use regex::Regex;
 use sddk_domain::{ArtifactRef, CycleManifest, CyclePath, CycleStatus, Phase};
 use sddk_engine::{
     CycleStartInput, Engine, EventContext, GateEvaluationInput, GateReceiptRef, TransitionEvidence,
@@ -588,6 +589,13 @@ fn engine_evaluate_gate_increments_seq_on_reevaluation() {
         first.receipt_id.ends_with("-1"),
         "first receipt_id should end with -1"
     );
+    // Regex: ^gate-.{1,128}-[0-9a-f]{16}-[0-9]+$
+    let rid_regex = regex::Regex::new(r"^gate-.{1,128}-[0-9a-f]{16}-[0-9]+$").unwrap();
+    assert!(
+        rid_regex.is_match(&first.receipt_id),
+        "receipt_id '{}' must match regex",
+        first.receipt_id
+    );
 
     // Second evaluation with identical state — no apply_transition in between
     let second = engine
@@ -607,6 +615,11 @@ fn engine_evaluate_gate_increments_seq_on_reevaluation() {
     assert!(
         second.receipt_id.ends_with("-2"),
         "second receipt_id should end with -2"
+    );
+    assert!(
+        rid_regex.is_match(&second.receipt_id),
+        "receipt_id '{}' must match regex",
+        second.receipt_id
     );
 
     // Both readable via list_gate_receipts

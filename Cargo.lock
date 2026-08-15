@@ -1409,6 +1409,7 @@ name = "sddk-engine"
 version = "1.9.17"
 dependencies = [
  "dirs",
+ "regex",
  "sddk-domain",
  "sddk-storage",
  "serde",
@@ -1442,6 +1443,7 @@ name = "sddk-storage"
 version = "1.9.17"
 dependencies = [
  "proptest",
+ "regex",
  "rusqlite",
  "sddk-domain",
  "serde",
