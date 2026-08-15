@@ -1,6 +1,9 @@
 //! Unit tests for the architecture-rule registry.
 
-use sddk_domain::{EvaluatorKind, RuleRegistry, RuleSeverity, RuleStatus, RuleTarget, ARCHITECTURE_RULES_SCHEMA_VERSION};
+use sddk_domain::{
+    ARCHITECTURE_RULES_SCHEMA_VERSION, EvaluatorKind, RuleRegistry, RuleSeverity, RuleStatus,
+    RuleTarget,
+};
 
 const SAMPLE_YAML: &str = r#"schema_version: 1.0.0
 rules:
@@ -46,7 +49,10 @@ rules:
 fn parse_five_rules() {
     let registry = RuleRegistry::from_yaml_str(SAMPLE_YAML).expect("parse should succeed");
     let ids: Vec<&str> = registry.iter().map(|r| r.id.as_str()).collect();
-    assert_eq!(ids, vec!["ARCH001", "ARCH002", "ARCH003", "ARCH004", "ARCH005"]);
+    assert_eq!(
+        ids,
+        vec!["ARCH001", "ARCH002", "ARCH003", "ARCH004", "ARCH005"]
+    );
 }
 
 #[test]
@@ -131,7 +137,10 @@ fn evaluation_serializes_without_cep_fields() {
     };
     let json = serde_json::to_string(&evaluation).expect("serialize");
     for forbidden in ["event_id", "caused_by", "frame_id", "correlation_token"] {
-        assert!(!json.contains(forbidden), "CEP field {forbidden} must not appear");
+        assert!(
+            !json.contains(forbidden),
+            "CEP field {forbidden} must not appear"
+        );
     }
 }
 

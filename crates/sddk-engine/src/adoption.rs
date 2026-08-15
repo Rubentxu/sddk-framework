@@ -5,11 +5,11 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use sddk_domain::error::SddkErrorCode;
 use sddk_domain::{
     AdoptionReceipt, IdentityError, IdentitySource, ResolvedProjectIdentity,
     resolve_project_identity, stable_workspace_id,
 };
-use sddk_domain::error::SddkErrorCode;
 use sddk_storage::{ProjectRecord, Storage, StorageError, WorkspaceRecord};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -163,11 +163,17 @@ impl SddkErrorCode for AdoptionError {
 
     fn recovery(&self) -> &'static str {
         match self {
-            Self::UnsafeState { status: AdoptionStatusKind::Conflict, .. } => {
+            Self::UnsafeState {
+                status: AdoptionStatusKind::Conflict,
+                ..
+            } => {
                 "if only the CLI version changed, run `sddk adopt refresh`; \
                  for identity drift, inspect the receipt manually"
             }
-            Self::UnsafeState { status: AdoptionStatusKind::Corrupt, .. } => {
+            Self::UnsafeState {
+                status: AdoptionStatusKind::Corrupt,
+                ..
+            } => {
                 "inspect the receipt file (it may have been truncated or \
                  edited) and re-adopt only after backing it up"
             }

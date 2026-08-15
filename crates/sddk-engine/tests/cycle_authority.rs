@@ -173,7 +173,9 @@ fn lease_fencing_blocks_stale_holders_and_expired_reacquire_bumps_token() {
         .unwrap();
     assert_eq!(lease.fencing_token, 1);
 
-    let fenced = engine.require_lease_fence("cycle-1", "agent-a", 1, 1_500).unwrap();
+    let fenced = engine
+        .require_lease_fence("cycle-1", "agent-a", 1, 1_500)
+        .unwrap();
     assert_eq!(fenced.owner, "agent-a");
 
     let stale_holder = engine.require_lease_fence("cycle-1", "agent-b", 1, 1_500);
@@ -199,7 +201,9 @@ fn lease_fencing_blocks_stale_holders_and_expired_reacquire_bumps_token() {
         })) if owner == "agent-b"
     ));
 
-    let valid = engine.require_lease_fence("cycle-1", "agent-b", 2, 3_500).unwrap();
+    let valid = engine
+        .require_lease_fence("cycle-1", "agent-b", 2, 3_500)
+        .unwrap();
     assert_eq!(valid.fencing_token, 2);
 }
 
@@ -220,7 +224,9 @@ fn renew_cycle_lease_keeps_token_valid_for_require_lease_fence() {
     assert_eq!(renewed.fencing_token, 1);
     assert_eq!(renewed.expires_at_ms, 5_000);
 
-    let fenced = engine.require_lease_fence("cycle-1", "agent-a", 1, 1_500).unwrap();
+    let fenced = engine
+        .require_lease_fence("cycle-1", "agent-a", 1, 1_500)
+        .unwrap();
     assert_eq!(fenced.fencing_token, 1);
     assert_eq!(fenced.expires_at_ms, 5_000);
 }
@@ -242,7 +248,13 @@ fn rebuild_restores_missing_snapshot_without_appending_events() {
         })
     ));
 
-    let rebuilt = engine.rebuild_cycle("cycle-1", &context("evt-rebuild-1", "cmd-rebuild-1"), 99_999).unwrap();
+    let rebuilt = engine
+        .rebuild_cycle(
+            "cycle-1",
+            &context("evt-rebuild-1", "cmd-rebuild-1"),
+            99_999,
+        )
+        .unwrap();
     assert!(rebuilt.restored);
     assert_eq!(rebuilt.manifest.phase, Phase::Specify);
     assert_eq!(rebuilt.sequence, 2);
@@ -253,7 +265,13 @@ fn rebuild_restores_missing_snapshot_without_appending_events() {
     assert_eq!(storage.list_events().unwrap().len(), 3);
     assert_eq!(storage.verify_ledger().unwrap().event_count, 3);
 
-    let again = engine.rebuild_cycle("cycle-1", &context("evt-rebuild-2", "cmd-rebuild-2"), 99_999).unwrap();
+    let again = engine
+        .rebuild_cycle(
+            "cycle-1",
+            &context("evt-rebuild-2", "cmd-rebuild-2"),
+            99_999,
+        )
+        .unwrap();
     assert!(!again.restored);
 }
 
@@ -439,18 +457,21 @@ fn apply_transition_releases_lease_on_phase_change() {
         .unwrap();
 
     let mut evidence = TransitionEvidence::default();
-    evidence
-        .artifacts
-        .insert("specification".into(), spec);
+    evidence.artifacts.insert("specification".into(), spec);
     evidence.gates.insert(
         "requirements-testable".into(),
-        GateReceiptRef { receipt_id: receipt.receipt_id.clone() },
+        GateReceiptRef {
+            receipt_id: receipt.receipt_id.clone(),
+        },
     );
     let plan = engine
         .plan_transition("cycle-1", "phase.specify.complete", evidence)
         .unwrap();
     let applied = engine
-        .apply_transition(&plan, &context("evt-spec-complete-1", "command-spec-complete-1"))
+        .apply_transition(
+            &plan,
+            &context("evt-spec-complete-1", "command-spec-complete-1"),
+        )
         .unwrap();
     assert_eq!(applied.manifest.phase, Phase::Design);
 
@@ -458,13 +479,23 @@ fn apply_transition_releases_lease_on_phase_change() {
     // must be present in the same frame.
     assert!(matches!(
         storage.get_cycle_lease("cycle-1"),
-        Err(StorageError::NotFound { entity: "cycle lease", .. })
+        Err(StorageError::NotFound {
+            entity: "cycle lease",
+            ..
+        })
     ));
-    let frame_events = storage.list_frame_events(&format!("frame:{}", "command-spec-complete-1")).unwrap();
+    let frame_events = storage
+        .list_frame_events(&format!("frame:{}", "command-spec-complete-1"))
+        .unwrap();
     assert!(
-        frame_events.iter().any(|e| e.event_type == "lease.released"),
+        frame_events
+            .iter()
+            .any(|e| e.event_type == "lease.released"),
         "expected lease.released event in the same frame; got types: {:?}",
-        frame_events.iter().map(|e| &e.event_type).collect::<Vec<_>>()
+        frame_events
+            .iter()
+            .map(|e| &e.event_type)
+            .collect::<Vec<_>>()
     );
 }
 
@@ -498,7 +529,11 @@ fn rebuild_emits_audit_event_when_restored() {
     storage.delete_cycle_snapshot("cycle-1").unwrap();
 
     let rebuilt = engine
-        .rebuild_cycle("cycle-1", &context("evt-rebuild-1", "cmd-rebuild-1"), 99_999)
+        .rebuild_cycle(
+            "cycle-1",
+            &context("evt-rebuild-1", "cmd-rebuild-1"),
+            99_999,
+        )
         .unwrap();
     assert!(rebuilt.restored);
 

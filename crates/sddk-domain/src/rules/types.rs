@@ -4,19 +4,37 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum RuleSeverity { Error, Warning, WarningThenRatchet }
+pub enum RuleSeverity {
+    Error,
+    Warning,
+    WarningThenRatchet,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum RuleTarget { DependencyGraph, SourceImportsAndCalls, PackManifest, CapabilityImports }
+pub enum RuleTarget {
+    DependencyGraph,
+    SourceImportsAndCalls,
+    PackManifest,
+    CapabilityImports,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum RuleStatus { Pass, Fail, Waived, NotApplicable }
+pub enum RuleStatus {
+    Pass,
+    Fail,
+    Waived,
+    NotApplicable,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum EvaluatorKind { Heuristic, Ast, Schema }
+pub enum EvaluatorKind {
+    Heuristic,
+    Ast,
+    Schema,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArchitectureRule {

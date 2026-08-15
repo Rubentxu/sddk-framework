@@ -349,7 +349,10 @@ fn renew_cycle_lease_fails_with_stale_fencing_token() {
         .unwrap_err();
     assert!(matches!(
         error,
-        StorageError::LeaseNotRenewable { current_fencing_token: 1, .. }
+        StorageError::LeaseNotRenewable {
+            current_fencing_token: 1,
+            ..
+        }
     ));
 }
 

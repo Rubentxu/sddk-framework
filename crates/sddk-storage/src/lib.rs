@@ -460,10 +460,7 @@ impl Storage {
                 .map_err(StorageError::from)?;
             if deleted > 0 {
                 let release_event = LedgerEventInput {
-                    event_id: format!(
-                        "evt-lease-released-{}",
-                        uuid::Uuid::new_v4().hyphenated()
-                    ),
+                    event_id: format!("evt-lease-released-{}", uuid::Uuid::new_v4().hyphenated()),
                     project_id: manifest.project_id.clone(),
                     cycle_id: Some(manifest.cycle_id.clone()),
                     frame_id: event.frame_id.clone(),

@@ -1,24 +1,35 @@
 //! Integration tests for the baseline consumer + stub evaluator.
 
 use sddk_domain::{BaselineRef, RuleStatus};
-use sddk_engine::rules::{evaluate_all, Baseline, BaselineConsumer, BaselineError, CrossCrateImport};
+use sddk_engine::rules::{
+    Baseline, BaselineConsumer, BaselineError, CrossCrateImport, evaluate_all,
+};
 use std::path::PathBuf;
 
 fn make_baseline(imports: Vec<(&str, u32, &str)>) -> Baseline {
-    let cross_crate_imports = imports.into_iter().map(|(from_file, line, to_crate)| {
-        let parts: Vec<&str> = from_file.split('/').collect();
-        let from_crate = if parts.len() >= 2 && parts[0] == "crates" {
-            parts[1].to_owned()
-        } else {
-            "unknown".to_owned()
-        };
-        let to_crate = if to_crate.starts_with("sddk-") {
-            to_crate.to_owned()
-        } else {
-            format!("sddk-{}", to_crate)
-        };
-        CrossCrateImport { from_file: from_file.to_owned(), line, from_crate, to_crate_raw: to_crate.to_owned(), to_crate }
-    }).collect();
+    let cross_crate_imports = imports
+        .into_iter()
+        .map(|(from_file, line, to_crate)| {
+            let parts: Vec<&str> = from_file.split('/').collect();
+            let from_crate = if parts.len() >= 2 && parts[0] == "crates" {
+                parts[1].to_owned()
+            } else {
+                "unknown".to_owned()
+            };
+            let to_crate = if to_crate.starts_with("sddk-") {
+                to_crate.to_owned()
+            } else {
+                format!("sddk-{}", to_crate)
+            };
+            CrossCrateImport {
+                from_file: from_file.to_owned(),
+                line,
+                from_crate,
+                to_crate_raw: to_crate.to_owned(),
+                to_crate,
+            }
+        })
+        .collect();
     Baseline {
         ref_: BaselineRef {
             schema_version: "1.0.0".to_owned(),
@@ -77,7 +88,12 @@ rules:
     let results = evaluate_all(&registry, &baseline, "2026-08-13T12:00:00Z");
     assert_eq!(results.len(), 2);
     for r in &results {
-        assert_eq!(r.status, RuleStatus::NotApplicable, "ARCH{} should be NotApplicable", &r.rule_id[4..]);
+        assert_eq!(
+            r.status,
+            RuleStatus::NotApplicable,
+            "ARCH{} should be NotApplicable",
+            &r.rule_id[4..]
+        );
         assert!(r.provenance.is_some(), "every rule needs provenance");
     }
 }
@@ -138,12 +154,14 @@ fn shipped_catalog_parses_with_five_rules() {
     // Regression: shipped architecture-rules.yaml must parse with ARCH001..ARCH005 only.
     let yaml_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../docs/sddk-2.0-architecture-consolidation/data/architecture-rules.yaml");
-    let yaml = std::fs::read_to_string(&yaml_path)
-        .expect("shipped YAML must be readable");
+    let yaml = std::fs::read_to_string(&yaml_path).expect("shipped YAML must be readable");
     let registry = sddk_domain::RuleRegistry::from_yaml_str(&yaml)
         .expect("shipped YAML must parse with 5 rules");
     let ids: Vec<&str> = registry.iter().map(|r| r.id.as_str()).collect();
-    assert_eq!(ids, vec!["ARCH001", "ARCH002", "ARCH003", "ARCH004", "ARCH005"]);
+    assert_eq!(
+        ids,
+        vec!["ARCH001", "ARCH002", "ARCH003", "ARCH004", "ARCH005"]
+    );
 }
 
 #[test]
@@ -152,10 +170,9 @@ fn shipped_catalog_against_baseline_produces_five_evaluations() {
     // all with status=NotApplicable, all with provenance.
     let yaml_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../docs/sddk-2.0-architecture-consolidation/data/architecture-rules.yaml");
-    let yaml = std::fs::read_to_string(&yaml_path)
-        .expect("shipped YAML must be readable");
-    let registry = sddk_domain::RuleRegistry::from_yaml_str(&yaml)
-        .expect("shipped YAML must parse");
+    let yaml = std::fs::read_to_string(&yaml_path).expect("shipped YAML must be readable");
+    let registry =
+        sddk_domain::RuleRegistry::from_yaml_str(&yaml).expect("shipped YAML must parse");
 
     let baseline_path = dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("~/.local/share"))
@@ -165,7 +182,11 @@ fn shipped_catalog_against_baseline_produces_five_evaluations() {
     let baseline = consumer.load().expect("baseline must load");
 
     let results = evaluate_all(&registry, &baseline, "2026-08-13T12:00:00Z");
-    assert_eq!(results.len(), 5, "shipped catalog must produce 5 evaluations");
+    assert_eq!(
+        results.len(),
+        5,
+        "shipped catalog must produce 5 evaluations"
+    );
     for r in &results {
         assert_eq!(r.status, RuleStatus::NotApplicable);
         assert!(r.provenance.is_some(), "every rule needs provenance");
