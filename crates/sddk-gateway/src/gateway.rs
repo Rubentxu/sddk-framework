@@ -119,10 +119,7 @@ impl CapabilityGateway {
         // Merge capability-specific env defaults (git.* uses git_capability_env)
         // with caller-provided env. Caller wins on key collision (Command::env semantics).
         let defaults = capability_default_env(&input.capability);
-        let env = defaults
-            .into_iter()
-            .chain(input.env.clone())
-            .collect();
+        let env = defaults.into_iter().chain(input.env.clone()).collect();
         let run_spec = RunSpec {
             program: input.program.clone(),
             args: input.args.clone(),
