@@ -4,6 +4,41 @@ use crate::cycle::CycleManifest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+// Storage error exposed via the Ledger trait. The concrete SQLite
+// implementation in `sddk_storage` wraps this via a From impl.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StorageError {
+    /// A requested record does not exist.
+    NotFound {
+        entity: &'static str,
+        id: String,
+    },
+    /// A database-level error (constraint violation, I/O failure, etc.).
+    Database(String),
+    /// A lease conflict: the resource is already locked by another owner.
+    LeaseConflict {
+        cycle_id: String,
+        owner: String,
+    },
+    /// A storage operation failed; see the inner error for details.
+    Other(String),
+}
+
+impl std::fmt::Display for StorageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound { entity, id } => write!(f, "{entity} not found: {id}"),
+            Self::Database(msg) => write!(f, "database error: {msg}"),
+            Self::LeaseConflict { cycle_id, owner } => {
+                write!(f, "lease conflict on {cycle_id} held by {owner}")
+            }
+            Self::Other(msg) => write!(f, "storage error: {msg}"),
+        }
+    }
+}
+
+impl std::error::Error for StorageError {}
+
 /// A logical SDDK project.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectRecord {

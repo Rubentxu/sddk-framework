@@ -1558,3 +1558,151 @@ impl sddk_domain::SddkErrorCode for StorageError {
         }
     }
 }
+
+/// Converts `sddk_storage::StorageError` → `sddk_domain::StorageError`.
+/// Required so that `impl sddk_domain::Ledger for Storage` methods can use `?`
+/// and Rust will apply the conversion automatically.
+impl From<StorageError> for sddk_domain::StorageError {
+    fn from(err: StorageError) -> Self {
+        match err {
+            StorageError::NotFound { entity, id } => sddk_domain::StorageError::NotFound { entity, id },
+            StorageError::Database(msg) => sddk_domain::StorageError::Database(msg.to_string()),
+            StorageError::LeaseConflict { cycle_id, owner, .. } => {
+                sddk_domain::StorageError::LeaseConflict { cycle_id, owner }
+            }
+            _ => sddk_domain::StorageError::Other(err.to_string()),
+        }
+    }
+}
+
+impl sddk_domain::Ledger for Storage {
+    fn get_cycle(&self, cycle_id: &str) -> std::result::Result<CycleRecord, sddk_domain::StorageError> {
+        Storage::get_cycle(self, cycle_id).map_err(|e| e.into())
+    }
+
+    fn list_cycle_events(&self, cycle_id: &str) -> std::result::Result<Vec<LedgerEvent>, sddk_domain::StorageError> {
+        Storage::list_cycle_events(self, cycle_id).map_err(|e| e.into())
+    }
+
+    fn insert_cycle_with_event(
+        &mut self,
+        cycle: &CycleRecord,
+        event: &LedgerEventInput,
+    ) -> std::result::Result<LedgerEvent, sddk_domain::StorageError> {
+        Storage::insert_cycle_with_event(self, cycle, event).map_err(|e| e.into())
+    }
+
+    fn update_cycle_with_event(
+        &mut self,
+        manifest: &crate::CycleManifest,
+        updated_at: &str,
+        event: &LedgerEventInput,
+        release_lease_on_phase_change: bool,
+    ) -> std::result::Result<LedgerEvent, sddk_domain::StorageError> {
+        Storage::update_cycle_with_event(
+            self,
+            manifest,
+            updated_at,
+            event,
+            release_lease_on_phase_change,
+        )
+        .map_err(|e| e.into())
+    }
+
+    fn acquire_cycle_lease(
+        &mut self,
+        cycle_id: &str,
+        owner: &str,
+        now_ms: i64,
+        expires_at_ms: i64,
+    ) -> std::result::Result<CycleLease, sddk_domain::StorageError> {
+        Storage::acquire_cycle_lease(self, cycle_id, owner, now_ms, expires_at_ms).map_err(|e| e.into())
+    }
+
+    fn release_cycle_lease(
+        &mut self,
+        project_id: &str,
+        cycle_id: &str,
+        owner: &str,
+        fencing_token: i64,
+        actor: &str,
+        command_id: &str,
+        occurred_at: &str,
+    ) -> std::result::Result<bool, sddk_domain::StorageError> {
+        Storage::release_cycle_lease(
+            self,
+            project_id,
+            cycle_id,
+            owner,
+            fencing_token,
+            actor,
+            command_id,
+            occurred_at,
+        )
+        .map_err(|e| e.into())
+    }
+
+    fn renew_cycle_lease(
+        &mut self,
+        cycle_id: &str,
+        owner: &str,
+        fencing_token: i64,
+        now_ms: i64,
+        new_expires_at_ms: i64,
+    ) -> std::result::Result<CycleLease, sddk_domain::StorageError> {
+        Storage::renew_cycle_lease(self, cycle_id, owner, fencing_token, now_ms, new_expires_at_ms)
+            .map_err(|e| e.into())
+    }
+
+    fn get_cycle_lease(&self, cycle_id: &str) -> std::result::Result<CycleLease, sddk_domain::StorageError> {
+        Storage::get_cycle_lease(self, cycle_id).map_err(|e| e.into())
+    }
+
+    fn verify_cycle_lease(
+        &self,
+        cycle_id: &str,
+        owner: &str,
+        fencing_token: i64,
+        now_ms: i64,
+    ) -> std::result::Result<CycleLease, sddk_domain::StorageError> {
+        Storage::verify_cycle_lease(self, cycle_id, owner, fencing_token, now_ms).map_err(|e| e.into())
+    }
+
+    fn get_gate_receipt(&self, receipt_id: &str) -> std::result::Result<GateReceipt, sddk_domain::StorageError> {
+        Storage::get_gate_receipt(self, receipt_id).map_err(|e| e.into())
+    }
+
+    fn insert_gate_receipt_next_seq(
+        &mut self,
+        input: &GateReceiptNextSeqInput,
+    ) -> std::result::Result<GateReceipt, sddk_domain::StorageError> {
+        Storage::insert_gate_receipt_next_seq(self, input).map_err(|e| e.into())
+    }
+
+    fn get_project_optional(
+        &self,
+        project_id: &str,
+    ) -> std::result::Result<Option<ProjectRecord>, sddk_domain::StorageError> {
+        Storage::get_project_optional(self, project_id).map_err(|e| e.into())
+    }
+
+    fn get_workspace_optional(
+        &self,
+        workspace_id: &str,
+    ) -> std::result::Result<Option<WorkspaceRecord>, sddk_domain::StorageError> {
+        Storage::get_workspace_optional(self, workspace_id).map_err(|e| e.into())
+    }
+
+    fn has_projects(&self) -> std::result::Result<bool, sddk_domain::StorageError> {
+        Storage::has_projects(self).map_err(|e| e.into())
+    }
+
+    fn register_project_workspace(
+        &mut self,
+        project: &ProjectRecord,
+        workspace: &WorkspaceRecord,
+    ) -> std::result::Result<(), sddk_domain::StorageError> {
+        Storage::register_project_workspace(self, project, workspace).map_err(|e| e.into())
+    }
+}
+

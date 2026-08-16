@@ -18,13 +18,11 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use sddk_domain::{
-    ArtifactRef, CycleManifest, CyclePath, CycleStatus, Phase, Requirement, StateRef, Transition,
-    WORKFLOW_SCHEMA_VERSION, WorkflowManifest,
+    ArtifactRef, CycleLease, CycleManifest, CyclePath, CycleRecord, CycleStatus, GateOutcomeStatus,
+    Ledger, LedgerEvent, Phase, ProjectRecord, Requirement, StateRef, StorageError, Transition,
+    WorkspaceRecord, WORKFLOW_SCHEMA_VERSION, WorkflowManifest,
 };
-use sddk_storage::{
-    CycleLease, CycleRecord, GateOutcomeStatus, GateReceipt, GateReceiptNextSeqInput, LedgerEvent,
-    LedgerEventInput, Storage, StorageError,
-};
+use sddk_storage::{GateReceipt, GateReceiptNextSeqInput, LedgerEventInput, Storage};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -787,22 +785,25 @@ pub enum EngineError {
     Storage(#[from] StorageError),
 }
 
-/// Deterministic workflow runtime backed by SQLite storage.
-pub struct Engine {
+/// Deterministic workflow runtime backed by a ledger implementation.
+pub struct Engine<L: Ledger = Storage> {
     workflow: WorkflowManifest,
-    storage: Storage,
+    ledger: L,
     evaluators: BTreeMap<String, BTreeSet<String>>,
 }
+
+/// Default concrete engine using `Storage` as the ledger.
+pub type DefaultEngine = Engine<Storage>;
 
 /// Evaluator identifier registered by default for every declared gate.
 pub const DEFAULT_EVALUATOR: &str = "sddk.cli";
 
-impl Engine {
+impl<L: Ledger> Engine<L> {
     /// Constructs an engine after validating the supplied workflow manifest.
-    pub fn new(
-        workflow: WorkflowManifest,
-        storage: Storage,
-    ) -> Result<Self, WorkflowValidationError> {
+    pub fn new(workflow: WorkflowManifest, ledger: L) -> Result<Self, WorkflowValidationError>
+    where
+        L: 'static,
+    {
         validate_workflow(&workflow)?;
         let mut evaluators = BTreeMap::new();
         for gate in workflow.gates.keys() {
@@ -810,7 +811,7 @@ impl Engine {
         }
         Ok(Self {
             workflow,
-            storage,
+            ledger,
             evaluators,
         })
     }
@@ -879,11 +880,11 @@ impl Engine {
                 transition_id: transition.id.clone(),
             });
         }
-        let state_before = self.storage.get_cycle(&input.cycle_id)?.manifest;
+        let state_before = self.ledger.get_cycle(&input.cycle_id)?.manifest;
         let plan_hash = self.plan_hash(&input.cycle_id, &input.transition_id, &state_before);
         let frame_id = format!("frame:{}", input.command_id);
         Ok(self
-            .storage
+            .ledger
             .insert_gate_receipt_next_seq(&GateReceiptNextSeqInput {
                 project_id: state_before.project_id,
                 cycle_id: Some(input.cycle_id.clone()),
@@ -905,9 +906,9 @@ impl Engine {
         &self.workflow
     }
 
-    /// Returns read-only access to the backing storage.
-    pub fn storage(&self) -> &Storage {
-        &self.storage
+    /// Returns read-only access to the backing ledger.
+    pub fn ledger(&self) -> &dyn Ledger {
+        &self.ledger
     }
 
     /// Returns the declared debt-verification behavior for a named path.
@@ -992,7 +993,7 @@ impl Engine {
             created_at: context.occurred_at.clone(),
             updated_at: context.occurred_at.clone(),
         };
-        let event = self.storage.insert_cycle_with_event(&cycle, &event_input)?;
+        let event = self.ledger.insert_cycle_with_event(&cycle, &event_input)?;
         Ok(CycleStartResult {
             manifest,
             event: EventReceipt::from(&event),
@@ -1006,7 +1007,7 @@ impl Engine {
         transition_id: &str,
         evidence: TransitionEvidence,
     ) -> Result<TransitionPlan, EngineError> {
-        let current = self.storage.get_cycle(cycle_id)?.manifest;
+        let current = self.ledger.get_cycle(cycle_id)?.manifest;
         self.plan_transition_from_state(current, transition_id, evidence)
     }
 
@@ -1025,7 +1026,7 @@ impl Engine {
         context: &EventContext,
     ) -> Result<TransitionResult, EngineError> {
         let current = self
-            .storage
+            .ledger
             .get_cycle(&plan.state_before.cycle_id)?
             .manifest;
         if current != plan.state_before {
@@ -1055,7 +1056,7 @@ impl Engine {
         );
         let should_auto_release = plan.outcome == TransitionOutcome::Succeeded
             && plan.state_before.phase != plan.state_after.phase;
-        let event = self.storage.update_cycle_with_event(
+        let event = self.ledger.update_cycle_with_event(
             &plan.state_after,
             &context.occurred_at,
             &event_input,
@@ -1071,7 +1072,7 @@ impl Engine {
 
     /// Reconstructs the latest logical cycle snapshot from state events.
     pub fn replay_cycle(&self, cycle_id: &str) -> Result<ReplayVerification, EngineError> {
-        let (sequence, manifest, _) = replay_state(cycle_id, &self.storage)?;
+        let (sequence, manifest, _) = replay_state(cycle_id, &self.ledger)?;
         Ok(ReplayVerification { manifest, sequence })
     }
 
@@ -1090,8 +1091,8 @@ impl Engine {
         context: &EventContext,
         now_ms: i64,
     ) -> Result<RebuildVerification, EngineError> {
-        let (sequence, manifest, occurred_at) = replay_state(cycle_id, &self.storage)?;
-        match self.storage.get_cycle(cycle_id) {
+        let (sequence, manifest, occurred_at) = replay_state(cycle_id, &self.ledger)?;
+        match self.ledger.get_cycle(cycle_id) {
             Ok(record) if record.manifest == manifest => Ok(RebuildVerification {
                 manifest,
                 sequence,
@@ -1119,7 +1120,7 @@ impl Engine {
                         "restored_at_ms": now_ms,
                     }),
                 );
-                self.storage.insert_cycle_with_event(&cycle, &event_input)?;
+                self.ledger.insert_cycle_with_event(&cycle, &event_input)?;
                 Ok(RebuildVerification {
                     manifest,
                     sequence,
@@ -1143,14 +1144,14 @@ impl Engine {
         now_ms: i64,
     ) -> Result<CycleLease, EngineError> {
         Ok(self
-            .storage
+            .ledger
             .verify_cycle_lease(cycle_id, owner, fencing_token, now_ms)?)
     }
 
     /// Replays a cycle and verifies it equals the materialized SQLite snapshot.
     pub fn verify_cycle_snapshot(&self, cycle_id: &str) -> Result<ReplayVerification, EngineError> {
         let replayed = self.replay_cycle(cycle_id)?;
-        let stored = self.storage.get_cycle(cycle_id)?.manifest;
+        let stored = self.ledger.get_cycle(cycle_id)?.manifest;
         if replayed.manifest != stored {
             return Err(EngineError::SnapshotMismatch {
                 cycle_id: cycle_id.to_owned(),
@@ -1268,7 +1269,7 @@ impl Engine {
                 });
             };
             let receipt = self
-                .storage
+                .ledger
                 .get_gate_receipt(&reference.receipt_id)
                 .map_err(|_| EngineError::UnknownGateReceipt {
                     transition_id: transition.id.clone(),
@@ -1363,9 +1364,9 @@ fn is_cycle_state_event(event: &LedgerEvent) -> bool {
 
 fn replay_state(
     cycle_id: &str,
-    storage: &Storage,
+    ledger: &impl Ledger,
 ) -> Result<(i64, CycleManifest, String), EngineError> {
-    let events = storage.list_cycle_events(cycle_id)?;
+    let events = ledger.list_cycle_events(cycle_id)?;
     let mut latest = None;
     for event in events.iter().filter(|event| is_cycle_state_event(event)) {
         let state = event

@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use sddk_domain::{ArtifactRef, CycleManifest, CyclePath, CycleStatus, Phase};
+use sddk_domain::{ArtifactRef, CycleManifest, CyclePath, CycleStatus, Phase, StorageError as DomainStorageError};
 use sddk_engine::{
     CycleStartInput, Engine, EventContext, GateEvaluationInput, GateReceiptRef, TransitionEvidence,
 };
@@ -181,7 +181,7 @@ fn lease_fencing_blocks_stale_holders_and_expired_reacquire_bumps_token() {
     let stale_holder = engine.require_lease_fence("cycle-1", "agent-b", 1, 1_500);
     assert!(matches!(
         stale_holder,
-        Err(sddk_engine::EngineError::Storage(StorageError::LeaseConflict {
+        Err(sddk_engine::EngineError::Storage(DomainStorageError::LeaseConflict {
             owner,
             ..
         })) if owner == "agent-a"
@@ -195,7 +195,7 @@ fn lease_fencing_blocks_stale_holders_and_expired_reacquire_bumps_token() {
     let stale_token = engine.require_lease_fence("cycle-1", "agent-b", 1, 3_500);
     assert!(matches!(
         stale_token,
-        Err(sddk_engine::EngineError::Storage(StorageError::LeaseConflict {
+        Err(sddk_engine::EngineError::Storage(DomainStorageError::LeaseConflict {
             owner,
             ..
         })) if owner == "agent-b"
@@ -380,7 +380,7 @@ fn gate_receipt_requires_registered_evaluator_and_matches_plan_state() {
         .apply_transition(&apply_plan, &context("evt-3", "command-c"))
         .unwrap();
 
-    let current = engine.storage().get_cycle("cycle-1").unwrap().manifest;
+    let current = engine.ledger().get_cycle("cycle-1").unwrap().manifest;
     let new_hash = engine.plan_hash("cycle-1", "phase.specify.complete", &current);
     assert_ne!(new_hash, specify_receipt.plan_hash);
     assert_eq!(

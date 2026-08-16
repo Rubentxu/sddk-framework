@@ -6,8 +6,9 @@ use sddk_engine::{
     GateEvaluationInput, GateReceiptRef, TransitionEvidence, TransitionOutcome, WorkflowLoadError,
     WorkflowValidationError, load_workflow_path, load_workflow_str,
 };
+use sddk_domain::StorageError;
 use sddk_storage::{
-    CycleRecord, LedgerEventInput, ProjectRecord, Storage, StorageError, WorkspaceRecord,
+    CycleRecord, LedgerEventInput, ProjectRecord, Storage, WorkspaceRecord,
 };
 use serde_json::json;
 use tempfile::tempdir;
@@ -56,7 +57,7 @@ fn creates_cycle_and_applies_declared_transition() {
     assert_eq!(applied.event.sequence, 2);
     assert_eq!(
         engine
-            .storage()
+            .ledger()
             .get_cycle(&created.cycle_id)
             .unwrap()
             .manifest,
@@ -289,11 +290,11 @@ fn duplicate_event_id_rolls_back_transition_snapshot() {
         engine.apply_transition(&plan, &context("duplicate-event")),
         Err(EngineError::Storage(StorageError::Database(_)))
     ));
-    let stored = engine.storage().get_cycle(&cycle.cycle_id).unwrap();
+    let stored = engine.ledger().get_cycle(&cycle.cycle_id).unwrap();
     assert_eq!(stored.manifest.phase, Phase::Explore);
     assert_eq!(
         engine
-            .storage()
+            .ledger()
             .list_cycle_events(&cycle.cycle_id)
             .unwrap()
             .len(),
