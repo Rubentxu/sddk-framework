@@ -8706,3 +8706,116 @@ fn cli_capability_apply_git_push_forwards_git_terminal_prompt() {
         "sentinel output must contain 'RECEIVED=0', got: {stdout}"
     );
 }
+
+// ── release-bump.sh regression (INC-DEBT-011) ────────────────────────────────
+
+/// release_bump_prepends_changelog_and_resets_manifest_version: the bump script
+/// must prepend the new CHANGELOG entry (Keep-a-Changelog newest-first) and
+/// unconditionally sync manifest.toml's version line.
+#[test]
+fn release_bump_prepends_changelog_and_resets_manifest_version() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+
+    // Minimal repo layout the script expects.
+    fs::write(
+        root.join("Cargo.toml"),
+        "[workspace.package]\nversion = \"1.9.20\"\n",
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("crates/x")).unwrap();
+    fs::write(
+        root.join("crates/x/Cargo.toml"),
+        "[package]\nversion = \"1.9.20\"\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("manifest.toml"),
+        "version = \"1.9.11\"\nschema_version = 1\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("CHANGELOG.md"),
+        "# Changelog\n\nAll notable changes...\n\n## [1.9.20] - 2026-08-16\n\n### Fixes\n  - fix(old): previous entry\n",
+    ).unwrap();
+
+    // Git repo with a tag and a release-worthy commit.
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(root)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    git(&["init", "-q"]);
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "chore: initial"]);
+    git(&["tag", "v1.9.20"]);
+    fs::write(root.join("touch.txt"), "x").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "fix(dev): something worth releasing"]);
+
+    // Copy the script into the scratch repo so ROOT derivation points there.
+    let script_dir = root.join("scripts");
+    fs::create_dir_all(&script_dir).unwrap();
+    let script_src = std::env!("CARGO_MANIFEST_DIR").to_string() + "/../../scripts/release-bump.sh";
+    fs::copy(&script_src, script_dir.join("release-bump.sh")).unwrap();
+
+    // Stub cargo so `cargo check` inside the script is a no-op.
+    let bin = root.join("stubbin");
+    fs::create_dir_all(&bin).unwrap();
+    fs::write(bin.join("cargo"), "#!/bin/sh\nexit 0\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(bin.join("cargo"), fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    let out = Command::new("bash")
+        .arg(script_dir.join("release-bump.sh"))
+        .current_dir(root)
+        .env(
+            "PATH",
+            format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
+        )
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "release-bump.sh failed: {}\n--- stdout ---\n{}",
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+
+    // CHANGELOG: new entry prepended BEFORE the 1.9.20 one.
+    let changelog = fs::read_to_string(root.join("CHANGELOG.md")).unwrap();
+    let new_pos = changelog.find("## [1.9.21]").expect("new entry missing");
+    let old_pos = changelog.find("## [1.9.20]").expect("old entry lost");
+    assert!(new_pos < old_pos, "new entry must precede the previous one");
+    assert!(
+        changelog
+            .ends_with("## [1.9.20] - 2026-08-16\n\n### Fixes\n  - fix(old): previous entry\n")
+            || changelog.contains("fix(old): previous entry"),
+        "old content must be preserved"
+    );
+
+    // manifest.toml: version synced (drift corrected), schema_version intact.
+    let manifest = fs::read_to_string(root.join("manifest.toml")).unwrap();
+    assert!(
+        manifest.contains("version = \"1.9.21\""),
+        "manifest version not synced:\n{manifest}"
+    );
+    assert!(
+        manifest.contains("schema_version = 1"),
+        "schema_version must stay untouched:\n{manifest}"
+    );
+}

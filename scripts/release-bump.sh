@@ -4,7 +4,7 @@
 # Usage:
 #   bash scripts/release-bump.sh --dry-run   # print what would change (no writes)
 #   bash scripts/release-bump.sh             # apply bump: versions + lock + CHANGELOG
-#   bash scripts/release-bump.sh --force-minor 1.1.0   # explicit version
+#   bash scripts/release-bump.sh --force-version 1.1.0   # explicit version
 #
 # Bump rules from conventional commits since the last tag:
 #   BREAKING CHANGE / <type>!  -> major
@@ -94,9 +94,13 @@ fi
 
 # --- Apply version bump ---
 
-for f in Cargo.toml crates/*/Cargo.toml manifest.toml; do
+for f in Cargo.toml crates/*/Cargo.toml; do
     sed -i "s/^version = \"$CURRENT\"/version = \"$NEXT\"/" "$f"
 done
+# manifest.toml can drift from the tag version across manual bumps; set its
+# single top-level `version = "…"` line unconditionally (`schema_version`
+# starts with a different anchor and is never touched).
+sed -i "s/^version = \"[^\"]*\"/version = \"$NEXT\"/" manifest.toml
 
 # Regenerate Cargo.lock from the bumped manifests.
 cargo check --workspace --quiet 2>/dev/null || cargo check --workspace
@@ -114,6 +118,8 @@ EOF
 fi
 
 TODAY="$(date -u +%Y-%m-%d)"
+ENTRY_FILE="$(mktemp)"
+trap 'rm -f "$ENTRY_FILE"' EXIT
 {
     echo "## [$NEXT] - $TODAY"
     echo
@@ -135,7 +141,20 @@ TODAY="$(date -u +%Y-%m-%d)"
         echo "$other" | sed -E 's/^[a-f0-9]+ //' | sed -E 's/^/  - /'
         echo
     fi
-} >> CHANGELOG.md
+} > "$ENTRY_FILE"
+
+# Keep-a-Changelog ordering: newest first. Insert the new entry right after
+# the header, before the first existing `## [` section.
+if grep -qE '^## \[' CHANGELOG.md; then
+    FIRST="$(grep -n -m1 '^## \[' CHANGELOG.md | cut -d: -f1)"
+    {
+        head -n "$((FIRST - 1))" CHANGELOG.md
+        cat "$ENTRY_FILE"
+        tail -n "+$FIRST" CHANGELOG.md
+    } > CHANGELOG.md.new && mv CHANGELOG.md.new CHANGELOG.md
+else
+    cat "$ENTRY_FILE" >> CHANGELOG.md
+fi
 
 echo "applied: $CURRENT -> $NEXT"
 echo "changed files:"
