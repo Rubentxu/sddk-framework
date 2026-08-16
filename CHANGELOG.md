@@ -33,6 +33,13 @@ capacidades reutilizables. Sin breaking changes para el CLI.
   - test(cli): 4 smoke tests nuevos en `crates/sddk-cli/tests/cli.rs` cubren el
     cableado de `dev install`, `dev doctor`, `dev verify` y `dev list`.
 
+### Fixed
+  - fix(gateway): suprime el lint `expect_fun_call` (clippy 1.91) en
+    `classify_auth_failure` test. `expect(&format!(...))` se sustituye por
+    `unwrap_or_else(|| panic!(...))` para evitar el `format!` cuando el `Ok`
+    es el caso esperado. Hallazgo del gate local del release.
+    (`crates/sddk-gateway/src/git.rs:795-798`)
+
 ## [1.9.18] - 2026-08-15
 
 Corrige el race condition en la asignación de `seq` para `GateReceipt`:

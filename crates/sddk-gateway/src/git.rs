@@ -793,9 +793,9 @@ mod tests {
         ];
         for (marker, stderr) in cases {
             let result = classify_auth_failure("push", stderr);
-            let err = result.expect(&format!(
-                "stderr containing '{marker}' should be classified as AuthFailed"
-            ));
+            let err = result.unwrap_or_else(|| {
+                panic!("stderr containing '{marker}' should be classified as AuthFailed")
+            });
             match err {
                 GitError::AuthFailed { hint, .. } => {
                     assert!(
