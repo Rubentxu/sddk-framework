@@ -19,6 +19,8 @@ use sddk_domain::{
     apply_all_suggestions, evidence_satisfies_spec, migrate_plan_v1_to_v2, sha256_hex,
     suggest_scenario_context, verify_evidence,
 };
+#[cfg(test)]
+use sddk_testkit;
 
 /// Default view when rendering a dashboard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -4732,32 +4734,6 @@ mod uat_stale_tests {
         }
     }
 
-    /// RAII guard: kills + reaps the python http.server child on drop.
-    /// Covers every exit path — normal return, `?`-propagation, panic unwind,
-    /// and `Ctrl-C` cancellation. Idempotent via `Option::take()`.
-    struct ServerGuard(Option<std::process::Child>);
-
-    impl ServerGuard {
-        fn new(child: std::process::Child) -> Self {
-            ServerGuard(Some(child))
-        }
-
-        /// Transfer ownership of the child out of the guard (avoids double-kill).
-        #[allow(dead_code)]
-        fn take(&mut self) -> Option<std::process::Child> {
-            self.0.take()
-        }
-    }
-
-    impl Drop for ServerGuard {
-        fn drop(&mut self) {
-            if let Some(mut child) = self.0.take() {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
-        }
-    }
-
     /// Full stale detection: previous geometry stored, current geometry differs.
     #[test]
     fn stale_detects_geometry_change() {
@@ -4821,7 +4797,7 @@ mod uat_stale_tests {
         };
 
         // ServerGuard RAII wrapper: kills + reaps child on any exit path.
-        let _server_guard = ServerGuard::new(child);
+        let _server_guard = sddk_testkit::ChildGuard::new(child);
 
         // Readiness poll: replace blind 500ms sleep with TcpStream::connect_timeout.
         // 50ms per attempt, 1s total deadline.

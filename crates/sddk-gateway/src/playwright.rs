@@ -308,7 +308,8 @@ mod tests {
             .args(["-m", "http.server", "18766", "--directory"])
             .arg(&dir)
             .spawn()
-            .ok();
+            .ok()
+            .map(sddk_testkit::ChildGuard::new);
         std::thread::sleep(std::time::Duration::from_millis(700));
 
         let evidence_dir = dir.join("evidence");
@@ -321,9 +322,7 @@ mod tests {
             Ok(outcome) => outcome,
             Err(err) => {
                 // Cleanup before asserting.
-                if let Some(mut child) = server {
-                    let _ = child.kill();
-                }
+                drop(server);
                 std::fs::remove_dir_all(&dir).ok();
                 eprintln!("skipping: driver run failed ({err}) — browser not installed?");
                 return;
@@ -334,9 +333,7 @@ mod tests {
         assert!(outcome.evidence_dir.join("dom.html").is_file());
 
         // Cleanup.
-        if let Some(mut child) = server {
-            let _ = child.kill();
-        }
+        drop(server);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

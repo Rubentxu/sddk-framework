@@ -21,3 +21,4 @@ sddk-storage = { path = "../sddk-storage" }
 proptest = "1.11"
 tempfile = { workspace = true }
 sddk-engine = { path = "../sddk-engine" }
+sddk-testkit = { path = "../sddk-testkit" }

@@ -1429,6 +1429,7 @@ dependencies = [
  "sddk-domain",
  "sddk-engine",
  "sddk-storage",
+ "sddk-testkit",
  "serde",
  "serde-saphyr",
  "serde_json",
