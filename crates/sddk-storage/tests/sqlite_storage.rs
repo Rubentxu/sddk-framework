@@ -1110,3 +1110,142 @@ fn storage_insert_gate_receipt_next_seq_rejects_short_plan_hash() {
     // Transaction rolled back: no gate_receipt rows for this cycle.
     assert!(storage.list_gate_receipts(&cycle_id).unwrap().is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// Gate-name length guards (1..=128)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn storage_build_gate_receipt_id_accepts_128_char_gate_border() {
+    // Gate exactly 128 chars is the upper border of the allowed range and must
+    // produce a receipt_id that matches RID_FORMAT_REGEX.
+    let gate = "a".repeat(128);
+    assert_eq!(gate.len(), 128);
+    let plan_hash = "sha256:abcdef1234567890"; // 23 chars, minimum valid
+    let receipt_id = Storage::build_gate_receipt_id(&gate, plan_hash, 1).unwrap();
+    assert_eq!(receipt_id, format!("gate-{gate}-abcdef1234567890-1"));
+    let rid_regex = regex::Regex::new(RID_FORMAT_REGEX).unwrap();
+    assert!(
+        rid_regex.is_match(&receipt_id),
+        "receipt_id '{receipt_id}' must match RID_FORMAT_REGEX"
+    );
+}
+
+#[test]
+fn storage_build_gate_receipt_id_rejects_129_char_gate() {
+    // Gate exceeding 128 chars must fail with GateNameInvalid.
+    let gate = "a".repeat(129);
+    assert_eq!(gate.len(), 129);
+    let plan_hash = "sha256:abcdef1234567890";
+    let err = Storage::build_gate_receipt_id(&gate, plan_hash, 1).unwrap_err();
+    assert!(matches!(
+        err,
+        StorageError::GateNameInvalid {
+            actual: 129,
+            min: 1,
+            max: 128,
+        }
+    ));
+}
+
+#[test]
+fn storage_build_gate_receipt_id_rejects_empty_gate() {
+    // Empty gate (0 chars) must fail with GateNameInvalid(actual=0).
+    let plan_hash = "sha256:abcdef1234567890";
+    let err = Storage::build_gate_receipt_id("", plan_hash, 1).unwrap_err();
+    assert!(matches!(
+        err,
+        StorageError::GateNameInvalid {
+            actual: 0,
+            min: 1,
+            max: 128,
+        }
+    ));
+}
+
+#[test]
+fn storage_insert_next_seq_rejects_long_gate_without_side_effects() {
+    // insert_gate_receipt_next_seq must reject a 129-char gate with
+    // GateNameInvalid and leave zero rows in gate_receipts (transaction
+    // rolled back).
+    let gate = "a".repeat(129);
+    assert_eq!(gate.len(), 129);
+    let mut storage = Storage::open_in_memory().unwrap();
+    storage.insert_project(&project_record()).unwrap();
+    storage.insert_workspace(&workspace_record()).unwrap();
+    let cycle = cycle_record();
+    let cycle_id = cycle.manifest.cycle_id.as_str().to_string();
+    storage.insert_cycle(&cycle).unwrap();
+
+    let err = storage
+        .insert_gate_receipt_next_seq(&GateReceiptNextSeqInput {
+            project_id: "project-1".into(),
+            cycle_id: Some(cycle_id.clone()),
+            gate,
+            evaluator: "sddk.cli".into(),
+            transition_id: "phase.explore.complete".into(),
+            plan_hash: "sha256:abcdef1234567890".into(),
+            outcome: GateOutcomeStatus::Passed,
+            evidence: json!({"verified": true}),
+            actor: "test-runtime".into(),
+            command_id: "cmd-1".into(),
+            frame_id: "frame-1".into(),
+            evaluated_at: CREATED_AT.into(),
+        })
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        StorageError::GateNameInvalid {
+            actual: 129,
+            min: 1,
+            max: 128,
+        }
+    ));
+
+    // Transaction rolled back: no gate_receipt rows for this cycle.
+    assert!(storage.list_gate_receipts(&cycle_id).unwrap().is_empty());
+}
+
+#[test]
+fn storage_insert_legacy_rejects_long_gate() {
+    // insert_gate_receipt (legacy, caller-supplied seq) must also validate
+    // the gate name and reject a 129-char gate with GateNameInvalid.
+    let gate = "a".repeat(129);
+    assert_eq!(gate.len(), 129);
+    let mut storage = Storage::open_in_memory().unwrap();
+    storage.insert_project(&project_record()).unwrap();
+    storage.insert_workspace(&workspace_record()).unwrap();
+    let cycle = cycle_record();
+    let cycle_id = cycle.manifest.cycle_id.as_str().to_string();
+    storage.insert_cycle(&cycle).unwrap();
+
+    let err = storage
+        .insert_gate_receipt(&GateReceiptInput {
+            receipt_id: "gate-legacy-test-abcdef1234567890-1".into(),
+            project_id: "project-1".into(),
+            cycle_id: Some(cycle_id.clone()),
+            gate,
+            evaluator: "sddk.cli".into(),
+            transition_id: "phase.explore.complete".into(),
+            plan_hash: "sha256:abcdef1234567890".into(),
+            outcome: GateOutcomeStatus::Passed,
+            evidence: json!({"verified": true}),
+            actor: "test-runtime".into(),
+            command_id: "cmd-1".into(),
+            frame_id: "frame-1".into(),
+            evaluated_at: CREATED_AT.into(),
+            seq: 1,
+        })
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        StorageError::GateNameInvalid {
+            actual: 129,
+            min: 1,
+            max: 128,
+        }
+    ));
+
+    // Transaction rolled back: no gate_receipt rows for this cycle.
+    assert!(storage.list_gate_receipts(&cycle_id).unwrap().is_empty());
+}

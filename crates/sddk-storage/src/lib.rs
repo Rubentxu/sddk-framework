@@ -144,6 +144,17 @@ pub enum StorageError {
         /// Required minimum length.
         required: usize,
     },
+    /// The gate name violates the 1..=128 char limit imposed by
+    /// [`RID_FORMAT_REGEX`] on the receipt_id format.
+    #[error("gate name is invalid: {actual} chars, must be {min}..={max}")]
+    GateNameInvalid {
+        /// Actual length of the provided gate name.
+        actual: usize,
+        /// Minimum allowed length.
+        min: usize,
+        /// Maximum allowed length.
+        max: usize,
+    },
 }
 
 /// SQLite-backed SDDK persistence.
@@ -956,11 +967,28 @@ impl Storage {
         Ok(true)
     }
 
+    /// Validates that a gate name conforms to the 1..=128 char limit.
+    fn validate_gate_name(gate: &str) -> Result<()> {
+        const GATE_MIN: usize = 1;
+        const GATE_MAX: usize = 128;
+        if !(GATE_MIN..=GATE_MAX).contains(&gate.len()) {
+            return Err(StorageError::GateNameInvalid {
+                actual: gate.len(),
+                min: GATE_MIN,
+                max: GATE_MAX,
+            });
+        }
+        Ok(())
+    }
+
     /// Builds a gate receipt identifier from its components.
     ///
-    /// The plan_hash must be at least 23 characters (`sha256:` prefix + 16 hex
-    /// digits of the actual hash). Returns `PlanHashTooShort` if the guard fails.
+    /// The gate name must be 1..=128 characters and the plan_hash must be at
+    /// least 23 characters (`sha256:` prefix + 16 hex digits of the actual
+    /// hash). Returns `GateNameInvalid` if the gate-length guard fails and
+    /// `PlanHashTooShort` if the plan_hash guard fails.
     pub fn build_gate_receipt_id(gate: &str, plan_hash: &str, seq: i64) -> Result<String> {
+        Self::validate_gate_name(gate)?;
         const REQUIRED_LEN: usize = 23;
         if plan_hash.len() < REQUIRED_LEN {
             return Err(StorageError::PlanHashTooShort {
@@ -1040,6 +1068,7 @@ impl Storage {
     /// kept only for bootstrap and test compatibility (e.g. legacy v1.9.14
     /// rows from before `seq` existed); it does NOT assign `seq`.
     pub fn insert_gate_receipt(&mut self, input: &GateReceiptInput) -> Result<GateReceipt> {
+        Self::validate_gate_name(&input.gate)?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -1506,6 +1535,7 @@ impl sddk_domain::SddkErrorCode for StorageError {
             Self::SchemaVersion { .. } => "STORAGE_SCHEMA_VERSION",
             Self::LedgerIntegrity { .. } => "STORAGE_LEDGER_INTEGRITY",
             Self::PlanHashTooShort { .. } => "STORAGE_PLAN_HASH_TOO_SHORT",
+            Self::GateNameInvalid { .. } => "STORAGE_GATE_NAME_INVALID",
         }
     }
 
@@ -1536,6 +1566,7 @@ impl sddk_domain::SddkErrorCode for StorageError {
             Self::PlanHashTooShort { .. } => {
                 "supply a plan_hash of at least 23 characters (sha256: prefix + 16 hex digits)"
             }
+            Self::GateNameInvalid { .. } => "supply a gate name of 1..=128 characters",
         }
     }
 }
