@@ -3,6 +3,11 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.10.0] - 2026-08-16
+
+### Features
+  - feat(dev): doctor detecta incoherencia binario/bundle (INC-DEBT-005)
+
 ## [1.9.22] - 2026-08-16
 
 ### Fixes
