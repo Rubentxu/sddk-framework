@@ -3,6 +3,11 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.13.1] - 2026-08-16
+
+### Other
+  - refactor(domain): mueve los value types de sddk-storage a sddk-domain (Phase 1 Sub-ciclo A)
+
 ## [1.13.0] - 2026-08-16
 
 ### Features
