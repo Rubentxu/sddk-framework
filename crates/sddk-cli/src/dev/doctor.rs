@@ -1,6 +1,6 @@
 //! `dev doctor` — toolchain and environment prerequisite checker.
 
-use crate::dev::common::tool_version;
+use crate::dev::common::{read_receipt, tool_version};
 use crate::dev::manifest::verify_manifest;
 use crate::dev::paths::resolve_active_framework_root;
 use crate::{CliEnvironment, CommandOutput, OutputFormat, render_result};
@@ -211,6 +211,22 @@ pub(super) fn run_dev_doctor(
         });
         if manifest_present && !manifest_ok {
             framework_warnings += 1;
+        }
+        // Binary/bundle version coherence (INC-DEBT-005): a stale `sddk`
+        // binary on PATH running against a newer (or older) bundle produced
+        // mixed-version sessions and legacy receipt rows. Compare this
+        // binary's compile-time version with the active bundle's receipt.
+        // No receipt (dogfooding `path:` override, pre-receipt bundles) is
+        // informational — no check is emitted.
+        if let Ok(receipt) = read_receipt(&framework_root) {
+            let coherent = receipt.version == env!("CARGO_PKG_VERSION");
+            checks.push(DoctorCheck {
+                tool: "binary.bundle_coherence".into(),
+                present: coherent,
+            });
+            if !coherent {
+                framework_warnings += 1;
+            }
         }
     }
 

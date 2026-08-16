@@ -6763,6 +6763,192 @@ fn cli_dev_doctor_surface_empty_dirs() {
     );
 }
 
+// ── binary/bundle coherence tests ───────────────────────────────────────────────
+
+/// Minimal valid InstallReceipt JSON with all required serde fields.
+fn make_receipt(version: &str) -> String {
+    serde_json::json!({
+        "version": version,
+        "commit": "test-commit",
+        "binary_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "channel": "dev",
+        "installed_at": "2024-01-01T00:00:00Z",
+        "binary_path": "bin/sddk",
+        "bundle": true
+    })
+    .to_string()
+}
+
+/// Set up a minimal framework bundle directory inside test_data/framework/ with
+/// empty asset files (satisfied assets.* checks) and a `current` relative symlink
+/// pointing to the versioned directory. Returns the versioned bundle path.
+fn setup_framework_bundle(test_data: &Path, version: &str, receipt_json: Option<&str>) -> PathBuf {
+    let framework_dir = test_data.join("framework");
+    let version_dir = framework_dir.join(version);
+    std::fs::create_dir_all(&version_dir).unwrap();
+
+    // Symlink: framework/current → vX.Y.Z (relative)
+    let current = framework_dir.join("current");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(version, &current).unwrap();
+    #[cfg(not(unix))]
+    {
+        // On non-Unix just point at the absolute path
+        std::fs::write(&current, version_dir.to_string_lossy().as_ref()).unwrap();
+    }
+
+    // Empty asset files so assets.* checks pass.
+    let assets = version_dir.join("assets");
+    std::fs::create_dir_all(assets.join("uat-driver")).unwrap();
+    std::fs::write(assets.join("uat-driver/driver.mjs"), "").unwrap();
+    std::fs::write(assets.join("uat-driver/computer_use.mjs"), "").unwrap();
+    std::fs::write(assets.join("uat-driver/assess.mjs"), "").unwrap();
+    std::fs::create_dir_all(assets.join("uat-dashboard/kit")).unwrap();
+    std::fs::create_dir_all(assets.join("uat-dashboard/views")).unwrap();
+    std::fs::write(assets.join("uat-dashboard/kit/components.js"), "").unwrap();
+    std::fs::write(assets.join("uat-dashboard/views/guided.html"), "").unwrap();
+
+    if let Some(json) = receipt_json {
+        std::fs::write(version_dir.join("sddk-install.json"), json).unwrap();
+    }
+
+    version_dir
+}
+
+#[test]
+fn doctor_reports_binary_bundle_version_mismatch() {
+    // receipt version "9.9.9" ≠ binary version → binary.bundle_coherence = false
+    let fixture = CliFixture::new("bundle-mismatch");
+    let root = fixture.root.clone();
+    let test_data = root.join(".test-data");
+    std::fs::create_dir_all(&test_data).unwrap();
+
+    setup_framework_bundle(&test_data, "v9.9.9", Some(&make_receipt("9.9.9")));
+
+    // Minimal surface so doctor doesn't fail on surface checks.
+    write(
+        root.join("agents/orchestrator.md"),
+        "---\nname: orchestrator\ndescription: Test\nmodel: test\n---\n# Orch\n",
+    );
+    write(
+        root.join("permissions.yaml"),
+        "agents:\n  orchestrator:\n    phases: []\n    capabilities: []\n",
+    );
+    write(root.join("prompts/sddk/test.md"), "# Prompt\ncontent\n");
+    write(root.join("skills/demo/SKILL.md"), "# Demo\n");
+
+    let doctor = run_doctor_from(&root, &["dev", "doctor", "--format", "json"]);
+    let output: serde_json::Value = serde_json::from_str(&doctor.stdout).unwrap();
+    let checks = output["checks"].as_array().unwrap();
+
+    let coherence_check = checks
+        .iter()
+        .find(|c| c["tool"].as_str().unwrap() == "binary.bundle_coherence")
+        .expect("binary.bundle_coherence must be present in doctor output");
+    assert!(
+        !coherence_check["present"].as_bool().unwrap(),
+        "mismatched receipt version 9.9.9 must be flagged as present=false"
+    );
+    assert_eq!(
+        doctor.status, 1,
+        "mismatched binary/bundle version must cause non-zero exit"
+    );
+}
+
+#[test]
+fn doctor_accepts_matching_bundle_receipt() {
+    // receipt version == binary version → binary.bundle_coherence = true
+    let fixture = CliFixture::new("bundle-match");
+    let root = fixture.root.clone();
+    let test_data = root.join(".test-data");
+    std::fs::create_dir_all(&test_data).unwrap();
+
+    // Capture this binary's version so the receipt matches it.
+    let version_output = std::process::Command::new(env!("CARGO_BIN_EXE_sddk"))
+        .arg("--version")
+        .output()
+        .unwrap();
+    // sddk --version writes to stderr, not stdout.
+    let version_str = String::from_utf8_lossy(&version_output.stderr)
+        .trim()
+        .to_string();
+    // sddk --version outputs "sddk X.Y.Z" — strip the "sddk " prefix.
+    let binary_version = version_str.strip_prefix("sddk ").unwrap_or(&version_str);
+
+    setup_framework_bundle(
+        &test_data,
+        &format!("v{}", binary_version),
+        Some(&make_receipt(binary_version)),
+    );
+
+    // Minimal surface.
+    write(
+        root.join("agents/orchestrator.md"),
+        "---\nname: orchestrator\ndescription: Test\nmodel: test\n---\n# Orch\n",
+    );
+    write(
+        root.join("permissions.yaml"),
+        "agents:\n  orchestrator:\n    phases: []\n    capabilities: []\n",
+    );
+    write(root.join("prompts/sddk/test.md"), "# Prompt\ncontent\n");
+    write(root.join("skills/demo/SKILL.md"), "# Demo\n");
+
+    let doctor = run_doctor_from(&root, &["dev", "doctor", "--format", "json"]);
+    let output: serde_json::Value = serde_json::from_str(&doctor.stdout).unwrap();
+    let checks = output["checks"].as_array().unwrap();
+
+    let coherence_check = checks
+        .iter()
+        .find(|c| c["tool"].as_str().unwrap() == "binary.bundle_coherence")
+        .expect("binary.bundle_coherence must be present in doctor output");
+    assert!(
+        coherence_check["present"].as_bool().unwrap(),
+        "matching receipt version {} must be flagged as present=true",
+        binary_version
+    );
+    assert_eq!(
+        doctor.status, 0,
+        "matching binary/bundle version must exit 0"
+    );
+}
+
+#[test]
+fn doctor_skips_coherence_check_without_receipt() {
+    // framework/current points to a dir without sddk-install.json → no coherence check emitted
+    let fixture = CliFixture::new("no-receipt");
+    let root = fixture.root.clone();
+    let test_data = root.join(".test-data");
+    std::fs::create_dir_all(&test_data).unwrap();
+
+    // Bundle with assets but NO receipt.
+    setup_framework_bundle(&test_data, "v9.9.9", None);
+
+    // Minimal surface.
+    write(
+        root.join("agents/orchestrator.md"),
+        "---\nname: orchestrator\ndescription: Test\nmodel: test\n---\n# Orch\n",
+    );
+    write(
+        root.join("permissions.yaml"),
+        "agents:\n  orchestrator:\n    phases: []\n    capabilities: []\n",
+    );
+    write(root.join("prompts/sddk/test.md"), "# Prompt\ncontent\n");
+    write(root.join("skills/demo/SKILL.md"), "# Demo\n");
+
+    let doctor = run_doctor_from(&root, &["dev", "doctor", "--format", "json"]);
+    let output: serde_json::Value = serde_json::from_str(&doctor.stdout).unwrap();
+    let checks = output["checks"].as_array().unwrap();
+
+    // binary.bundle_coherence must NOT appear in the output when no receipt is present.
+    let coherence_present = checks
+        .iter()
+        .any(|c| c["tool"].as_str().unwrap() == "binary.bundle_coherence");
+    assert!(
+        !coherence_present,
+        "binary.bundle_coherence must NOT be present when no receipt exists"
+    );
+}
+
 fn run_with_root(fixture: &CliFixture, args: &[&str], common: &[&str]) -> std::process::Output {
     fixture.run(
         &args

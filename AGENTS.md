@@ -139,6 +139,7 @@ sddk system          # instalación del sistema
 [ ] cargo test --workspace                       # verde
 [ ] cargo clippy --workspace                    # 0 errores
 [ ] Si tocaste assets/: sddk dev install        # bundle runtime actualizado
+[ ] Tras release: sddk dev doctor | grep bundle_coherence (binario == bundle)
 [ ] git status                                  # clean
 [ ] git diff                                    # revisas lo que vas a commitear
 [ ] commit mensaje: feat(uat): … o fix(uat): …
