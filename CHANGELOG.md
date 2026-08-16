@@ -3,6 +3,11 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.12.0] - 2026-08-16
+
+### Features
+  - feat(storage): GateOutcomeStatus::Waived — waiver explícito de gates
+
 ## [1.11.0] - 2026-08-16
 
 ### Features
