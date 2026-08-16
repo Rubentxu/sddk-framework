@@ -1,58 +1,62 @@
 # Deep Research Integration — Bundle standalone en SDDK
 
-## ¿Qué es?
-
-22 skills `deep-*` + 1 agente ejecutor (`deep-research-orchestrator`) + 1 workflow (`sddk-b-research`). Marco metodológico de Donella Meadows como lente transversal para investigar CUALQUIER tema.
-
-## Componentes
+## Estructura (patrón Master + sub-skills)
 
 ```
 sddk-framework/
-├── agents/deep-research-orchestrator.md      (ejecutor)
+├── agents/deep-research-orchestrator.md      ← agente ejecutor
 ├── skills/
-│   ├── DEEP-RESEARCH-INDEX.md                 (catálogo)
-│   ├── deep-research-orchestrator/            (gate)
-│   ├── deep-research-methodology-hub/         (hub renombrado)
-│   └── deep-{19 más}/                         (toolkit)
-├── workflows/sddk-b-research/
-│   ├── WORKFLOW.yaml                          (workflow ejecutable)
-│   └── references/                            (sub-workflows)
-├── docs/
-│   ├── deep-research-integration.md           (este doc)
-│   └── skill-categorization.md
+│   ├── DEEP-RESEARCH-INDEX.md                ← catálogo legacy (deprecado, apunta a la maestra)
+│   └── deep-research/                        ← MAESTRA + bundle
+│       ├── SKILL.md                           ← entry point (índice + activación)
+│       ├── references/                        ← docs compartidos
+│       │   ├── index.md                       ← mapa de las 22 sub-skills
+│       │   └── pipeline-r0-r6.md             ← guía del pipeline
+│       └── sub/                               ← 22 sub-skills especializadas
+│           ├── deep-research-orchestrator/    (gate)
+│           ├── deep-research-methodology-hub/ (hub renombrado)
+│           ├── deep-research-strategist/      (R1)
+│           ├── ... (19 más)
+│           └── deep-traps-detector/
 └── docs/sddk-2.0-architecture-consolidation/
-    ├── adrs/ADR-019-workflow-self-discovery.md (workflows autodiscovery)
-    └── adrs/ADR-0016-skill-namespace-categorization.md (skill categorization)
+    └── adrs/
+        ├── ADR-0016-skill-namespace-categorization.md
+        └── ADR-019-workflow-self-discovery.md
 ```
 
-## Pipeline R0-R6 (Meadows como lente)
+## Patrón elegido
+
+**Master + sub-skills (jerárquica)**:
+- 1 skill entry-point (`skills/deep-research/SKILL.md`) que actúa como índice.
+- 22 sub-skills especializadas en `skills/deep-research/sub/` (progressive disclosure por fase del pipeline o por sub-pipeline).
+- 2 docs compartidas en `skills/deep-research/references/` (mapa + guía del pipeline).
+
+**Por qué este patrón**:
+- Reduce el ruido en la raíz de `skills/` (22 → 1 entry).
+- Mantiene la granularidad (cada sub-skill es invocable independientemente).
+- Sigue la spec oficial de Agent Skills (1 skill = 1 directorio + SKILL.md).
+- Compatible con la dirección de sddk-2.0 (ADR-019, ADR-0016).
+
+## Pipeline R0-R6
 
 ```
-R0  Definir el sistema del tema (Meadows) [obligatorio]
-R1  Build agenda (deep-research-strategist)
-R2  Discover sources (deep-source-discovery-specialist)
-R3  Evaluar credibilidad + validar refs (en paralelo)
-R4  Triangular (deep-evidence-triangulator)
-R5  Consolidar corpus (deep-knowledge-corpus-curator)
-R6  Extraer deliverables (deep-claim-extractor)
+R0  Definir el sistema del tema (Meadows)         [obligatorio]
+R1  Build agenda              (sub/deep-research-strategist)
+R2  Discover sources          (sub/deep-source-discovery-specialist)
+R3  Evaluar credibilidad + validar refs (paralelo)
+R4  Triangular                (sub/deep-evidence-triangulator)
+R5  Consolidar corpus         (sub/deep-knowledge-corpus-curator)
+R6  Extraer deliverables      (sub/deep-claim-extractor)
 ```
 
-## Sub-pipelines
+## Limitación del CLI actual (SDDK 1.13.0)
 
-Software research, Pattern extraction, Domain modeling, Knowledge graph, Historical lineage, Scenarios, Paradigms, Traps, **Systems Thinking** (Meadows).
+El CLI (`sddk dev link`, `doctor`, `uninstall`, `bootstrap.sh`) solo escanea 1 nivel en `skills/`. Las sub-skills NO se descubren automáticamente — el orchestrator debe leer `references/index.md` de la maestra para descubrirlas.
 
-## Anti-patrones (Meadows labels)
-
-- Saltarse R0 = "collecting data without a lens"
-- Confundir L3 con L1 = Shifting the Burden
-- Single-source critical = Insufficient triangulation
-- Inventar cuantificaciones = Seeking the Wrong Goal
-- Cambiar parámetros cuando el problema es de paradigma = también Seeking the Wrong Goal
-
-## Distribución
-
-`sddk dev install` publica el bundle runtime completo. `sddk dev link` lo enlaza a ZCode y OpenCode. Todo lo que esté en `skills/`, `agents/`, `workflows/`, `docs/` se distribuye automáticamente.
+**Solución** (en SDDK2-411, sddk-2.0): modificar el CLI para recursar 1 nivel y descubrir sub-skills automáticamente.
 
 ## Estado
 
-Versión 1.0 · Standalone · Patrón parity con skills (directorios, references/, assets/, _shared/).
+- **Versión**: 1.1 (patrón Master + sub-skills)
+- **Fecha**: 2026-08-16
+- **Standalone**: 22 sub-skills + 1 maestra + 1 agente, todos bundled

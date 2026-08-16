@@ -2,26 +2,53 @@
 
 ## Problema
 
-El framework SDDK distribuye skills en `skills/<name>/` (un nivel). Cuando un dominio crece a 20+ skills relacionadas (como `deep-research` con 22), el listado plano se vuelve difícil de navegar.
+El framework SDDK distribuye skills en `skills/<name>/` (un nivel). Cuando un dominio crece a 20+ skills relacionadas, el listado plano se vuelve difícil de navegar. 22 directorios `deep-*` en la raíz de `skills/` generaban demasiado ruido.
 
-## Solución: categorización vía metadata
+## Solución adoptada: Master + sub-skills (jerárquica)
 
-Usamos **metadata en el frontmatter** (`category` + `subcategory`) para declarar la categoría. Esto es compatible con el CLI actual y permite filtrado lógico.
+Para bundles grandes (≥ 15 skills relacionadas), adoptamos el patrón **"hierarchical skills"** de LangChain + RFC-318 (collection-based namespacing):
 
-## Taxonomía (categoría: `deep-research`)
+```
+skills/
+└── deep-research/                ← MAESTRA (1 entry point)
+    ├── SKILL.md                  ← índice + activación
+    ├── references/               ← docs compartidos
+    │   ├── index.md
+    │   └── pipeline-r0-r6.md
+    └── sub/                       ← 22 sub-skills especializadas
+        ├── deep-research-orchestrator/   (gate)
+        ├── deep-research-strategist/      (R1)
+        ├── deep-source-discovery-specialist/  (R2)
+        └── ...
+```
 
-| Subcategoría | Skills |
-|--------------|--------|
-| **gate** | `deep-research-orchestrator` |
-| **methodology-hub** | `deep-research-methodology-hub` |
-| **r-pipeline** | `deep-research-strategist`, `deep-source-discovery-specialist`, `deep-source-credibility-assessor`, `deep-reference-validator`, `deep-evidence-triangulator`, `deep-knowledge-corpus-curator`, `deep-claim-extractor` |
-| **domain-pipeline** | `deep-software-research`, `deep-pattern-extractor`, `deep-domain-modeler`, `deep-knowledge-graph-builder`, `deep-historical-lineage-tracer`, `deep-scenarios-explorer` |
-| **systems-thinking** | `deep-coach-systems-thinking`, `deep-leverage-points-analyst`, `deep-system-archetypes-mapper`, `deep-feedback-loops-analyzer`, `deep-stocks-flows-diagrammer`, `deep-paradigms-explorer`, `deep-traps-detector` |
+**Ventajas**:
+- ✅ Una sola entrada raíz (la maestra) en lugar de 22.
+- ✅ Granularidad preservada (cada sub-skill es invocable independientemente).
+- ✅ Compatible con la spec oficial de Agent Skills (1 skill = 1 directorio + SKILL.md).
+- ✅ Las sub-skills siguen siendo directorios independientes (progressive disclosure funciona).
+- ✅ Las sub-skills pueden referenciar la maestra (`category: deep-research`).
 
-## Limitación reconocida
+**Limitación reconocida con el CLI actual** (SDDK 1.13.0):
+- El CLI no escanea subdirectorios en `skills/` (asume 1 nivel).
+- Hasta SDDK2-411 (modificar CLI), la maestra existe pero el orchestrator debe leer `references/index.md` manualmente para descubrir las sub.
+- Las sub-skills no se cargarán automáticamente — pero esta es la dirección correcta para sddk-2.0.
 
-Agrupación física (`skills/deep-research/{21}/`) requiere modificar el CLI (single-level walker). Ver [ADR-019](../sddk-2.0-architecture-consolidation/adrs/ADR-019-workflow-self-discovery.md) y [ADR-0016](../sddk-2.0-architecture-consolidation/adrs/ADR-0016-skill-namespace-categorization.md) para la propuesta formal.
+## Taxonomía actual (categoría: `deep-research`)
+
+| Subcategoría | Sub-skills |
+|--------------|-----------|
+| **gate** | `sub/deep-research-orchestrator` |
+| **methodology-hub** | `sub/deep-research-methodology-hub` |
+| **r-pipeline** | 7 sub-skills (R1-R6) |
+| **domain-pipeline** | 6 sub-skills |
+| **systems-thinking** | 7 sub-skills (incluyendo la maestra coach) |
+
+Ver `skills/deep-research/references/index.md` para el mapa completo.
 
 ## Estado
 
-22 skills con `category: deep-research` aplicado. Sin cambios al CLI.
+- **Versión**: 1.1 (cambio de patrón estructural)
+- **Fecha**: 2026-08-16
+- **Aplica a**: bundle `deep-research` (22 skills)
+- **Cambios requeridos en CLI**: SDDK2-411 (sddk-2.0) para descubrimiento automático de sub-skills
