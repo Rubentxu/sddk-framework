@@ -3,6 +3,16 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.14.0] - 2026-08-16
+
+### Features
+  - feat(engine): Ledger port + Engine<L> genérico — Phase 1 M1 exit
+  - feat(deep-research): integrate 22 skills + orchestrator agent + b-research workflow
+  - feat(domain): extract Ledger port trait from Storage
+
+### Other
+  - refactor(deep-research): consolidate 22 skills into master+sub hierarchical pattern
+
 ## [1.13.1] - 2026-08-16
 
 ### Other
