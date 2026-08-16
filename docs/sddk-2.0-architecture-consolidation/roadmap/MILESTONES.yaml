@@ -13,6 +13,8 @@ milestones:
   phase: 1
   depends_on:
   - M0
+  # first deliverable shipped 2026-08-16: live baseline capture + real evaluators for ARCH001-005
+  # + sddk dev check-architecture CLI (ARCH001 ratchet active: engine->storage dep causes FAIL)
 - id: M2
   name: Event Ledger
   phase: 2

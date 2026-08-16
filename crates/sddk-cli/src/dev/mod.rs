@@ -4,6 +4,7 @@ use clap::{Args, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 
 mod check;
+mod check_arch;
 mod common;
 mod doctor;
 mod framework_check;
@@ -78,6 +79,8 @@ pub(super) enum DevCommand {
     /// Generate or verify MANIFEST.sha256 — per-file content hashes of the
     /// framework surfaces (agents, skills, prompts, workflows, assets).
     Manifest(ManifestArgs),
+    /// Evaluate architecture rules against the live workspace baseline.
+    CheckArchitecture(CheckArchitectureArgs),
     /// Install a framework release bundle (download, verify checksum +
     /// internal MANIFEST.sha256, extract). Never touches git — source
     /// checkouts are managed by the developer (`git pull` + `dev link`).
@@ -231,6 +234,19 @@ pub(super) struct UpdateArgs {
     pub(super) format: OutputFormat,
 }
 
+#[derive(Debug, Clone, Args)]
+pub(super) struct CheckArchitectureArgs {
+    /// Workspace root (default: current directory).
+    #[arg(long, default_value = ".")]
+    pub(super) root: std::path::PathBuf,
+    /// Path to architecture-rules.yaml.
+    #[arg(long)]
+    pub(super) rules: Option<std::path::PathBuf>,
+    /// Write JSON output to this path.
+    #[arg(long)]
+    pub(super) out: Option<std::path::PathBuf>,
+}
+
 pub(super) fn run_dev(command: DevCommand, environment: &CliEnvironment) -> CommandOutput {
     match command {
         DevCommand::Doctor(args) => self::doctor::run_dev_doctor(args, environment),
@@ -242,6 +258,7 @@ pub(super) fn run_dev(command: DevCommand, environment: &CliEnvironment) -> Comm
         DevCommand::Use(args) => self::use_cmd::run_dev_use(args, environment),
         DevCommand::Update(args) => self::update::run_dev_update(args, environment),
         DevCommand::Manifest(args) => self::manifest::run_dev_manifest(args),
+        DevCommand::CheckArchitecture(args) => self::check_arch::run_check_architecture(args),
     }
 }
 
@@ -294,5 +311,16 @@ mod smoke_tests {
             format: OutputFormat::Text,
         };
         let _ = self::manifest::run_dev_manifest(args);
+    }
+
+    #[test]
+    fn dev_check_architecture_does_not_panic() {
+        let args = CheckArchitectureArgs {
+            root: std::path::PathBuf::from("."),
+            rules: None,
+            out: None,
+        };
+        // Smoke test: just verify it doesn't panic (exit status may be non-zero)
+        let _ = self::check_arch::run_check_architecture(args);
     }
 }
