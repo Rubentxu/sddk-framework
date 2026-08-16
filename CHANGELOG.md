@@ -3,6 +3,36 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.19] - 2026-08-16
+
+Refactor: `dev_cmd.rs` (3022 líneas) se divide en 13 submódulos bajo `crates/sddk-cli/src/dev/`.
+Mejora la legibilidad, reduce el coste de code review y allana el camino para extraer
+capacidades reutilizables. Sin breaking changes para el CLI.
+
+### Changed
+  - refactor(cli): `dev_cmd.rs` se elimina y se reemplaza por `crates/sddk-cli/src/dev/`
+    con 13 submódulos: `mod.rs`, `paths.rs`, `common.rs`, `manifest.rs`, `registry.rs`,
+    `doctor.rs`, `framework_check.rs`, `install.rs`, `uninstall.rs`, `update.rs`,
+    `link.rs`, `use_cmd.rs`, `check.rs`, `verify.rs`. El módulo reduce la cohesión
+    por archivo y deja cada subcomando con su propia superficie.
+    (`crates/sddk-cli/src/dev/`, `crates/sddk-cli/src/dev_cmd.rs`)
+  - refactor(cli): visibilidad apretada a la allow-list de la spec — los símbolos
+    compartidos entre submódulos usan `pub(crate)` o `pub(super)` en lugar de `pub`.
+    (`crates/sddk-cli/src/dev/`)
+  - refactor(cli): `dev/framework_check.rs` extrae `framework_agent_names`,
+    `register_opencode_agents`, `AgentFrontmatter`, `parse_frontmatter`,
+    `PRIMARY_AGENTS`, `LinkReport`, `link_report_text` y `sync_assets` desde
+    `link.rs` para reducir el tamaño de los submódulos.
+    (`crates/sddk-cli/src/dev/framework_check.rs`, `crates/sddk-cli/src/dev/link.rs`)
+
+### Tests
+  - test(cli): 25 tests unitarios se migran de `dev_cmd.rs` a `dev/tests/` (un archivo
+    por subcomando: `manifest_tests.rs`, `reconciliation_tests.rs`,
+    `skill_registry_tests.rs`) usando `#[path]` para preservar el módulo actual.
+    (`crates/sddk-cli/src/dev/tests/`)
+  - test(cli): 4 smoke tests nuevos en `crates/sddk-cli/tests/cli.rs` cubren el
+    cableado de `dev install`, `dev doctor`, `dev verify` y `dev list`.
+
 ## [1.9.18] - 2026-08-15
 
 Corrige el race condition en la asignación de `seq` para `GateReceipt`:
