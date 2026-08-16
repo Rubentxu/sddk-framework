@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::CommandOutput;
+use sddk_gateway::PermissionPolicy;
 
 pub(super) const RECEIPT_FILE: &str = "sddk-install.json";
 
@@ -115,6 +116,38 @@ pub(super) fn walk_dir(dir: &Path) -> Vec<PathBuf> {
         }
     }
     files
+}
+
+/// Names of framework agents: declared in permissions.yaml AND present in agents/*.md.
+pub(super) fn framework_agent_names(root: &Path) -> Vec<String> {
+    let agents_dir = root.join("agents");
+    // Prefer the permission policy when present; fall back to the actual
+    // agent files (release bundles may omit permissions.yaml).
+    if let Ok(policy) = PermissionPolicy::from_file(root.join("permissions.yaml")) {
+        let mut names: Vec<String> = policy
+            .agents()
+            .filter(|name| agents_dir.join(format!("{name}.md")).exists())
+            .map(str::to_owned)
+            .collect();
+        names.sort();
+        return names;
+    }
+    let mut names: Vec<String> = std::fs::read_dir(&agents_dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("md"))
+                .filter_map(|entry| {
+                    entry
+                        .path()
+                        .file_stem()
+                        .map(|stem| stem.to_string_lossy().into_owned())
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort();
+    names
 }
 
 /// Compute the plain lowercase hex SHA-256 of a file.

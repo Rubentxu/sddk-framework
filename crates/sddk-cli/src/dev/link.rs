@@ -2,9 +2,9 @@
 
 use super::LinkEditor;
 use super::manifest::MANIFEST_FILE;
-use crate::dev::common::walk_dir;
+use crate::dev::common::{framework_agent_names, walk_dir};
 use crate::dev::framework_check::{
-    LinkReport, framework_agent_names, link_report_text, register_opencode_agents, sync_assets,
+    LinkReport, link_report_text, register_opencode_agents, sync_assets,
 };
 use crate::dev::manifest::verify_manifest;
 use crate::dev::paths::resolve_active_framework_root;

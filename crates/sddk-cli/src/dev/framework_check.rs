@@ -1,10 +1,7 @@
 //! Framework agent registry helpers — frontmatter parsing and opencode.json registration.
 //! Extracted from link.rs to keep link.rs below its LOC ceiling (ADR-016).
 
-use crate::CliEnvironment;
-use crate::dev::common::{sha256_hex, walk_dir};
-use crate::dev::paths::resolve_active_framework_root;
-use sddk_gateway::PermissionPolicy;
+use crate::dev::common::{framework_agent_names, walk_dir};
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -39,36 +36,6 @@ fn parse_frontmatter(path: &Path) -> Option<AgentFrontmatter> {
 }
 
 // ── Agent name resolution ─────────────────────────────────────────────────────
-
-/// Names of framework agents from permissions.yaml or filesystem.
-pub(super) fn framework_agent_names(root: &Path) -> Vec<String> {
-    let agents_dir = root.join("agents");
-    if let Ok(policy) = PermissionPolicy::from_file(root.join("permissions.yaml")) {
-        let mut names: Vec<String> = policy
-            .agents()
-            .filter(|name| agents_dir.join(format!("{name}.md")).exists())
-            .map(str::to_owned)
-            .collect();
-        names.sort();
-        return names;
-    }
-    let mut names: Vec<String> = std::fs::read_dir(&agents_dir)
-        .map(|entries| {
-            entries
-                .flatten()
-                .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("md"))
-                .filter_map(|entry| {
-                    entry
-                        .path()
-                        .file_stem()
-                        .map(|stem| stem.to_string_lossy().into_owned())
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    names.sort();
-    names
-}
 
 /// Upsert framework agent entries into opencode.json.
 pub(super) fn register_opencode_agents(root: &Path, opencode_json: &Path) -> anyhow::Result<usize> {

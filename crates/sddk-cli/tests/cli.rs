@@ -5826,6 +5826,314 @@ fn cli_dev_link_creates_opencode_json_and_links_markdown_skills() {
     assert!(!opencode_dir.join("skills/BOOK-WORKFLOW.md").exists());
 }
 
+// ── Behavioral smoke tests for S-3 ───────────────────────────────────────────
+
+/// verify_detects_tampered_bundle: after `dev install --source` (bundle=true),
+/// tampering a surface file causes `dev verify --prefix` to fail with a mismatch.
+#[cfg(unix)]
+#[test]
+fn verify_detects_tampered_bundle() {
+    let fixture = CliFixture::new("verify-tampered-bundle");
+
+    // Source bundle: create surfaces and write the MANIFEST via CLI.
+    let source = fixture.root.join("source-bundle");
+    fs::create_dir_all(source.join("agents")).unwrap();
+    fs::write(source.join("agents/a.md"), "content-a").unwrap();
+    fs::create_dir_all(source.join("skills/demo")).unwrap();
+    fs::write(source.join("skills/demo/SKILL.md"), "skill content").unwrap();
+    // Write MANIFEST via the binary (no --verify flag = write).
+    let manifest_written = fixture.run(&["dev", "manifest", "--root", source.to_str().unwrap()]);
+    assert!(
+        manifest_written.status.success(),
+        "manifest write failed: {}",
+        String::from_utf8_lossy(&manifest_written.stderr)
+    );
+
+    // Prefix: install from source so receipt.bundle = true.
+    let prefix = fixture.root.join("prefix");
+
+    let installed = run_from([
+        "sddk",
+        "dev",
+        "install",
+        "--prefix",
+        prefix.to_str().unwrap(),
+        "--channel",
+        "dev",
+        "--timestamp",
+        "2026-08-16T00:00:00Z",
+        "--source",
+        source.to_str().unwrap(),
+    ]);
+    assert_eq!(installed.status, 0, "install failed: {}", installed.stderr);
+
+    // Verify passes initially.
+    let clean = run_from([
+        "sddk",
+        "dev",
+        "verify",
+        "--prefix",
+        prefix.to_str().unwrap(),
+    ]);
+    assert_eq!(
+        clean.status, 0,
+        "verify should pass on clean install: {}",
+        clean.stderr
+    );
+
+    // Tamper an installed surface file.
+    fs::write(prefix.join("agents/a.md"), "TAMPERED").unwrap();
+
+    // Verify must fail and report the mismatch.
+    let tampered = run_from([
+        "sddk",
+        "dev",
+        "verify",
+        "--prefix",
+        prefix.to_str().unwrap(),
+    ]);
+    assert_ne!(
+        tampered.status, 0,
+        "verify should FAIL on tampered bundle; got status={}",
+        tampered.status
+    );
+    assert!(
+        tampered.stderr.contains("mismatch") || tampered.stderr.contains("FAILED"),
+        "verify error should mention mismatch; got: {}",
+        tampered.stderr
+    );
+}
+
+/// uninstall_removes_prefix_and_editor_symlinks: `dev uninstall --prefix P
+/// --editor opencode --root P` removes the installed binary + receipt AND the
+/// editor symlinks whose targets point into the prefix (spec scenario 3.2).
+/// Note: `--prefix` alone intentionally does NOT touch editor symlinks.
+#[cfg(unix)]
+#[test]
+fn uninstall_removes_prefix_and_editor_symlinks() {
+    let fixture = CliFixture::new("uninstall-prefix-editor");
+
+    // Source bundle: surfaces + MANIFEST written via the CLI.
+    let source = fixture.root.join("source");
+    fs::create_dir_all(source.join("agents")).unwrap();
+    fs::write(
+        source.join("agents/framework-agent.md"),
+        "---\nname: framework-agent\ndescription: test\n---\n# Agent\n",
+    )
+    .unwrap();
+    fs::write(
+        source.join("permissions.yaml"),
+        "agents:\n  framework-agent:\n    phases: []\n    capabilities: []\n",
+    )
+    .unwrap();
+    fs::create_dir_all(source.join("skills/demo")).unwrap();
+    fs::write(source.join("skills/demo/SKILL.md"), "# Demo\n").unwrap();
+    let manifest_written = fixture.run(&["dev", "manifest", "--root", source.to_str().unwrap()]);
+    assert!(
+        manifest_written.status.success(),
+        "manifest write failed: {}",
+        String::from_utf8_lossy(&manifest_written.stderr)
+    );
+
+    // Install into a prefix so the editor can link against it.
+    let prefix = fixture.root.join("prefix");
+    let installed = run_from([
+        "sddk",
+        "dev",
+        "install",
+        "--prefix",
+        prefix.to_str().unwrap(),
+        "--channel",
+        "dev",
+        "--timestamp",
+        "2026-08-16T00:00:00Z",
+        "--source",
+        source.to_str().unwrap(),
+    ]);
+    assert_eq!(installed.status, 0, "install failed: {}", installed.stderr);
+
+    // Link an isolated editor against the PREFIX.
+    let opencode_dir = fixture.root.join("editor-opencode");
+    fs::create_dir_all(&opencode_dir).unwrap();
+    let linked = fixture.run(&[
+        "dev",
+        "link",
+        "--root",
+        prefix.to_str().unwrap(),
+        "--editor",
+        "opencode",
+        "--opencode-dir",
+        opencode_dir.to_str().unwrap(),
+    ]);
+    assert!(
+        linked.status.success(),
+        "link failed: {}",
+        String::from_utf8_lossy(&linked.stderr)
+    );
+
+    // Precondition: symlinks exist and point into the prefix.
+    let agent_symlink = opencode_dir.join("agents/framework-agent.md");
+    assert!(
+        fs::symlink_metadata(&agent_symlink)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false),
+        "agent symlink should exist before uninstall"
+    );
+    let skill_symlink = opencode_dir.join("skills/demo");
+    assert!(
+        fs::symlink_metadata(&skill_symlink)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false),
+        "skill symlink should exist before uninstall"
+    );
+    let receipt_path = prefix.join("sddk-install.json");
+    assert!(
+        receipt_path.exists(),
+        "receipt should exist before uninstall"
+    );
+
+    // Combined uninstall: prefix + editor symlinks in one invocation.
+    let uninstalled = fixture.run(&[
+        "dev",
+        "uninstall",
+        "--prefix",
+        prefix.to_str().unwrap(),
+        "--editor",
+        "opencode",
+        "--root",
+        prefix.to_str().unwrap(),
+        "--opencode-dir",
+        opencode_dir.to_str().unwrap(),
+    ]);
+    assert!(
+        uninstalled.status.success(),
+        "uninstall failed: {}",
+        String::from_utf8_lossy(&uninstalled.stderr)
+    );
+
+    // Prefix: binary + receipt removed.
+    assert!(!receipt_path.exists(), "receipt should be removed");
+    assert!(
+        !prefix.join("bin/sddk").exists(),
+        "installed binary should be removed"
+    );
+
+    // Editor: symlinks pointing into the prefix are gone.
+    assert!(
+        !agent_symlink.exists(),
+        "agent symlink into the prefix should be removed"
+    );
+    assert!(
+        !skill_symlink.exists(),
+        "skill symlink into the prefix should be removed"
+    );
+
+    // Editor: the opencode.json agent entry is removed too.
+    let opencode_json = opencode_dir.join("opencode.json");
+    if opencode_json.exists() {
+        let after: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&opencode_json).unwrap()).unwrap();
+        assert!(
+            after["agent"]["framework-agent"].is_null(),
+            "opencode.json agent entry should be removed"
+        );
+    }
+}
+
+/// link_is_idempotent: running `dev link` twice on the same editor dir must
+/// succeed both times, keep symlinks intact, and leave no residual temp files.
+#[cfg(unix)]
+#[test]
+fn link_is_idempotent() {
+    let fixture = CliFixture::new("link-idempotent");
+    let root = fixture.root.clone();
+
+    fs::create_dir_all(root.join("agents")).unwrap();
+    fs::write(
+        root.join("agents/test-agent.md"),
+        "---\nname: test-agent\ndescription: test agent\n---\n# Test\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("permissions.yaml"),
+        "agents:\n  test-agent:\n    phases: []\n    capabilities: []\n",
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("skills/myskill")).unwrap();
+    fs::write(root.join("skills/myskill/SKILL.md"), "# Skill\n").unwrap();
+
+    let opencode_dir = fixture.root.join("editor");
+    fs::create_dir_all(&opencode_dir).unwrap();
+
+    // First link.
+    let first = fixture.run(&[
+        "dev",
+        "link",
+        "--root",
+        root.to_str().unwrap(),
+        "--editor",
+        "opencode",
+        "--opencode-dir",
+        opencode_dir.to_str().unwrap(),
+    ]);
+    assert!(
+        first.status.success(),
+        "first link failed: {}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+
+    // Second link — must also succeed (idempotent).
+    let second = fixture.run(&[
+        "dev",
+        "link",
+        "--root",
+        root.to_str().unwrap(),
+        "--editor",
+        "opencode",
+        "--opencode-dir",
+        opencode_dir.to_str().unwrap(),
+    ]);
+    assert!(
+        second.status.success(),
+        "second link failed (not idempotent): {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+
+    // Symlinks must still point to the correct target.
+    let agent_link = opencode_dir.join("agents/test-agent.md");
+    assert!(
+        fs::symlink_metadata(&agent_link)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false),
+        "agent symlink should still exist after second link"
+    );
+    let agent_target = fs::read_link(&agent_link).unwrap();
+    assert!(
+        agent_target.to_string_lossy().contains("test-agent.md"),
+        "agent symlink should point to test-agent.md, got: {}",
+        agent_target.display()
+    );
+
+    let skill_link = opencode_dir.join("skills/myskill");
+    assert!(
+        fs::symlink_metadata(&skill_link)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false),
+        "skill symlink should still exist after second link"
+    );
+
+    // No residual temp files in the editor dir.
+    let entries: Vec<_> = fs::read_dir(&opencode_dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        !entries.iter().any(|n| n.contains(".tmp")),
+        "no .tmp residual should exist after idempotent link; found: {entries:?}"
+    );
+}
+
 #[test]
 fn cli_full_runtime_pipeline_dogfood() {
     let fixture = CliFixture::new("dogfood");
