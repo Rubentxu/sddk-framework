@@ -3,6 +3,11 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.20] - 2026-08-16
+
+### Other
+  - refactor(dev): consolida helpers duplicados y añade smoke tests behaviorales
+
 ## [1.9.19] - 2026-08-16
 
 Refactor: `dev_cmd.rs` (3022 líneas) se divide en 13 submódulos bajo `crates/sddk-cli/src/dev/`.
