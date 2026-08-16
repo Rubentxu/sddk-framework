@@ -186,19 +186,89 @@ pub(super) fn download_to(url: &str, destination: &Path) -> anyhow::Result<()> {
     }
 }
 
-pub(super) fn copy_bundle_tree(source: &Path, target: &Path) -> anyhow::Result<()> {
-    for file in walk_dir(source) {
-        if !file.is_file() {
-            continue;
+/// How [`copy_tree`] decides which files to write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum CopyMode {
+    /// Copy every file, staging into a sibling temp dir and renaming into
+    /// place (atomic swap when the target already exists).
+    Always,
+    /// Copy only files whose content differs from the destination
+    /// (idempotent reinstall; preserves mtimes of unchanged files).
+    IfChanged,
+}
+
+/// Copies the file tree under `source` into `target`.
+///
+/// `Always` stages the copy into `<target>.tmp-<pid>` and renames it into
+/// place — a failure mid-copy leaves the previous target intact and cleans
+/// the staging dir. If the target already exists it is swapped out to
+/// `<target>.old-<pid>` first and removed after the swap.
+pub(super) fn copy_tree(source: &Path, target: &Path, mode: CopyMode) -> anyhow::Result<()> {
+    match mode {
+        CopyMode::IfChanged => {
+            if !source.is_dir() {
+                anyhow::bail!(
+                    "copy_tree IfChanged called with non-directory source: {}",
+                    source.display()
+                );
+            }
+            for file in walk_dir(source) {
+                if !file.is_file() {
+                    continue;
+                }
+                let relative = file.strip_prefix(source)?;
+                let destination = target.join(relative);
+                let needs_copy = match (std::fs::read(&file), std::fs::read(&destination)) {
+                    (Ok(src), Ok(dst)) => src != dst,
+                    _ => true,
+                };
+                if needs_copy {
+                    if let Some(parent) = destination.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    std::fs::copy(&file, &destination)?;
+                }
+            }
+            Ok(())
         }
-        let relative = file.strip_prefix(source)?;
-        let destination = target.join(relative);
-        if let Some(parent) = destination.parent() {
-            std::fs::create_dir_all(parent)?;
+        CopyMode::Always => {
+            if !source.is_dir() {
+                anyhow::bail!(
+                    "copy_tree Always called with non-directory source: {}",
+                    source.display()
+                );
+            }
+            let staging = target.with_file_name(format!(
+                "{}.tmp-{}",
+                target.file_name().unwrap_or_default().to_string_lossy(),
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&staging);
+            copy_tree(source, &staging, CopyMode::IfChanged)?;
+            // Swap: park the old target (if any), rename staging into place,
+            // then remove the parked copy. Any failure before the final
+            // rename leaves the original target intact.
+            let parked = target.with_file_name(format!(
+                "{}.old-{}",
+                target.file_name().unwrap_or_default().to_string_lossy(),
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&parked);
+            let had_target = target.exists();
+            if had_target {
+                std::fs::rename(target, &parked)?;
+            }
+            if let Err(error) = std::fs::rename(&staging, target) {
+                // Roll back: restore the parked target before failing.
+                if had_target {
+                    std::fs::rename(&parked, target)?;
+                }
+                return Err(error.into());
+            }
+            let _ = std::fs::remove_dir_all(&parked);
+            Ok(())
         }
-        std::fs::copy(file, destination)?;
     }
-    Ok(())
 }
 
 /// Count entries in a root's MANIFEST.sha256 (0 when absent).
@@ -206,3 +276,7 @@ pub(super) fn count_manifest_entries(root: &Path) -> anyhow::Result<usize> {
     let raw = std::fs::read_to_string(root.join(super::manifest::MANIFEST_FILE))?;
     Ok(raw.lines().filter(|l| !l.trim().is_empty()).count())
 }
+
+#[cfg(test)]
+#[path = "tests/copy_tree_tests.rs"]
+mod copy_tree_tests;

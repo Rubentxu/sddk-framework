@@ -1,7 +1,7 @@
 //! `dev update` — download and install a framework release bundle.
 
 use super::manifest::MANIFEST_FILE;
-use crate::dev::common::{count_manifest_entries, download_to, sha256_hex, walk_dir};
+use crate::dev::common::{CopyMode, copy_tree, count_manifest_entries, download_to, sha256_hex};
 use crate::dev::manifest::verify_manifest;
 use crate::dev::paths::framework_dir;
 use crate::{CliEnvironment, CommandOutput, OutputFormat, render_result};
@@ -82,7 +82,7 @@ pub(crate) fn update_bundle(root: &Path, args: &super::UpdateArgs) -> anyhow::Re
         }
     }
     let count = count_manifest_entries(root).unwrap_or(0);
-    crate::dev::common::copy_bundle_tree(&staged_bundle, root)?;
+    copy_tree(&staged_bundle, root, CopyMode::Always)?;
     let _ = std::fs::remove_dir_all(&tmp);
     Ok(format!(
         "framework: {version} ({asset}) sha256 verified: {actual}; {count} files content-verified via {MANIFEST_FILE}\n"

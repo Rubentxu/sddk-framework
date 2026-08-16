@@ -1,6 +1,8 @@
 //! `dev install` — atomic binary prefix installation with receipt.
 
-use crate::dev::common::{MANIFEST_SURFACES, RECEIPT_FILE, atomic_write, receipt_text, walk_dir};
+use crate::dev::common::{
+    CopyMode, MANIFEST_SURFACES, RECEIPT_FILE, atomic_write, copy_tree, receipt_text,
+};
 use crate::dev::manifest::{MANIFEST_FILE, verify_manifest};
 use crate::git_cmd::default_timestamp;
 use crate::{CommandOutput, OutputFormat, render_result};
@@ -59,27 +61,7 @@ pub(super) fn run_dev_install(args: super::InstallArgs) -> CommandOutput {
                 if !src_dir.is_dir() {
                     continue;
                 }
-                for file in walk_dir(&src_dir) {
-                    if !file.is_file() {
-                        continue;
-                    }
-                    let relative = file
-                        .strip_prefix(&source)
-                        .unwrap_or(file.as_path())
-                        .to_path_buf();
-                    let dest = args.prefix.join(&relative);
-                    if let Some(parent) = dest.parent() {
-                        std::fs::create_dir_all(parent)?;
-                    }
-                    // Only copy when content differs (idempotent).
-                    let needs_copy = match (std::fs::read(&file), std::fs::read(&dest)) {
-                        (Ok(src), Ok(dst)) => src != dst,
-                        _ => true,
-                    };
-                    if needs_copy {
-                        std::fs::copy(&file, &dest)?;
-                    }
-                }
+                copy_tree(&src_dir, &args.prefix.join(surface), CopyMode::IfChanged)?;
             }
             // Also copy the MANIFEST.sha256 itself to the prefix so `dev verify`
             // can re-check installed surfaces against it.
