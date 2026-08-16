@@ -13,6 +13,8 @@ const TIMESTAMP: &str = "2026-08-04T10:00:00Z";
 const SEED: &str = "a0b1c2d3-e4f5-4678-9abc-def012345678";
 
 #[test]
+
+
 fn plan_is_write_free_and_reports_identity_paths_and_hash() {
     let fixture = Fixture::new();
     let plan = fixture.remote_plan("checkout", "https://example.com/acme/backend.git", ".");
@@ -60,11 +62,11 @@ fn worktrees_share_project_storage_and_have_distinct_workspace_receipts() {
     assert_ne!(first.workspace_id, second.workspace_id);
     assert_ne!(first.paths.receipt, second.paths.receipt);
     assert_eq!(
-        apply_adoption(&first).unwrap().status,
+        apply_adoption(&first, &mut sddk_storage::Storage::open(&first.paths.ledger).unwrap()).unwrap().status,
         AdoptionStatusKind::Complete
     );
     assert_eq!(
-        apply_adoption(&second).unwrap().status,
+        apply_adoption(&second, &mut sddk_storage::Storage::open(&second.paths.ledger).unwrap()).unwrap().status,
         AdoptionStatusKind::Complete
     );
     let storage = Storage::open_read_only(&first.paths.ledger).unwrap();
@@ -76,7 +78,7 @@ fn worktrees_share_project_storage_and_have_distinct_workspace_receipts() {
 fn apply_replay_is_idempotent_and_preserves_original_receipt_metadata() {
     let fixture = Fixture::new();
     let first = fixture.remote_plan("repo", "https://example.com/acme/repo", ".");
-    let first_status = apply_adoption(&first).unwrap();
+    let first_status = apply_adoption(&first, &mut sddk_storage::Storage::open(&first.paths.ledger).unwrap()).unwrap();
     let bytes = fs::read(&first.paths.receipt).unwrap();
 
     // Replay with identical identity but a different timestamp/actor.
@@ -87,7 +89,7 @@ fn apply_replay_is_idempotent_and_preserves_original_receipt_metadata() {
     replay_input.timestamp = "2026-08-04T11:00:00Z".into();
     replay_input.actor = "second-actor".into();
     let replay = plan_adoption(replay_input).unwrap();
-    let replayed_status = apply_adoption(&replay).unwrap();
+    let replayed_status = apply_adoption(&replay, &mut sddk_storage::Storage::open(&replay.paths.ledger).unwrap()).unwrap();
 
     assert_eq!(first_status.status, AdoptionStatusKind::Complete);
     assert_eq!(replayed_status.status, AdoptionStatusKind::Complete);
@@ -107,7 +109,7 @@ fn apply_replay_is_idempotent_and_preserves_original_receipt_metadata() {
 fn fallback_seed_is_persisted_and_reused() {
     let fixture = Fixture::new();
     let plan = fixture.fallback_plan("local-repo", SEED);
-    apply_adoption(&plan).unwrap();
+    apply_adoption(&plan, &mut sddk_storage::Storage::open(&plan.paths.ledger).unwrap()).unwrap();
     let receipt = read_adoption_receipt(&plan.paths.receipt).unwrap();
 
     assert_eq!(receipt.fallback_seed.as_deref(), Some(SEED));
@@ -118,7 +120,7 @@ fn fallback_seed_is_persisted_and_reused() {
     let replay = fixture.fallback_plan("local-repo", receipt.fallback_seed.as_deref().unwrap());
     assert_eq!(replay.identity.project_id, plan.identity.project_id);
     assert_eq!(
-        adoption_status(&replay).unwrap().status,
+        adoption_status(&replay, &sddk_storage::Storage::open(&replay.paths.ledger).unwrap()).unwrap().status,
         AdoptionStatusKind::Complete
     );
 }
@@ -130,11 +132,11 @@ fn repair_completes_receipt_only_state() {
     write_receipt_fixture(&plan);
 
     assert_eq!(
-        adoption_status(&plan).unwrap().status,
+        adoption_status(&plan, &sddk_storage::Storage::open(&plan.paths.ledger).unwrap()).unwrap().status,
         AdoptionStatusKind::ReceiptOnly
     );
     assert_eq!(
-        repair_adoption(&plan).unwrap().status,
+        repair_adoption(&plan, &mut sddk_storage::Storage::open(&plan.paths.ledger).unwrap()).unwrap().status,
         AdoptionStatusKind::Complete
     );
 }
@@ -146,11 +148,11 @@ fn repair_completes_ledger_only_state() {
     register_ledger_fixture(&plan);
 
     assert_eq!(
-        adoption_status(&plan).unwrap().status,
+        adoption_status(&plan, &sddk_storage::Storage::open(&plan.paths.ledger).unwrap()).unwrap().status,
         AdoptionStatusKind::LedgerOnly
     );
     assert_eq!(
-        repair_adoption(&plan).unwrap().status,
+        repair_adoption(&plan, &mut sddk_storage::Storage::open(&plan.paths.ledger).unwrap()).unwrap().status,
         AdoptionStatusKind::Complete
     );
 }
@@ -159,7 +161,7 @@ fn repair_completes_ledger_only_state() {
 fn repair_refuses_identity_conflict() {
     let fixture = Fixture::new();
     let original = fixture.remote_plan("repo", "https://example.com/acme/repo", ".");
-    apply_adoption(&original).unwrap();
+    apply_adoption(&original, &mut sddk_storage::Storage::open(&original.paths.ledger).unwrap()).unwrap();
     let bytes_original = fs::read(&original.paths.receipt).unwrap();
 
     let mut changed_input = fixture.input("repo");
@@ -172,11 +174,11 @@ fn repair_refuses_identity_conflict() {
     // and must surface a refusal when the receipt at its resolved path
     // exists with a different identity.
     assert_eq!(
-        adoption_status(&changed).unwrap().status,
+        adoption_status(&changed, &sddk_storage::Storage::open(&changed.paths.ledger).unwrap()).unwrap().status,
         AdoptionStatusKind::Absent
     );
     assert!(matches!(
-        repair_adoption(&changed),
+        repair_adoption(&changed, &mut sddk_storage::Storage::open(&changed.paths.ledger).unwrap()),
         Err(AdoptionError::NothingToRepair)
     ));
     // Original receipt is byte-identical after the repair attempt:
@@ -187,7 +189,7 @@ fn repair_refuses_identity_conflict() {
 fn refresh_preserves_identity_and_updates_runtime_metadata() {
     let fixture = Fixture::new();
     let v1 = fixture.remote_plan("repo", "https://example.com/acme/repo", ".");
-    apply_adoption(&v1).unwrap();
+    apply_adoption(&v1, &mut sddk_storage::Storage::open(&v1.paths.ledger).unwrap()).unwrap();
     let bytes_v1 = fs::read(&v1.paths.receipt).unwrap();
 
     let mut v2_input = fixture.input("repo");
@@ -197,7 +199,7 @@ fn refresh_preserves_identity_and_updates_runtime_metadata() {
     v2_input.actor = "second-actor".into();
     let v2 = plan_adoption(v2_input).unwrap();
 
-    let refreshed = refresh_adoption(&v2).unwrap();
+    let refreshed = refresh_adoption(&v2, &mut sddk_storage::Storage::open(&v2.paths.ledger).unwrap()).unwrap();
     assert_eq!(refreshed.status, AdoptionStatusKind::Complete);
 
     let on_disk = read_adoption_receipt(&v2.paths.receipt).unwrap();
@@ -218,7 +220,7 @@ fn refresh_preserves_identity_and_updates_runtime_metadata() {
 fn refresh_fails_on_identity_drift() {
     let fixture = Fixture::new();
     let original = fixture.remote_plan("repo", "https://example.com/acme/repo", ".");
-    apply_adoption(&original).unwrap();
+    apply_adoption(&original, &mut sddk_storage::Storage::open(&original.paths.ledger).unwrap()).unwrap();
     let bytes_original = fs::read(&original.paths.receipt).unwrap();
 
     // Drift identity: different remote_url ⇒ different project_id ⇒ different
@@ -229,7 +231,7 @@ fn refresh_fails_on_identity_drift() {
     drifted_input.runtime_version = "0.2.0".into();
     let drifted = plan_adoption(drifted_input).unwrap();
 
-    let refreshed = refresh_adoption(&drifted).unwrap();
+    let refreshed = refresh_adoption(&drifted, &mut sddk_storage::Storage::open(&drifted.paths.ledger).unwrap()).unwrap();
     assert_eq!(
         refreshed.status,
         AdoptionStatusKind::Absent,
@@ -246,7 +248,7 @@ fn refresh_fails_on_identity_drift() {
 fn apply_is_strict_about_identity_after_refresh() {
     let fixture = Fixture::new();
     let v1 = fixture.remote_plan("repo", "https://example.com/acme/repo", ".");
-    apply_adoption(&v1).unwrap();
+    apply_adoption(&v1, &mut sddk_storage::Storage::open(&v1.paths.ledger).unwrap()).unwrap();
     let bytes_v1 = fs::read(&v1.paths.receipt).unwrap();
 
     // Drift identity AND runtime metadata. Different remote_url ⇒ different
@@ -257,7 +259,7 @@ fn apply_is_strict_about_identity_after_refresh() {
     drifted_input.runtime_version = "0.2.0".into();
     let drifted = plan_adoption(drifted_input).unwrap();
 
-    let applied = apply_adoption(&drifted).unwrap();
+    let applied = apply_adoption(&drifted, &mut sddk_storage::Storage::open(&drifted.paths.ledger).unwrap()).unwrap();
     assert_eq!(applied.status, AdoptionStatusKind::Complete);
     assert_eq!(
         fs::read(&v1.paths.receipt).unwrap(),
@@ -276,7 +278,7 @@ fn refresh_is_no_op_when_receipt_is_absent() {
     let fixture = Fixture::new();
     let plan = fixture.remote_plan("repo", "https://example.com/acme/repo", ".");
 
-    let refreshed = refresh_adoption(&plan).unwrap();
+    let refreshed = refresh_adoption(&plan, &mut sddk_storage::Storage::open(&plan.paths.ledger).unwrap()).unwrap();
     assert_eq!(refreshed.status, AdoptionStatusKind::Absent);
     assert!(!plan.paths.receipt.exists());
 }
@@ -289,11 +291,11 @@ fn corrupt_receipt_is_classified_and_never_overwritten() {
     fs::write(&plan.paths.receipt, b"{not-json\n").unwrap();
 
     assert_eq!(
-        adoption_status(&plan).unwrap().status,
+        adoption_status(&plan, &sddk_storage::Storage::open(&plan.paths.ledger).unwrap()).unwrap().status,
         AdoptionStatusKind::Corrupt
     );
     assert!(matches!(
-        apply_adoption(&plan),
+        apply_adoption(&plan, &mut sddk_storage::Storage::open(&plan.paths.ledger).unwrap()),
         Err(AdoptionError::UnsafeState {
             status: AdoptionStatusKind::Corrupt,
             ..

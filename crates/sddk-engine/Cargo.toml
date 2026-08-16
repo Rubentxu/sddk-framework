@@ -18,9 +18,8 @@ thiserror = { workspace = true }
 sha2 = { workspace = true }
 dirs = { workspace = true }
 sddk-domain = { path = "../sddk-domain" }
-# NOTE: kept for Storage type alias / dev-ergonomics; core engine logic uses Ledger trait
-sddk-storage = { path = "../sddk-storage" }
 
 [dev-dependencies]
 regex = { workspace = true }
 tempfile = { workspace = true }
+sddk-storage = { path = "../sddk-storage" }

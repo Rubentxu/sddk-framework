@@ -555,27 +555,17 @@ mod tests {
         let baseline = BaselineConsumer::capture_live(&repo_root)
             .expect("capture_live must succeed on this repo");
 
-        // ARCH001: sddk-engine must not depend on sddk-storage
-        // The baseline should contain an engine→storage edge (Cargo dep or use)
-        let has_engine_storage = baseline
+        // ARCH001 closed (v1.14.0): engine must NOT depend on sddk-storage.
+        let engine_storage: Vec<_> = baseline
             .cross_crate_imports
             .iter()
-            .any(|e| e.from_crate == "sddk-engine" && e.to_crate == "sddk-storage");
-
+            .filter(|e| e.from_crate == "sddk-engine" && e.to_crate == "sddk-storage")
+            .collect();
         assert!(
-            has_engine_storage,
-            "capture_live must detect sddk-engine → sddk-storage edge; \
-             engine edges found: {:?}, all edges: {:?}",
-            baseline
-                .cross_crate_imports
-                .iter()
-                .filter(|e| e.from_crate == "sddk-engine")
-                .collect::<Vec<_>>(),
-            baseline
-                .cross_crate_imports
-                .iter()
-                .take(20)
-                .collect::<Vec<_>>()
+            engine_storage.is_empty(),
+            "ARCH001 regression: sddk-engine must not depend on sddk-storage; \
+             offending edges: {:?}",
+            engine_storage,
         );
     }
 

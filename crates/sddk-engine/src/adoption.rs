@@ -7,10 +7,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use sddk_domain::error::SddkErrorCode;
 use sddk_domain::{
-    AdoptionReceipt, IdentityError, IdentitySource, ResolvedProjectIdentity,
+    AdoptionReceipt, IdentityError, IdentitySource, Ledger, ResolvedProjectIdentity,
     resolve_project_identity, stable_workspace_id,
 };
-use sddk_storage::{ProjectRecord, Storage, StorageError, WorkspaceRecord};
+use sddk_domain::{ProjectRecord, StorageError, WorkspaceRecord};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -237,7 +237,7 @@ pub fn plan_adoption(input: AdoptionPlanInput) -> Result<AdoptionPlan, AdoptionE
 }
 
 /// Inspects receipt and SQLite registration without modifying either resource.
-pub fn adoption_status(plan: &AdoptionPlan) -> Result<AdoptionStatus, AdoptionError> {
+pub fn adoption_status(plan: &AdoptionPlan, ledger: &impl Ledger) -> Result<AdoptionStatus, AdoptionError> {
     let base = base_status(plan);
     let receipt = match inspect_receipt(plan) {
         ReceiptInspection::Absent => None,
@@ -249,7 +249,7 @@ pub fn adoption_status(plan: &AdoptionPlan) -> Result<AdoptionStatus, AdoptionEr
             return Ok(invalid_status(base, AdoptionStatusKind::Corrupt, detail));
         }
     };
-    let ledger = inspect_ledger(plan);
+    let ledger = inspect_ledger(plan, ledger);
     if let Some((status, detail)) = ledger.invalid {
         return Ok(invalid_status(base, status, detail));
     }
@@ -270,12 +270,12 @@ pub fn adoption_status(plan: &AdoptionPlan) -> Result<AdoptionStatus, AdoptionEr
 }
 
 /// Applies a plan and converges matching partial state idempotently.
-pub fn apply_adoption(plan: &AdoptionPlan) -> Result<AdoptionStatus, AdoptionError> {
-    let status = adoption_status(plan)?;
+pub fn apply_adoption(plan: &AdoptionPlan, ledger: &mut impl Ledger) -> Result<AdoptionStatus, AdoptionError> {
+    let status = adoption_status(plan, ledger)?;
     match status.status {
         AdoptionStatusKind::Complete => {
-            converge(plan)?;
-            return require_complete(adoption_status(plan)?);
+            converge(plan, ledger)?;
+            return require_complete(adoption_status(plan, ledger)?);
         }
         AdoptionStatusKind::Conflict | AdoptionStatusKind::Corrupt => {
             return Err(unsafe_status(status));
@@ -284,17 +284,17 @@ pub fn apply_adoption(plan: &AdoptionPlan) -> Result<AdoptionStatus, AdoptionErr
         | AdoptionStatusKind::ReceiptOnly
         | AdoptionStatusKind::LedgerOnly => {}
     }
-    converge(plan)?;
-    require_complete(adoption_status(plan)?)
+    converge(plan, ledger)?;
+    require_complete(adoption_status(plan, ledger)?)
 }
 
 /// Repairs a matching receipt-only or ledger-only adoption state.
-pub fn repair_adoption(plan: &AdoptionPlan) -> Result<AdoptionStatus, AdoptionError> {
-    let status = adoption_status(plan)?;
+pub fn repair_adoption(plan: &AdoptionPlan, ledger: &mut impl Ledger) -> Result<AdoptionStatus, AdoptionError> {
+    let status = adoption_status(plan, ledger)?;
     match status.status {
         AdoptionStatusKind::Complete => {
-            converge(plan)?;
-            return require_complete(adoption_status(plan)?);
+            converge(plan, ledger)?;
+            return require_complete(adoption_status(plan, ledger)?);
         }
         AdoptionStatusKind::Absent => return Err(AdoptionError::NothingToRepair),
         AdoptionStatusKind::Conflict | AdoptionStatusKind::Corrupt => {
@@ -302,8 +302,8 @@ pub fn repair_adoption(plan: &AdoptionPlan) -> Result<AdoptionStatus, AdoptionEr
         }
         AdoptionStatusKind::ReceiptOnly | AdoptionStatusKind::LedgerOnly => {}
     }
-    converge(plan)?;
-    require_complete(adoption_status(plan)?)
+    converge(plan, ledger)?;
+    require_complete(adoption_status(plan, ledger)?)
 }
 
 /// Reads a receipt without interpreting it against a plan.
@@ -311,12 +311,11 @@ pub fn read_adoption_receipt(path: impl AsRef<Path>) -> Result<AdoptionReceipt, 
     Ok(serde_json::from_slice(&fs::read(path)?)?)
 }
 
-fn converge(plan: &AdoptionPlan) -> Result<(), AdoptionError> {
+fn converge(plan: &AdoptionPlan, ledger: &mut impl Ledger) -> Result<(), AdoptionError> {
     fs::create_dir_all(&plan.knowledge.vault_path)?;
     fs::create_dir_all(&plan.paths.artifacts)?;
     fs::create_dir_all(&plan.paths.cache)?;
-    let mut storage = Storage::open(&plan.paths.ledger)?;
-    storage.register_project_workspace(&project_record(plan), &workspace_record(plan))?;
+    ledger.register_project_workspace(&project_record(plan), &workspace_record(plan))?;
     let overwrite = if plan.paths.receipt.exists() {
         let existing = read_adoption_receipt(&plan.paths.receipt)?;
         if !same_identity(&existing, &plan.receipt) {
@@ -337,14 +336,14 @@ fn converge(plan: &AdoptionPlan) -> Result<(), AdoptionError> {
 /// Converges runtime metadata of an existing adoption receipt without
 /// overwriting its identity. Refuses on absent, corrupt, or identity-drifted
 /// state. Always refreshes the on-disk receipt when the identity matches.
-pub fn refresh_adoption(plan: &AdoptionPlan) -> Result<AdoptionStatus, AdoptionError> {
-    let status = adoption_status(plan)?;
+pub fn refresh_adoption(plan: &AdoptionPlan, ledger: &mut impl Ledger) -> Result<AdoptionStatus, AdoptionError> {
+    let status = adoption_status(plan, ledger)?;
     match status.status {
         AdoptionStatusKind::Complete | AdoptionStatusKind::ReceiptOnly => {
             let existing = read_adoption_receipt(&plan.paths.receipt)?;
             if same_identity(&existing, &plan.receipt) {
-                converge(plan)?;
-                require_complete(adoption_status(plan)?)
+                converge(plan, ledger)?;
+                require_complete(adoption_status(plan, ledger)?)
             } else {
                 Ok(invalid_status(
                     base_status(plan),
@@ -422,25 +421,21 @@ fn inspect_receipt(plan: &AdoptionPlan) -> ReceiptInspection {
     }
 }
 
-fn inspect_ledger(plan: &AdoptionPlan) -> LedgerInspection {
+fn inspect_ledger(plan: &AdoptionPlan, ledger: &impl Ledger) -> LedgerInspection {
     if !plan.paths.ledger.exists() {
         return LedgerInspection::default();
     }
-    let storage = match Storage::open_read_only(&plan.paths.ledger) {
-        Ok(storage) => storage,
-        Err(error) => return LedgerInspection::corrupt(format!("ledger open failed: {error}")),
-    };
-    let project = match storage.get_project_optional(plan.identity.project_id.as_str()) {
+    let project = match ledger.get_project_optional(plan.identity.project_id.as_str()) {
         Ok(project) => project,
         Err(error) => return LedgerInspection::corrupt(format!("project read failed: {error}")),
     };
-    let workspace = match storage.get_workspace_optional(&plan.workspace_id) {
+    let workspace = match ledger.get_workspace_optional(&plan.workspace_id) {
         Ok(workspace) => workspace,
         Err(error) => {
             return LedgerInspection::corrupt(format!("workspace read failed: {error}"));
         }
     };
-    let has_projects = match storage.has_projects() {
+    let has_projects = match ledger.has_projects() {
         Ok(has_projects) => has_projects,
         Err(error) => return LedgerInspection::corrupt(format!("ledger read failed: {error}")),
     };
@@ -739,7 +734,7 @@ mod tests {
             actor: "test".into(),
         })
         .unwrap();
-        apply_adoption(&plan).unwrap();
+        apply_adoption(&plan, &mut sddk_storage::Storage::open(&plan.paths.ledger).unwrap()).unwrap();
 
         // Simulate a legacy receipt authored when `paths.vault` lived at
         // `$project_data/vault` instead of the canonical `$HOME/.sddk-knowledge/$name`.
@@ -754,7 +749,7 @@ mod tests {
         // and the receipt migrated to the canonical vault (better than today's
         // behaviour where the legacy vault path survived indefinitely).
         assert_eq!(
-            apply_adoption(&plan).unwrap().status,
+            apply_adoption(&plan, &mut sddk_storage::Storage::open(&plan.paths.ledger).unwrap()).unwrap().status,
             AdoptionStatusKind::Complete
         );
         assert!(plan.paths.knowledge_profile.is_file());

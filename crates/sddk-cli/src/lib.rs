@@ -960,20 +960,21 @@ fn run_adopt(command: AdoptCommand, environment: &CliEnvironment) -> CommandOutp
     let format = args.format;
     let result = (|| -> anyhow::Result<AdoptionCommandResult> {
         let plan = prepare_adoption_plan(args, operation, environment)?;
+        let mut storage = sddk_storage::Storage::open(&plan.paths.ledger)?;
         Ok(match operation {
             AdoptionOperation::Plan => AdoptionCommandResult::Plan(Box::new(plan)),
             AdoptionOperation::Apply => {
-                let status = apply_adoption(&plan)?;
+                let status = apply_adoption(&plan, &mut storage)?;
                 AdoptionCommandResult::Status(Box::new(status))
             }
             AdoptionOperation::Status => {
-                AdoptionCommandResult::Status(Box::new(adoption_status(&plan)?))
+                AdoptionCommandResult::Status(Box::new(adoption_status(&plan, &storage)?))
             }
             AdoptionOperation::Repair => {
-                AdoptionCommandResult::Status(Box::new(repair_adoption(&plan)?))
+                AdoptionCommandResult::Status(Box::new(repair_adoption(&plan, &mut storage)?))
             }
             AdoptionOperation::Refresh => {
-                let status = sddk_engine::refresh_adoption(&plan)?;
+                let status = sddk_engine::refresh_adoption(&plan, &mut storage)?;
                 AdoptionCommandResult::Status(Box::new(status))
             }
         })

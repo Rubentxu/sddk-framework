@@ -45,7 +45,7 @@ pub(crate) struct RuntimeContext {
     pub(crate) root: PathBuf,
     pub(crate) identity: sddk_domain::ResolvedProjectIdentity,
     pub(crate) workspace_id: String,
-    pub(crate) engine: Engine,
+    pub(crate) engine: Engine<Storage>,
     pub(crate) storage: Storage,
     pub(crate) artifacts_path: PathBuf,
     pub(crate) cycle_artifacts_path: PathBuf,

@@ -1,6 +1,6 @@
 //! Real evaluators for ARCH001..005 (Phase 1).
 
-use sddk_domain::{EvaluatorKind, RuleEvaluation, RuleRegistry, RuleSeverity, RuleStatus};
+use sddk_domain::{EvaluatorKind, RuleEvaluation, RuleRegistry, RuleStatus};
 use serde_json::json;
 
 use super::Baseline;

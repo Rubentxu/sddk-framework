@@ -11,7 +11,7 @@ use sddk_storage::{ProjectRecord, RID_FORMAT_REGEX, Storage, StorageError, Works
 const WORKFLOW_YAML: &str = include_str!("../../../workflow/workflow.yaml");
 const TIMESTAMP: &str = "2026-08-04T10:00:00Z";
 
-fn engine_with_storage(storage: Storage) -> Engine {
+fn engine_with_storage(storage: Storage) -> Engine<Storage> {
     Engine::new(
         sddk_engine::load_workflow_str(WORKFLOW_YAML).unwrap(),
         storage,
@@ -19,7 +19,7 @@ fn engine_with_storage(storage: Storage) -> Engine {
     .unwrap()
 }
 
-fn setup() -> (Storage, Engine) {
+fn setup() -> (Storage, Engine<Storage>) {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("ledger.sqlite");
     let storage = Storage::open(&path).unwrap();
@@ -45,7 +45,7 @@ fn setup() -> (Storage, Engine) {
     (storage, engine)
 }
 
-fn start_cycle(engine: &mut Engine, event_id: &str) -> CycleManifest {
+fn start_cycle(engine: &mut Engine<Storage>, event_id: &str) -> CycleManifest {
     let input = CycleStartInput {
         manifest: manifest_for_path(CyclePath::AFull),
         requirements: cycle_start_requirements(),
@@ -57,7 +57,7 @@ fn start_cycle(engine: &mut Engine, event_id: &str) -> CycleManifest {
         .manifest
 }
 
-fn transition_explore(engine: &mut Engine, event_id: &str, command_id: &str) {
+fn transition_explore(engine: &mut Engine<Storage>, event_id: &str, command_id: &str) {
     advance(
         engine,
         "phase.explore.complete",
@@ -68,7 +68,7 @@ fn transition_explore(engine: &mut Engine, event_id: &str, command_id: &str) {
     );
 }
 
-fn transition_specify(engine: &mut Engine, event_id: &str, command_id: &str) {
+fn transition_specify(engine: &mut Engine<Storage>, event_id: &str, command_id: &str) {
     advance(
         engine,
         "phase.specify.complete",
@@ -80,7 +80,7 @@ fn transition_specify(engine: &mut Engine, event_id: &str, command_id: &str) {
 }
 
 fn advance(
-    engine: &mut Engine,
+    engine: &mut Engine<Storage>,
     transition_id: &str,
     artifact_kind: &str,
     gate: &str,
@@ -679,7 +679,7 @@ fn engine_evaluate_gate_fresh_state_before_starts_seq_at_one() {
     );
 }
 
-fn waive_gate(engine: &mut Engine, cycle_id: &str, transition_id: &str, gate: &str) -> String {
+fn waive_gate(engine: &mut Engine<Storage>, cycle_id: &str, transition_id: &str, gate: &str) -> String {
     engine
         .evaluate_gate(&GateEvaluationInput {
             cycle_id: cycle_id.into(),

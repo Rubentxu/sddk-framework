@@ -8,7 +8,7 @@ use sddk_gateway::{
     LocalReleaseOutcome, LocalReleasePreconditions, PermissionPolicy, ReleasePlanInput,
     apply_local_release, apply_release, plan_release,
 };
-use sddk_storage::GateOutcomeStatus;
+use sddk_domain::GateOutcomeStatus;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -627,7 +627,7 @@ fn local_release_outcome_text(output: &LocalReleaseOutcome) -> String {
 
 #[cfg(test)]
 mod tests {
-    use sddk_storage::{GateOutcomeStatus, GateReceipt};
+    use sddk_domain::{GateOutcomeStatus, GateReceipt};
 
     /// Verifies the exact logic used by release_cmd's private `passed` closures
     /// (lines ~536-539 and ~549-552): a receipt satisfies a release gate only

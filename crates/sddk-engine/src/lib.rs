@@ -18,11 +18,11 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use sddk_domain::{
-    ArtifactRef, CycleLease, CycleManifest, CyclePath, CycleRecord, CycleStatus, GateOutcomeStatus,
-    Ledger, LedgerEvent, Phase, ProjectRecord, Requirement, StateRef, StorageError, Transition,
-    WorkspaceRecord, WORKFLOW_SCHEMA_VERSION, WorkflowManifest,
+    ArtifactRef, CycleLease, CycleManifest, CyclePath, CycleRecord, CycleStatus,
+    GateOutcomeStatus, GateReceipt, GateReceiptNextSeqInput, Ledger, LedgerEvent,
+    LedgerEventInput, Phase, ProjectRecord, Requirement, StateRef, StorageError,
+    Transition, WorkspaceRecord, WORKFLOW_SCHEMA_VERSION, WorkflowManifest,
 };
-use sddk_storage::{GateReceipt, GateReceiptNextSeqInput, LedgerEventInput, Storage};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -786,14 +786,11 @@ pub enum EngineError {
 }
 
 /// Deterministic workflow runtime backed by a ledger implementation.
-pub struct Engine<L: Ledger = Storage> {
+pub struct Engine<L: Ledger> {
     workflow: WorkflowManifest,
     ledger: L,
     evaluators: BTreeMap<String, BTreeSet<String>>,
 }
-
-/// Default concrete engine using `Storage` as the ledger.
-pub type DefaultEngine = Engine<Storage>;
 
 /// Evaluator identifier registered by default for every declared gate.
 pub const DEFAULT_EVALUATOR: &str = "sddk.cli";

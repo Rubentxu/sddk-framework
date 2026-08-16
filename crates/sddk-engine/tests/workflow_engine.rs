@@ -377,12 +377,12 @@ fn exposes_declared_debt_policy_and_rejects_unknown_paths() {
     ));
 }
 
-fn engine() -> Engine {
+fn engine() -> Engine<Storage> {
     let storage = storage_with_parents();
     Engine::new(load_workflow_str(WORKFLOW_YAML).unwrap(), storage).unwrap()
 }
 
-fn engine_with_snapshot(manifest: CycleManifest) -> Engine {
+fn engine_with_snapshot(manifest: CycleManifest) -> Engine<Storage> {
     let storage = storage_with_parents();
     storage
         .insert_cycle(&CycleRecord {
@@ -397,7 +397,7 @@ fn engine_with_snapshot(manifest: CycleManifest) -> Engine {
 fn engine_with_state_event(
     manifest: CycleManifest,
     state_after: Option<serde_json::Value>,
-) -> Engine {
+) -> Engine<Storage> {
     let cycle_id = manifest.cycle_id.clone();
     let mut storage = storage_with_parents();
     storage
@@ -435,7 +435,7 @@ fn storage_with_parents() -> Storage {
     storage
 }
 
-fn start_cycle(engine: &mut Engine, event_id: &str) -> CycleManifest {
+fn start_cycle(engine: &mut Engine<Storage>, event_id: &str) -> CycleManifest {
     let input = CycleStartInput {
         manifest: manifest_at(CycleStatus::Blocked, Phase::Archive),
         requirements: cycle_start_requirements(),
@@ -496,7 +496,7 @@ fn context(event_id: &str) -> EventContext {
     }
 }
 
-fn pass_gate(engine: &mut Engine, cycle_id: &str, transition_id: &str, gate: &str) -> String {
+fn pass_gate(engine: &mut Engine<Storage>, cycle_id: &str, transition_id: &str, gate: &str) -> String {
     engine
         .evaluate_gate(&GateEvaluationInput {
             cycle_id: cycle_id.into(),
@@ -514,7 +514,7 @@ fn pass_gate(engine: &mut Engine, cycle_id: &str, transition_id: &str, gate: &st
 }
 
 fn gate_evidence(
-    engine: &mut Engine,
+    engine: &mut Engine<Storage>,
     cycle_id: &str,
     transition_id: &str,
     name: &str,
@@ -534,7 +534,7 @@ fn gate_evidence(
 }
 
 fn explore_evidence(
-    engine: &mut Engine,
+    engine: &mut Engine<Storage>,
     cycle_id: &str,
     with_artifact: bool,
     with_gate: bool,
