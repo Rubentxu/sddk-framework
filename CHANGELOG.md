@@ -3,6 +3,11 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.22] - 2026-08-16
+
+### Fixes
+  - fix(storage): valida longitud de gate 1..=128 en ambos paths de inserción
+
 ## [1.9.21] - 2026-08-16
 
 ### Fixes
