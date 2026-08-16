@@ -1139,24 +1139,6 @@ impl Storage {
     }
 }
 
-impl LedgerEvent {
-    fn as_input(&self) -> LedgerEventInput {
-        LedgerEventInput {
-            event_id: self.event_id.clone(),
-            project_id: self.project_id.clone(),
-            cycle_id: self.cycle_id.clone(),
-            frame_id: self.frame_id.clone(),
-            command_id: self.command_id.clone(),
-            actor: self.actor.clone(),
-            event_type: self.event_type.clone(),
-            occurred_at: self.occurred_at.clone(),
-            state_before: self.state_before.clone(),
-            state_after: self.state_after.clone(),
-            payload: self.payload.clone(),
-        }
-    }
-}
-
 fn migrate(connection: &mut Connection) -> Result<()> {
     let version: i32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
     if version < 1 {
