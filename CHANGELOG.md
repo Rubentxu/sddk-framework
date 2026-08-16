@@ -3,6 +3,11 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.10.3] - 2026-08-16
+
+### Other
+  - refactor(testkit): fixtures Git compartidos — API git en TestRepository
+
 ## [1.10.2] - 2026-08-16
 
 ### Other
