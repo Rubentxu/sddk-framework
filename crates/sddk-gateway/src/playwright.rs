@@ -105,12 +105,12 @@ pub enum PlaywrightError {
     },
 }
 
-/// Environment allowlist for browser runs. The typed runner clears the
-/// environment (`env_clear`); Playwright needs `PATH` (node + browser
-/// binaries), `HOME` (browser cache) and `NODE_PATH` (npm module
-/// resolution). Each variable is inherited from the parent process ONLY if
-/// it is present — nothing is invented.
-fn browser_env() -> std::collections::BTreeMap<String, String> {
+/// Environment keys the Playwright driver needs (PATH/HOME/NODE_PATH/TMPDIR).
+/// The typed runner clears the environment (`env_clear`); Playwright needs
+/// `PATH` (node + browser binaries), `HOME` (browser cache) and `NODE_PATH`
+/// (npm module resolution). Each variable is inherited from the parent
+/// process ONLY if it is present — nothing is invented.
+pub(crate) fn browser_env() -> std::collections::BTreeMap<String, String> {
     let mut env = std::collections::BTreeMap::new();
     for key in ["PATH", "HOME", "NODE_PATH", "TMPDIR"] {
         if let Some(value) = std::env::var_os(key) {
@@ -285,7 +285,7 @@ mod tests {
         let node = crate::runner::RunSpec {
             program: "node".into(),
             args: vec!["--version".into()],
-            env: browser_env(),
+            env: crate::policy::capability_env_allowlist("uat.playwright"),
             timeout_ms: 10_000,
             output_max_bytes: 64 * 1024,
         };

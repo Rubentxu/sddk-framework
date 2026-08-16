@@ -83,6 +83,12 @@ impl CapabilityPolicy {
         Self { capabilities }
     }
 
+    /// Returns the environment allowlist for a capability via the unified
+    /// resolver ([`capability_env_allowlist`]).
+    pub fn env_allowlist(&self, capability: &str) -> std::collections::BTreeMap<String, String> {
+        capability_env_allowlist(capability)
+    }
+
     /// Evaluates a capability request under the policy.
     pub fn authorize(&self, capability: &str, approve: bool) -> PolicyDecision {
         match self.capabilities.get(capability) {
@@ -120,6 +126,23 @@ pub struct PolicyDecision {
     pub definition: Option<CapabilityDefinition>,
 }
 
+/// Returns the capability-specific environment allowlist (v2 unified
+/// resolver).
+///
+/// Known prefixes:
+/// - `git.*` → [`crate::git::git_capability_env`]
+/// - `uat.*` → [`crate::playwright::browser_env`] (PATH/HOME/NODE_PATH/TMPDIR)
+/// - anything else → empty (default-deny)
+pub fn capability_env_allowlist(capability: &str) -> std::collections::BTreeMap<String, String> {
+    if capability.starts_with("git.") {
+        crate::git::git_capability_env()
+    } else if capability.starts_with("uat.") {
+        crate::playwright::browser_env()
+    } else {
+        std::collections::BTreeMap::new()
+    }
+}
+
 fn parse_risk(value: Option<&str>) -> Risk {
     match value.map(str::to_ascii_lowercase).as_deref() {
         Some("medium") => Risk::Medium,
@@ -141,7 +164,7 @@ fn parse_consequence(value: Option<&str>) -> Consequence {
 mod tests {
     use sddk_domain::{CapabilityDef, ForgeDef, WorkflowManifest};
 
-    use super::{CapabilityPolicy, Consequence, Risk};
+    use super::{CapabilityPolicy, Consequence, Risk, capability_env_allowlist};
 
     const WORKFLOW_YAML: &str = include_str!("../../../workflow/workflow.yaml");
 
@@ -222,5 +245,38 @@ mod tests {
         assert!(decision.requires_approval);
         assert!(!decision.allowed);
         assert!(policy.authorize("release.publish", true).allowed);
+    }
+
+    #[test]
+    fn env_allowlist_dispatches_git_prefix() {
+        let got = capability_env_allowlist("git.push");
+        assert_eq!(got, crate::git::git_capability_env());
+    }
+
+    #[test]
+    fn env_allowlist_dispatches_uat_prefix() {
+        let got = capability_env_allowlist("uat.playwright");
+        // PATH is always present in normal test environments
+        if std::env::var_os("PATH").is_some() {
+            assert!(
+                got.contains_key("PATH"),
+                "uat.playwright allowlist must contain PATH"
+            );
+        }
+    }
+
+    #[test]
+    fn env_allowlist_unknown_capability_is_empty() {
+        let got = capability_env_allowlist("foo.bar");
+        assert!(got.is_empty(), "unknown prefix must yield empty allowlist");
+    }
+
+    #[test]
+    fn policy_env_allowlist_delegates() {
+        let policy = CapabilityPolicy::from_workflow(&workflow_with(&[]));
+        assert_eq!(
+            policy.env_allowlist("git.tag"),
+            capability_env_allowlist("git.tag")
+        );
     }
 }
