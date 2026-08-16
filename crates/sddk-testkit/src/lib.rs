@@ -58,6 +58,54 @@ impl TestRepository {
         self.directory.path()
     }
 
+    /// Runs a git command inside the repository with hermetic config
+    /// (`GIT_CONFIG_GLOBAL`/`GIT_CONFIG_SYSTEM` pointed at /dev/null).
+    ///
+    /// Returns the command output; use it for read-only queries
+    /// (`log`, `status`, `tag`, …).
+    pub fn git(&self, args: &[&str]) -> io::Result<std::process::Output> {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(self.path())
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .output()
+    }
+
+    /// Runs a git command and fails when it exits non-zero, embedding stderr
+    /// in the error for context.
+    fn git_expect(&self, args: &[&str]) -> io::Result<()> {
+        let output = self.git(args)?;
+        if !output.status.success() {
+            return Err(io::Error::other(format!(
+                "git {args:?} failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+        Ok(())
+    }
+
+    /// Initializes a git repository with a local test identity.
+    pub fn init(&self) -> io::Result<()> {
+        self.git_expect(&["init", "-q"])?;
+        self.git_expect(&["config", "user.email", "test@sddk"])?;
+        self.git_expect(&["config", "user.name", "sddk-testkit"])?;
+        Ok(())
+    }
+
+    /// Stages everything and commits with the given message.
+    pub fn commit_all(&self, message: &str) -> io::Result<()> {
+        self.git_expect(&["add", "-A"])?;
+        self.git_expect(&["commit", "-q", "-m", message])?;
+        Ok(())
+    }
+
+    /// Creates a lightweight tag at HEAD.
+    pub fn tag(&self, name: &str) -> io::Result<()> {
+        self.git_expect(&["tag", name])?;
+        Ok(())
+    }
+
     /// Writes UTF-8 content to a repository-relative path, creating parent directories.
     pub fn write(&self, relative: impl AsRef<Path>, content: &str) -> io::Result<PathBuf> {
         let relative = relative.as_ref();
@@ -104,6 +152,22 @@ mod tests {
         let error = repository.write("../outside.txt", "nope").unwrap_err();
 
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn git_fixture_creates_real_history() {
+        let repo = TestRepository::new().unwrap();
+        repo.init().unwrap();
+        repo.write("a.txt", "x\n").unwrap();
+        repo.commit_all("c1").unwrap();
+        repo.tag("v1").unwrap();
+
+        let log = repo.git(&["log", "--oneline"]).unwrap();
+        assert!(String::from_utf8_lossy(&log.stdout).contains("c1"));
+        let tags = repo.git(&["tag"]).unwrap();
+        assert!(String::from_utf8_lossy(&tags.stdout).contains("v1"));
+        let status = repo.git(&["status", "--porcelain"]).unwrap();
+        assert!(status.stdout.is_empty(), "worktree should be clean");
     }
 
     #[test]

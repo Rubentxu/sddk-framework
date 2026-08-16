@@ -4,6 +4,7 @@ use crate::dev::install::run_dev_install;
 use crate::dev::manifest::{MANIFEST_FILE, manifest_entries, verify_manifest, write_manifest};
 use crate::dev::update::update_bundle;
 use crate::dev::{InstallArgs, LinkEditor, OutputFormat, UpdateArgs};
+use sddk_testkit::TestRepository;
 use sha2::{Digest, Sha256};
 
 fn temp_root(tag: &str) -> std::path::PathBuf {
@@ -196,75 +197,41 @@ fn update_installs_verified_staged_bundle() {
     assert!(verify_manifest(&target).unwrap().is_empty());
 }
 
-fn git_test_root() -> (tempfile::TempDir, std::path::PathBuf) {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().to_path_buf();
-    std::process::Command::new("git")
-        .args(["init", "-q"])
-        .current_dir(&root)
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["config", "user.email", "test@sddk.dev"])
-        .current_dir(&root)
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["config", "user.name", "SDDK Test"])
-        .current_dir(&root)
-        .output()
-        .unwrap();
-    (dir, root)
-}
-
-fn git_add_and_commit(root: &std::path::Path, files: &[&str], msg: &str) {
-    std::process::Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .arg("add")
-        .args(files)
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(["commit", "-m", msg])
-        .output()
-        .unwrap();
-}
-
 #[test]
 fn manifest_inside_worktree_excludes_untracked() {
-    let (_dir, root) = git_test_root();
-    std::fs::create_dir_all(root.join("agents")).unwrap();
-    std::fs::write(root.join("agents/tracked.md"), "# Tracked\n").unwrap();
-    std::fs::write(root.join("agents/untracked.md"), "# Untracked\n").unwrap();
-    git_add_and_commit(&root, &["agents/tracked.md"], "tracked");
-    let entries = manifest_entries(&root).unwrap();
+    let repo = TestRepository::new().unwrap();
+    repo.init().unwrap();
+    repo.write("agents/tracked.md", "# Tracked\n").unwrap();
+    repo.write("agents/untracked.md", "# Untracked\n").unwrap();
+    repo.git(&["add", "agents/tracked.md"]).unwrap();
+    repo.git(&["commit", "-q", "-m", "tracked"]).unwrap();
+    let entries = manifest_entries(repo.path()).unwrap();
     assert!(entries.iter().any(|(p, _)| p.contains("tracked.md")));
     assert!(!entries.iter().any(|(p, _)| p.contains("untracked.md")));
 }
 
 #[test]
 fn manifest_inside_worktree_fails_on_missing_tracked() {
-    let (_dir, root) = git_test_root();
-    std::fs::create_dir_all(root.join("agents")).unwrap();
-    std::fs::write(root.join("agents/to-delete.md"), "# Delete me\n").unwrap();
-    git_add_and_commit(&root, &["agents/to-delete.md"], "add");
-    std::fs::remove_file(root.join("agents/to-delete.md")).unwrap();
-    let result = manifest_entries(&root);
+    let repo = TestRepository::new().unwrap();
+    repo.init().unwrap();
+    repo.write("agents/to-delete.md", "# Delete me\n").unwrap();
+    repo.git(&["add", "agents/to-delete.md"]).unwrap();
+    repo.git(&["commit", "-q", "-m", "add"]).unwrap();
+    std::fs::remove_file(repo.path().join("agents/to-delete.md")).unwrap();
+    let result = manifest_entries(repo.path());
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("to-delete"));
 }
 
 #[test]
 fn manifest_inside_worktree_hashes_current_bytes() {
-    let (_dir, root) = git_test_root();
-    std::fs::create_dir_all(root.join("agents")).unwrap();
-    std::fs::write(root.join("agents/modified.md"), "original").unwrap();
-    git_add_and_commit(&root, &["agents/modified.md"], "initial");
-    std::fs::write(root.join("agents/modified.md"), "modified").unwrap();
-    let entries = manifest_entries(&root).unwrap();
+    let repo = TestRepository::new().unwrap();
+    repo.init().unwrap();
+    repo.write("agents/modified.md", "original").unwrap();
+    repo.git(&["add", "agents/modified.md"]).unwrap();
+    repo.git(&["commit", "-q", "-m", "initial"]).unwrap();
+    repo.write("agents/modified.md", "modified").unwrap();
+    let entries = manifest_entries(repo.path()).unwrap();
     let entry = entries
         .iter()
         .find(|(p, _)| p.contains("modified.md"))
@@ -276,13 +243,16 @@ fn manifest_inside_worktree_hashes_current_bytes() {
 #[cfg(unix)]
 #[test]
 fn manifest_inside_worktree_excludes_symlinks() {
-    let (_dir, root) = git_test_root();
-    let agents = root.join("agents");
+    let repo = TestRepository::new().unwrap();
+    repo.init().unwrap();
+    let agents = repo.path().join("agents");
     std::fs::create_dir_all(&agents).unwrap();
     std::fs::write(agents.join("real.md"), "# Real\n").unwrap();
     std::os::unix::fs::symlink("real.md", agents.join("link.md")).ok();
-    git_add_and_commit(&root, &["agents/real.md", "agents/link.md"], "add");
-    let entries = manifest_entries(&root).unwrap();
+    repo.git(&["add", "agents/real.md", "agents/link.md"])
+        .unwrap();
+    repo.git(&["commit", "-q", "-m", "add"]).unwrap();
+    let entries = manifest_entries(repo.path()).unwrap();
     assert!(entries.iter().any(|(p, _)| p.contains("real.md")));
     assert!(!entries.iter().any(|(p, _)| p.contains("link.md")));
 }
@@ -304,15 +274,17 @@ fn manifest_fails_closed_for_corrupt_git_marker() {
 fn manifest_fails_closed_for_non_utf8_tracked_path() {
     use std::os::unix::ffi::OsStringExt;
 
-    let (_dir, root) = git_test_root();
-    std::fs::create_dir_all(root.join("agents")).unwrap();
+    let repo = TestRepository::new().unwrap();
+    repo.init().unwrap();
+    std::fs::create_dir_all(repo.path().join("agents")).unwrap();
     let name = std::ffi::OsString::from_vec(vec![0xff, b'.', b'm', b'd']);
-    std::fs::write(root.join("agents").join(name), "content").unwrap();
-    git_add_and_commit(&root, &["."], "non-utf8");
+    std::fs::write(repo.path().join("agents").join(name), "content").unwrap();
+    repo.git(&["add", "."]).unwrap();
+    repo.git(&["commit", "-q", "-m", "non-utf8"]).unwrap();
 
-    let error = write_manifest(&root).unwrap_err().to_string();
+    let error = write_manifest(repo.path()).unwrap_err().to_string();
     assert!(error.contains("UTF-8"), "{error}");
-    assert!(!root.join(MANIFEST_FILE).exists());
+    assert!(!repo.path().join(MANIFEST_FILE).exists());
 }
 
 #[cfg(unix)]
@@ -320,31 +292,36 @@ fn manifest_fails_closed_for_non_utf8_tracked_path() {
 fn manifest_ignores_non_utf8_tracked_path_outside_surfaces() {
     use std::os::unix::ffi::OsStringExt;
 
-    let (_dir, root) = git_test_root();
-    std::fs::create_dir_all(root.join("agents")).unwrap();
-    std::fs::write(root.join("agents/a.md"), "content").unwrap();
-    std::fs::create_dir_all(root.join("docs")).unwrap();
+    let repo = TestRepository::new().unwrap();
+    repo.init().unwrap();
+    std::fs::create_dir_all(repo.path().join("agents")).unwrap();
+    repo.write("agents/a.md", "content").unwrap();
+    std::fs::create_dir_all(repo.path().join("docs")).unwrap();
     let name = std::ffi::OsString::from_vec(vec![0xff, b'.', b'm', b'd']);
-    std::fs::write(root.join("docs").join(name), "ignored").unwrap();
-    git_add_and_commit(&root, &["."], "outside surface");
+    std::fs::write(repo.path().join("docs").join(name), "ignored").unwrap();
+    repo.git(&["add", "."]).unwrap();
+    repo.git(&["commit", "-q", "-m", "outside surface"])
+        .unwrap();
 
-    assert_eq!(write_manifest(&root).unwrap(), 1);
-    assert!(verify_manifest(&root).unwrap().is_empty());
+    assert_eq!(write_manifest(repo.path()).unwrap(), 1);
+    assert!(verify_manifest(repo.path()).unwrap().is_empty());
 }
 
 #[cfg(unix)]
 #[test]
 fn manifest_round_trips_special_utf8_paths() {
-    let (_dir, root) = git_test_root();
-    std::fs::create_dir_all(root.join("agents")).unwrap();
-    std::fs::write(root.join("agents/line\nbreak.md"), "content").unwrap();
-    std::fs::write(root.join("agents/back\\slash.md"), "content").unwrap();
-    std::fs::write(root.join("agents/trailing-space "), "content").unwrap();
-    git_add_and_commit(&root, &["."], "special paths");
+    let repo = TestRepository::new().unwrap();
+    repo.init().unwrap();
+    std::fs::create_dir_all(repo.path().join("agents")).unwrap();
+    std::fs::write(repo.path().join("agents/line\nbreak.md"), "content").unwrap();
+    std::fs::write(repo.path().join("agents/back\\slash.md"), "content").unwrap();
+    std::fs::write(repo.path().join("agents/trailing-space "), "content").unwrap();
+    repo.git(&["add", "."]).unwrap();
+    repo.git(&["commit", "-q", "-m", "special paths"]).unwrap();
 
-    assert_eq!(write_manifest(&root).unwrap(), 3);
-    let manifest = std::fs::read_to_string(root.join(MANIFEST_FILE)).unwrap();
+    assert_eq!(write_manifest(repo.path()).unwrap(), 3);
+    let manifest = std::fs::read_to_string(repo.path().join(MANIFEST_FILE)).unwrap();
     assert!(manifest.contains("agents/line\\nbreak.md"), "{manifest:?}");
     assert!(manifest.contains("agents/back\\\\slash.md"), "{manifest:?}");
-    assert!(verify_manifest(&root).unwrap().is_empty());
+    assert!(verify_manifest(repo.path()).unwrap().is_empty());
 }

@@ -8900,8 +8900,9 @@ fn cli_capability_apply_git_push_forwards_git_terminal_prompt() {
 /// unconditionally sync manifest.toml's version line.
 #[test]
 fn release_bump_prepends_changelog_and_resets_manifest_version() {
-    let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path();
+    let repo = TestRepository::new().unwrap();
+    repo.init().unwrap();
+    let root = repo.path();
 
     // Minimal repo layout the script expects.
     fs::write(
@@ -8926,29 +8927,11 @@ fn release_bump_prepends_changelog_and_resets_manifest_version() {
     ).unwrap();
 
     // Git repo with a tag and a release-worthy commit.
-    let git = |args: &[&str]| {
-        let out = Command::new("git")
-            .args(args)
-            .current_dir(root)
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_CONFIG_SYSTEM", "/dev/null")
-            .output()
-            .unwrap();
-        assert!(
-            out.status.success(),
-            "git {args:?} failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-    };
-    git(&["init", "-q"]);
-    git(&["config", "user.email", "t@t"]);
-    git(&["config", "user.name", "t"]);
-    git(&["add", "-A"]);
-    git(&["commit", "-q", "-m", "chore: initial"]);
-    git(&["tag", "v1.9.20"]);
-    fs::write(root.join("touch.txt"), "x").unwrap();
-    git(&["add", "-A"]);
-    git(&["commit", "-q", "-m", "fix(dev): something worth releasing"]);
+    repo.commit_all("chore: initial").unwrap();
+    repo.tag("v1.9.20").unwrap();
+    repo.write("touch.txt", "x").unwrap();
+    repo.commit_all("fix(dev): something worth releasing")
+        .unwrap();
 
     // Copy the script into the scratch repo so ROOT derivation points there.
     let script_dir = root.join("scripts");
