@@ -1,4 +1,4 @@
-pub(crate) const LATEST_SCHEMA_VERSION: i32 = 3;
+pub(crate) const LATEST_SCHEMA_VERSION: i32 = 4;
 
 pub(crate) const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -158,4 +158,42 @@ ALTER TABLE gate_receipts ADD COLUMN seq INTEGER NOT NULL DEFAULT 1;
 
 CREATE UNIQUE INDEX gate_receipts_gate_plan_seq_uniq
     ON gate_receipts(gate, plan_hash, seq);
+"#;
+
+pub(crate) const MIGRATION_4: &str = r#"
+-- GateOutcomeStatus gains `waived`; SQLite cannot ALTER a CHECK constraint,
+-- so the table is recreated. Nothing references gate_receipts, so the rename
+-- is safe; the old composite FK (project_id, cycle_id) -> cycles(project_id,
+-- cycle_id) pointed at a non-existent composite key (cycles' PK is cycle_id)
+-- and is corrected to cycle_id -> cycles(cycle_id) in the recreated table.
+-- Runs with foreign_keys=ON: every copied row must reference an existing
+-- cycle (NULL cycle_id rows are exempt from FK enforcement).
+ALTER TABLE gate_receipts RENAME TO gate_receipts_old;
+
+CREATE TABLE gate_receipts (
+    receipt_id TEXT NOT NULL PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    cycle_id TEXT,
+    gate TEXT NOT NULL CHECK (gate <> ''),
+    evaluator TEXT NOT NULL CHECK (evaluator <> ''),
+    transition_id TEXT NOT NULL CHECK (transition_id <> ''),
+    plan_hash TEXT NOT NULL CHECK (plan_hash <> ''),
+    outcome TEXT NOT NULL CHECK (outcome IN ('passed', 'failed', 'waived')),
+    evidence TEXT NOT NULL,
+    actor TEXT NOT NULL CHECK (actor <> ''),
+    command_id TEXT NOT NULL CHECK (command_id <> ''),
+    frame_id TEXT NOT NULL,
+    evaluated_at TEXT NOT NULL,
+    seq INTEGER NOT NULL DEFAULT 1,
+    FOREIGN KEY (cycle_id)
+        REFERENCES cycles(cycle_id) ON DELETE RESTRICT
+);
+
+INSERT INTO gate_receipts SELECT * FROM gate_receipts_old;
+DROP TABLE gate_receipts_old;
+
+CREATE UNIQUE INDEX gate_receipts_gate_plan_seq_uniq
+    ON gate_receipts(gate, plan_hash, seq);
+CREATE INDEX gate_receipts_cycle_idx ON gate_receipts(cycle_id);
+CREATE INDEX gate_receipts_plan_hash_idx ON gate_receipts(plan_hash);
 "#;

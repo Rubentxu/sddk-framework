@@ -231,6 +231,11 @@ pub enum GateOutcomeStatus {
     Passed,
     /// The gate failed.
     Failed,
+    /// The gate was explicitly waived by an authorized evaluator (it does not
+    /// apply in this context). Satisfies cycle-phase transitions (the engine
+    /// treats any non-Failed receipt as satisfied) but does NOT satisfy
+    /// release-authority gates, which require [`GateOutcomeStatus::Passed`].
+    Waived,
 }
 
 /// Data required to persist one authorized gate receipt.

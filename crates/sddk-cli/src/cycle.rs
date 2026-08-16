@@ -292,6 +292,9 @@ pub(crate) enum GateOutcomeArg {
     Passed,
     /// Reject the transition; the workflow routes through `on_failure`.
     Failed,
+    /// Explicitly waive the gate (does not apply). Satisfies transitions,
+    /// but NOT release gates (those require `passed`).
+    Waived,
 }
 
 impl From<GateOutcomeArg> for sddk_storage::GateOutcomeStatus {
@@ -299,6 +302,7 @@ impl From<GateOutcomeArg> for sddk_storage::GateOutcomeStatus {
         match value {
             GateOutcomeArg::Passed => sddk_storage::GateOutcomeStatus::Passed,
             GateOutcomeArg::Failed => sddk_storage::GateOutcomeStatus::Failed,
+            GateOutcomeArg::Waived => sddk_storage::GateOutcomeStatus::Waived,
         }
     }
 }

@@ -624,3 +624,75 @@ fn local_release_outcome_text(output: &LocalReleaseOutcome) -> String {
     }
     text
 }
+
+#[cfg(test)]
+mod tests {
+    use sddk_storage::{GateOutcomeStatus, GateReceipt};
+
+    /// Verifies the exact logic used by release_cmd's private `passed` closures
+    /// (lines ~536-539 and ~549-552): a receipt satisfies a release gate only
+    /// when outcome == Passed.  Waived does NOT satisfy release gates.
+    #[test]
+    fn release_gate_requires_passed_not_waived() {
+        // Replicate the passed() closure from release_preconditions:
+        //   let passed = |gate: &str| {
+        //       gates.iter().any(|receipt| {
+        //           receipt.gate == gate && receipt.outcome == GateOutcomeStatus::Passed
+        //       })
+        //   };
+        let passed = |gates: &[GateReceipt], gate_name: &str| {
+            gates
+                .iter()
+                .any(|r| r.gate == gate_name && r.outcome == GateOutcomeStatus::Passed)
+        };
+
+        let receipt_waived = GateReceipt {
+            receipt_id: "rcpt-waived".into(),
+            project_id: "p".into(),
+            cycle_id: Some("c".into()),
+            gate: "tests-pass".into(),
+            evaluator: "eval".into(),
+            transition_id: "t".into(),
+            plan_hash: "h".into(),
+            outcome: GateOutcomeStatus::Waived,
+            evidence: serde_json::json!({}),
+            actor: "test".into(),
+            command_id: "cmd".into(),
+            frame_id: "frame".into(),
+            evaluated_at: "2026-08-03T12:00:00Z".into(),
+            seq: 1,
+        };
+        let receipt_passed = GateReceipt {
+            receipt_id: "rcpt-passed".into(),
+            project_id: "p".into(),
+            cycle_id: Some("c".into()),
+            gate: "tests-pass".into(),
+            evaluator: "eval".into(),
+            transition_id: "t".into(),
+            plan_hash: "h".into(),
+            outcome: GateOutcomeStatus::Passed,
+            evidence: serde_json::json!({}),
+            actor: "test".into(),
+            command_id: "cmd".into(),
+            frame_id: "frame".into(),
+            evaluated_at: "2026-08-03T12:00:00Z".into(),
+            seq: 2,
+        };
+
+        // Waived receipt does NOT satisfy the release gate
+        assert!(
+            !passed(&[receipt_waived.clone()], "tests-pass"),
+            "Waived receipt must NOT satisfy release gate (fails-closed)"
+        );
+        // Passed receipt DOES satisfy the release gate
+        assert!(
+            passed(&[receipt_passed.clone()], "tests-pass"),
+            "Passed receipt must satisfy release gate"
+        );
+        // Only Passed matters; Waived alongside Passed still passes
+        assert!(
+            passed(&[receipt_waived, receipt_passed], "tests-pass"),
+            "Passed receipt among Waived must still satisfy release gate"
+        );
+    }
+}

@@ -14,7 +14,7 @@ mod models;
 use std::path::Path;
 use std::time::Duration;
 
-use migrations::{LATEST_SCHEMA_VERSION, MIGRATION_1, MIGRATION_2, MIGRATION_3};
+use migrations::{LATEST_SCHEMA_VERSION, MIGRATION_1, MIGRATION_2, MIGRATION_3, MIGRATION_4};
 pub use models::*;
 use rusqlite::{
     Connection, OpenFlags, OptionalExtension, Row, Transaction, TransactionBehavior, params,
@@ -1175,6 +1175,12 @@ fn migrate(connection: &mut Connection) -> Result<()> {
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         transaction.execute_batch(MIGRATION_3)?;
         transaction.pragma_update(None, "user_version", 3)?;
+        transaction.commit()?;
+    }
+    if version < 4 {
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute_batch(MIGRATION_4)?;
+        transaction.pragma_update(None, "user_version", 4)?;
         transaction.commit()?;
     }
     Ok(())

@@ -29,8 +29,8 @@ fn persists_canonical_records_across_reopen() {
 
     {
         let storage = Storage::open(&database_path).unwrap();
-        // MIGRATION_3 added seq column to gate_receipts (v1.9.15), bumping schema to 3
-        assert_eq!(storage.schema_version().unwrap(), 3);
+        // MIGRATION_4 adds 'waived' to gate_receipts.outcome CHECK, bumping schema to 4
+        assert_eq!(storage.schema_version().unwrap(), 4);
         storage.insert_project(&project_record()).unwrap();
         storage.insert_workspace(&workspace_record()).unwrap();
         storage.insert_cycle(&cycle).unwrap();
@@ -922,9 +922,9 @@ fn storage_migration_3_backfills_seq_default_one() {
         conn.pragma_update(None, "user_version", 2).unwrap();
     }
 
-    // Open with v1.9.15 code — MIGRATION_3 runs
+    // Open with current code — MIGRATION_3 and MIGRATION_4 both run
     let storage = Storage::open(&database_path).unwrap();
-    assert_eq!(storage.schema_version().unwrap(), 3);
+    assert_eq!(storage.schema_version().unwrap(), 4);
 
     // The pre-existing row now carries seq = 1
     let receipt = storage
@@ -1204,6 +1204,39 @@ fn storage_insert_next_seq_rejects_long_gate_without_side_effects() {
 
     // Transaction rolled back: no gate_receipt rows for this cycle.
     assert!(storage.list_gate_receipts(&cycle_id).unwrap().is_empty());
+}
+
+#[test]
+fn storage_insert_gate_receipt_waived_round_trip() {
+    // insert_gate_receipt_next_seq with Waived outcome persists correctly and
+    // round-trips through list_gate_receipts with the Waived value preserved.
+    let mut storage = Storage::open_in_memory().unwrap();
+    storage.insert_project(&project_record()).unwrap();
+    storage.insert_workspace(&workspace_record()).unwrap();
+    let cycle = cycle_record();
+    let cycle_id = cycle.manifest.cycle_id.as_str().to_string();
+    storage.insert_cycle(&cycle).unwrap();
+
+    storage
+        .insert_gate_receipt_next_seq(&GateReceiptNextSeqInput {
+            project_id: "project-1".into(),
+            cycle_id: Some(cycle_id.clone()),
+            gate: "tests-pass".into(),
+            evaluator: "sddk.cli".into(),
+            transition_id: "phase.explore.complete".into(),
+            plan_hash: "sha256:abcdef1234567890".into(),
+            outcome: GateOutcomeStatus::Waived,
+            evidence: json!({"reason": "gate-not-applicable"}),
+            actor: "test-runtime".into(),
+            command_id: "cmd-1".into(),
+            frame_id: "frame-1".into(),
+            evaluated_at: CREATED_AT.into(),
+        })
+        .unwrap();
+
+    let receipts = storage.list_gate_receipts(&cycle_id).unwrap();
+    assert_eq!(receipts.len(), 1);
+    assert_eq!(receipts[0].outcome, GateOutcomeStatus::Waived);
 }
 
 #[test]

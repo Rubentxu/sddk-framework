@@ -678,3 +678,54 @@ fn engine_evaluate_gate_fresh_state_before_starts_seq_at_one() {
         "receipt_id after state change should end with -1"
     );
 }
+
+fn waive_gate(engine: &mut Engine, cycle_id: &str, transition_id: &str, gate: &str) -> String {
+    engine
+        .evaluate_gate(&GateEvaluationInput {
+            cycle_id: cycle_id.into(),
+            transition_id: transition_id.into(),
+            gate: gate.into(),
+            evaluator: sddk_engine::DEFAULT_EVALUATOR.into(),
+            evidence: serde_json::json!({"reason": "gate-not-applicable"}),
+            outcome: sddk_storage::GateOutcomeStatus::Waived,
+            evaluated_at: TIMESTAMP.into(),
+            actor: "test-runtime".into(),
+            command_id: format!("gate-{gate}"),
+        })
+        .unwrap()
+        .receipt_id
+}
+
+#[test]
+fn engine_transition_with_waived_gate_receipt_proceeds() {
+    // A Waived gate receipt satisfies cycle-phase transitions — the engine only
+    // blocks on Failed. The transition must complete with Succeeded outcome.
+    let (_storage, mut engine) = setup();
+    start_cycle(&mut engine, "evt-1");
+    transition_explore(&mut engine, "evt-2", "command-b");
+
+    let receipt_id = waive_gate(
+        &mut engine,
+        "cycle-1",
+        "phase.specify.complete",
+        "requirements-testable",
+    );
+
+    let mut evidence = TransitionEvidence::default();
+    evidence.artifacts.insert(
+        "specification".into(),
+        sddk_domain::ArtifactRef::new("specification", "artifacts/spec.md"),
+    );
+    evidence.gates.insert(
+        "requirements-testable".into(),
+        GateReceiptRef { receipt_id },
+    );
+
+    let plan = engine
+        .plan_transition("cycle-1", "phase.specify.complete", evidence)
+        .unwrap();
+    assert_eq!(plan.outcome(), sddk_engine::TransitionOutcome::Succeeded);
+    engine
+        .apply_transition(&plan, &context("evt-3", "command-c"))
+        .unwrap();
+}
