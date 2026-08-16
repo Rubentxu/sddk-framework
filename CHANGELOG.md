@@ -3,6 +3,11 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.10.2] - 2026-08-16
+
+### Other
+  - refactor(dev): copy_tree unifica tree-copy y hace atómico el install de bundles
+
 ## [1.10.1] - 2026-08-16
 
 ### Other
