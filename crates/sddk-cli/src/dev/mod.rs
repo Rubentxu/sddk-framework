@@ -1,6 +1,7 @@
 //! Developer tooling: environment doctor, gates, and atomic install/verify.
 
 use clap::{Args, Subcommand, ValueEnum};
+use self::projection::ProjectionArgs;
 use serde::{Deserialize, Serialize};
 
 mod check;
@@ -15,6 +16,7 @@ pub(crate) mod paths;
 mod registry;
 mod uninstall;
 mod update;
+pub(crate) mod projection;
 mod use_cmd;
 mod verify;
 
@@ -88,6 +90,8 @@ pub(super) enum DevCommand {
     /// internal MANIFEST.sha256, extract). Never touches git — source
     /// checkouts are managed by the developer (`git pull` + `dev link`).
     Update(UpdateArgs),
+    /// Projection rebuild and inspection tooling.
+    Projection(ProjectionArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -262,6 +266,7 @@ pub(super) fn run_dev(command: DevCommand, environment: &CliEnvironment) -> Comm
         DevCommand::Update(args) => self::update::run_dev_update(args, environment),
         DevCommand::Manifest(args) => self::manifest::run_dev_manifest(args),
         DevCommand::CheckArchitecture(args) => self::check_arch::run_check_architecture(args),
+        DevCommand::Projection(args) => self::projection::run_dev_projection(&args, environment),
     }
 }
 
