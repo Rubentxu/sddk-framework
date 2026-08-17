@@ -7,6 +7,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::sync::OnceLock;
+use regex::Regex;
 
 /// Entity reference within an event envelope.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -139,6 +141,24 @@ impl EventEnvelopeV1 {
         let digest = Sha256::digest(canonical.as_bytes());
         format!("{}{:x}", Self::CONTENT_HASH_PREFIX, digest)
     }
+
+    /// Validates `event_type` against the namespacing regex.
+    ///
+    /// The regex requires `realm.object.verb` form: at least three segments
+    /// separated by dots, each segment starting with a lowercase letter and
+    /// containing only lowercase letters, digits, or underscores.
+    pub fn validate_event_type(s: &str) -> Result<(), EventTypeError> {
+        static RE: OnceLock<Regex> = OnceLock::new();
+        let re = RE.get_or_init(|| {
+            Regex::new(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){2,}$")
+                .expect("static regex compilation")
+        });
+        if re.is_match(s) {
+            Ok(())
+        } else {
+            Err(EventTypeError::InvalidFormat(s.to_owned()))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -196,5 +216,40 @@ mod tests {
         let j = minimal_envelope().to_canonical_json();
         assert!(j.starts_with('{'));
         assert!(j.ends_with('}'));
+    }
+
+    #[test]
+    fn validate_event_type_accepts_valid() {
+        let valid = [
+            "workflow.phase.entered",
+            "uat.acceptance.granted",
+            "capability.execution.completed",
+            "graph.staleness.detected",
+        ];
+        for s in valid {
+            assert_eq!(
+                EventEnvelopeV1::validate_event_type(s),
+                Ok(()),
+                "expected {s:?} to be valid"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_event_type_rejects_invalid() {
+        let invalid = [
+            "invalid_type",
+            "Upper.Started",
+            "no_double_dot",
+            ".starts.with.dot",
+            "trailing.dot.",
+            "1starts.with.digit.thing",
+        ];
+        for s in invalid {
+            assert!(
+                EventEnvelopeV1::validate_event_type(s).is_err(),
+                "expected {s:?} to be invalid"
+            );
+        }
     }
 }
