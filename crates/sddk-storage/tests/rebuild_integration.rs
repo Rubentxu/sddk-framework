@@ -5,8 +5,7 @@ use sddk_domain::{
     ProjectionError,
 };
 use sddk_storage::{
-    event_store::SqliteEventStore, projection_store::SqliteProjectionStore,
-    rebuild::rebuild,
+    event_store::SqliteEventStore, projection_store::SqliteProjectionStore, rebuild::rebuild,
 };
 use serde_json::json;
 
@@ -50,9 +49,7 @@ fn make_event(
 
 /// Opens two store instances sharing the same `ledger.sqlite` temp file.
 /// The file is initialized with a `projects` stub so the FK constraint is satisfied.
-fn setup_shared_stores(
-    dir: &tempfile::TempDir,
-) -> (SqliteEventStore, SqliteProjectionStore) {
+fn setup_shared_stores(dir: &tempfile::TempDir) -> (SqliteEventStore, SqliteProjectionStore) {
     // Pre-create the projects stub so SqliteEventStore can open the DB.
     let conn_setup = rusqlite::Connection::open(dir.path().join("ledger.sqlite")).unwrap();
     conn_setup

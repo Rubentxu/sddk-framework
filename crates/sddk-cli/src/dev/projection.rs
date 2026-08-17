@@ -38,15 +38,12 @@ fn default_ledger_dir(env: &CliEnvironment) -> PathBuf {
         .state_home
         .clone()
         .or_else(|| env.home.clone().map(|h| h.join(".local/state")));
-    state.unwrap_or_else(|| {
-        dirs::state_dir().unwrap_or_else(|| PathBuf::from("."))
-    }).join("sddk")
+    state
+        .unwrap_or_else(|| dirs::state_dir().unwrap_or_else(|| PathBuf::from(".")))
+        .join("sddk")
 }
 
-pub(super) fn run_dev_projection(
-    args: &ProjectionArgs,
-    env: &CliEnvironment,
-) -> CommandOutput {
+pub(super) fn run_dev_projection(args: &ProjectionArgs, env: &CliEnvironment) -> CommandOutput {
     match &args.sub {
         ProjectionSub::Rebuild {
             name,
@@ -58,9 +55,7 @@ pub(super) fn run_dev_projection(
                 return CommandOutput {
                     status: 1,
                     stdout: String::new(),
-                    stderr: format!(
-                        "error: unknown projection '{name}'; supported: cycle_state\n"
-                    ),
+                    stderr: format!("error: unknown projection '{name}'; supported: cycle_state\n"),
                 };
             }
 

@@ -48,9 +48,7 @@ pub enum ProjectionError {
     /// The event store's content-hash chain is broken at the given sequence.
     /// The rebuild algorithm fails closed: no checkpoint is persisted when
     /// chain integrity is lost.
-    #[error(
-        "event chain integrity broken for stream '{stream_id}' at sequence {sequence}"
-    )]
+    #[error("event chain integrity broken for stream '{stream_id}' at sequence {sequence}")]
     ChainIntegrityBroken {
         /// Stream where the break was detected.
         stream_id: String,
@@ -217,7 +215,9 @@ impl Projection for CycleStateProjection {
 /// Returns the current wall-clock time as an RFC 3339 string with second precision.
 fn now_rfc3339() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let dur = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    let dur = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
     let total_secs = dur.as_secs();
     let days_since_epoch = total_secs / 86_400;
     let secs_in_day = total_secs % 86_400;
@@ -255,8 +255,8 @@ fn civil_from_days(z: i64) -> (i32, u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use crate::event_envelope::{ActorKind, ActorRef, EventEnvelopeV1};
+    use serde_json::json;
 
     fn make_event(
         stream_id: &str,
@@ -334,13 +334,8 @@ mod tests {
     #[test]
     fn apply_other_event_types_ignored() {
         let mut proj = CycleStateProjection::new("cycle-1");
-        proj.apply(&make_event(
-            "cycle-1",
-            "uat.scenario.started",
-            1,
-            json!({}),
-        ))
-        .unwrap();
+        proj.apply(&make_event("cycle-1", "uat.scenario.started", 1, json!({})))
+            .unwrap();
         assert_eq!(proj.state_ref().phase, "unknown");
     }
 

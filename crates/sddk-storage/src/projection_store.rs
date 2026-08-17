@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 
 use sddk_domain::{Checkpoint, ProjectionVersion, StorageError};
 
@@ -122,16 +122,13 @@ mod tests {
             projection_name: "cycle_state".into(),
             version: 1,
             last_event_sequence: 42,
-            last_event_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-                .into(),
+            last_event_hash:
+                "sha256:0000000000000000000000000000000000000000000000000000000000000000".into(),
             updated_at: "2026-08-17T10:00:00Z".into(),
         };
         let state = r#"{"phase":"build"}"#;
         store.save_checkpoint(&cp, state).unwrap();
-        let (loaded, loaded_state) = store
-            .load_checkpoint("cycle_state", 1)
-            .unwrap()
-            .unwrap();
+        let (loaded, loaded_state) = store.load_checkpoint("cycle_state", 1).unwrap().unwrap();
         assert_eq!(loaded, cp);
         assert_eq!(loaded_state, state);
     }
@@ -157,13 +154,11 @@ mod tests {
             projection_name: "cycle_state".into(),
             version: 1,
             last_event_sequence: 1,
-            last_event_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-                .into(),
+            last_event_hash:
+                "sha256:0000000000000000000000000000000000000000000000000000000000000000".into(),
             updated_at: "2026-08-17T10:00:00Z".into(),
         };
-        store
-            .save_checkpoint(&cp, r#"{"phase":"build"}"#)
-            .unwrap();
+        store.save_checkpoint(&cp, r#"{"phase":"build"}"#).unwrap();
         store.delete_checkpoint("cycle_state", 1).unwrap();
         store.delete_checkpoint("cycle_state", 1).unwrap(); // second call is OK
         assert!(store.load_checkpoint("cycle_state", 1).unwrap().is_none());

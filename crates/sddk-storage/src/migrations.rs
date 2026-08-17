@@ -14,8 +14,7 @@ pub(crate) fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), supe
             .map_err(super::StorageError::Database)?;
         tx.pragma_update(None, "user_version", 1)
             .map_err(super::StorageError::Database)?;
-        tx.commit()
-            .map_err(super::StorageError::Database)?;
+        tx.commit().map_err(super::StorageError::Database)?;
     }
     if version < 2 {
         let tx = conn
@@ -25,8 +24,7 @@ pub(crate) fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), supe
             .map_err(super::StorageError::Database)?;
         tx.pragma_update(None, "user_version", 2)
             .map_err(super::StorageError::Database)?;
-        tx.commit()
-            .map_err(super::StorageError::Database)?;
+        tx.commit().map_err(super::StorageError::Database)?;
     }
     if version < 3 {
         let tx = conn
@@ -36,8 +34,7 @@ pub(crate) fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), supe
             .map_err(super::StorageError::Database)?;
         tx.pragma_update(None, "user_version", 3)
             .map_err(super::StorageError::Database)?;
-        tx.commit()
-            .map_err(super::StorageError::Database)?;
+        tx.commit().map_err(super::StorageError::Database)?;
     }
     if version < 4 {
         let tx = conn
@@ -47,8 +44,7 @@ pub(crate) fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), supe
             .map_err(super::StorageError::Database)?;
         tx.pragma_update(None, "user_version", 4)
             .map_err(super::StorageError::Database)?;
-        tx.commit()
-            .map_err(super::StorageError::Database)?;
+        tx.commit().map_err(super::StorageError::Database)?;
     }
     if version < 5 {
         let tx = conn
@@ -58,8 +54,7 @@ pub(crate) fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), supe
             .map_err(super::StorageError::Database)?;
         tx.pragma_update(None, "user_version", 5)
             .map_err(super::StorageError::Database)?;
-        tx.commit()
-            .map_err(super::StorageError::Database)?;
+        tx.commit().map_err(super::StorageError::Database)?;
     }
     if version < 6 {
         let tx = conn
@@ -69,8 +64,7 @@ pub(crate) fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), supe
             .map_err(super::StorageError::Database)?;
         tx.pragma_update(None, "user_version", 6)
             .map_err(super::StorageError::Database)?;
-        tx.commit()
-            .map_err(super::StorageError::Database)?;
+        tx.commit().map_err(super::StorageError::Database)?;
     }
     Ok(())
 }

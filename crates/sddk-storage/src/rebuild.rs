@@ -12,9 +12,7 @@
 //! due to SQLite's lack of row-level locking. The CLI is single-process; this
 //! is acceptable for v1.
 
-use sddk_domain::{
-    EventStore, Projection, ProjectionError, StorageError as DomainStorageError,
-};
+use sddk_domain::{EventStore, Projection, ProjectionError, StorageError as DomainStorageError};
 
 use crate::event_store::SqliteEventStore;
 use crate::projection_store::SqliteProjectionStore;
@@ -74,9 +72,8 @@ where
     }
 
     // 5a. Serialize state for persistence.
-    let state_json =
-        serde_json::to_string(projection.state_ref())
-            .map_err(|e| ProjectionError::Storage(format!("state serialize: {e}")))?;
+    let state_json = serde_json::to_string(projection.state_ref())
+        .map_err(|e| ProjectionError::Storage(format!("state serialize: {e}")))?;
     let cp = projection.checkpoint();
 
     // 5b. Delete any prior checkpoint (idempotent — first rebuild has no prior).

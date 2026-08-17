@@ -4,9 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use sddk_cli::run_from;
-use sddk_domain::{
-    ActorKind, ActorRef, EventEnvelopeV1, EventStore,
-};
+use sddk_domain::{ActorKind, ActorRef, EventEnvelopeV1, EventStore};
 use sddk_storage::SqliteEventStore;
 use serde_json::json;
 use tempfile::TempDir;

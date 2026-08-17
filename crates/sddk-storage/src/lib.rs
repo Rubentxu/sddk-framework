@@ -22,7 +22,7 @@ pub use rebuild::rebuild;
 use std::path::Path;
 use std::time::Duration;
 
-use migrations::{run_migrations, LATEST_SCHEMA_VERSION};
+use migrations::{LATEST_SCHEMA_VERSION, run_migrations};
 pub use models::*;
 use rusqlite::{
     Connection, OpenFlags, OptionalExtension, Row, Transaction, TransactionBehavior, params,

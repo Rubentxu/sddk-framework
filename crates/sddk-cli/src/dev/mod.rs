@@ -1,7 +1,7 @@
 //! Developer tooling: environment doctor, gates, and atomic install/verify.
 
-use clap::{Args, Subcommand, ValueEnum};
 use self::projection::ProjectionArgs;
+use clap::{Args, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 
 mod check;
@@ -13,10 +13,10 @@ mod install;
 mod link;
 mod manifest;
 pub(crate) mod paths;
+pub(crate) mod projection;
 mod registry;
 mod uninstall;
 mod update;
-pub(crate) mod projection;
 mod use_cmd;
 mod verify;
 
