@@ -994,7 +994,7 @@ fn run_adopt(command: AdoptCommand, environment: &CliEnvironment) -> CommandOutp
     let format = args.format;
     let result = (|| -> anyhow::Result<AdoptionCommandResult> {
         let plan = prepare_adoption_plan(args, operation, environment)?;
-        let mut storage = sddk_storage::Storage::open(&plan.paths.ledger)?;
+        let (mut storage, _plane) = compose(environment, &plan.paths.ledger)?;
         Ok(match operation {
             AdoptionOperation::Plan => AdoptionCommandResult::Plan(Box::new(plan)),
             AdoptionOperation::Apply => {
