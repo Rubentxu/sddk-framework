@@ -1,4 +1,4 @@
-pub(crate) const LATEST_SCHEMA_VERSION: i32 = 4;
+pub(crate) const LATEST_SCHEMA_VERSION: i32 = 5;
 
 pub(crate) const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -196,4 +196,57 @@ CREATE UNIQUE INDEX gate_receipts_gate_plan_seq_uniq
     ON gate_receipts(gate, plan_hash, seq);
 CREATE INDEX gate_receipts_cycle_idx ON gate_receipts(cycle_id);
 CREATE INDEX gate_receipts_plan_hash_idx ON gate_receipts(plan_hash);
+"#;
+
+pub(crate) const MIGRATION_5: &str = r#"
+-- events_v1: append-only event-sourced store for EventEnvelopeV1 (SDDK2-202).
+-- Mirrors the ledger_events immutability policy via SQL triggers.
+CREATE TABLE events_v1 (
+    event_id           TEXT NOT NULL PRIMARY KEY
+                       CHECK (event_id <> ''),
+    stream_id          TEXT NOT NULL
+                       CHECK (stream_id <> ''),
+    sequence           INTEGER NOT NULL
+                       CHECK (sequence > 0),
+    event_type         TEXT NOT NULL
+                       CHECK (event_type <> ''),
+    schema_version     INTEGER NOT NULL
+                       CHECK (schema_version = 1),
+    project_id         TEXT NOT NULL
+                       REFERENCES projects(project_id) ON DELETE RESTRICT,
+    occurred_at        TEXT NOT NULL
+                       CHECK (occurred_at <> ''),
+    recorded_at        TEXT NOT NULL
+                       CHECK (recorded_at <> ''),
+    actor_json         TEXT NOT NULL,
+    causation_id       TEXT,
+    correlation_id     TEXT,
+    cycle_id           TEXT,
+    frame_id           TEXT,
+    fork_id            TEXT,
+    subjects_json      TEXT NOT NULL,
+    payload_json       TEXT NOT NULL,
+    evidence_refs_json TEXT NOT NULL,
+    content_hash       TEXT NOT NULL
+                       CHECK (content_hash LIKE 'sha256:%')
+                       UNIQUE,
+    metadata_json      TEXT,
+    UNIQUE (stream_id, sequence)
+);
+
+CREATE INDEX events_v1_project_idx      ON events_v1(project_id);
+CREATE INDEX events_v1_stream_seq_idx   ON events_v1(stream_id, sequence);
+CREATE INDEX events_v1_content_hash_idx ON events_v1(content_hash);
+
+CREATE TRIGGER events_v1_no_update
+BEFORE UPDATE ON events_v1
+BEGIN
+    SELECT RAISE(ABORT, 'events_v1 are append-only');
+END;
+
+CREATE TRIGGER events_v1_no_delete
+BEFORE DELETE ON events_v1
+BEGIN
+    SELECT RAISE(ABORT, 'events_v1 are append-only');
+END;
 "#;

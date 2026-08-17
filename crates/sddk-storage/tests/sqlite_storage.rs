@@ -29,8 +29,8 @@ fn persists_canonical_records_across_reopen() {
 
     {
         let storage = Storage::open(&database_path).unwrap();
-        // MIGRATION_4 adds 'waived' to gate_receipts.outcome CHECK, bumping schema to 4
-        assert_eq!(storage.schema_version().unwrap(), 4);
+        // MIGRATION_4 adds 'waived' to gate_receipts.outcome CHECK; MIGRATION_5 adds events_v1
+        assert_eq!(storage.schema_version().unwrap(), 5);
         storage.insert_project(&project_record()).unwrap();
         storage.insert_workspace(&workspace_record()).unwrap();
         storage.insert_cycle(&cycle).unwrap();
@@ -922,9 +922,9 @@ fn storage_migration_3_backfills_seq_default_one() {
         conn.pragma_update(None, "user_version", 2).unwrap();
     }
 
-    // Open with current code — MIGRATION_3 and MIGRATION_4 both run
+    // Open with current code — MIGRATION_3, MIGRATION_4, and MIGRATION_5 all run
     let storage = Storage::open(&database_path).unwrap();
-    assert_eq!(storage.schema_version().unwrap(), 4);
+    assert_eq!(storage.schema_version().unwrap(), 5);
 
     // The pre-existing row now carries seq = 1
     let receipt = storage
