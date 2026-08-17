@@ -237,7 +237,10 @@ pub fn plan_adoption(input: AdoptionPlanInput) -> Result<AdoptionPlan, AdoptionE
 }
 
 /// Inspects receipt and SQLite registration without modifying either resource.
-pub fn adoption_status(plan: &AdoptionPlan, ledger: &impl Ledger) -> Result<AdoptionStatus, AdoptionError> {
+pub fn adoption_status(
+    plan: &AdoptionPlan,
+    ledger: &impl Ledger,
+) -> Result<AdoptionStatus, AdoptionError> {
     let base = base_status(plan);
     let receipt = match inspect_receipt(plan) {
         ReceiptInspection::Absent => None,
@@ -270,7 +273,10 @@ pub fn adoption_status(plan: &AdoptionPlan, ledger: &impl Ledger) -> Result<Adop
 }
 
 /// Applies a plan and converges matching partial state idempotently.
-pub fn apply_adoption(plan: &AdoptionPlan, ledger: &mut impl Ledger) -> Result<AdoptionStatus, AdoptionError> {
+pub fn apply_adoption(
+    plan: &AdoptionPlan,
+    ledger: &mut impl Ledger,
+) -> Result<AdoptionStatus, AdoptionError> {
     let status = adoption_status(plan, ledger)?;
     match status.status {
         AdoptionStatusKind::Complete => {
@@ -289,7 +295,10 @@ pub fn apply_adoption(plan: &AdoptionPlan, ledger: &mut impl Ledger) -> Result<A
 }
 
 /// Repairs a matching receipt-only or ledger-only adoption state.
-pub fn repair_adoption(plan: &AdoptionPlan, ledger: &mut impl Ledger) -> Result<AdoptionStatus, AdoptionError> {
+pub fn repair_adoption(
+    plan: &AdoptionPlan,
+    ledger: &mut impl Ledger,
+) -> Result<AdoptionStatus, AdoptionError> {
     let status = adoption_status(plan, ledger)?;
     match status.status {
         AdoptionStatusKind::Complete => {
@@ -336,7 +345,10 @@ fn converge(plan: &AdoptionPlan, ledger: &mut impl Ledger) -> Result<(), Adoptio
 /// Converges runtime metadata of an existing adoption receipt without
 /// overwriting its identity. Refuses on absent, corrupt, or identity-drifted
 /// state. Always refreshes the on-disk receipt when the identity matches.
-pub fn refresh_adoption(plan: &AdoptionPlan, ledger: &mut impl Ledger) -> Result<AdoptionStatus, AdoptionError> {
+pub fn refresh_adoption(
+    plan: &AdoptionPlan,
+    ledger: &mut impl Ledger,
+) -> Result<AdoptionStatus, AdoptionError> {
     let status = adoption_status(plan, ledger)?;
     match status.status {
         AdoptionStatusKind::Complete | AdoptionStatusKind::ReceiptOnly => {
@@ -734,7 +746,11 @@ mod tests {
             actor: "test".into(),
         })
         .unwrap();
-        apply_adoption(&plan, &mut sddk_storage::Storage::open(&plan.paths.ledger).unwrap()).unwrap();
+        apply_adoption(
+            &plan,
+            &mut sddk_storage::Storage::open(&plan.paths.ledger).unwrap(),
+        )
+        .unwrap();
 
         // Simulate a legacy receipt authored when `paths.vault` lived at
         // `$project_data/vault` instead of the canonical `$HOME/.sddk-knowledge/$name`.
@@ -749,7 +765,12 @@ mod tests {
         // and the receipt migrated to the canonical vault (better than today's
         // behaviour where the legacy vault path survived indefinitely).
         assert_eq!(
-            apply_adoption(&plan, &mut sddk_storage::Storage::open(&plan.paths.ledger).unwrap()).unwrap().status,
+            apply_adoption(
+                &plan,
+                &mut sddk_storage::Storage::open(&plan.paths.ledger).unwrap()
+            )
+            .unwrap()
+            .status,
             AdoptionStatusKind::Complete
         );
         assert!(plan.paths.knowledge_profile.is_file());

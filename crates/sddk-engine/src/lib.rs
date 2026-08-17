@@ -18,10 +18,10 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use sddk_domain::{
-    ArtifactRef, CycleLease, CycleManifest, CyclePath, CycleRecord, CycleStatus,
-    GateOutcomeStatus, GateReceipt, GateReceiptNextSeqInput, Ledger, LedgerEvent,
-    LedgerEventInput, Phase, ProjectRecord, Requirement, StateRef, StorageError,
-    Transition, WorkspaceRecord, WORKFLOW_SCHEMA_VERSION, WorkflowManifest,
+    ArtifactRef, CycleLease, CycleManifest, CyclePath, CycleRecord, CycleStatus, GateOutcomeStatus,
+    GateReceipt, GateReceiptNextSeqInput, Ledger, LedgerEvent, LedgerEventInput, Phase,
+    ProjectRecord, Requirement, StateRef, StorageError, Transition, WORKFLOW_SCHEMA_VERSION,
+    WorkflowManifest, WorkspaceRecord,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -1022,10 +1022,7 @@ impl<L: Ledger> Engine<L> {
         plan: &TransitionPlan,
         context: &EventContext,
     ) -> Result<TransitionResult, EngineError> {
-        let current = self
-            .ledger
-            .get_cycle(&plan.state_before.cycle_id)?
-            .manifest;
+        let current = self.ledger.get_cycle(&plan.state_before.cycle_id)?.manifest;
         if current != plan.state_before {
             return Err(EngineError::StalePlan {
                 cycle_id: plan.state_before.cycle_id.clone(),

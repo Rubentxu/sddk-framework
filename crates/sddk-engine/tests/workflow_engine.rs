@@ -1,15 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use sddk_domain::StorageError;
 use sddk_domain::{ArtifactRef, CycleManifest, CyclePath, CycleStatus, Phase};
 use sddk_engine::{
     CycleStartInput, DebtVerificationPolicy, Engine, EngineError, EventContext,
     GateEvaluationInput, GateReceiptRef, TransitionEvidence, TransitionOutcome, WorkflowLoadError,
     WorkflowValidationError, load_workflow_path, load_workflow_str,
 };
-use sddk_domain::StorageError;
-use sddk_storage::{
-    CycleRecord, LedgerEventInput, ProjectRecord, Storage, WorkspaceRecord,
-};
+use sddk_storage::{CycleRecord, LedgerEventInput, ProjectRecord, Storage, WorkspaceRecord};
 use serde_json::json;
 use tempfile::tempdir;
 
@@ -496,7 +494,12 @@ fn context(event_id: &str) -> EventContext {
     }
 }
 
-fn pass_gate(engine: &mut Engine<Storage>, cycle_id: &str, transition_id: &str, gate: &str) -> String {
+fn pass_gate(
+    engine: &mut Engine<Storage>,
+    cycle_id: &str,
+    transition_id: &str,
+    gate: &str,
+) -> String {
     engine
         .evaluate_gate(&GateEvaluationInput {
             cycle_id: cycle_id.into(),

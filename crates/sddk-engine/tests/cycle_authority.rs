@@ -2,7 +2,9 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use sddk_domain::{ArtifactRef, CycleManifest, CyclePath, CycleStatus, Phase, StorageError as DomainStorageError};
+use sddk_domain::{
+    ArtifactRef, CycleManifest, CyclePath, CycleStatus, Phase, StorageError as DomainStorageError,
+};
 use sddk_engine::{
     CycleStartInput, Engine, EventContext, GateEvaluationInput, GateReceiptRef, TransitionEvidence,
 };
@@ -679,7 +681,12 @@ fn engine_evaluate_gate_fresh_state_before_starts_seq_at_one() {
     );
 }
 
-fn waive_gate(engine: &mut Engine<Storage>, cycle_id: &str, transition_id: &str, gate: &str) -> String {
+fn waive_gate(
+    engine: &mut Engine<Storage>,
+    cycle_id: &str,
+    transition_id: &str,
+    gate: &str,
+) -> String {
     engine
         .evaluate_gate(&GateEvaluationInput {
             cycle_id: cycle_id.into(),
