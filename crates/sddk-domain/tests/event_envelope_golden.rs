@@ -8,14 +8,19 @@
 //! cargo test -p sddk-domain --test event_envelope_golden -- --ignored --nocapture
 //! ```
 
-use std::fs;
-use std::path::PathBuf;
 use sddk_domain::{
-    ActorKind, ActorRef, EntityRef, EntityRefVersion, EventEnvelopeV1,
+    schema, ActorKind, ActorRef, EntityRef, EntityRefVersion, EventEnvelopeV1,
 };
 use serde_json::json;
+use std::fs;
+use std::path::PathBuf;
 
-/// Path relative to this crate's manifest dir.
+const JSONL_FIXTURE: &str =
+    include_str!("../../../docs/sddk-2.0-architecture-consolidation/examples/events/uat-acceptance.jsonl");
+const SCHEMA_JSON: &str =
+    include_str!("../../../docs/sddk-2.0-architecture-consolidation/schemas/event-envelope.schema.json");
+
+/// Path relative to this crate's manifest dir (for the regenerate helper).
 const FIXTURE_PATH: &str =
     "../../docs/sddk-2.0-architecture-consolidation/examples/events/uat-acceptance.jsonl";
 
@@ -181,4 +186,71 @@ fn build_event_3() -> EventEnvelopeV1 {
         frame_id: Some("uat-frame-1".into()),
         fork_id: None,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Golden vector integration tests
+// ---------------------------------------------------------------------------
+
+/// Verifies that each event in the fixture has a self-consistent content_hash:
+/// re-computing `compute_content_hash()` yields the declared value.
+#[test]
+fn golden_vectors_match_content_hash() {
+    for (i, line) in JSONL_FIXTURE.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let mut env: EventEnvelopeV1 = serde_json::from_str(line)
+            .unwrap_or_else(|e| panic!("event {i} parse error: {e}\nline: {line}"));
+        // The content_hash field is part of the canonical bytes. To make it
+        // self-consistent we temporarily blank it before computing, then compare
+        // the result with the declared value.
+        let declared_hash = env.content_hash.clone();
+        env.content_hash.clear();
+        let computed = env.compute_content_hash();
+        assert_eq!(
+            declared_hash, computed,
+            "event {i} content_hash mismatch; expected {declared_hash}, got {computed}"
+        );
+    }
+}
+
+/// Verifies that each event in the fixture passes JSON Schema validation.
+#[test]
+fn golden_vectors_pass_schema_validation() {
+    for (i, line) in JSONL_FIXTURE.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let v: serde_json::Value = serde_json::from_str(line)
+            .unwrap_or_else(|e| panic!("event {i} parse: {e}"));
+        let result = schema::validate_against_schema_str(&v, SCHEMA_JSON);
+        assert!(
+            result.is_ok(),
+            "event {i} failed schema validation: {:?}",
+            result.err()
+        );
+    }
+}
+
+/// Verifies that each event in the fixture parses correctly as EventEnvelopeV1
+/// with the expected schema_version and a valid event_type.
+#[test]
+fn golden_vectors_parse_as_event_envelope() {
+    let mut count = 0;
+    for line in JSONL_FIXTURE.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let env: EventEnvelopeV1 = serde_json::from_str(line)
+            .expect("event should deserialize to EventEnvelopeV1");
+        assert_eq!(env.schema_version, 1, "event {count}: schema_version should be 1");
+        assert!(
+            EventEnvelopeV1::validate_event_type(&env.event_type).is_ok(),
+            "event {count}: event_type {:?} should be valid",
+            env.event_type
+        );
+        count += 1;
+    }
+    assert_eq!(count, 3, "fixture should have exactly 3 events");
 }
