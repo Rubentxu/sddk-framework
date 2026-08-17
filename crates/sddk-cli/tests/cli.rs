@@ -1,3 +1,9 @@
+#![allow(
+    unused_variables,
+    clippy::needless_borrows_for_generic_args,
+    clippy::needless_borrow
+)]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;

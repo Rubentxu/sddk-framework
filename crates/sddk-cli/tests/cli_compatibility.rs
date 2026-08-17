@@ -3,6 +3,7 @@
 //! Pins the current CLI command surface as a golden contract. Before any 2.0
 //! refactoring touches `crates/*/src/`, these tests prove HEAD behavior is
 //! preserved. If Phase 1 breaks a command, a compatibility test fails
+#![allow(unused_variables, clippy::collapsible_if)]
 //! immediately.
 //!
 //! ## Regeneration (opt-in, write-and-fail-safe)

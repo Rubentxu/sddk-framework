@@ -565,7 +565,7 @@ fn engine_evaluate_gate_increments_seq_on_reevaluation() {
     let (storage, mut engine) = setup();
     start_cycle(&mut engine, "evt-1");
 
-    let plan_hash = engine.plan_hash(
+    let _plan_hash = engine.plan_hash(
         "cycle-1",
         "phase.explore.complete",
         &storage.get_cycle("cycle-1").unwrap().manifest,
