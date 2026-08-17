@@ -1,8 +1,6 @@
 //! `dev uninstall` — remove an installed prefix or editor assets.
 
-use crate::dev::common::{
-    RECEIPT_FILE, framework_agent_names, read_receipt,
-};
+use crate::dev::common::{RECEIPT_FILE, framework_agent_names, read_receipt};
 use crate::{CommandOutput, render_result};
 use sha2::Digest;
 use std::path::{Path, PathBuf};
