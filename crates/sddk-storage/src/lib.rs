@@ -10,6 +10,7 @@
 
 mod migrations;
 mod models;
+pub mod control_plane;
 
 use std::path::Path;
 use std::time::Duration;
