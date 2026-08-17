@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
 use sddk_domain::{
-    ArtifactRef, CycleId, CycleManifest, CyclePath, WorkflowManifest, normalize_scope,
+    ArtifactRef, ControlPlane, CycleId, CycleManifest, CyclePath, WorkflowManifest, normalize_scope,
 };
 use sddk_engine::{
     CycleStartInput, Engine, EventContext, GateEvaluationInput, TransitionEvidence,
@@ -47,6 +47,8 @@ pub(crate) struct RuntimeContext {
     pub(crate) workspace_id: String,
     pub(crate) engine: Engine<Storage>,
     pub(crate) storage: Storage,
+    /// Control-plane port (boxed to allow dynamic dispatch).
+    pub(crate) control_plane: Box<dyn ControlPlane>,
     pub(crate) artifacts_path: PathBuf,
     pub(crate) cycle_artifacts_path: PathBuf,
 }
@@ -83,8 +85,9 @@ impl RuntimeContext {
             identity.project_id.as_str(),
             &workspace_id,
         )?;
-        let storage = Storage::open(&paths.ledger)?;
+        let (storage, plane) = crate::compose(environment, &paths.ledger)?;
         let workflow = load_workflow(&root)?;
+        // Engine takes ownership; original pattern opens Storage twice to satisfy both.
         let engine = Engine::new(workflow, Storage::open(&paths.ledger)?)?;
         Ok(Self {
             root,
@@ -92,6 +95,7 @@ impl RuntimeContext {
             workspace_id,
             engine,
             storage,
+            control_plane: Box::new(plane),
             artifacts_path: paths.artifacts,
             cycle_artifacts_path: paths.cycle_artifacts,
         })
