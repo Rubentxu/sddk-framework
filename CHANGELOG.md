@@ -3,6 +3,19 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.18.0] - 2026-08-17
+
+### Features
+  - feat(domain): Projection trait + Checkpoint + CycleStateProjection (SDDK2-203)
+  - feat(storage): MIGRATION_6 projection_checkpoints_v1 + SqliteProjectionStore (SDDK2-203)
+  - feat(storage): rebuild() algorithm with chain-verify + tamper detection (SDDK2-203)
+  - feat(cli): dev projection rebuild command (SDDK2-203 MS-05)
+
+### Other
+  - chore(domain+storage): rustdoc strict-pedantic polish for SDDK2-203 modules
+  - chore(fmt): rustfmt formatting for SDDK2-203 modules (verification cleanup)
+  - chore(rules): refresh WV-0015 granted_until_sha to f054680 (post-SDDK2-203)
+
 ## [1.17.0] - 2026-08-17
 
 ### Features
