@@ -22,6 +22,9 @@ struct DoctorCheck {
     present: bool,
 }
 
+// `dead_code` allow: retained as API surface for future detailed checks;
+/// tracked for cleanup in phase2-hygiene-baseline.
+#[allow(dead_code)]
 struct FrameworkCheck {
     name: String,
     status: String,

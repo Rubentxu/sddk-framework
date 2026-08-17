@@ -22,6 +22,9 @@ use crate::{CliEnvironment, CommandOutput, OutputFormat};
 
 /// Manifest file name, written at the framework root (and shipped in the
 /// release bundle).
+// `dead_code` allow: pre-existing API surface retained for future
+/// bundle validation; tracked for cleanup in phase2-hygiene-baseline.
+#[allow(dead_code)]
 pub(super) const MANIFEST_FILE: &str = "MANIFEST.sha256";
 
 /// Persisted installation receipt for side-by-side prefixes.

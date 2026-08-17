@@ -13,7 +13,7 @@ use crate::{
     metrics::{self, MetricsWindow},
     render_result,
 };
-use sddk_domain::{ControlPlane, Ledger, UatResultRow};
+use sddk_domain::{ControlPlane, UatResultRow};
 use sddk_storage::SqliteControlPlane;
 
 /// SQLite store file of the control plane.
@@ -22,6 +22,9 @@ const CONTROL_PLANE_DB: &str = "control-plane.sqlite";
 const DASHBOARD_HTML: &str = "dashboard.html";
 
 /// Schema v1 of the control plane store (ADR-0009 §4).
+// `dead_code` allow: pre-existing schema constant retained for future
+// schema migrations; tracked for cleanup in phase2-hygiene-baseline.
+#[allow(dead_code)]
 const SCHEMA_V1: &str = r#"
 PRAGMA foreign_keys = ON;
 
@@ -419,6 +422,9 @@ fn upsert_cycle(
 
 /// Upsert a UAT aggregate into the control plane (ADR-012: the CP stores
 /// only the numeric rollup; sessions/evidence stay in XDG artifacts).
+// `dead_code` allow: retained as API surface for future use;
+/// tracked for cleanup in phase2-hygiene-baseline.
+#[allow(dead_code)]
 pub(crate) fn upsert_uat_result(
     plane: &mut dyn ControlPlane,
     result: &UatResultRow,
@@ -436,7 +442,7 @@ pub(crate) fn load_uat_results(plane: &dyn ControlPlane) -> anyhow::Result<Vec<U
 
 /// Derive metrics records for cycles only present in the project ledger.
 fn derive_ledger_cycles(
-    project: &DiscoveredProject,
+    _project: &DiscoveredProject,
     existing: &[sddk_domain::MetricsRecord],
     ledger: &dyn sddk_domain::Ledger,
 ) -> Vec<(String, sddk_domain::MetricsRecord)> {

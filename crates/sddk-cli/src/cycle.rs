@@ -47,6 +47,9 @@ pub(crate) struct RuntimeContext {
     pub(crate) engine: Engine<crate::Storage>,
     pub(crate) storage: crate::Storage,
     /// Control-plane port (boxed to allow dynamic dispatch).
+    // `dead_code` allow: retained for future CP polling/injection;
+    // tracked for cleanup in phase2-hygiene-baseline.
+    #[allow(dead_code)]
     pub(crate) control_plane: Box<dyn ControlPlane>,
     pub(crate) artifacts_path: PathBuf,
     pub(crate) cycle_artifacts_path: PathBuf,
