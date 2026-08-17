@@ -5,8 +5,12 @@
 //! `Self` fns, no `Self` in generics) so `&dyn Ledger` is usable from the
 //! engine's accessor.
 
+use crate::metrics::MetricsRecord;
 use crate::models::*;
 use crate::StorageError;
+
+// Forward declaration until MS-02 lands.
+struct UatResultRow;
 
 /// Hexagonal port over the SDDK ledger.
 pub trait Ledger {
@@ -95,4 +99,44 @@ pub trait Ledger {
         project: &ProjectRecord,
         workspace: &WorkspaceRecord,
     ) -> Result<(), StorageError>;
+}
+
+// ── Control-plane port ────────────────────────────────────────────────────────
+
+/// Hexagonal port over the SDDK control-plane SQLite store (SDDK2-103).
+/// The concrete implementation is `sddk_storage::SqliteControlPlane`.
+pub trait ControlPlane {
+    /// Returns true if the control-plane store file exists and is readable.
+    fn store_exists(&self) -> bool;
+
+    /// Inserts a discovered project (idempotent via INSERT OR IGNORE).
+    fn upsert_project(
+        &mut self,
+        project_id: &str,
+        display_name: &str,
+        scope: &str,
+        remote_url: Option<&str>,
+        now: &str,
+    ) -> Result<(), StorageError>;
+
+    /// Inserts or replaces a `MetricsRecord` by `cycle_id`.
+    fn upsert_cycle(&mut self, project_id: &str, record: &MetricsRecord)
+        -> Result<(), StorageError>;
+
+    /// Inserts or replaces the aggregate for a rolling window.
+    fn upsert_aggregate(
+        &mut self,
+        window_days: u16,
+        computed_at: &str,
+        payload_json: &str,
+    ) -> Result<(), StorageError>;
+
+    /// Inserts or replaces a `UatResultRow`.
+    fn upsert_uat_result(&mut self, result: &UatResultRow) -> Result<(), StorageError>;
+
+    /// Loads all persisted `MetricsRecord` rows.
+    fn load_cycles(&self) -> Result<Vec<MetricsRecord>, StorageError>;
+
+    /// Loads all persisted `UatResultRow` rows.
+    fn load_uat_results(&self) -> Result<Vec<UatResultRow>, StorageError>;
 }
