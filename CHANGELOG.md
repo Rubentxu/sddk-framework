@@ -3,6 +3,25 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.16.0] - 2026-08-17
+
+### Features
+  - feat(domain): EventEnvelopeV1 wire format with sub-types (EntityRef, ActorRef, ActorKind, EntityRefVersion, EventTypeError)
+  - feat(domain): canonical JSON serialization + sha256 content_hash for EventEnvelopeV1
+  - feat(domain): validate_event_type with regex namespacing
+  - feat(domain): stub EventEnvelopeV1 module skeleton
+
+### Other
+  - chore(rules): refresh WV-0015 granted_until_sha after hygiene cycle
+  - fix(cli): replace clone().as_slice() with slice::from_ref in release_cmd.rs
+  - chore(cli): silence pre-existing dead_code warnings in dev/ and telemetry helpers
+  - chore(tests): allow unused_variables and needless_* in sddk-cli tests
+  - chore(gateway): allow dead_code in git_push_credential test fixtures
+  - chore: commit manifest.rs allow and fmt fixes for hygiene baseline
+  - test(domain): proptest for content_hash determinism under insertion order
+  - test(domain): golden vector tests against regenerated uat-acceptance.jsonl
+  - test(domain): regenerate uat-acceptance.jsonl with real SHA-256 content_hash values
+
 ## [1.15.0] - 2026-08-17
 
 ### Features
