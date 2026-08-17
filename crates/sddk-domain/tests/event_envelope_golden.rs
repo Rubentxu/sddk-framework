@@ -8,17 +8,17 @@
 //! cargo test -p sddk-domain --test event_envelope_golden -- --ignored --nocapture
 //! ```
 
-use sddk_domain::{
-    schema, ActorKind, ActorRef, EntityRef, EntityRefVersion, EventEnvelopeV1,
-};
+use sddk_domain::{ActorKind, ActorRef, EntityRef, EntityRefVersion, EventEnvelopeV1, schema};
 use serde_json::json;
 use std::fs;
 use std::path::PathBuf;
 
-const JSONL_FIXTURE: &str =
-    include_str!("../../../docs/sddk-2.0-architecture-consolidation/examples/events/uat-acceptance.jsonl");
-const SCHEMA_JSON: &str =
-    include_str!("../../../docs/sddk-2.0-architecture-consolidation/schemas/event-envelope.schema.json");
+const JSONL_FIXTURE: &str = include_str!(
+    "../../../docs/sddk-2.0-architecture-consolidation/examples/events/uat-acceptance.jsonl"
+);
+const SCHEMA_JSON: &str = include_str!(
+    "../../../docs/sddk-2.0-architecture-consolidation/schemas/event-envelope.schema.json"
+);
 
 /// Path relative to this crate's manifest dir (for the regenerate helper).
 const FIXTURE_PATH: &str =
@@ -58,8 +58,10 @@ fn regenerate_uat_acceptance_jsonl() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(FIXTURE_PATH);
     println!("Path: {:?}", path);
     fs::write(path, &out).expect("write fixture");
-    println!("Regenerated fixture with\ne1: {}\ne2: {}\ne3: {}",
-             e1.content_hash, e2.content_hash, e3.content_hash);
+    println!(
+        "Regenerated fixture with\ne1: {}\ne2: {}\ne3: {}",
+        e1.content_hash, e2.content_hash, e3.content_hash
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -91,11 +93,14 @@ fn build_event_1() -> EventEnvelopeV1 {
             kind: "uat_scenario".into(),
             id: "UAT-17".into(),
             version: Some(EntityRefVersion::Integer(4)),
-            content_hash: Some("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into()),
+            content_hash: Some(
+                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+            ),
         }],
         payload: json!({"mode": "runner"}),
         evidence_refs: vec![],
-        content_hash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
+        content_hash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            .into(),
         metadata: Some(json!({})),
         causation_id: None,
         correlation_id: Some("uat-run-9".into()),
@@ -136,7 +141,8 @@ fn build_event_2() -> EventEnvelopeV1 {
         }],
         payload: json!({"verdict": "pass"}),
         evidence_refs: vec!["E-991".into()],
-        content_hash: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".into(),
+        content_hash: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            .into(),
         metadata: Some(json!({})),
         causation_id: Some("evt-100".into()),
         correlation_id: Some("uat-run-9".into()),
@@ -178,7 +184,8 @@ fn build_event_3() -> EventEnvelopeV1 {
         }],
         payload: json!({"acceptance_record_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}),
         evidence_refs: vec!["E-991".into(), "E-992".into()],
-        content_hash: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".into(),
+        content_hash: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+            .into(),
         metadata: Some(json!({})),
         causation_id: Some("evt-108".into()),
         correlation_id: Some("uat-run-9".into()),
@@ -222,8 +229,8 @@ fn golden_vectors_pass_schema_validation() {
         if line.trim().is_empty() {
             continue;
         }
-        let v: serde_json::Value = serde_json::from_str(line)
-            .unwrap_or_else(|e| panic!("event {i} parse: {e}"));
+        let v: serde_json::Value =
+            serde_json::from_str(line).unwrap_or_else(|e| panic!("event {i} parse: {e}"));
         let result = schema::validate_against_schema_str(&v, SCHEMA_JSON);
         assert!(
             result.is_ok(),
@@ -242,9 +249,12 @@ fn golden_vectors_parse_as_event_envelope() {
         if line.trim().is_empty() {
             continue;
         }
-        let env: EventEnvelopeV1 = serde_json::from_str(line)
-            .expect("event should deserialize to EventEnvelopeV1");
-        assert_eq!(env.schema_version, 1, "event {count}: schema_version should be 1");
+        let env: EventEnvelopeV1 =
+            serde_json::from_str(line).expect("event should deserialize to EventEnvelopeV1");
+        assert_eq!(
+            env.schema_version, 1,
+            "event {count}: schema_version should be 1"
+        );
         assert!(
             EventEnvelopeV1::validate_event_type(&env.event_type).is_ok(),
             "event {count}: event_type {:?} should be valid",

@@ -4,21 +4,25 @@
 //! default `Map<String, Value>` = `BTreeMap` ordering. DO NOT enable the
 //! `serde_json/preserve_order` feature — it breaks canonicalization.
 
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
-use regex::Regex;
 
 /// Entity reference within an event envelope.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EntityRef {
+    /// Type discriminator for the referenced entity (e.g. `cycle`, `scenario`, `feature`).
     #[serde(rename = "type")]
     pub kind: String,
+    /// Stable identifier of the entity within its kind namespace.
     pub id: String,
+    /// Optional version tag — either a string label or an integer counter.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<EntityRefVersion>,
+    /// Optional content hash pointing at the entity's canonical representation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_hash: Option<String>,
 }
@@ -27,7 +31,9 @@ pub struct EntityRef {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum EntityRefVersion {
+    /// String version label (e.g. `"v1.2.0"`).
     String(String),
+    /// Integer version counter (e.g. `7`).
     Integer(i64),
 }
 
@@ -35,12 +41,17 @@ pub enum EntityRefVersion {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ActorRef {
+    /// Kind of actor that produced the event.
     pub kind: ActorKind,
+    /// Stable identifier of the actor within the kind namespace.
     pub id: String,
+    /// Optional hash pointing at the actor's behavioural definition (prompts, skills).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub definition_hash: Option<String>,
+    /// Optional hash pointing at the policy bundle applied to this actor.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_hash: Option<String>,
+    /// Optional model identifier (for agent actors).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
 }
@@ -49,14 +60,19 @@ pub struct ActorRef {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ActorKind {
+    /// Human operator (developer, architect, QA).
     Human,
+    /// AI agent (model-bound executor).
     Agent,
+    /// System-level caller (CI, scheduler, internal services).
     System,
 }
 
 /// Error arising from invalid event type formatting.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum EventTypeError {
+    /// The supplied event_type failed the namespacing regex
+    /// `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){2,}$`.
     #[error("event_type must match `[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*){{2,}}` (got: {0:?})")]
     InvalidFormat(String),
 }
@@ -127,8 +143,7 @@ impl EventEnvelopeV1 {
     /// using `BTreeMap` (the workspace default). DO NOT enable the
     /// `serde_json` `preserve_order` feature — that breaks canonicalization.
     pub fn to_canonical_json(&self) -> String {
-        serde_json::to_string(self)
-            .expect("EventEnvelopeV1 is always serializable; this is a bug")
+        serde_json::to_string(self).expect("EventEnvelopeV1 is always serializable; this is a bug")
     }
 
     /// Computes `sha256:<64-hex-lowercase>` over the canonical JSON
@@ -201,7 +216,11 @@ mod tests {
         let h = minimal_envelope().compute_content_hash();
         assert!(h.starts_with("sha256:"));
         assert_eq!(h.len(), "sha256:".len() + 64);
-        assert!(h[7..].chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        assert!(
+            h[7..]
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+        );
     }
 
     #[test]

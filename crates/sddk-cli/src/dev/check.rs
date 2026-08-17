@@ -1,6 +1,6 @@
 //! `dev check` — run repository quality gates (fmt, clippy, tests).
 
-use crate::{CommandOutput, OutputFormat, render_result};
+use crate::{CommandOutput, OutputFormat};
 use sddk_gateway::{RunSpec, run};
 
 pub(super) fn run_dev_check(args: super::CheckArgs) -> CommandOutput {

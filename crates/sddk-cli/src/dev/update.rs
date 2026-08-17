@@ -4,7 +4,7 @@ use super::manifest::MANIFEST_FILE;
 use crate::dev::common::{CopyMode, copy_tree, count_manifest_entries, download_to, sha256_hex};
 use crate::dev::manifest::verify_manifest;
 use crate::dev::paths::framework_dir;
-use crate::{CliEnvironment, CommandOutput, OutputFormat, render_result};
+use crate::{CliEnvironment, CommandOutput, render_result};
 use std::path::Path;
 
 pub(crate) fn update_bundle(root: &Path, args: &super::UpdateArgs) -> anyhow::Result<String> {

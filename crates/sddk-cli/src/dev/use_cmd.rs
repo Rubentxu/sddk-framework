@@ -1,7 +1,7 @@
 //! `dev use` — asdf-style framework bundle version selector.
 
 use crate::dev::paths::framework_dir;
-use crate::{CliEnvironment, CommandOutput, OutputFormat, render_result};
+use crate::{CliEnvironment, CommandOutput, render_result};
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "snake_case")]

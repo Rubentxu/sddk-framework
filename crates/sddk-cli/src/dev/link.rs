@@ -1,15 +1,13 @@
 //! `dev link` — symlink framework assets into an editor.
 
 use super::LinkEditor;
-use super::manifest::MANIFEST_FILE;
-use crate::dev::common::{framework_agent_names, walk_dir};
+use crate::dev::common::walk_dir;
 use crate::dev::framework_check::{
     LinkReport, link_report_text, register_opencode_agents, sync_assets,
 };
-use crate::dev::manifest::verify_manifest;
 use crate::dev::paths::resolve_active_framework_root;
 use crate::dev::registry::write_skill_registry;
-use crate::{CliEnvironment, CommandOutput, OutputFormat, render_result};
+use crate::{CliEnvironment, CommandOutput, render_result};
 use std::path::{Path, PathBuf};
 
 pub(crate) fn link_file(

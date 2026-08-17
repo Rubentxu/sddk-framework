@@ -3,7 +3,7 @@
 use crate::dev::common::{read_receipt, tool_version};
 use crate::dev::manifest::verify_manifest;
 use crate::dev::paths::resolve_active_framework_root;
-use crate::{CliEnvironment, CommandOutput, OutputFormat, render_result};
+use crate::{CliEnvironment, CommandOutput, render_result};
 use std::path::{Path, PathBuf};
 
 // ── Private helpers (used only by doctor) ───────────────────────────────────

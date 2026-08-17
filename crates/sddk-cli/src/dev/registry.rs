@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::{CliEnvironment, CommandOutput};
+use crate::CliEnvironment;
 
 use super::common::atomic_write;
 use super::paths::sddk_data_dir;

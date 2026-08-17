@@ -16,11 +16,10 @@
 //!
 //! JSON output (when `--out` is specified) follows the same shape as `sddk rules check`.
 
-use crate::{CommandOutput, OutputFormat};
+use crate::CommandOutput;
 use sddk_domain::{RuleRegistry, RuleSeverity, RuleStatus};
 use sddk_engine::rules::{BaselineConsumer, evaluate_all};
 use serde::Serialize;
-use std::path::{Path, PathBuf};
 
 /// Architecture check result rendered as a single table row.
 #[derive(Debug, Clone, Serialize)]

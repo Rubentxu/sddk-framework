@@ -1,5 +1,11 @@
 //! Baseline consumer for `baseline-dependency-entropy.json` and live workspace capture.
 
+// `missing_docs` is allowed across this file because the Phase 1 ARCH
+// evaluators were introduced before the workspace-wide
+// `#![warn(missing_docs)]` activation. A future docs-pass cycle should
+// restore the per-item `///` doc comments and remove this allow.
+#![allow(missing_docs)]
+
 use sddk_domain::BaselineRef;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

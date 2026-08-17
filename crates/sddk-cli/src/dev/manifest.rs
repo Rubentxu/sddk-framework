@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use sddk_gateway::GitExecutor;
-use sha2::{Digest, Sha256};
+use sha2::Digest;
 
 use crate::CommandOutput;
 

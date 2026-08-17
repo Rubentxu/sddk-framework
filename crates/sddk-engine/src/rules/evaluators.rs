@@ -1,10 +1,15 @@
 //! Real evaluators for ARCH001..005 (Phase 1).
 
+// `missing_docs` is allowed across this file because the Phase 1 ARCH
+// evaluators were introduced before the workspace-wide
+// `#![warn(missing_docs)]` activation. A future docs-pass cycle should
+// restore the per-item `///` doc comments and remove this allow.
+#![allow(missing_docs)]
+
 use sddk_domain::{EvaluatorKind, RuleEvaluation, RuleRegistry, RuleStatus};
 use serde_json::json;
 
 use super::Baseline;
-use super::baseline::CrossCrateImportKind;
 
 pub const EVALUATOR_VERSION: &str = "0.1.0";
 

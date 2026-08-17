@@ -5,7 +5,7 @@ use crate::dev::common::{
 };
 use crate::dev::manifest::{MANIFEST_FILE, verify_manifest};
 use crate::git_cmd::default_timestamp;
-use crate::{CommandOutput, OutputFormat, render_result};
+use crate::{CommandOutput, render_result};
 use sha2::Digest;
 
 pub(super) fn run_dev_install(args: super::InstallArgs) -> CommandOutput {

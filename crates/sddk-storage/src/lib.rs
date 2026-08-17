@@ -26,7 +26,6 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use uuid::Uuid;
 
 /// Result type returned by storage operations.
 pub type Result<T> = std::result::Result<T, StorageError>;
