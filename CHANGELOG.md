@@ -3,6 +3,19 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.15.0] - 2026-08-17
+
+### Features
+  - feat(domain+storage): introduce ControlPlane port + SqliteControlPlane adapter
+  - feat(cli): compose() composition root + telemetry through ControlPlane port (SDDK2-103)
+
+### Other
+  - refactor(cli): re-route sddk_storage types to sddk_domain
+  - feat(cli): route telemetry through ControlPlane trait, remove rusqlite dep
+  - refactor(cli): route Storage through type alias, eliminate cycle.rs direct import
+  - chore(fmt): apply rustfmt after CLI port migration
+  - test(engine): ARCH003 WAIVED under WV-0015 (ADR-0015)
+
 ## [1.14.0] - 2026-08-16
 
 ### Features
