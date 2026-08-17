@@ -1,4 +1,79 @@
-pub(crate) const LATEST_SCHEMA_VERSION: i32 = 5;
+pub(crate) const LATEST_SCHEMA_VERSION: i32 = 6;
+
+/// Runs all pending migrations on an open SQLite connection.
+pub(crate) fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), super::StorageError> {
+    use rusqlite::TransactionBehavior;
+    let version: i32 = conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(super::StorageError::Database)?;
+    if version < 1 {
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(super::StorageError::Database)?;
+        tx.execute_batch(MIGRATION_1)
+            .map_err(super::StorageError::Database)?;
+        tx.pragma_update(None, "user_version", 1)
+            .map_err(super::StorageError::Database)?;
+        tx.commit()
+            .map_err(super::StorageError::Database)?;
+    }
+    if version < 2 {
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(super::StorageError::Database)?;
+        tx.execute_batch(MIGRATION_2)
+            .map_err(super::StorageError::Database)?;
+        tx.pragma_update(None, "user_version", 2)
+            .map_err(super::StorageError::Database)?;
+        tx.commit()
+            .map_err(super::StorageError::Database)?;
+    }
+    if version < 3 {
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(super::StorageError::Database)?;
+        tx.execute_batch(MIGRATION_3)
+            .map_err(super::StorageError::Database)?;
+        tx.pragma_update(None, "user_version", 3)
+            .map_err(super::StorageError::Database)?;
+        tx.commit()
+            .map_err(super::StorageError::Database)?;
+    }
+    if version < 4 {
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(super::StorageError::Database)?;
+        tx.execute_batch(MIGRATION_4)
+            .map_err(super::StorageError::Database)?;
+        tx.pragma_update(None, "user_version", 4)
+            .map_err(super::StorageError::Database)?;
+        tx.commit()
+            .map_err(super::StorageError::Database)?;
+    }
+    if version < 5 {
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(super::StorageError::Database)?;
+        tx.execute_batch(MIGRATION_5)
+            .map_err(super::StorageError::Database)?;
+        tx.pragma_update(None, "user_version", 5)
+            .map_err(super::StorageError::Database)?;
+        tx.commit()
+            .map_err(super::StorageError::Database)?;
+    }
+    if version < 6 {
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(super::StorageError::Database)?;
+        tx.execute_batch(MIGRATION_6)
+            .map_err(super::StorageError::Database)?;
+        tx.pragma_update(None, "user_version", 6)
+            .map_err(super::StorageError::Database)?;
+        tx.commit()
+            .map_err(super::StorageError::Database)?;
+    }
+    Ok(())
+}
 
 pub(crate) const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -258,4 +333,26 @@ BEFORE DELETE ON events_v1
 BEGIN
     SELECT RAISE(ABORT, 'events_v1 are append-only');
 END;
+"#;
+
+pub(crate) const MIGRATION_6: &str = r#"
+-- projection_checkpoints_v1: durable progress markers for read-model projections.
+-- The table is mutable (no append-only triggers) because checkpoints are
+-- regenerable from the event ledger via the rebuild() algorithm.
+CREATE TABLE projection_checkpoints_v1 (
+    projection_name      TEXT    NOT NULL,
+    version              INTEGER NOT NULL,
+    last_event_sequence  INTEGER NOT NULL
+                         CHECK (last_event_sequence >= 0),
+    last_event_hash      TEXT    NOT NULL
+                         CHECK (last_event_hash LIKE 'sha256:%'),
+    state_json           TEXT    NOT NULL
+                         CHECK (length(state_json) > 0),
+    updated_at           TEXT    NOT NULL
+                         CHECK (updated_at <> ''),
+    PRIMARY KEY (projection_name, version)
+);
+
+CREATE INDEX projection_checkpoints_v1_name_idx
+    ON projection_checkpoints_v1(projection_name);
 "#;

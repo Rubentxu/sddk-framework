@@ -12,15 +12,15 @@ pub mod control_plane;
 pub mod event_store;
 mod migrations;
 mod models;
+pub mod projection_store;
 pub use control_plane::{ProjectStatusRow, SCHEMA_V1, SqliteControlPlane};
 pub use event_store::SqliteEventStore;
+pub use projection_store::SqliteProjectionStore;
 
 use std::path::Path;
 use std::time::Duration;
 
-use migrations::{
-    LATEST_SCHEMA_VERSION, MIGRATION_1, MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5,
-};
+use migrations::{run_migrations, LATEST_SCHEMA_VERSION};
 pub use models::*;
 use rusqlite::{
     Connection, OpenFlags, OptionalExtension, Row, Transaction, TransactionBehavior, params,
@@ -1161,38 +1161,7 @@ impl Storage {
 }
 
 pub(crate) fn migrate(connection: &mut Connection) -> Result<()> {
-    let version: i32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if version < 1 {
-        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        transaction.execute_batch(MIGRATION_1)?;
-        transaction.pragma_update(None, "user_version", 1)?;
-        transaction.commit()?;
-    }
-    if version < 2 {
-        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        transaction.execute_batch(MIGRATION_2)?;
-        transaction.pragma_update(None, "user_version", 2)?;
-        transaction.commit()?;
-    }
-    if version < 3 {
-        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        transaction.execute_batch(MIGRATION_3)?;
-        transaction.pragma_update(None, "user_version", 3)?;
-        transaction.commit()?;
-    }
-    if version < 4 {
-        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        transaction.execute_batch(MIGRATION_4)?;
-        transaction.pragma_update(None, "user_version", 4)?;
-        transaction.commit()?;
-    }
-    if version < 5 {
-        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        transaction.execute_batch(MIGRATION_5)?;
-        transaction.pragma_update(None, "user_version", 5)?;
-        transaction.commit()?;
-    }
-    Ok(())
+    run_migrations(connection)
 }
 
 fn insert_cycle_on(connection: &Connection, cycle: &CycleRecord) -> Result<()> {

@@ -81,6 +81,17 @@ impl SqliteEventStore {
             tx.commit()
                 .map_err(|e| DomainStorageError::Database(e.to_string()))?;
         }
+        if version < 6 {
+            let tx = conn
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                .map_err(|e| DomainStorageError::Database(e.to_string()))?;
+            tx.execute_batch(crate::migrations::MIGRATION_6)
+                .map_err(|e| DomainStorageError::Database(e.to_string()))?;
+            tx.pragma_update(None, "user_version", 6)
+                .map_err(|e| DomainStorageError::Database(e.to_string()))?;
+            tx.commit()
+                .map_err(|e| DomainStorageError::Database(e.to_string()))?;
+        }
         Ok(())
     }
 
