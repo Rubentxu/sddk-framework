@@ -442,7 +442,11 @@ fn derive_ledger_cycles(
     if !ledger_path.exists() {
         return Vec::new();
     }
-    let events = read_ledger_events(&ledger_path);
+    let storage = match sddk_storage::Storage::open_read_only(&ledger_path) {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+    let events = read_ledger_events(&storage);
     // Group events by cycle.
     let mut by_cycle: BTreeMap<String, Vec<sddk_domain::LedgerEvent>> = BTreeMap::new();
     for event in events {
@@ -495,12 +499,8 @@ fn derive_ledger_cycles(
 }
 
 /// Read all ledger events from a project ledger SQLite file.
-fn read_ledger_events(path: &Path) -> Vec<sddk_domain::LedgerEvent> {
-    let storage = match sddk_storage::Storage::open_read_only(path) {
-        Ok(s) => s,
-        Err(_) => return Vec::new(),
-    };
-    storage.load_all_ledger_events().unwrap_or_default()
+fn read_ledger_events(ledger: &dyn sddk_domain::Ledger) -> Vec<sddk_domain::LedgerEvent> {
+    ledger.load_all_ledger_events().unwrap_or_default()
 }
 
 #[derive(Serialize)]

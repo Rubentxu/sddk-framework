@@ -10,7 +10,6 @@ use sddk_engine::{
     CycleStartInput, Engine, EventContext, GateEvaluationInput, TransitionEvidence,
     WorkflowLoadError,
 };
-use sddk_storage::Storage;
 use serde::Serialize;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use uuid::Uuid;
@@ -45,8 +44,8 @@ pub(crate) struct RuntimeContext {
     pub(crate) root: PathBuf,
     pub(crate) identity: sddk_domain::ResolvedProjectIdentity,
     pub(crate) workspace_id: String,
-    pub(crate) engine: Engine<Storage>,
-    pub(crate) storage: Storage,
+    pub(crate) engine: Engine<crate::Storage>,
+    pub(crate) storage: crate::Storage,
     /// Control-plane port (boxed to allow dynamic dispatch).
     pub(crate) control_plane: Box<dyn ControlPlane>,
     pub(crate) artifacts_path: PathBuf,
@@ -88,7 +87,7 @@ impl RuntimeContext {
         let (storage, plane) = crate::compose(environment, &paths.ledger)?;
         let workflow = load_workflow(&root)?;
         // Engine takes ownership; original pattern opens Storage twice to satisfy both.
-        let engine = Engine::new(workflow, Storage::open(&paths.ledger)?)?;
+        let engine = Engine::new(workflow, crate::Storage::open(&paths.ledger)?)?;
         Ok(Self {
             root,
             identity,

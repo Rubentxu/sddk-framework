@@ -54,7 +54,11 @@ use rules_cmd::RulesCommand;
 use sddk_domain::{
     IdentitySource, SddkErrorCode, normalize_scope, resolve_project_identity, stable_workspace_id,
 };
-use sddk_storage::{SqliteControlPlane, Storage};
+use sddk_storage::SqliteControlPlane;
+
+/// Re-exports `Storage` so that `cycle.rs` can use it via `crate::Storage`
+/// without a direct `use sddk_storage::Storage` import (ARCH003 edge elimination).
+pub use sddk_storage::Storage;
 use sddk_engine::{
     AdoptionPlan, AdoptionPlanInput, AdoptionStatus, AdoptionStatusKind, XdgEnvironment,
     adoption_status, apply_adoption, plan_adoption, read_adoption_receipt, repair_adoption,
