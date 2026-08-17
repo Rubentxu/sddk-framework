@@ -213,8 +213,13 @@ fn shipped_catalog_against_baseline_produces_five_evaluations() {
     );
     assert_eq!(
         arch003.status,
-        RuleStatus::Fail,
-        "ARCH003 should Fail (cli→storage exists)"
+        RuleStatus::Waived,
+        "ARCH003 should be Waived (WV-0015 composition-root waiver active in shipped catalog; see ADR-0015)"
+    );
+    assert_eq!(
+        arch003.waiver_id.as_deref(),
+        Some("WV-0015-ARCH003-composition-root"),
+        "ARCH003 waiver_id should point at WV-0015"
     );
     assert_eq!(
         arch004.status,
