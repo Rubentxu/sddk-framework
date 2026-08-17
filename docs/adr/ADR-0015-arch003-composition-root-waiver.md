@@ -4,7 +4,7 @@ date: 2026-08-17
 deciders: [orchestrator, sddk-apply]
 linked-cycles: [p-52b95ef55999f9de/phase1-cli-depersistence]
 waiver_id: WV-0015-ARCH003-composition-root
-granted_until_sha: 2efcebe86c75b1b1fbff7b0b571d509023d1448d
+granted_until_sha: 700f6dd0c37fa07ee8447b07e5f5cd99fbcba3ed
 ---
 
 # ADR-0015 — ARCH003 Composition-Root Waiver (Phase 1 EXIT)
