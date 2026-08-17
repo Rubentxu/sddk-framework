@@ -147,12 +147,20 @@ impl EventEnvelopeV1 {
     }
 
     /// Computes `sha256:<64-hex-lowercase>` over the canonical JSON
-    /// representation. The `content_hash` field itself is part of the
-    /// serialized form; to produce a self-consistent hash, callers must
-    /// pre-fill the `content_hash` field with a stable placeholder before
-    /// calling this method.
+    /// representation of the **immutable event content** — excluding
+    /// `content_hash` itself, `sequence` (adapter-assigned), and
+    /// `recorded_at` (adapter-assigned wall-clock time).
+    ///
+    /// This makes the hash stable and idempotent: the same logical event
+    /// always produces the same hash regardless of adapter-assigned fields
+    /// or the current `content_hash` field value.
     pub fn compute_content_hash(&self) -> String {
-        let canonical = self.to_canonical_json();
+        let mut for_hash = self.clone();
+        for_hash.content_hash = String::new();
+        for_hash.sequence = 0;
+        for_hash.recorded_at = String::new();
+        let canonical = serde_json::to_string(&for_hash)
+            .expect("EventEnvelopeV1 is always serializable; this is a bug");
         let digest = Sha256::digest(canonical.as_bytes());
         format!("{}{:x}", Self::CONTENT_HASH_PREFIX, digest)
     }

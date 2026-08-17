@@ -201,6 +201,15 @@ CREATE INDEX gate_receipts_plan_hash_idx ON gate_receipts(plan_hash);
 pub(crate) const MIGRATION_5: &str = r#"
 -- events_v1: append-only event-sourced store for EventEnvelopeV1 (SDDK2-202).
 -- Mirrors the ledger_events immutability policy via SQL triggers.
+--
+-- Minimal projects stub so the events_v1 FK reference is satisfiable when
+-- SqliteEventStore runs without the full Storage migrations (e.g. in tests).
+-- IF NOT EXISTS avoids conflict when both Storage and SqliteEventStore share
+-- the same ledger.sqlite file.
+CREATE TABLE IF NOT EXISTS projects (
+    project_id  TEXT NOT NULL PRIMARY KEY
+);
+
 CREATE TABLE events_v1 (
     event_id           TEXT NOT NULL PRIMARY KEY
                        CHECK (event_id <> ''),

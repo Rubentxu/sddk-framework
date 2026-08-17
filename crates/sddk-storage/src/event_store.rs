@@ -25,8 +25,6 @@
 //! cross-table atomic transactions between `ledger_events` and `events_v1`
 //! will need to merge the two connections into one.
 
-#![allow(dead_code, unused_imports)]
-
 use std::path::Path;
 use std::time::Duration;
 
@@ -86,8 +84,8 @@ impl SqliteEventStore {
         Ok(())
     }
 
-    #[cfg(test)]
-    pub(crate) fn connection(&self) -> &Connection {
+    /// Returns the underlying SQLite connection.
+    pub fn connection(&self) -> &Connection {
         &self.conn
     }
 }
@@ -95,10 +93,7 @@ impl SqliteEventStore {
 // ── EventStore impl ────────────────────────────────────────────────────────────
 
 impl EventStore for SqliteEventStore {
-    fn append(
-        &mut self,
-        envelope: &EventEnvelopeV1,
-    ) -> Result<EventAppended, DomainStorageError> {
+    fn append(&mut self, envelope: &EventEnvelopeV1) -> Result<EventAppended, DomainStorageError> {
         // 1. Validate content_hash format before entering the transaction.
         if !envelope.content_hash.starts_with("sha256:") {
             return Err(DomainStorageError::Other(
@@ -123,7 +118,14 @@ impl EventStore for SqliteEventStore {
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(|e| DomainStorageError::Database(format!("begin tx: {e}")))?;
 
-        // 2. Compute next sequence per stream.
+        // 2. Ensure the project row exists (satisfies FK constraint).
+        tx.execute(
+            "INSERT OR IGNORE INTO projects (project_id) VALUES (?1)",
+            rusqlite::params![envelope.project_id],
+        )
+        .map_err(|e| DomainStorageError::Database(format!("project upsert: {e}")))?;
+
+        // 3. Compute next sequence per stream.
         let next_seq: i64 = tx
             .query_row(
                 "SELECT COALESCE(MAX(sequence), 0) + 1 FROM events_v1 WHERE stream_id = ?1",
@@ -132,19 +134,15 @@ impl EventStore for SqliteEventStore {
             )
             .map_err(|e| DomainStorageError::Database(format!("seq: {e}")))?;
 
-        // 3. Serialize JSON fields.
-        let actor_json =
-            serde_json::to_string(&envelope.actor)
-                .map_err(|e| DomainStorageError::Other(format!("actor: {e}")))?;
-        let subjects_json =
-            serde_json::to_string(&envelope.subjects)
-                .map_err(|e| DomainStorageError::Other(format!("subjects: {e}")))?;
-        let payload_json =
-            serde_json::to_string(&envelope.payload)
-                .map_err(|e| DomainStorageError::Other(format!("payload: {e}")))?;
-        let evidence_refs_json =
-            serde_json::to_string(&envelope.evidence_refs)
-                .map_err(|e| DomainStorageError::Other(format!("evidence_refs: {e}")))?;
+        // 4. Serialize JSON fields.
+        let actor_json = serde_json::to_string(&envelope.actor)
+            .map_err(|e| DomainStorageError::Other(format!("actor: {e}")))?;
+        let subjects_json = serde_json::to_string(&envelope.subjects)
+            .map_err(|e| DomainStorageError::Other(format!("subjects: {e}")))?;
+        let payload_json = serde_json::to_string(&envelope.payload)
+            .map_err(|e| DomainStorageError::Other(format!("payload: {e}")))?;
+        let evidence_refs_json = serde_json::to_string(&envelope.evidence_refs)
+            .map_err(|e| DomainStorageError::Other(format!("evidence_refs: {e}")))?;
         let metadata_json: Option<String> = envelope
             .metadata
             .as_ref()
@@ -152,7 +150,7 @@ impl EventStore for SqliteEventStore {
             .transpose()
             .map_err(|e| DomainStorageError::Other(format!("metadata: {e}")))?;
 
-        // 4. Insert the event.
+        // 5. Insert the event.
         //
         // Use INSERT OR IGNORE on event_id for idempotency: re-append of the
         // same event_id returns the original row without allocating a new sequence.
@@ -191,7 +189,7 @@ impl EventStore for SqliteEventStore {
             )
             .map_err(|e| DomainStorageError::Database(format!("insert: {e}")))?;
 
-        // 5. Read back the row (handles both first-insert and idempotent re-append).
+        // 6. Read back the row (handles both first-insert and idempotent re-append).
         let appended = tx
             .query_row(
                 "SELECT event_id, stream_id, sequence, content_hash, recorded_at
@@ -295,23 +293,71 @@ impl EventStore for SqliteEventStore {
         Ok(n as u64)
     }
 
-    fn head_hash(&self, _stream_id: &str) -> Result<Option<String>, DomainStorageError> {
-        // Secondary method — implemented in MS-05.
-        Err(DomainStorageError::Other("not yet implemented".into()))
+    fn head_hash(&self, stream_id: &str) -> Result<Option<String>, DomainStorageError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT content_hash FROM events_v1
+                 WHERE stream_id = ?1
+                 ORDER BY sequence DESC
+                 LIMIT 1",
+            )
+            .map_err(|e| DomainStorageError::Database(format!("prepare: {e}")))?;
+        let mut rows = stmt
+            .query(rusqlite::params![stream_id])
+            .map_err(|e| DomainStorageError::Database(format!("query: {e}")))?;
+        match rows.next() {
+            Ok(Some(row)) => row
+                .get(0)
+                .map(Some)
+                .map_err(|e| DomainStorageError::Database(format!("head_hash: {e}"))),
+            Ok(None) => Ok(None),
+            Err(e) => Err(DomainStorageError::Database(format!("head_hash: {e}"))),
+        }
     }
 
-    fn verify_stream_chain(&self, _stream_id: &str) -> Result<(), DomainStorageError> {
-        // Secondary method — implemented in MS-05.
-        Err(DomainStorageError::Other("not yet implemented".into()))
+    fn verify_stream_chain(&self, stream_id: &str) -> Result<(), DomainStorageError> {
+        // Load full stream via load_stream (no limit = u32::MAX).
+        let events = self.load_stream(stream_id, None, u32::MAX)?;
+        // Recompute each event's content_hash and compare to stored value.
+        // This is a STORAGE-side invariant; per-row hash is self-contained.
+        for ev in &events {
+            let computed = ev.compute_content_hash();
+            if computed != ev.content_hash {
+                return Err(DomainStorageError::Other(format!(
+                    "event_store:hash_drift:{}",
+                    ev.sequence
+                )));
+            }
+        }
+        Ok(())
     }
 
     fn load_by_sequence(
         &self,
-        _stream_id: &str,
-        _sequence: u64,
+        stream_id: &str,
+        sequence: u64,
     ) -> Result<Option<EventEnvelopeV1>, DomainStorageError> {
-        // Secondary method — implemented in MS-05.
-        Err(DomainStorageError::Other("not yet implemented".into()))
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT
+                    event_id, stream_id, sequence, event_type, schema_version, project_id,
+                    occurred_at, recorded_at, actor_json, causation_id, correlation_id,
+                    cycle_id, frame_id, fork_id, subjects_json, payload_json,
+                    evidence_refs_json, content_hash, metadata_json
+                 FROM events_v1
+                 WHERE stream_id = ?1 AND sequence = ?2",
+            )
+            .map_err(|e| DomainStorageError::Database(format!("prepare: {e}")))?;
+        let mut rows = stmt
+            .query(rusqlite::params![stream_id, sequence as i64])
+            .map_err(|e| DomainStorageError::Database(format!("query: {e}")))?;
+        match rows.next() {
+            Ok(Some(row)) => row_to_envelope(row).map(Some),
+            Ok(None) => Ok(None),
+            Err(e) => Err(DomainStorageError::Database(format!("next: {e}"))),
+        }
     }
 }
 
@@ -343,7 +389,7 @@ fn row_to_envelope(row: &rusqlite::Row) -> Result<EventEnvelopeV1, DomainStorage
         .map_err(|e| DomainStorageError::Other(format!("evidence_refs parse: {e}")))?;
 
     let metadata_json: Option<String> = row
-        .get(17)
+        .get(18)
         .map_err(|e| DomainStorageError::Database(format!("metadata_json: {e}")))?;
     let metadata: Option<serde_json::Value> = metadata_json
         .map(|m| serde_json::from_str(&m))
