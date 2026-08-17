@@ -11,6 +11,7 @@
 mod migrations;
 mod models;
 pub mod control_plane;
+pub use control_plane::{SqliteControlPlane, SCHEMA_V1};
 
 use std::path::Path;
 use std::time::Duration;

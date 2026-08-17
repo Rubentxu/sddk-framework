@@ -54,6 +54,7 @@ use rules_cmd::RulesCommand;
 use sddk_domain::{
     IdentitySource, SddkErrorCode, normalize_scope, resolve_project_identity, stable_workspace_id,
 };
+use sddk_storage::{SqliteControlPlane, Storage};
 use sddk_engine::{
     AdoptionPlan, AdoptionPlanInput, AdoptionStatus, AdoptionStatusKind, XdgEnvironment,
     adoption_status, apply_adoption, plan_adoption, read_adoption_receipt, repair_adoption,
@@ -74,6 +75,39 @@ pub(crate) const WORKFLOW_MANIFEST: &str = "workflow/workflow.yaml";
 /// Canonical workflow manifest embedded in this binary. `adopt apply` seeds it
 /// into adopted repositories that lack one, and cycle commands fall back to it.
 pub(crate) const CANONICAL_WORKFLOW: &str = include_str!("../../../workflow/workflow.yaml");
+
+// ── Composition root ───────────────────────────────────────────────────────────
+
+/// Resolves the XDG data root for the control-plane store.
+fn control_plane_dir(env: &CliEnvironment) -> anyhow::Result<PathBuf> {
+    let data_home = if let Some(dir) = &env.sddk_data_dir {
+        dir.clone()
+    } else {
+        match (&env.data_home, &env.home) {
+            (Some(data), _) => data.clone(),
+            (None, Some(home)) => home.join(".local/share"),
+            (None, None) => dirs::data_dir()
+                .ok_or_else(|| anyhow::anyhow!("no data root: set HOME, XDG_DATA_HOME or SDDK_DATA_DIR"))?,
+        }
+    };
+    if !data_home.is_absolute() {
+        anyhow::bail!("data root must be absolute: {data_home:?}");
+    }
+    Ok(data_home.join("sddk/control-plane"))
+}
+
+/// Composition root: opens both the project ledger and the control-plane store.
+///
+/// Returns `(Storage, SqliteControlPlane)` so that callers can pass
+/// `&mut dyn ControlPlane` down to helpers without exposing concrete types.
+pub(crate) fn compose(
+    env: &CliEnvironment,
+    ledger_path: &Path,
+) -> anyhow::Result<(Storage, SqliteControlPlane)> {
+    let storage = Storage::open(ledger_path)?;
+    let plane = SqliteControlPlane::open(&control_plane_dir(env)?)?;
+    Ok((storage, plane))
+}
 
 /// Parsed SDDK command line.
 #[derive(Debug, Parser)]
