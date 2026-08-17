@@ -16,6 +16,7 @@ pub mod metrics;
 pub mod models;
 pub mod pack;
 pub mod ports;
+pub mod projections;
 pub mod rules;
 pub mod schema;
 pub mod uat;
@@ -30,6 +31,9 @@ pub use metrics::*;
 pub use models::*;
 pub use pack::*;
 pub use ports::{ControlPlane, EventAppended, EventStore, Ledger};
+pub use projections::{
+    Checkpoint, CycleState, CycleStateProjection, Projection, ProjectionError, ProjectionVersion,
+};
 pub use rules::*;
 pub use schema::*;
 pub use uat::*;
