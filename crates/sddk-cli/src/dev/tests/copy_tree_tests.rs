@@ -10,6 +10,9 @@ fn temp_root(tag: &str) -> std::path::PathBuf {
     dir
 }
 
+/// `dead_code` allow: retained as API surface for future test helpers;
+/// tracked for cleanup in phase2-hygiene-baseline.
+#[allow(dead_code)]
 fn sibling_paths(target: &std::path::Path) -> Vec<std::path::PathBuf> {
     let parent = target.parent().unwrap_or(target);
     let stem = target.file_name().unwrap_or_default().to_string_lossy();

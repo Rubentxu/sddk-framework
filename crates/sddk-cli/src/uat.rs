@@ -19,8 +19,6 @@ use sddk_domain::{
     aggregate_history, apply_all_suggestions, evidence_satisfies_spec, migrate_plan_v1_to_v2,
     sha256_hex, suggest_scenario_context, verify_evidence,
 };
-#[cfg(test)]
-use sddk_testkit;
 
 /// Default view when rendering a dashboard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]

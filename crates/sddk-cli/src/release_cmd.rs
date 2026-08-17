@@ -681,12 +681,12 @@ mod tests {
 
         // Waived receipt does NOT satisfy the release gate
         assert!(
-            !passed(&[receipt_waived.clone()], "tests-pass"),
+            !passed(std::slice::from_ref(&receipt_waived), "tests-pass"),
             "Waived receipt must NOT satisfy release gate (fails-closed)"
         );
         // Passed receipt DOES satisfy the release gate
         assert!(
-            passed(&[receipt_passed.clone()], "tests-pass"),
+            passed(std::slice::from_ref(&receipt_passed), "tests-pass"),
             "Passed receipt must satisfy release gate"
         );
         // Only Passed matters; Waived alongside Passed still passes
