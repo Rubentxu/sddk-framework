@@ -136,8 +136,8 @@ fn run_analytics_research(
         let records: Vec<MetricsRecord> = if args.all_projects {
             // Cross-project: load from the control plane store when available.
             if crate::telemetry::store_exists(environment) {
-                let conn = crate::telemetry::open_store(environment, false)?;
-                crate::telemetry::load_cycles(&conn)?
+                let plane = crate::telemetry::open_store(environment, false)?;
+                crate::telemetry::load_cycles(&*plane)?
             } else {
                 anyhow::bail!("control plane store not found; run `sddk telemetry ingest` first")
             }

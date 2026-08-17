@@ -1366,7 +1366,6 @@ dependencies = [
  "clap_complete",
  "dirs",
  "regex",
- "rusqlite",
  "sddk-domain",
  "sddk-engine",
  "sddk-gateway",

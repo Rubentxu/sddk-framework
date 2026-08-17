@@ -96,6 +96,12 @@ pub trait Ledger {
         project: &ProjectRecord,
         workspace: &WorkspaceRecord,
     ) -> Result<(), StorageError>;
+
+    /// Loads all ledger events from the database in ascending sequence order.
+    ///
+    /// Used by telemetry ingest to derive metrics for cycles that have no
+    /// metrics.jsonl entry.
+    fn load_all_ledger_events(&self) -> Result<Vec<LedgerEvent>, StorageError>;
 }
 
 // ── Control-plane port ────────────────────────────────────────────────────────

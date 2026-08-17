@@ -72,6 +72,9 @@ CREATE TABLE IF NOT EXISTS uat_results (
 #[derive(Debug)]
 pub struct SqliteControlPlane(Connection);
 
+/// Row type returned by [`SqliteControlPlane::load_project_status`].
+pub type ProjectStatusRow = (String, String, u32, u32, u32, Option<String>);
+
 impl SqliteControlPlane {
     /// Opens (and initializes) the control-plane store at `dir`.
     ///
@@ -95,6 +98,45 @@ impl SqliteControlPlane {
         let conn = Connection::open_in_memory()
             .map_err(|e| DomainStorageError::Database(e.to_string()))?;
         Ok(Self(conn))
+    }
+
+    /// Loads project status summary (used by `sddk telemetry status`).
+    pub fn load_project_status(
+        &self,
+    ) -> StdResult<Vec<ProjectStatusRow>, DomainStorageError> {
+        let mut stmt = self
+            .0
+            .prepare(
+                r#"
+                SELECT p.project_id, p.display_name,
+                       COUNT(c.cycle_id),
+                       COALESCE(SUM(CASE WHEN c.cost_estimate_usd > 0.0 THEN 1 ELSE 0 END), 0),
+                       COALESCE(SUM(CASE WHEN c.teleological_coherence_pct IS NOT NULL THEN 1 ELSE 0 END), 0),
+                       MAX(c.recorded_at)
+                FROM projects p
+                LEFT JOIN cycles c ON c.project_id = p.project_id
+                GROUP BY p.project_id, p.display_name
+                ORDER BY p.display_name
+                "#,
+            )
+            .map_err(|e| DomainStorageError::Database(e.to_string()))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)? as u32,
+                    row.get::<_, i64>(3)? as u32,
+                    row.get::<_, i64>(4)? as u32,
+                    row.get::<_, Option<String>>(5)?,
+                ))
+            })
+            .map_err(|e| DomainStorageError::Database(e.to_string()))?;
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row.map_err(|e| DomainStorageError::Database(e.to_string()))?);
+        }
+        Ok(results)
     }
 }
 

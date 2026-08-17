@@ -1005,70 +1005,66 @@ pub(crate) fn process_session_for_ingest(
         }
     }
 
-    if let Ok(conn) = crate::telemetry::open_store(environment, false) {
-        let project_id = session
-            .executed_by
-            .clone()
-            .map(|by| format!("uat-{}", by.to_lowercase().replace(' ', "-")))
-            .unwrap_or_else(|| "uat-unknown".into());
-        let now = now_rfc3339();
-        conn.execute(
-            "INSERT OR IGNORE INTO projects (project_id, display_name, scope, first_seen, last_seen)
-             VALUES (?1, ?2, 'uat', ?3, ?3)",
-            rusqlite::params![project_id, project_id, now],
-        )?;
-        let passed = session
-            .results
-            .iter()
-            .filter(|r| r.status == sddk_domain::UatStatus::Pass)
-            .count() as u32;
-        let failed = session
-            .results
-            .iter()
-            .filter(|r| r.status == sddk_domain::UatStatus::Fail)
-            .count() as u32;
-        let blocked = session
-            .results
-            .iter()
-            .filter(|r| r.status == sddk_domain::UatStatus::Blocked)
-            .count() as u32;
-        let not_run = session
-            .results
-            .iter()
-            .filter(|r| r.status == sddk_domain::UatStatus::NotRun)
-            .count() as u32;
-        let total = session.results.len().max(1) as u32;
-        let coverage = 100.0 * (passed + blocked) as f64 / total as f64;
-        let verdict = if failed > 0 || not_run > 0 {
-            "NOT_READY"
-        } else if blocked == 0 {
-            "READY"
-        } else {
-            "READY_WITH_RISKS"
-        };
-        let duration = session
-            .results
-            .iter()
-            .map(|r| r.duration_minutes)
-            .sum::<u32>();
-        let recorded_at = session
-            .finished_at
-            .clone()
-            .unwrap_or_else(|| session.started_at.clone());
-        crate::telemetry::upsert_uat_result(
-            &conn,
-            &UatResultRow {
-                project_id,
-                tag_version: session.release.clone(),
-                verdict: verdict.into(),
-                coverage_pct: coverage,
-                defects: failed as i64,
-                session_count: session.results.len() as i64,
-                uat_duration_minutes: duration as i64,
-                recorded_at,
-            },
-        )?;
-    }
+    let mut plane = crate::telemetry::open_store(environment, false)?;
+    let project_id = session
+        .executed_by
+        .clone()
+        .map(|by| format!("uat-{}", by.to_lowercase().replace(' ', "-")))
+        .unwrap_or_else(|| "uat-unknown".into());
+    let now = now_rfc3339();
+    plane
+        .upsert_project(&project_id, &project_id, "uat", None, &now)
+        .map_err(anyhow::Error::from)?;
+    let passed = session
+        .results
+        .iter()
+        .filter(|r| r.status == sddk_domain::UatStatus::Pass)
+        .count() as u32;
+    let failed = session
+        .results
+        .iter()
+        .filter(|r| r.status == sddk_domain::UatStatus::Fail)
+        .count() as u32;
+    let blocked = session
+        .results
+        .iter()
+        .filter(|r| r.status == sddk_domain::UatStatus::Blocked)
+        .count() as u32;
+    let not_run = session
+        .results
+        .iter()
+        .filter(|r| r.status == sddk_domain::UatStatus::NotRun)
+        .count() as u32;
+    let total = session.results.len().max(1) as u32;
+    let coverage = 100.0 * (passed + blocked) as f64 / total as f64;
+    let verdict = if failed > 0 || not_run > 0 {
+        "NOT_READY"
+    } else if blocked == 0 {
+        "READY"
+    } else {
+        "READY_WITH_RISKS"
+    };
+    let duration = session
+        .results
+        .iter()
+        .map(|r| r.duration_minutes)
+        .sum::<u32>();
+    let recorded_at = session
+        .finished_at
+        .clone()
+        .unwrap_or_else(|| session.started_at.clone());
+    plane
+        .upsert_uat_result(&UatResultRow {
+            project_id,
+            tag_version: session.release.clone(),
+            verdict: verdict.into(),
+            coverage_pct: coverage,
+            defects: failed as i64,
+            session_count: session.results.len() as i64,
+            uat_duration_minutes: duration as i64,
+            recorded_at,
+        })
+        .map_err(anyhow::Error::from)?;
     Ok(())
 }
 

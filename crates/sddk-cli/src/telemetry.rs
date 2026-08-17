@@ -6,7 +6,6 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand};
-use rusqlite::{Connection, params};
 use serde::Serialize;
 
 use crate::{
@@ -14,7 +13,8 @@ use crate::{
     metrics::{self, MetricsWindow},
     render_result,
 };
-use sddk_domain::UatResultRow;
+use sddk_domain::{ControlPlane, UatResultRow};
+use sddk_storage::SqliteControlPlane;
 
 /// SQLite store file of the control plane.
 const CONTROL_PLANE_DB: &str = "control-plane.sqlite";
@@ -157,7 +157,7 @@ pub(crate) fn store_exists(environment: &CliEnvironment) -> bool {
 pub(crate) fn open_store(
     environment: &CliEnvironment,
     dry_run: bool,
-) -> anyhow::Result<Connection> {
+) -> anyhow::Result<Box<dyn ControlPlane>> {
     let dir = control_plane_dir(environment)?;
     if dry_run {
         // Validate the dir is reachable without creating it.
@@ -167,12 +167,13 @@ pub(crate) fn open_store(
         if !parent.exists() {
             anyhow::bail!("data root does not exist: {}", parent.display());
         }
-        return Connection::open_in_memory().map_err(anyhow::Error::from);
+        let plane = SqliteControlPlane::open_in_memory()
+            .map_err(anyhow::Error::from)?;
+        return Ok(Box::new(plane));
     }
-    std::fs::create_dir_all(&dir)?;
-    let conn = Connection::open(dir.join(CONTROL_PLANE_DB))?;
-    conn.execute_batch(SCHEMA_V1)?;
-    Ok(conn)
+    let plane = SqliteControlPlane::open(&dir)
+        .map_err(anyhow::Error::from)?;
+    Ok(Box::new(plane))
 }
 
 /// A project discovered under `~/.local/share/sddk/projects/<id>/`.
@@ -324,7 +325,7 @@ fn run_telemetry_ingest(args: TelemetryIngestArgs, environment: &CliEnvironment)
     let format = args.format;
     let result = (|| -> anyhow::Result<IngestOutput> {
         let projects = discover_projects(environment)?;
-        let conn = open_store(environment, args.dry_run)?;
+        let mut plane = open_store(environment, args.dry_run)?;
         let now = now_rfc3339()?;
         let mut output = IngestOutput {
             projects_seen: 0,
@@ -335,9 +336,7 @@ fn run_telemetry_ingest(args: TelemetryIngestArgs, environment: &CliEnvironment)
         };
         for project in &projects {
             output.projects_seen += 1;
-            if !args.dry_run {
-                upsert_project(&conn, project, &now)?;
-            }
+            upsert_project(&mut *plane, project, &now)?;
             let records = read_project_metrics(project);
             let mut seen: BTreeMap<String, ()> = BTreeMap::new();
             for record in &records {
@@ -345,9 +344,7 @@ fn run_telemetry_ingest(args: TelemetryIngestArgs, environment: &CliEnvironment)
                     output.duplicates_skipped += 1;
                     continue;
                 }
-                if !args.dry_run {
-                    upsert_cycle(&conn, project, record)?;
-                }
+                upsert_cycle(&mut *plane, project, record)?;
                 output.cycles_ingested += 1;
             }
             // Derive records for cycles present in the ledger but absent from
@@ -357,9 +354,7 @@ fn run_telemetry_ingest(args: TelemetryIngestArgs, environment: &CliEnvironment)
                 if seen.insert(cycle_id.clone(), ()).is_some() {
                     continue;
                 }
-                if !args.dry_run {
-                    upsert_cycle(&conn, project, record)?;
-                }
+                upsert_cycle(&mut *plane, project, record)?;
                 output.cycles_derived += 1;
             }
         }
@@ -379,137 +374,49 @@ fn ingest_text(output: &IngestOutput) -> String {
     )
 }
 
-fn upsert_project(conn: &Connection, project: &DiscoveredProject, now: &str) -> anyhow::Result<()> {
-    conn.execute(
-        r#"
-        INSERT INTO projects (project_id, display_name, scope, remote_url, first_seen, last_seen)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?5)
-        ON CONFLICT(project_id) DO UPDATE SET
-            display_name = excluded.display_name,
-            scope = excluded.scope,
-            remote_url = excluded.remote_url,
-            last_seen = excluded.last_seen
-        "#,
-        params![
-            project.project_id,
-            project.display_name,
-            project.scope,
-            project.remote_url,
-            now
-        ],
-    )?;
+fn upsert_project(
+    plane: &mut dyn ControlPlane,
+    project: &DiscoveredProject,
+    now: &str,
+) -> anyhow::Result<()> {
+    plane
+        .upsert_project(
+            &project.project_id,
+            &project.display_name,
+            &project.scope,
+            project.remote_url.as_deref(),
+            now,
+        )
+        .map_err(anyhow::Error::from)?;
     Ok(())
 }
 
 fn upsert_cycle(
-    conn: &Connection,
+    plane: &mut dyn ControlPlane,
     project: &DiscoveredProject,
     record: &sddk_domain::MetricsRecord,
 ) -> anyhow::Result<()> {
-    let phase_durations = serde_json::to_string(&record.phase_durations_sec)?;
-    let coherence_scores = serde_json::to_string(&record.coherence_scores)?;
-    let costs = serde_json::to_string(&record.costs)?;
-    conn.execute(
-        r#"
-        INSERT INTO cycles (
-            cycle_id, project_id, path, context_quality, phase_durations_sec,
-            coherence_scores, correction_cycles, tokens_used, cost_estimate_usd,
-            costs, first_pass_success, verify_verdict, merged_to_main,
-            tag_version, lead_time_hours, teleological_coherence_pct, recorded_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
-        ON CONFLICT(cycle_id) DO UPDATE SET
-            path = excluded.path,
-            context_quality = excluded.context_quality,
-            phase_durations_sec = excluded.phase_durations_sec,
-            coherence_scores = excluded.coherence_scores,
-            correction_cycles = excluded.correction_cycles,
-            tokens_used = excluded.tokens_used,
-            cost_estimate_usd = excluded.cost_estimate_usd,
-            costs = excluded.costs,
-            first_pass_success = excluded.first_pass_success,
-            verify_verdict = excluded.verify_verdict,
-            merged_to_main = excluded.merged_to_main,
-            tag_version = excluded.tag_version,
-            lead_time_hours = excluded.lead_time_hours,
-            teleological_coherence_pct = excluded.teleological_coherence_pct,
-            recorded_at = excluded.recorded_at
-        "#,
-        params![
-            record.cycle_id,
-            project.project_id,
-            record.path,
-            record.context_quality,
-            phase_durations,
-            coherence_scores,
-            record.correction_cycles as i64,
-            record.tokens_used as i64,
-            record.cost_estimate_usd,
-            costs,
-            record.first_pass_success,
-            record.verify_verdict,
-            record.merged_to_main,
-            record.tag_version,
-            record.lead_time_hours,
-            record.teleological_coherence_pct,
-            record.recorded_at,
-        ],
-    )?;
+    plane
+        .upsert_cycle(&project.project_id, record)
+        .map_err(anyhow::Error::from)?;
     Ok(())
 }
 
 /// Upsert a UAT aggregate into the control plane (ADR-012: the CP stores
 /// only the numeric rollup; sessions/evidence stay in XDG artifacts).
-pub(crate) fn upsert_uat_result(conn: &Connection, result: &UatResultRow) -> anyhow::Result<()> {
-    conn.execute(
-        r#"
-        INSERT INTO uat_results (
-            project_id, tag_version, verdict, coverage_pct, defects,
-            session_count, uat_duration_minutes, recorded_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-        ON CONFLICT(project_id, tag_version) DO UPDATE SET
-            verdict = excluded.verdict,
-            coverage_pct = excluded.coverage_pct,
-            defects = excluded.defects,
-            session_count = excluded.session_count,
-            uat_duration_minutes = excluded.uat_duration_minutes,
-            recorded_at = excluded.recorded_at
-        "#,
-        params![
-            result.project_id,
-            result.tag_version,
-            result.verdict,
-            result.coverage_pct,
-            result.defects,
-            result.session_count,
-            result.uat_duration_minutes,
-            result.recorded_at,
-        ],
-    )?;
+pub(crate) fn upsert_uat_result(
+    plane: &mut dyn ControlPlane,
+    result: &UatResultRow,
+) -> anyhow::Result<()> {
+    plane
+        .upsert_uat_result(result)
+        .map_err(anyhow::Error::from)?;
     Ok(())
 }
 
 /// Load UAT aggregates for the readiness panel (ADR-013).
-pub(crate) fn load_uat_results(conn: &Connection) -> anyhow::Result<Vec<UatResultRow>> {
-    let mut stmt = conn.prepare(
-        "SELECT project_id, tag_version, verdict, coverage_pct, defects,
-                session_count, uat_duration_minutes, recorded_at
-         FROM uat_results ORDER BY recorded_at DESC",
-    )?;
-    let rows = stmt
-        .query_map([], |row| {
-            Ok(UatResultRow {
-                project_id: row.get(0)?,
-                tag_version: row.get(1)?,
-                verdict: row.get(2)?,
-                coverage_pct: row.get(3)?,
-                defects: row.get(4)?,
-                session_count: row.get(5)?,
-                uat_duration_minutes: row.get(6)?,
-                recorded_at: row.get(7)?,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(rows)
+pub(crate) fn load_uat_results(plane: &dyn ControlPlane) -> anyhow::Result<Vec<UatResultRow>> {
+    plane.load_uat_results().map_err(anyhow::Error::from)
 }
 
 /// Derive metrics records for cycles only present in the project ledger.
@@ -589,49 +496,11 @@ fn derive_ledger_cycles(
 
 /// Read all ledger events from a project ledger SQLite file.
 fn read_ledger_events(path: &Path) -> Vec<sddk_domain::LedgerEvent> {
-    let conn = match Connection::open(path) {
-        Ok(conn) => conn,
+    let storage = match sddk_storage::Storage::open_read_only(path) {
+        Ok(s) => s,
         Err(_) => return Vec::new(),
     };
-    let mut stmt = match conn.prepare(
-        "SELECT sequence, event_id, project_id, cycle_id, frame_id, command_id, actor, \
-         event_type, occurred_at, state_before_json, state_after_json, payload_json, \
-         previous_hash, event_hash FROM ledger_events ORDER BY sequence",
-    ) {
-        Ok(stmt) => stmt,
-        Err(_) => return Vec::new(),
-    };
-    let mut rows = match stmt.query_map([], |row| {
-        let parse = |value: Option<String>| {
-            value
-                .and_then(|raw| serde_json::from_str(&raw).ok())
-                .unwrap_or(serde_json::Value::Null)
-        };
-        Ok(sddk_domain::LedgerEvent {
-            sequence: row.get(0)?,
-            event_id: row.get(1)?,
-            project_id: row.get(2)?,
-            cycle_id: row.get(3)?,
-            frame_id: row.get(4)?,
-            command_id: row.get(5)?,
-            actor: row.get(6)?,
-            event_type: row.get(7)?,
-            occurred_at: row.get(8)?,
-            state_before: Some(parse(row.get::<_, Option<String>>(9)?)),
-            state_after: Some(parse(row.get::<_, Option<String>>(10)?)),
-            payload: parse(row.get::<_, Option<String>>(11)?),
-            previous_hash: row.get(12)?,
-            event_hash: row.get(13)?,
-        })
-    }) {
-        Ok(rows) => rows,
-        Err(_) => return Vec::new(),
-    };
-    let mut events = Vec::new();
-    for row in rows.by_ref().flatten() {
-        events.push(row);
-    }
-    events
+    storage.load_all_ledger_events().unwrap_or_default()
 }
 
 #[derive(Serialize)]
@@ -648,22 +517,15 @@ fn run_telemetry_aggregate(
 ) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<AggregateOutput> {
-        let conn = open_store(environment, false)?;
-        let records = load_cycles(&conn)?;
+        let mut plane = open_store(environment, false)?;
+        let records = load_cycles(&*plane)?;
         let aggregate = metrics::compute_aggregate(&records, args.window.days());
         let tuning = metrics::tuning_from_aggregate(&aggregate);
         let now = now_rfc3339()?;
         let payload = serde_json::to_string(&aggregate)?;
-        conn.execute(
-            r#"
-            INSERT INTO aggregates (window_days, computed_at, payload_json)
-            VALUES (?1, ?2, ?3)
-            ON CONFLICT(window_days) DO UPDATE SET
-                computed_at = excluded.computed_at,
-                payload_json = excluded.payload_json
-            "#,
-            params![args.window.days(), now, payload],
-        )?;
+        plane
+            .upsert_aggregate(args.window.days(), &now, &payload)
+            .map_err(anyhow::Error::from)?;
         Ok(AggregateOutput {
             window_days: args.window.days(),
             aggregate,
@@ -682,46 +544,8 @@ fn aggregate_output_text(output: &AggregateOutput) -> String {
 }
 
 /// Load all cycle records from the central store.
-pub(crate) fn load_cycles(conn: &Connection) -> anyhow::Result<Vec<sddk_domain::MetricsRecord>> {
-    let mut stmt = conn.prepare(
-        "SELECT cycle_id, path, context_quality, phase_durations_sec, \
-         coherence_scores, correction_cycles, tokens_used, cost_estimate_usd, costs, \
-         first_pass_success, verify_verdict, merged_to_main, tag_version, \
-         lead_time_hours, teleological_coherence_pct, recorded_at FROM cycles",
-    )?;
-    let rows = stmt.query_map([], |row| {
-        let parse_u64_map = |value: String| {
-            serde_json::from_str::<std::collections::HashMap<String, u64>>(&value)
-                .unwrap_or_default()
-        };
-        let parse_f64_map = |value: String| {
-            serde_json::from_str::<std::collections::HashMap<String, f64>>(&value)
-                .unwrap_or_default()
-        };
-        Ok(sddk_domain::MetricsRecord {
-            cycle_id: row.get(0)?,
-            path: row.get(1)?,
-            context_quality: row.get(2)?,
-            phase_durations_sec: parse_u64_map(row.get::<_, String>(3)?),
-            coherence_scores: serde_json::from_str(&row.get::<_, String>(4)?).unwrap_or_default(),
-            correction_cycles: row.get::<_, i64>(5)? as u8,
-            tokens_used: row.get::<_, i64>(6)? as u64,
-            cost_estimate_usd: row.get(7)?,
-            costs: parse_f64_map(row.get::<_, String>(8)?),
-            first_pass_success: row.get(9)?,
-            verify_verdict: row.get(10)?,
-            merged_to_main: row.get(11)?,
-            tag_version: row.get(12)?,
-            lead_time_hours: row.get(13)?,
-            teleological_coherence_pct: row.get(14)?,
-            recorded_at: row.get(15)?,
-        })
-    })?;
-    let mut records = Vec::new();
-    for row in rows {
-        records.push(row?);
-    }
-    Ok(records)
+pub(crate) fn load_cycles(plane: &dyn ControlPlane) -> anyhow::Result<Vec<sddk_domain::MetricsRecord>> {
+    plane.load_cycles().map_err(anyhow::Error::from)
 }
 
 /// Status of one project in the control plane.
@@ -747,48 +571,35 @@ struct StatusOutput {
 fn run_telemetry_status(args: TelemetryStatusArgs, environment: &CliEnvironment) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<StatusOutput> {
-        let conn = open_store(environment, false)?;
-        let mut stmt = conn.prepare(
-            r#"
-            SELECT p.project_id, p.display_name,
-                   COUNT(c.cycle_id),
-                   COALESCE(SUM(CASE WHEN c.cost_estimate_usd > 0.0 THEN 1 ELSE 0 END), 0),
-                   COALESCE(SUM(CASE WHEN c.teleological_coherence_pct IS NOT NULL THEN 1 ELSE 0 END), 0),
-                   MAX(c.recorded_at)
-            FROM projects p
-            LEFT JOIN cycles c ON c.project_id = p.project_id
-            GROUP BY p.project_id, p.display_name
-            ORDER BY p.display_name
-            "#,
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok(ProjectStatus {
-                project_id: row.get(0)?,
-                display_name: row.get(1)?,
-                cycles: row.get(2)?,
-                cycles_with_cost: row.get(3)?,
-                cycles_with_coherence: row.get(4)?,
-                last_ingest: row.get(5)?,
-            })
-        })?;
+        let dir = control_plane_dir(environment)?;
+        let plane = SqliteControlPlane::open(&dir)
+            .map_err(anyhow::Error::from)?;
+        let raw_status = plane.load_project_status()?;
         let mut projects = Vec::new();
         let mut total_cycles = 0u32;
         let mut gaps = Vec::new();
-        for row in rows.flatten() {
-            total_cycles += row.cycles;
-            if row.cycles_with_cost == 0 && row.cycles > 0 {
+        for (project_id, display_name, cycles, cycles_with_cost, cycles_with_coherence, last_ingest) in raw_status {
+            total_cycles += cycles;
+            if cycles_with_cost == 0 && cycles > 0 {
                 gaps.push(format!(
                     "{}: 0/{} cycles with cost data",
-                    row.display_name, row.cycles
+                    display_name, cycles
                 ));
             }
-            if row.cycles_with_coherence == 0 && row.cycles > 0 {
+            if cycles_with_coherence == 0 && cycles > 0 {
                 gaps.push(format!(
                     "{}: 0/{} cycles with teleological coherence",
-                    row.display_name, row.cycles
+                    display_name, cycles
                 ));
             }
-            projects.push(row);
+            projects.push(ProjectStatus {
+                project_id,
+                display_name,
+                cycles,
+                cycles_with_cost,
+                cycles_with_coherence,
+                last_ingest,
+            });
         }
         Ok(StatusOutput {
             projects,
@@ -829,9 +640,9 @@ fn run_telemetry_dashboard(
 ) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<PathBuf> {
-        let conn = open_store(environment, false)?;
-        let records = load_cycles(&conn)?;
-        let uat_rows = load_uat_results(&conn)?;
+        let plane = open_store(environment, false)?;
+        let records = load_cycles(&*plane)?;
+        let uat_rows = load_uat_results(&*plane)?;
         let aggregate_7d = metrics::compute_aggregate(&records, 7);
         let aggregate_30d = metrics::compute_aggregate(&records, 30);
         let tuning = metrics::tuning_from_aggregate(&aggregate_30d);

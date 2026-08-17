@@ -11,7 +11,7 @@
 mod migrations;
 mod models;
 pub mod control_plane;
-pub use control_plane::{SqliteControlPlane, SCHEMA_V1};
+pub use control_plane::{SqliteControlPlane, ProjectStatusRow, SCHEMA_V1};
 
 use std::path::Path;
 use std::time::Duration;
@@ -541,6 +541,22 @@ impl Storage {
              FROM ledger_events WHERE cycle_id = ?1 ORDER BY sequence ASC",
         )?;
         let rows = statement.query_map([cycle_id], event_from_row)?;
+        rows.map(|row| row.map_err(StorageError::from)).collect()
+    }
+
+    /// Loads all ledger events in ascending sequence order.
+    ///
+    /// Used by telemetry ingest to derive metrics for cycles that have no
+    /// metrics.jsonl entry.
+    pub fn load_all_ledger_events(&self) -> Result<Vec<LedgerEvent>> {
+        let mut statement = self.connection.prepare(
+            "SELECT sequence, event_id, project_id, cycle_id, frame_id,
+                    command_id, actor, event_type, occurred_at,
+                    state_before_json, state_after_json, payload_json,
+                    previous_hash, event_hash
+             FROM ledger_events ORDER BY sequence ASC",
+        )?;
+        let rows = statement.query_map([], event_from_row)?;
         rows.map(|row| row.map_err(StorageError::from)).collect()
     }
 
@@ -1705,6 +1721,10 @@ impl sddk_domain::Ledger for Storage {
         workspace: &WorkspaceRecord,
     ) -> std::result::Result<(), sddk_domain::StorageError> {
         Storage::register_project_workspace(self, project, workspace).map_err(|e| e.into())
+    }
+
+    fn load_all_ledger_events(&self) -> std::result::Result<Vec<LedgerEvent>, sddk_domain::StorageError> {
+        Storage::load_all_ledger_events(self).map_err(|e| e.into())
     }
 }
 
