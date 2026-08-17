@@ -150,3 +150,102 @@ pub trait ControlPlane {
     /// Loads all persisted `UatResultRow` rows.
     fn load_uat_results(&self) -> Result<Vec<UatResultRow>, StorageError>;
 }
+
+// ── Event-store port ──────────────────────────────────────────────────────────
+
+/// Proof-of-success receipt returned by [`EventStore::append`].
+///
+/// The `content_hash` mirrors the value already stored in the database; the
+/// adapter does NOT recompute it. Callers are expected to have built it via
+/// [`EventEnvelopeV1::compute_content_hash`](crate::event_envelope::EventEnvelopeV1::compute_content_hash)
+/// before calling `append`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventAppended {
+    /// Globally unique event identifier.
+    pub event_id: String,
+    /// Stream this event belongs to.
+    pub stream_id: String,
+    /// Monotonic sequence number assigned within the stream at append time.
+    pub sequence: u64,
+    /// SHA-256 content hash — identical to `EventEnvelopeV1::content_hash`.
+    pub content_hash: String,
+    /// Wall-clock time when the event was recorded (RFC 3339).
+    pub recorded_at: String,
+}
+
+/// Append-only event store for [`EventEnvelopeV1`] envelopes.
+///
+/// This trait is intentionally separate from [`Ledger`]. The `Ledger` trait
+/// covers cycle/lease/gate_receipt/project bookkeeping that lives in the
+/// `ledger_events` table (legacy). This trait covers the Common Event Protocol
+/// v1 substrate that lives in `events_v1`.
+///
+/// Implementations MUST:
+/// - Validate `content_hash` format (`sha256:<64-hex>`).
+/// - Allocate sequence numbers per-stream under a transaction.
+/// - Reject updates/deletes (enforced via SQL triggers on the storage side).
+///
+/// Error responses use [`StorageError::Other`] with a stable `event_store:<code>`
+/// prefix contract:
+/// - `event_store:content_hash_mismatch` — content hash does not match recomputed value
+/// - `event_store:invalid_content_hash` — hash missing `sha256:` prefix or wrong length
+/// - `event_store:invalid_event_type` — event_type failed validation
+/// - `event_store:hash_drift:<seq>` — stored hash differs from recomputed at given sequence
+pub trait EventStore {
+    /// Appends an event envelope to the store, assigning a per-stream sequence number.
+    ///
+    /// The caller's `envelope.content_hash` MUST match `envelope.compute_content_hash()`
+    /// and MUST start with `sha256:` before this method is called.
+    ///
+    /// Idempotency: re-appending the same `event_id` returns the original
+    /// `EventAppended` (same `sequence`, same `recorded_at`) without allocating
+    /// a new sequence.
+    fn append(
+        &mut self,
+        envelope: &crate::event_envelope::EventEnvelopeV1,
+    ) -> Result<EventAppended, StorageError>;
+
+    /// Loads a single event by its global `event_id`.
+    fn load_by_event_id(
+        &self,
+        event_id: &str,
+    ) -> Result<Option<crate::event_envelope::EventEnvelopeV1>, StorageError>;
+
+    /// Loads a contiguous range of events from one stream.
+    ///
+    /// Events are returned in ascending `sequence` order. `after_sequence`
+    /// filters out events `≤` the supplied value (`None` = start from sequence 1).
+    /// `limit` caps the result set.
+    fn load_stream(
+        &self,
+        stream_id: &str,
+        after_sequence: Option<u64>,
+        limit: u32,
+    ) -> Result<Vec<crate::event_envelope::EventEnvelopeV1>, StorageError>;
+
+    /// Returns the highest allocated sequence number for a stream, or `None`
+    /// when the stream has never received an event.
+    fn last_sequence(&self, stream_id: &str) -> Result<Option<u64>, StorageError>;
+
+    /// Returns the total number of events across all streams.
+    fn count(&self) -> Result<u64, StorageError>;
+
+    /// Returns the `content_hash` of the most-recently recorded event in a stream,
+    /// or `None` when the stream is empty.
+    fn head_hash(&self, stream_id: &str) -> Result<Option<String>, StorageError>;
+
+    /// Verifies the cryptographic chain integrity of a stream.
+    ///
+    /// Loads every event in the stream and recomputes each
+    /// [`EventEnvelopeV1::compute_content_hash`], comparing it against the stored
+    /// `content_hash` column. Returns `Ok(())` when all hashes match; returns
+    /// `Err(StorageError::Other("event_store:hash_drift:<seq>"))` on first mismatch.
+    fn verify_stream_chain(&self, stream_id: &str) -> Result<(), StorageError>;
+
+    /// Loads a single event by stream identifier and sequence number.
+    fn load_by_sequence(
+        &self,
+        stream_id: &str,
+        sequence: u64,
+    ) -> Result<Option<crate::event_envelope::EventEnvelopeV1>, StorageError>;
+}

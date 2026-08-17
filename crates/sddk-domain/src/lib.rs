@@ -29,7 +29,7 @@ pub use legacy::*;
 pub use metrics::*;
 pub use models::*;
 pub use pack::*;
-pub use ports::{ControlPlane, Ledger};
+pub use ports::{ControlPlane, EventAppended, EventStore, Ledger};
 pub use rules::*;
 pub use schema::*;
 pub use uat::*;
