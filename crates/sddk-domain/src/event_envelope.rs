@@ -6,6 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 /// Entity reference within an event envelope.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -110,4 +111,90 @@ pub struct EventEnvelopeV1 {
     /// Fork this event originated from, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fork_id: Option<String>,
+}
+
+impl EventEnvelopeV1 {
+    /// Schema version constant for V1 envelopes.
+    pub const SCHEMA_VERSION: u32 = 1;
+    /// Prefix for content_hash values per JSON schema regex.
+    pub const CONTENT_HASH_PREFIX: &'static str = "sha256:";
+
+    /// Canonical JSON serialization.
+    ///
+    /// Determinism invariant: this relies on `serde_json::Map<String, Value>`
+    /// using `BTreeMap` (the workspace default). DO NOT enable the
+    /// `serde_json` `preserve_order` feature — that breaks canonicalization.
+    pub fn to_canonical_json(&self) -> String {
+        serde_json::to_string(self)
+            .expect("EventEnvelopeV1 is always serializable; this is a bug")
+    }
+
+    /// Computes `sha256:<64-hex-lowercase>` over the canonical JSON
+    /// representation. The `content_hash` field itself is part of the
+    /// serialized form; to produce a self-consistent hash, callers must
+    /// pre-fill the `content_hash` field with a stable placeholder before
+    /// calling this method.
+    pub fn compute_content_hash(&self) -> String {
+        let canonical = self.to_canonical_json();
+        let digest = Sha256::digest(canonical.as_bytes());
+        format!("{}{:x}", Self::CONTENT_HASH_PREFIX, digest)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn minimal_envelope() -> EventEnvelopeV1 {
+        EventEnvelopeV1 {
+            event_id: "e-1".into(),
+            event_type: "workflow.phase.entered".into(),
+            schema_version: EventEnvelopeV1::SCHEMA_VERSION,
+            stream_id: "s-1".into(),
+            sequence: 1,
+            project_id: "p-1".into(),
+            occurred_at: "2026-08-17T10:00:00Z".into(),
+            recorded_at: "2026-08-17T10:00:01Z".into(),
+            actor: ActorRef {
+                kind: ActorKind::System,
+                id: "sddk-cli".into(),
+                definition_hash: None,
+                policy_hash: None,
+                model: None,
+            },
+            subjects: vec![],
+            payload: json!({}),
+            evidence_refs: vec![],
+            content_hash: "sha256:placeholder".into(),
+            metadata: None,
+            causation_id: None,
+            correlation_id: None,
+            cycle_id: None,
+            frame_id: None,
+            fork_id: None,
+        }
+    }
+
+    #[test]
+    fn compute_content_hash_format_matches_regex() {
+        let h = minimal_envelope().compute_content_hash();
+        assert!(h.starts_with("sha256:"));
+        assert_eq!(h.len(), "sha256:".len() + 64);
+        assert!(h[7..].chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+    }
+
+    #[test]
+    fn compute_content_hash_is_stable() {
+        let env1 = minimal_envelope();
+        let env2 = minimal_envelope();
+        assert_eq!(env1.compute_content_hash(), env2.compute_content_hash());
+    }
+
+    #[test]
+    fn to_canonical_json_is_brace_terminated() {
+        let j = minimal_envelope().to_canonical_json();
+        assert!(j.starts_with('{'));
+        assert!(j.ends_with('}'));
+    }
 }
