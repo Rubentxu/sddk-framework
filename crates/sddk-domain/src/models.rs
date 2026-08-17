@@ -391,3 +391,24 @@ impl LedgerEvent {
         }
     }
 }
+
+/// A row of the control-plane `uat_results` table (SDDK2-103).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UatResultRow {
+    /// Owning project identifier.
+    pub project_id: String,
+    /// Semantic version tag.
+    pub tag_version: String,
+    /// Readiness verdict: READY | READY_WITH_RISKS | NOT_READY.
+    pub verdict: String,
+    /// Test coverage percentage.
+    pub coverage_pct: f64,
+    /// Number of defects detected.
+    pub defects: i64,
+    /// Number of UAT sessions executed.
+    pub session_count: i64,
+    /// Total UAT duration in minutes.
+    pub uat_duration_minutes: i64,
+    /// RFC 3339 timestamp when the row was written.
+    pub recorded_at: String,
+}

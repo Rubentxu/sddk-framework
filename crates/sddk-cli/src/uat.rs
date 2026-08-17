@@ -15,9 +15,9 @@ use sddk_domain::{
     LATEST_PLAN_SCHEMA_VERSION, UatFeatureRollup, UatHistoryReport, UatIntegrityReport,
     UatManifest, UatManifestEntry, UatMigrationReport, UatOracleKind, UatPlan, UatReport,
     UatReportSummary, UatScenarioRollup, UatSession, UatStalenessChangeKind, UatStalenessDiff,
-    UatStalenessReport, UatStalenessScenario, UatSuggestionsReport, UatVerdict, aggregate_history,
-    apply_all_suggestions, evidence_satisfies_spec, migrate_plan_v1_to_v2, sha256_hex,
-    suggest_scenario_context, verify_evidence,
+    UatStalenessReport, UatStalenessScenario, UatSuggestionsReport, UatVerdict, UatResultRow,
+    aggregate_history, apply_all_suggestions, evidence_satisfies_spec, migrate_plan_v1_to_v2,
+    sha256_hex, suggest_scenario_context, verify_evidence,
 };
 #[cfg(test)]
 use sddk_testkit;
@@ -1057,7 +1057,7 @@ pub(crate) fn process_session_for_ingest(
             .unwrap_or_else(|| session.started_at.clone());
         crate::telemetry::upsert_uat_result(
             &conn,
-            &crate::telemetry::UatResultRow {
+            &UatResultRow {
                 project_id,
                 tag_version: session.release.clone(),
                 verdict: verdict.into(),

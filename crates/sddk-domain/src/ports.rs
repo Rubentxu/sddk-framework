@@ -9,9 +9,6 @@ use crate::metrics::MetricsRecord;
 use crate::models::*;
 use crate::StorageError;
 
-// Forward declaration until MS-02 lands.
-struct UatResultRow;
-
 /// Hexagonal port over the SDDK ledger.
 pub trait Ledger {
     // ── Cycle ops ─────────────────────────────────────────────────────────
