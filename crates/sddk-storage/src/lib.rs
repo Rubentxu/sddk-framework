@@ -9,14 +9,18 @@
 #![warn(missing_docs)]
 
 pub mod control_plane;
+pub mod event_store;
 mod migrations;
 mod models;
 pub use control_plane::{ProjectStatusRow, SCHEMA_V1, SqliteControlPlane};
+pub use event_store::SqliteEventStore;
 
 use std::path::Path;
 use std::time::Duration;
 
-use migrations::{LATEST_SCHEMA_VERSION, MIGRATION_1, MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5};
+use migrations::{
+    LATEST_SCHEMA_VERSION, MIGRATION_1, MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5,
+};
 pub use models::*;
 use rusqlite::{
     Connection, OpenFlags, OptionalExtension, Row, Transaction, TransactionBehavior, params,
@@ -1156,7 +1160,7 @@ impl Storage {
     }
 }
 
-fn migrate(connection: &mut Connection) -> Result<()> {
+pub(crate) fn migrate(connection: &mut Connection) -> Result<()> {
     let version: i32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
     if version < 1 {
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
