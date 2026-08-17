@@ -1,8 +1,7 @@
 //! Tests for git.push credential handling: env forwarding and auth-failure classification.
+#![allow(dead_code)]
 
-use sddk_gateway::{
-    CapabilityGateway, CapabilityPolicy, GitExecutor, RunSpec, run,
-};
+use sddk_gateway::{CapabilityGateway, CapabilityPolicy, GitExecutor, RunSpec, run};
 use sddk_storage::{ProjectRecord, Storage};
 use std::collections::BTreeMap;
 
