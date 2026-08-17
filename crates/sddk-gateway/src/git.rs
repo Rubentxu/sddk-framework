@@ -609,7 +609,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::fs;
 
-    use super::{GitError, GitExecutor, LOCAL_GIT_ENV_KEYS, classify_auth_failure};
+    use super::{GitError, GitExecutor, LOCAL_GIT_ENV_KEYS};
 
     fn git_repo() -> (tempfile::TempDir, GitExecutor) {
         let directory = tempfile::tempdir().unwrap();

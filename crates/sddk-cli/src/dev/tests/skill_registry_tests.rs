@@ -1,11 +1,7 @@
 //! Tests for skill registry — extracted to dev/tests/ to keep registry.rs below LOC ceiling.
 
 use crate::CliEnvironment;
-use crate::dev::common::atomic_write;
-use crate::dev::paths::sddk_data_dir;
-use crate::dev::registry::{
-    SkillRegistryEntry, resolve_project_id_for_registry, write_skill_registry,
-};
+use crate::dev::registry::write_skill_registry;
 
 fn temp_project(tag: &str) -> std::path::PathBuf {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
