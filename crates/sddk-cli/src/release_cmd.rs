@@ -3,12 +3,12 @@
 use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
+use sddk_domain::GateOutcomeStatus;
 use sddk_gateway::{
     CapabilityGateway, CapabilityPolicy, GitExecutor, GitHubForge, LocalReleaseInput,
     LocalReleaseOutcome, LocalReleasePreconditions, PermissionPolicy, ReleasePlanInput,
     apply_local_release, apply_release, plan_release,
 };
-use sddk_domain::GateOutcomeStatus;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 

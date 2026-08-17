@@ -13,7 +13,7 @@ use crate::{
     metrics::{self, MetricsWindow},
     render_result,
 };
-use sddk_domain::{ControlPlane, UatResultRow};
+use sddk_domain::{ControlPlane, Ledger, UatResultRow};
 use sddk_storage::SqliteControlPlane;
 
 /// SQLite store file of the control plane.
@@ -167,12 +167,10 @@ pub(crate) fn open_store(
         if !parent.exists() {
             anyhow::bail!("data root does not exist: {}", parent.display());
         }
-        let plane = SqliteControlPlane::open_in_memory()
-            .map_err(anyhow::Error::from)?;
+        let plane = SqliteControlPlane::open_in_memory().map_err(anyhow::Error::from)?;
         return Ok(Box::new(plane));
     }
-    let plane = SqliteControlPlane::open(&dir)
-        .map_err(anyhow::Error::from)?;
+    let plane = SqliteControlPlane::open(&dir).map_err(anyhow::Error::from)?;
     Ok(Box::new(plane))
 }
 
@@ -349,7 +347,24 @@ fn run_telemetry_ingest(args: TelemetryIngestArgs, environment: &CliEnvironment)
             }
             // Derive records for cycles present in the ledger but absent from
             // metrics.jsonl (reuses the same derivation as metrics backfill).
-            let derived = derive_ledger_cycles(project, &records);
+            let state_home = std::env::var_os("XDG_STATE_HOME")
+                .map(PathBuf::from)
+                .or_else(|| {
+                    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state"))
+                });
+            let ledger_path = state_home.map(|sh| {
+                sh.join("sddk/projects")
+                    .join(&project.project_id)
+                    .join("ledger.sqlite")
+            });
+            let derived = if let Some(path) = ledger_path {
+                match crate::Storage::open_read_only(&path) {
+                    Ok(storage) => derive_ledger_cycles(project, &records, &storage),
+                    Err(_) => Vec::new(),
+                }
+            } else {
+                Vec::new()
+            };
             for (cycle_id, record) in &derived {
                 if seen.insert(cycle_id.clone(), ()).is_some() {
                     continue;
@@ -423,30 +438,13 @@ pub(crate) fn load_uat_results(plane: &dyn ControlPlane) -> anyhow::Result<Vec<U
 fn derive_ledger_cycles(
     project: &DiscoveredProject,
     existing: &[sddk_domain::MetricsRecord],
+    ledger: &dyn sddk_domain::Ledger,
 ) -> Vec<(String, sddk_domain::MetricsRecord)> {
     let existing_ids: std::collections::HashSet<&str> = existing
         .iter()
         .map(|record| record.cycle_id.as_str())
         .collect();
-    // Ledger state lives under ~/.local/state/sddk/projects/<id>/ledger.sqlite.
-    let state_home = std::env::var_os("XDG_STATE_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state")));
-    let Some(state_home) = state_home else {
-        return Vec::new();
-    };
-    let ledger_path = state_home
-        .join("sddk/projects")
-        .join(&project.project_id)
-        .join("ledger.sqlite");
-    if !ledger_path.exists() {
-        return Vec::new();
-    }
-    let storage = match sddk_storage::Storage::open_read_only(&ledger_path) {
-        Ok(s) => s,
-        Err(_) => return Vec::new(),
-    };
-    let events = read_ledger_events(&storage);
+    let events = read_ledger_events(ledger);
     // Group events by cycle.
     let mut by_cycle: BTreeMap<String, Vec<sddk_domain::LedgerEvent>> = BTreeMap::new();
     for event in events {
@@ -544,7 +542,9 @@ fn aggregate_output_text(output: &AggregateOutput) -> String {
 }
 
 /// Load all cycle records from the central store.
-pub(crate) fn load_cycles(plane: &dyn ControlPlane) -> anyhow::Result<Vec<sddk_domain::MetricsRecord>> {
+pub(crate) fn load_cycles(
+    plane: &dyn ControlPlane,
+) -> anyhow::Result<Vec<sddk_domain::MetricsRecord>> {
     plane.load_cycles().map_err(anyhow::Error::from)
 }
 
@@ -572,13 +572,20 @@ fn run_telemetry_status(args: TelemetryStatusArgs, environment: &CliEnvironment)
     let format = args.format;
     let result = (|| -> anyhow::Result<StatusOutput> {
         let dir = control_plane_dir(environment)?;
-        let plane = SqliteControlPlane::open(&dir)
-            .map_err(anyhow::Error::from)?;
+        let plane = SqliteControlPlane::open(&dir).map_err(anyhow::Error::from)?;
         let raw_status = plane.load_project_status()?;
         let mut projects = Vec::new();
         let mut total_cycles = 0u32;
         let mut gaps = Vec::new();
-        for (project_id, display_name, cycles, cycles_with_cost, cycles_with_coherence, last_ingest) in raw_status {
+        for (
+            project_id,
+            display_name,
+            cycles,
+            cycles_with_cost,
+            cycles_with_coherence,
+            last_ingest,
+        ) in raw_status
+        {
             total_cycles += cycles;
             if cycles_with_cost == 0 && cycles > 0 {
                 gaps.push(format!(

@@ -56,13 +56,13 @@ use sddk_domain::{
 };
 use sddk_storage::SqliteControlPlane;
 
-/// Re-exports `Storage` so that `cycle.rs` can use it via `crate::Storage`
-/// without a direct `use sddk_storage::Storage` import (ARCH003 edge elimination).
-pub use sddk_storage::Storage;
 use sddk_engine::{
     AdoptionPlan, AdoptionPlanInput, AdoptionStatus, AdoptionStatusKind, XdgEnvironment,
     adoption_status, apply_adoption, plan_adoption, read_adoption_receipt, repair_adoption,
 };
+/// Re-exports `Storage` so that `cycle.rs` can use it via `crate::Storage`
+/// without a direct `use sddk_storage::Storage` import (ARCH003 edge elimination).
+pub use sddk_storage::Storage;
 use serde::Serialize;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use uuid::Uuid;
@@ -90,8 +90,9 @@ fn control_plane_dir(env: &CliEnvironment) -> anyhow::Result<PathBuf> {
         match (&env.data_home, &env.home) {
             (Some(data), _) => data.clone(),
             (None, Some(home)) => home.join(".local/share"),
-            (None, None) => dirs::data_dir()
-                .ok_or_else(|| anyhow::anyhow!("no data root: set HOME, XDG_DATA_HOME or SDDK_DATA_DIR"))?,
+            (None, None) => dirs::data_dir().ok_or_else(|| {
+                anyhow::anyhow!("no data root: set HOME, XDG_DATA_HOME or SDDK_DATA_DIR")
+            })?,
         }
     };
     if !data_home.is_absolute() {
@@ -1292,6 +1293,12 @@ pub(crate) fn failure_envelope(error: &anyhow::Error) -> CommandOutput {
         .downcast_ref::<sddk_domain::StorageError>()
         .map(|e| (e.code(), e.recovery()))
         .or_else(|| {
+            // Storage inherent methods (e.g. `Storage::get_cycle`) still
+            // return the concrete `sddk_storage::StorageError` type. Until
+            // those signatures migrate to `sddk_domain::StorageError` via
+            // the `impl Ledger for Storage` blanket, the runtime downcast
+            // chain needs this fallback so error envelopes stay actionable.
+            // Waived under ADR-0015 (ARCH003 composition-root waiver).
             error
                 .downcast_ref::<sddk_storage::StorageError>()
                 .map(|e| (e.code(), e.recovery()))

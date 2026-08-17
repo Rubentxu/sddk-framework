@@ -14,8 +14,8 @@ use crate::{CommandOutput, OutputFormat, render_result};
 use sddk_domain::{
     LATEST_PLAN_SCHEMA_VERSION, UatFeatureRollup, UatHistoryReport, UatIntegrityReport,
     UatManifest, UatManifestEntry, UatMigrationReport, UatOracleKind, UatPlan, UatReport,
-    UatReportSummary, UatScenarioRollup, UatSession, UatStalenessChangeKind, UatStalenessDiff,
-    UatStalenessReport, UatStalenessScenario, UatSuggestionsReport, UatVerdict, UatResultRow,
+    UatReportSummary, UatResultRow, UatScenarioRollup, UatSession, UatStalenessChangeKind,
+    UatStalenessDiff, UatStalenessReport, UatStalenessScenario, UatSuggestionsReport, UatVerdict,
     aggregate_history, apply_all_suggestions, evidence_satisfies_spec, migrate_plan_v1_to_v2,
     sha256_hex, suggest_scenario_context, verify_evidence,
 };

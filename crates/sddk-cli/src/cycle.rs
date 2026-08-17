@@ -564,7 +564,11 @@ fn run_cycle_transition(args: CycleTransitionArgs, environment: &CliEnvironment)
     let result = (|| -> anyhow::Result<CycleTransitionOutput> {
         let mut context = RuntimeContext::open(&args.runtime, environment, false)?;
         let now_ms = timestamp_ms(args.timestamp.as_deref())?;
-        match context.storage.get_cycle_lease(&args.cycle).map_err(Into::into) {
+        match context
+            .storage
+            .get_cycle_lease(&args.cycle)
+            .map_err(Into::into)
+        {
             Ok(_) => {
                 let owner = args.lease_owner.as_deref().ok_or_else(|| {
                     anyhow::anyhow!("cycle {} is leased; --lease-owner is required", args.cycle)
@@ -654,7 +658,11 @@ fn run_cycle_rebuild(args: CycleRebuildArgs, environment: &CliEnvironment) -> Co
         // `rebuild` is no longer a silent read-only audit: it requires the
         // caller to hold the same lease fence as a phase transition. An
         // expired lease is rejected with `LeaseExpired` (fail-closed).
-        match context.storage.get_cycle_lease(&args.cycle).map_err(Into::into) {
+        match context
+            .storage
+            .get_cycle_lease(&args.cycle)
+            .map_err(Into::into)
+        {
             Ok(_) => {
                 let owner = args.lease_owner.as_deref().ok_or_else(|| {
                     anyhow::anyhow!(
