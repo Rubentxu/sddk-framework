@@ -5,6 +5,7 @@
 //! `serde_json/preserve_order` feature — it breaks canonicalization.
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// Entity reference within an event envelope.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,4 +58,56 @@ pub enum EventTypeError {
     InvalidFormat(String),
 }
 
-pub struct EventEnvelopeV1;
+/// Wire-format envelope for SDDK domain events (CEP-1 compatible).
+///
+/// The `content_hash` field is required and carries a SHA-256 digest of the
+/// canonical JSON representation (excluding the `content_hash` field itself).
+/// Canonicalization relies on `serde_json`'s default `Map<String, Value>` =
+/// `BTreeMap` ordering; struct fields serialize in declaration order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventEnvelopeV1 {
+    /// Globally unique event identifier.
+    pub event_id: String,
+    /// Namespaced event type in `realm.object.verb` form, e.g. `uat.acceptance.granted`.
+    pub event_type: String,
+    /// Schema version; always `1` for this type.
+    pub schema_version: u32,
+    /// Stream this event belongs to.
+    pub stream_id: String,
+    /// Monotonic sequence number within the stream.
+    pub sequence: u64,
+    /// Project that produced or owns this event.
+    pub project_id: String,
+    /// Wall-clock time when the event occurred (RFC 3339).
+    pub occurred_at: String,
+    /// Wall-clock time when the event was recorded (RFC 3339).
+    pub recorded_at: String,
+    /// Actor who authored or initiated the event.
+    pub actor: ActorRef,
+    /// Zero or more entities affected by or related to this event.
+    pub subjects: Vec<EntityRef>,
+    /// Arbitrary JSON payload specific to the event type.
+    pub payload: Value,
+    /// References to external evidence (e.g. UAT check receipts).
+    pub evidence_refs: Vec<String>,
+    /// SHA-256 content hash in `sha256:<64-hex>` format.
+    pub content_hash: String,
+    /// Optional metadata bag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
+    /// ID of the event that directly caused this one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub causation_id: Option<String>,
+    /// ID used to correlate related events across a session or operation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
+    /// Cycle this event is part of.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cycle_id: Option<String>,
+    /// Frame within the cycle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frame_id: Option<String>,
+    /// Fork this event originated from, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_id: Option<String>,
+}
