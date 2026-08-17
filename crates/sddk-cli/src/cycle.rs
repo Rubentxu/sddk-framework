@@ -301,12 +301,12 @@ pub(crate) enum GateOutcomeArg {
     Waived,
 }
 
-impl From<GateOutcomeArg> for sddk_storage::GateOutcomeStatus {
+impl From<GateOutcomeArg> for sddk_domain::GateOutcomeStatus {
     fn from(value: GateOutcomeArg) -> Self {
         match value {
-            GateOutcomeArg::Passed => sddk_storage::GateOutcomeStatus::Passed,
-            GateOutcomeArg::Failed => sddk_storage::GateOutcomeStatus::Failed,
-            GateOutcomeArg::Waived => sddk_storage::GateOutcomeStatus::Waived,
+            GateOutcomeArg::Passed => sddk_domain::GateOutcomeStatus::Passed,
+            GateOutcomeArg::Failed => sddk_domain::GateOutcomeStatus::Failed,
+            GateOutcomeArg::Waived => sddk_domain::GateOutcomeStatus::Waived,
         }
     }
 }
@@ -565,7 +565,7 @@ fn run_cycle_transition(args: CycleTransitionArgs, environment: &CliEnvironment)
     let result = (|| -> anyhow::Result<CycleTransitionOutput> {
         let mut context = RuntimeContext::open(&args.runtime, environment, false)?;
         let now_ms = timestamp_ms(args.timestamp.as_deref())?;
-        match context.storage.get_cycle_lease(&args.cycle) {
+        match context.storage.get_cycle_lease(&args.cycle).map_err(Into::into) {
             Ok(_) => {
                 let owner = args.lease_owner.as_deref().ok_or_else(|| {
                     anyhow::anyhow!("cycle {} is leased; --lease-owner is required", args.cycle)
@@ -580,7 +580,7 @@ fn run_cycle_transition(args: CycleTransitionArgs, environment: &CliEnvironment)
                     .engine
                     .require_lease_fence(&args.cycle, owner, token, now_ms)?;
             }
-            Err(sddk_storage::StorageError::NotFound { .. }) => {
+            Err(sddk_domain::StorageError::NotFound { .. }) => {
                 if args.lease_owner.is_some() || args.fencing_token.is_some() {
                     anyhow::bail!(
                         "cycle {} has no lease; fencing arguments are not applicable",
@@ -655,7 +655,7 @@ fn run_cycle_rebuild(args: CycleRebuildArgs, environment: &CliEnvironment) -> Co
         // `rebuild` is no longer a silent read-only audit: it requires the
         // caller to hold the same lease fence as a phase transition. An
         // expired lease is rejected with `LeaseExpired` (fail-closed).
-        match context.storage.get_cycle_lease(&args.cycle) {
+        match context.storage.get_cycle_lease(&args.cycle).map_err(Into::into) {
             Ok(_) => {
                 let owner = args.lease_owner.as_deref().ok_or_else(|| {
                     anyhow::anyhow!(
@@ -673,7 +673,7 @@ fn run_cycle_rebuild(args: CycleRebuildArgs, environment: &CliEnvironment) -> Co
                     .engine
                     .require_lease_fence(&args.cycle, owner, token, now_ms)?;
             }
-            Err(sddk_storage::StorageError::NotFound { .. }) => {
+            Err(sddk_domain::StorageError::NotFound { .. }) => {
                 anyhow::bail!(
                     "cycle {} has no lease; acquire one with `sddk cycle lock acquire` before rebuild",
                     args.cycle
@@ -862,8 +862,8 @@ struct CycleLockReleaseOutput {
     released: bool,
 }
 
-impl From<sddk_storage::CycleLease> for LeaseOutput {
-    fn from(value: sddk_storage::CycleLease) -> Self {
+impl From<sddk_domain::CycleLease> for LeaseOutput {
+    fn from(value: sddk_domain::CycleLease) -> Self {
         Self {
             owner: value.owner,
             acquired_at_ms: value.acquired_at_ms,

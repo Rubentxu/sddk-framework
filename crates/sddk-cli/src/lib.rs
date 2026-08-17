@@ -1285,8 +1285,13 @@ fn failure(message: String) -> CommandOutput {
 /// supports it: stable code, message, first cause, and a recovery hint.
 pub(crate) fn failure_envelope(error: &anyhow::Error) -> CommandOutput {
     let envelope = error
-        .downcast_ref::<sddk_storage::StorageError>()
+        .downcast_ref::<sddk_domain::StorageError>()
         .map(|e| (e.code(), e.recovery()))
+        .or_else(|| {
+            error
+                .downcast_ref::<sddk_storage::StorageError>()
+                .map(|e| (e.code(), e.recovery()))
+        })
         .or_else(|| {
             error
                 .downcast_ref::<sddk_engine::EngineError>()

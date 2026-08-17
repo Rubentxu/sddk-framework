@@ -311,7 +311,7 @@ pub(crate) struct DerivedFields {
 ///
 /// Best-effort per field: a corrupt timestamp degrades one field, not the
 /// record. Defaults match the pre-enrichment behavior.
-pub(crate) fn derive_from_events(events: &[sddk_storage::LedgerEvent]) -> DerivedFields {
+pub(crate) fn derive_from_events(events: &[sddk_domain::LedgerEvent]) -> DerivedFields {
     let mut phase_durations_sec = HashMap::new();
     let mut phase_start: Option<(String, OffsetDateTime)> = None;
     let mut verify_verdict = "UNKNOWN".to_owned();
@@ -590,7 +590,7 @@ fn run_metrics_backfill(args: MetricsBackfillArgs, environment: &CliEnvironment)
         let context = RuntimeContext::open(&args.runtime, environment, false)?;
         let events = context.storage.list_events()?;
         // Group events by cycle; find cycles whose final state is CLOSED.
-        let mut cycles: std::collections::BTreeMap<String, Vec<sddk_storage::LedgerEvent>> =
+        let mut cycles: std::collections::BTreeMap<String, Vec<sddk_domain::LedgerEvent>> =
             std::collections::BTreeMap::new();
         for event in &events {
             if let Some(cycle_id) = &event.cycle_id {

@@ -135,13 +135,13 @@ fn run_git_branch(args: GitBranchArgs, environment: &CliEnvironment) -> CommandO
             &args.approve,
         )?;
         let begin = gateway.begin_effect(&input)?;
-        if begin.status != sddk_storage::CapabilityStatus::Started {
+        if begin.status != sddk_domain::CapabilityStatus::Started {
             return Ok(receipt_output(&begin));
         }
         let branch = git.create_branch(&args.name)?;
         let receipt = gateway.finish_effect(
             &begin.receipt_id,
-            sddk_storage::CapabilityStatus::Succeeded,
+            sddk_domain::CapabilityStatus::Succeeded,
             serde_json::to_value(branch)?,
             &input.timestamp,
         )?;
@@ -163,13 +163,13 @@ fn run_git_commit(args: GitCommitArgs, environment: &CliEnvironment) -> CommandO
             &args.approve,
         )?;
         let begin = gateway.begin_effect(&input)?;
-        if begin.status != sddk_storage::CapabilityStatus::Started {
+        if begin.status != sddk_domain::CapabilityStatus::Started {
             return Ok(receipt_output(&begin));
         }
         let commit = git.commit(&args.message)?;
         let receipt = gateway.finish_effect(
             &begin.receipt_id,
-            sddk_storage::CapabilityStatus::Succeeded,
+            sddk_domain::CapabilityStatus::Succeeded,
             serde_json::to_value(commit)?,
             &input.timestamp,
         )?;
@@ -191,13 +191,13 @@ fn run_git_tag(args: GitTagArgs, environment: &CliEnvironment) -> CommandOutput 
             &args.approve,
         )?;
         let begin = gateway.begin_effect(&input)?;
-        if begin.status != sddk_storage::CapabilityStatus::Started {
+        if begin.status != sddk_domain::CapabilityStatus::Started {
             return Ok(receipt_output(&begin));
         }
         let tag = git.tag(&args.name)?;
         let receipt = gateway.finish_effect(
             &begin.receipt_id,
-            sddk_storage::CapabilityStatus::Succeeded,
+            sddk_domain::CapabilityStatus::Succeeded,
             serde_json::to_value(tag)?,
             &input.timestamp,
         )?;
@@ -244,7 +244,7 @@ fn effect_setup(
     Ok((gateway, git, input))
 }
 
-fn receipt_output(receipt: &sddk_storage::CapabilityReceipt) -> GitReceiptOutput {
+fn receipt_output(receipt: &sddk_domain::CapabilityReceipt) -> GitReceiptOutput {
     GitReceiptOutput {
         capability: receipt.capability.clone(),
         status: serde_json::to_value(receipt.status)

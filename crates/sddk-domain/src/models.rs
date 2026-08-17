@@ -39,6 +39,33 @@ impl std::fmt::Display for StorageError {
 
 impl std::error::Error for StorageError {}
 
+impl crate::SddkErrorCode for StorageError {
+    fn code(&self) -> &'static str {
+        match self {
+            Self::NotFound { .. } => "STORAGE_NOT_FOUND",
+            Self::Database(_) => "STORAGE_DATABASE_ERROR",
+            Self::LeaseConflict { .. } => "STORAGE_LEASE_CONFLICT",
+            Self::Other(_) => "STORAGE_ERROR",
+        }
+    }
+    fn recovery(&self) -> &'static str {
+        match self {
+            Self::NotFound { .. } => {
+                "ensure the record exists before operating on it"
+            }
+            Self::Database(_) => {
+                "check the database is accessible and not corrupted"
+            }
+            Self::LeaseConflict { .. } => {
+                "release the existing lease before acquiring a new one"
+            }
+            Self::Other(_) => {
+                "retry the operation; if the problem persists, check the logs"
+            }
+        }
+    }
+}
+
 /// A logical SDDK project.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectRecord {

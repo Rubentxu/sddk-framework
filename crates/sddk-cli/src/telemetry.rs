@@ -537,7 +537,7 @@ fn derive_ledger_cycles(
     }
     let events = read_ledger_events(&ledger_path);
     // Group events by cycle.
-    let mut by_cycle: BTreeMap<String, Vec<sddk_storage::LedgerEvent>> = BTreeMap::new();
+    let mut by_cycle: BTreeMap<String, Vec<sddk_domain::LedgerEvent>> = BTreeMap::new();
     for event in events {
         if let Some(cycle_id) = &event.cycle_id {
             by_cycle.entry(cycle_id.clone()).or_default().push(event);
@@ -588,7 +588,7 @@ fn derive_ledger_cycles(
 }
 
 /// Read all ledger events from a project ledger SQLite file.
-fn read_ledger_events(path: &Path) -> Vec<sddk_storage::LedgerEvent> {
+fn read_ledger_events(path: &Path) -> Vec<sddk_domain::LedgerEvent> {
     let conn = match Connection::open(path) {
         Ok(conn) => conn,
         Err(_) => return Vec::new(),
@@ -607,7 +607,7 @@ fn read_ledger_events(path: &Path) -> Vec<sddk_storage::LedgerEvent> {
                 .and_then(|raw| serde_json::from_str(&raw).ok())
                 .unwrap_or(serde_json::Value::Null)
         };
-        Ok(sddk_storage::LedgerEvent {
+        Ok(sddk_domain::LedgerEvent {
             sequence: row.get(0)?,
             event_id: row.get(1)?,
             project_id: row.get(2)?,
