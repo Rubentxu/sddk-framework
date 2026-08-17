@@ -3,6 +3,19 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.17.0] - 2026-08-17
+
+### Features
+  - feat(domain): EventStore trait + EventAppended for ledger-first events (SDDK2-202)
+  - feat(storage): MIGRATION_5 events_v1 table with append-only triggers
+  - feat(storage): SqliteEventStore struct with XDG-open constructors
+  - feat(storage): SqliteEventStore append + reads (SDDK2-202 MS-04 essential)
+  - feat(storage): MS-05 event_store integration tests and compute_content_hash fix
+
+### Other
+  - chore(rules): refresh WV-0015 granted_until_sha to dbc1dbb (post-v1.16.0)
+  - fix(domain): compute_content_hash() no longer hashes itself or sequence/recorded_at
+
 ## [1.16.0] - 2026-08-17
 
 ### Features
