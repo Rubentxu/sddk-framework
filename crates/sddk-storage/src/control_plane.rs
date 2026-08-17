@@ -6,10 +6,8 @@
 use std::path::Path;
 use std::result::Result as StdResult;
 
-use rusqlite::{params, Connection};
-use sddk_domain::{
-    ControlPlane, MetricsRecord, StorageError as DomainStorageError, UatResultRow,
-};
+use rusqlite::{Connection, params};
+use sddk_domain::{ControlPlane, MetricsRecord, StorageError as DomainStorageError, UatResultRow};
 
 /// Schema v1 of the control-plane store (copied verbatim from
 /// `crates/sddk-cli/src/telemetry.rs`; no semantic changes).
@@ -84,8 +82,7 @@ impl SqliteControlPlane {
         let db_path = dir.join("control-plane.sqlite");
         let conn =
             Connection::open(&db_path).map_err(|e| DomainStorageError::Database(e.to_string()))?;
-        conn
-            .execute_batch(SCHEMA_V1)
+        conn.execute_batch(SCHEMA_V1)
             .map_err(|e| DomainStorageError::Database(e.to_string()))?;
         Ok(Self(conn))
     }
@@ -101,9 +98,7 @@ impl SqliteControlPlane {
     }
 
     /// Loads project status summary (used by `sddk telemetry status`).
-    pub fn load_project_status(
-        &self,
-    ) -> StdResult<Vec<ProjectStatusRow>, DomainStorageError> {
+    pub fn load_project_status(&self) -> StdResult<Vec<ProjectStatusRow>, DomainStorageError> {
         let mut stmt = self
             .0
             .prepare(
@@ -297,10 +292,10 @@ impl ControlPlane for SqliteControlPlane {
             .map_err(|e| DomainStorageError::Database(e.to_string()))?;
         let rows = stmt
             .query_map([], |row| {
-                let parse_u64_map = |value: String| {
-                    serde_json::from_str(&value).unwrap_or_default()
-                };
-                let parse_f64_map = |value: String| serde_json::from_str(&value).unwrap_or_default();
+                let parse_u64_map =
+                    |value: String| serde_json::from_str(&value).unwrap_or_default();
+                let parse_f64_map =
+                    |value: String| serde_json::from_str(&value).unwrap_or_default();
                 Ok(MetricsRecord {
                     cycle_id: row.get(0)?,
                     path: row.get(1)?,

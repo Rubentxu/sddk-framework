@@ -9,17 +9,11 @@ use serde_json::Value;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StorageError {
     /// A requested record does not exist.
-    NotFound {
-        entity: &'static str,
-        id: String,
-    },
+    NotFound { entity: &'static str, id: String },
     /// A database-level error (constraint violation, I/O failure, etc.).
     Database(String),
     /// A lease conflict: the resource is already locked by another owner.
-    LeaseConflict {
-        cycle_id: String,
-        owner: String,
-    },
+    LeaseConflict { cycle_id: String, owner: String },
     /// A storage operation failed; see the inner error for details.
     Other(String),
 }
@@ -50,18 +44,10 @@ impl crate::SddkErrorCode for StorageError {
     }
     fn recovery(&self) -> &'static str {
         match self {
-            Self::NotFound { .. } => {
-                "ensure the record exists before operating on it"
-            }
-            Self::Database(_) => {
-                "check the database is accessible and not corrupted"
-            }
-            Self::LeaseConflict { .. } => {
-                "release the existing lease before acquiring a new one"
-            }
-            Self::Other(_) => {
-                "retry the operation; if the problem persists, check the logs"
-            }
+            Self::NotFound { .. } => "ensure the record exists before operating on it",
+            Self::Database(_) => "check the database is accessible and not corrupted",
+            Self::LeaseConflict { .. } => "release the existing lease before acquiring a new one",
+            Self::Other(_) => "retry the operation; if the problem persists, check the logs",
         }
     }
 }

@@ -27,7 +27,7 @@ pub use legacy::*;
 pub use metrics::*;
 pub use models::*;
 pub use pack::*;
-pub use ports::{Ledger, ControlPlane};
+pub use ports::{ControlPlane, Ledger};
 pub use rules::*;
 pub use schema::*;
 pub use uat::*;

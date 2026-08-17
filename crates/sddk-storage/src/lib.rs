@@ -8,10 +8,10 @@
 #![deny(clippy::all)]
 #![warn(missing_docs)]
 
+pub mod control_plane;
 mod migrations;
 mod models;
-pub mod control_plane;
-pub use control_plane::{SqliteControlPlane, ProjectStatusRow, SCHEMA_V1};
+pub use control_plane::{ProjectStatusRow, SCHEMA_V1, SqliteControlPlane};
 
 use std::path::Path;
 use std::time::Duration;
@@ -1583,22 +1583,30 @@ impl sddk_domain::SddkErrorCode for StorageError {
 impl From<StorageError> for sddk_domain::StorageError {
     fn from(err: StorageError) -> Self {
         match err {
-            StorageError::NotFound { entity, id } => sddk_domain::StorageError::NotFound { entity, id },
-            StorageError::Database(msg) => sddk_domain::StorageError::Database(msg.to_string()),
-            StorageError::LeaseConflict { cycle_id, owner, .. } => {
-                sddk_domain::StorageError::LeaseConflict { cycle_id, owner }
+            StorageError::NotFound { entity, id } => {
+                sddk_domain::StorageError::NotFound { entity, id }
             }
+            StorageError::Database(msg) => sddk_domain::StorageError::Database(msg.to_string()),
+            StorageError::LeaseConflict {
+                cycle_id, owner, ..
+            } => sddk_domain::StorageError::LeaseConflict { cycle_id, owner },
             _ => sddk_domain::StorageError::Other(err.to_string()),
         }
     }
 }
 
 impl sddk_domain::Ledger for Storage {
-    fn get_cycle(&self, cycle_id: &str) -> std::result::Result<CycleRecord, sddk_domain::StorageError> {
+    fn get_cycle(
+        &self,
+        cycle_id: &str,
+    ) -> std::result::Result<CycleRecord, sddk_domain::StorageError> {
         Storage::get_cycle(self, cycle_id).map_err(|e| e.into())
     }
 
-    fn list_cycle_events(&self, cycle_id: &str) -> std::result::Result<Vec<LedgerEvent>, sddk_domain::StorageError> {
+    fn list_cycle_events(
+        &self,
+        cycle_id: &str,
+    ) -> std::result::Result<Vec<LedgerEvent>, sddk_domain::StorageError> {
         Storage::list_cycle_events(self, cycle_id).map_err(|e| e.into())
     }
 
@@ -1634,7 +1642,8 @@ impl sddk_domain::Ledger for Storage {
         now_ms: i64,
         expires_at_ms: i64,
     ) -> std::result::Result<CycleLease, sddk_domain::StorageError> {
-        Storage::acquire_cycle_lease(self, cycle_id, owner, now_ms, expires_at_ms).map_err(|e| e.into())
+        Storage::acquire_cycle_lease(self, cycle_id, owner, now_ms, expires_at_ms)
+            .map_err(|e| e.into())
     }
 
     fn release_cycle_lease(
@@ -1668,11 +1677,21 @@ impl sddk_domain::Ledger for Storage {
         now_ms: i64,
         new_expires_at_ms: i64,
     ) -> std::result::Result<CycleLease, sddk_domain::StorageError> {
-        Storage::renew_cycle_lease(self, cycle_id, owner, fencing_token, now_ms, new_expires_at_ms)
-            .map_err(|e| e.into())
+        Storage::renew_cycle_lease(
+            self,
+            cycle_id,
+            owner,
+            fencing_token,
+            now_ms,
+            new_expires_at_ms,
+        )
+        .map_err(|e| e.into())
     }
 
-    fn get_cycle_lease(&self, cycle_id: &str) -> std::result::Result<CycleLease, sddk_domain::StorageError> {
+    fn get_cycle_lease(
+        &self,
+        cycle_id: &str,
+    ) -> std::result::Result<CycleLease, sddk_domain::StorageError> {
         Storage::get_cycle_lease(self, cycle_id).map_err(|e| e.into())
     }
 
@@ -1683,10 +1702,14 @@ impl sddk_domain::Ledger for Storage {
         fencing_token: i64,
         now_ms: i64,
     ) -> std::result::Result<CycleLease, sddk_domain::StorageError> {
-        Storage::verify_cycle_lease(self, cycle_id, owner, fencing_token, now_ms).map_err(|e| e.into())
+        Storage::verify_cycle_lease(self, cycle_id, owner, fencing_token, now_ms)
+            .map_err(|e| e.into())
     }
 
-    fn get_gate_receipt(&self, receipt_id: &str) -> std::result::Result<GateReceipt, sddk_domain::StorageError> {
+    fn get_gate_receipt(
+        &self,
+        receipt_id: &str,
+    ) -> std::result::Result<GateReceipt, sddk_domain::StorageError> {
         Storage::get_gate_receipt(self, receipt_id).map_err(|e| e.into())
     }
 
@@ -1723,8 +1746,9 @@ impl sddk_domain::Ledger for Storage {
         Storage::register_project_workspace(self, project, workspace).map_err(|e| e.into())
     }
 
-    fn load_all_ledger_events(&self) -> std::result::Result<Vec<LedgerEvent>, sddk_domain::StorageError> {
+    fn load_all_ledger_events(
+        &self,
+    ) -> std::result::Result<Vec<LedgerEvent>, sddk_domain::StorageError> {
         Storage::load_all_ledger_events(self).map_err(|e| e.into())
     }
 }
-

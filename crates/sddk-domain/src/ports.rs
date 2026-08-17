@@ -5,9 +5,9 @@
 //! `Self` fns, no `Self` in generics) so `&dyn Ledger` is usable from the
 //! engine's accessor.
 
+use crate::StorageError;
 use crate::metrics::MetricsRecord;
 use crate::models::*;
-use crate::StorageError;
 
 /// Hexagonal port over the SDDK ledger.
 pub trait Ledger {
@@ -85,9 +85,13 @@ pub trait Ledger {
 
     // ── Project / workspace ────────────────────────────────────────────────
     /// Loads a logical project when present.
-    fn get_project_optional(&self, project_id: &str) -> Result<Option<ProjectRecord>, StorageError>;
+    fn get_project_optional(&self, project_id: &str)
+    -> Result<Option<ProjectRecord>, StorageError>;
     /// Loads a workspace when present.
-    fn get_workspace_optional(&self, workspace_id: &str) -> Result<Option<WorkspaceRecord>, StorageError>;
+    fn get_workspace_optional(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Option<WorkspaceRecord>, StorageError>;
     /// Reports whether the database contains any project registration.
     fn has_projects(&self) -> Result<bool, StorageError>;
     /// Registers a project and workspace in one SQLite transaction.
@@ -123,8 +127,11 @@ pub trait ControlPlane {
     ) -> Result<(), StorageError>;
 
     /// Inserts or replaces a `MetricsRecord` by `cycle_id`.
-    fn upsert_cycle(&mut self, project_id: &str, record: &MetricsRecord)
-        -> Result<(), StorageError>;
+    fn upsert_cycle(
+        &mut self,
+        project_id: &str,
+        record: &MetricsRecord,
+    ) -> Result<(), StorageError>;
 
     /// Inserts or replaces the aggregate for a rolling window.
     fn upsert_aggregate(
