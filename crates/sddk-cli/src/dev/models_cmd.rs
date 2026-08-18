@@ -126,21 +126,19 @@ fn parse_override(value: &str) -> Result<(IdeKey, String), String> {
 
 fn list_json(target: &Path, config: &AgentModelsConfig, names: &[String]) -> String {
     let tiers = serde_json::Map::from_iter(config.tiers().iter().map(|(tier, table)| {
-        let table = serde_json::Map::from_iter(
-            table
-                .iter()
-                .map(|(ide, model)| (ide.as_str().to_owned(), serde_json::Value::String(model.clone()))),
-        );
+        let table = serde_json::Map::from_iter(table.iter().map(|(ide, model)| {
+            (
+                ide.as_str().to_owned(),
+                serde_json::Value::String(model.clone()),
+            )
+        }));
         (tier.as_str().to_owned(), serde_json::Value::Object(table))
     }));
     let agents: Vec<serde_json::Value> = names
         .iter()
         .map(|name| {
             let mut entry = serde_json::Map::new();
-            entry.insert(
-                "name".to_owned(),
-                serde_json::Value::String(name.clone()),
-            );
+            entry.insert("name".to_owned(), serde_json::Value::String(name.clone()));
             entry.insert(
                 "tier".to_owned(),
                 config
@@ -153,7 +151,12 @@ fn list_json(target: &Path, config: &AgentModelsConfig, names: &[String]) -> Str
                     .overrides_of(name)
                     .into_iter()
                     .flat_map(|map| map.iter())
-                    .map(|(ide, model)| (ide.as_str().to_owned(), serde_json::Value::String(model.clone()))),
+                    .map(|(ide, model)| {
+                        (
+                            ide.as_str().to_owned(),
+                            serde_json::Value::String(model.clone()),
+                        )
+                    }),
             );
             entry.insert("overrides".to_owned(), serde_json::Value::Object(overrides));
             serde_json::Value::Object(entry)
@@ -164,7 +167,10 @@ fn list_json(target: &Path, config: &AgentModelsConfig, names: &[String]) -> Str
         "tiers": tiers,
         "agents": agents,
     });
-    format!("{}\n", serde_json::to_string_pretty(&doc).unwrap_or_default())
+    format!(
+        "{}\n",
+        serde_json::to_string_pretty(&doc).unwrap_or_default()
+    )
 }
 
 fn list_text(target: &Path, config: &AgentModelsConfig, names: &[String]) -> String {
