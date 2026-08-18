@@ -1,98 +1,8 @@
-//! Framework agent registry helpers — frontmatter parsing and opencode.json registration.
-//! Extracted from link.rs to keep link.rs below its LOC ceiling (ADR-016).
+//! Framework link report types and asset sync helpers.
+//! Agent registration moved to `editor_adapters/` (ADR-0019).
 
-use crate::dev::common::{framework_agent_names, walk_dir};
-use std::collections::HashSet;
+use crate::dev::common::walk_dir;
 use std::path::Path;
-
-/// Agents that should be marked as "primary" (visible by default) in opencode.json.
-const PRIMARY_AGENTS: [&str; 2] = ["orchestrator", "book-orchestrator"];
-
-// ── Agent frontmatter ─────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-struct AgentFrontmatter {
-    description: String,
-    model: Option<String>,
-}
-
-fn parse_frontmatter(path: &Path) -> Option<AgentFrontmatter> {
-    let content = std::fs::read_to_string(path).ok()?;
-    let block = content.strip_prefix("---")?.split_once("---")?.0;
-    let mut description = String::new();
-    let mut model = None;
-    for line in block.lines() {
-        if let Some(value) = line.strip_prefix("description:") {
-            description = value.trim().trim_matches('"').to_owned();
-        } else if let Some(value) = line.strip_prefix("model:") {
-            model = Some(value.trim().trim_matches('"').to_owned());
-        }
-    }
-    if description.is_empty() {
-        return None;
-    }
-    Some(AgentFrontmatter { description, model })
-}
-
-// ── Agent name resolution ─────────────────────────────────────────────────────
-
-/// Upsert framework agent entries into opencode.json.
-pub(super) fn register_opencode_agents(root: &Path, opencode_json: &Path) -> anyhow::Result<usize> {
-    let mut config: serde_json::Value = if opencode_json.exists() {
-        serde_json::from_str(&std::fs::read_to_string(opencode_json)?)
-            .map_err(|e| anyhow::anyhow!("opencode.json invalid: {e}"))?
-    } else {
-        serde_json::json!({
-            "$schema": "https://opencode.ai/config.json",
-            "agent": {},
-            "mcp": {}
-        })
-    };
-    let agents = config
-        .get_mut("agent")
-        .and_then(|value| value.as_object_mut())
-        .ok_or_else(|| anyhow::anyhow!("opencode.json has no agent map"))?;
-    let mut registered = 0usize;
-    for name in framework_agent_names(root) {
-        let md_path = root.join("agents").join(format!("{name}.md"));
-        let Some(frontmatter) = parse_frontmatter(&md_path) else {
-            continue;
-        };
-        let model = frontmatter
-            .model
-            .clone()
-            .unwrap_or_else(|| "minimax-coding-plan/MiniMax-M3".to_owned());
-        let primary = PRIMARY_AGENTS.contains(&name.as_str());
-        let mut entry = serde_json::json!({
-            "description": frontmatter.description,
-            "mode": if primary { "primary" } else { "subagent" },
-            "model": model,
-            "prompt": format!("{{file:{}}}", md_path.to_string_lossy()),
-        });
-        if !primary {
-            entry["hidden"] = serde_json::Value::Bool(true);
-        }
-        agents.insert(name, entry);
-        registered += 1;
-    }
-    let source_agent_names: HashSet<String> = framework_agent_names(root).into_iter().collect();
-    let orphans: Vec<String> = agents
-        .keys()
-        .filter(|name| {
-            let name = name.as_str();
-            (name.starts_with("sddk-") || name.starts_with("sdd-") || name.starts_with("gentle-"))
-                && !source_agent_names.contains(name)
-        })
-        .cloned()
-        .collect();
-    for orphan in orphans {
-        agents.remove(&orphan);
-    }
-    let serialized = serde_json::to_string_pretty(&config)?;
-    std::fs::write(opencode_json, serialized)?;
-    Ok(registered)
-}
 
 // ── Link report types (shared with link.rs) ────────────────────────────────────
 
@@ -106,12 +16,15 @@ pub(super) struct LinkReport {
     pub workflows_linked: usize,
     pub stale_replaced: usize,
     pub pruned: usize,
+    pub agents_registered: usize,
+    pub agents_skipped_existing: usize,
+    pub agents_skipped_unresolved: usize,
     pub errors: Vec<String>,
 }
 
 pub(super) fn link_report_text(report: &LinkReport) -> String {
     format!(
-        "editor: {}\nagents: {}\nskills: {}\nprompts: {}\nworkflows: {}\nstale_replaced: {}\npruned: {}\nerrors: {}\n",
+        "editor: {}\nagents: {}\nskills: {}\nprompts: {}\nworkflows: {}\nstale_replaced: {}\npruned: {}\nregistered: {}\nskipped_existing: {}\nskipped_unresolved: {}\nerrors: {}\n",
         report.editor,
         report.agents_linked,
         report.skills_linked,
@@ -119,6 +32,9 @@ pub(super) fn link_report_text(report: &LinkReport) -> String {
         report.workflows_linked,
         report.stale_replaced,
         report.pruned,
+        report.agents_registered,
+        report.agents_skipped_existing,
+        report.agents_skipped_unresolved,
         report.errors.len()
     )
 }

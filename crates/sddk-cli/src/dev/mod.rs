@@ -9,6 +9,7 @@ mod check;
 mod check_arch;
 mod common;
 mod doctor;
+mod editor_adapters;
 mod framework_check;
 mod install;
 mod link;

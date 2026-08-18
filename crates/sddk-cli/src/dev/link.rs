@@ -2,9 +2,7 @@
 
 use super::LinkEditor;
 use crate::dev::common::walk_dir;
-use crate::dev::framework_check::{
-    LinkReport, link_report_text, register_opencode_agents, sync_assets,
-};
+use crate::dev::framework_check::{LinkReport, link_report_text, sync_assets};
 use crate::dev::paths::resolve_active_framework_root;
 use crate::dev::registry::write_skill_registry;
 use crate::{CliEnvironment, CommandOutput, render_result};
@@ -147,6 +145,9 @@ fn link_editor(root: &Path, editor_dir: &Path) -> LinkReport {
         workflows_linked: 0,
         stale_replaced: 0,
         pruned: 0,
+        agents_registered: 0,
+        agents_skipped_existing: 0,
+        agents_skipped_unresolved: 0,
         errors: Vec::new(),
     };
     let mut stale = 0usize;
@@ -245,6 +246,28 @@ pub(super) fn run_dev_link(args: super::LinkArgs, environment: &CliEnvironment) 
             let _ = sync_assets(&root.join("assets"), &framework_root.join("assets"));
             let _ = super::manifest::write_manifest(&framework_root);
         }
+        // Agent→model config (Option — absence is not an error).
+        let models_path = root.join("assets").join("agent-models.yaml");
+        let models = match crate::dev::agent_models::AgentModelsConfig::from_file(&models_path) {
+            Ok(models) => models,
+            Err(error) => {
+                eprintln!("warning: {error}");
+                None
+            }
+        };
+        if models.is_none() {
+            eprintln!(
+                "warning: agent-models.yaml not found at {}; agents will be registered without a model",
+                models_path.display()
+            );
+        }
+        // One agent-source pass shared by all adapters.
+        let agents = crate::dev::editor_adapters::load_agent_sources(&root);
+        let ctx = crate::dev::editor_adapters::RegistrationContext {
+            root: &root,
+            agents: &agents,
+            models: models.as_ref(),
+        };
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("/tmp"));
@@ -256,21 +279,22 @@ pub(super) fn run_dev_link(args: super::LinkArgs, environment: &CliEnvironment) 
             .zcode_dir
             .clone()
             .unwrap_or_else(|| home.join(".zcode"));
+        let dirs = crate::dev::editor_adapters::EditorDirs {
+            opencode: opencode_dir.clone(),
+            zcode: zcode_dir.clone(),
+            claude: home.join(".claude"),
+            codex: home.join(".codex"),
+        };
         let mut reports = Vec::new();
         if matches!(args.editor, LinkEditor::OpenCode | LinkEditor::All) {
-            reports.push(link_editor(&root, &opencode_dir));
-            let opencode_json = opencode_dir.join("opencode.json");
-            match register_opencode_agents(&root, &opencode_json) {
-                Ok(registered) => {
-                    eprintln!("opencode: registered {registered} framework agents in opencode.json")
-                }
-                Err(error) => {
-                    eprintln!("warning: opencode.json registration failed: {error}")
-                }
-            }
+            let mut report = link_editor(&root, &opencode_dir);
+            register_into_report(super::LinkEditor::OpenCode, &dirs, &ctx, &mut report);
+            reports.push(report);
         }
         if matches!(args.editor, LinkEditor::ZCode | LinkEditor::All) {
-            reports.push(link_editor(&root, &zcode_dir));
+            let mut report = link_editor(&root, &zcode_dir);
+            register_into_report(super::LinkEditor::ZCode, &dirs, &ctx, &mut report);
+            reports.push(report);
         }
 
         // Write idempotent skill registry.
@@ -300,6 +324,37 @@ pub(super) fn run_dev_link(args: super::LinkArgs, environment: &CliEnvironment) 
         }
         text
     })
+}
+
+/// Run the selected editor's adapters and merge their reports into the
+/// editor's `LinkReport` (PerIdeErrorIsolation: per-editor errors are
+/// captured and reported without aborting the other editors).
+fn register_into_report(
+    editor: super::LinkEditor,
+    dirs: &crate::dev::editor_adapters::EditorDirs,
+    ctx: &crate::dev::editor_adapters::RegistrationContext<'_>,
+    report: &mut LinkReport,
+) {
+    use crate::dev::editor_adapters::EditorAdapter;
+    for adapter in crate::dev::editor_adapters::adapters_for(editor, dirs) {
+        let adapter_report = adapter.register(ctx);
+        report.agents_registered = adapter_report.registered;
+        report.agents_skipped_existing = adapter_report.skipped_existing;
+        report.agents_skipped_unresolved = adapter_report.skipped_unresolved;
+        report.errors.extend(adapter_report.errors);
+        if adapter_report.registered > 0 {
+            eprintln!(
+                "{}: registered {} framework agents",
+                adapter_report.editor, adapter_report.registered
+            );
+        }
+        if adapter_report.skipped_unresolved > 0 {
+            eprintln!(
+                "warning: {}: {} agents skipped (no model configured in agent-models.yaml)",
+                adapter_report.editor, adapter_report.skipped_unresolved
+            );
+        }
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
