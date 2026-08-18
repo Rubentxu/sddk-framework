@@ -3,6 +3,31 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.20.0] - 2026-08-18
+
+### Features
+  - feat(approval): CLI commands for human approval list|grant|deny (PR3)
+  - feat(gateway): add ApprovalExpired, ApprovalAlreadyResolved, ApprovalReasonRequired variants
+  - feat(domain): add ApprovalPending status, ApprovalReceipt types, and ApprovalProjection
+  - feat(dev): gum TUI para agent-models.yaml
+  - feat(dev): uninstall/doctor cubren claude y codex
+  - feat(dev): dev link registra 4 editores sin fallback hardcoded
+  - feat(dev): Codex adapter writes native TOML agents
+  - feat(dev): Claude Code adapter writes native .md agents
+  - feat(dev): ZCode adapter mirrors opencode JSON registration
+  - feat(dev): sddk dev models list/set/validate
+  - feat(dev): ship agent-models.yaml under assets
+  - feat(dev): agent-models.yaml schema + tier/override resolution
+
+### Fixes
+  - fix(dev): clippy --all-targets CI gate (M1-M3)
+
+### Other
+  - fmt: apply formatting to human-approval-events PRs
+  - docs(adr): ADR-0017..0020 modelos + adapters + TUI
+  - test(dev): align codex body assertion with frontmatter-newline semantics
+  - refactor(dev): EditorAdapter trait + OpenCode JSON adapter
+
 ## [1.19.0] - 2026-08-18
 
 ### Features
