@@ -12,6 +12,10 @@ use serde::Serialize;
 use crate::cycle::RuntimeArgs;
 use crate::{CliEnvironment, CommandOutput, OutputFormat, render_result};
 
+/// Embedded explorer template (fallback when the assets bundle is absent,
+/// e.g. tests or a bare binary).
+const EMBEDDED_TEMPLATE: &str = include_str!("../../../assets/explorer/template.html");
+
 #[derive(Debug, Subcommand)]
 pub(crate) enum ExploreCommand {
     /// Render a task-specific view as self-contained HTML.
@@ -60,11 +64,19 @@ fn run_explore_render(args: ExploreRenderArgs, environment: &CliEnvironment) -> 
         let state = crate::stale_cmd::load_graph_state(&args.runtime, environment)?;
         let model = render_view_model(&state, &descriptor, args.entity.as_deref());
 
-        let assets = crate::dev::paths::resolve_assets_dir(environment)?
-            .ok_or_else(|| anyhow::anyhow!("assets dir not resolvable — run `sddk dev install`"))?;
-        let template_path = assets.join("explorer").join("template.html");
-        let template = std::fs::read_to_string(&template_path)
-            .map_err(|e| anyhow::anyhow!("read template {}: {e}", template_path.display()))?;
+        // Prefer the installed assets template; fall back to the embedded one
+        // (tests, bare binary, or missing bundle).
+        let assets = crate::dev::paths::resolve_assets_dir(environment)
+            .ok()
+            .flatten();
+        let template = match assets {
+            Some(dir) => {
+                let template_path = dir.join("explorer").join("template.html");
+                std::fs::read_to_string(&template_path)
+                    .unwrap_or_else(|_| EMBEDDED_TEMPLATE.to_string())
+            }
+            None => EMBEDDED_TEMPLATE.to_string(),
+        };
 
         let model_json = serde_json::to_string(&model)?;
         let html = template
