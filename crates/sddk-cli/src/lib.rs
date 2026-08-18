@@ -12,6 +12,7 @@ mod cycle;
 mod dev;
 
 mod docs;
+mod explore_cmd;
 mod fork_cmd;
 mod git_cmd;
 mod graph_cmd;
@@ -265,6 +266,11 @@ enum Command {
     Fork {
         #[command(subcommand)]
         command: fork_cmd::ForkCommand,
+    },
+    /// Render task-specific views over the reactive graph (SPEC-013).
+    Explore {
+        #[command(subcommand)]
+        command: explore_cmd::ExploreCommand,
     },
     /// Generate or install shell completion scripts.
     Completion {
@@ -571,6 +577,7 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         Command::Rules { command } => rules_cmd::run_rules(command, environment),
         Command::Stale { command } => stale_cmd::run_stale(command, environment),
         Command::Fork { command } => fork_cmd::run_fork(command, environment),
+        Command::Explore { command } => explore_cmd::run_explore(command, environment),
         Command::Completion { command } => run_completion(command),
     }
 }
