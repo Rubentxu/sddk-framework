@@ -42,10 +42,28 @@ pub struct StalenessResult {
 }
 
 /// Relations that establish a verification/governance link.
+///
+/// Matches the canonical relation names (`verifies`, `governs`) as well as
+/// verb-form event types that end in `.verifies` / `.verified` / `.governs`
+/// (e.g. `uat.acceptance.verified`), since the graph maps event types to
+/// relation names verbatim.
 const VERIFICATION_RELATIONS: &[&str] = &["verifies", "governs"];
 
 /// Relations that explicitly invalidate an entity.
 const INVALIDATION_RELATIONS: &[&str] = &["invalidated_by"];
+
+/// Whether a relation name is a verification/governance link.
+fn is_verification_relation(relation: &str) -> bool {
+    VERIFICATION_RELATIONS.contains(&relation)
+        || relation.ends_with(".verifies")
+        || relation.ends_with(".verified")
+        || relation.ends_with(".governs")
+}
+
+/// Whether a relation name is an explicit invalidation.
+fn is_invalidation_relation(relation: &str) -> bool {
+    INVALIDATION_RELATIONS.contains(&relation) || relation.ends_with(".invalidated")
+}
 
 /// Derives staleness for `entity` from the graph.
 ///
@@ -55,17 +73,16 @@ pub fn derive_staleness(state: &GraphState, entity: &str) -> StalenessResult {
     let verification_edges: Vec<&GraphEdge> = state
         .edges
         .iter()
-        .filter(|edge| {
-            edge.to == entity && VERIFICATION_RELATIONS.contains(&edge.relation.as_str())
-        })
+        .filter(|edge| edge.to == entity && is_verification_relation(&edge.relation))
         .collect();
 
     // Explicit invalidation without any verification context → Invalidated.
     // (With verification context, invalidation escalates to Stale below.)
     if verification_edges.is_empty() {
-        let invalidated = state.edges.iter().find(|edge| {
-            edge.from == entity && INVALIDATION_RELATIONS.contains(&edge.relation.as_str())
-        });
+        let invalidated = state
+            .edges
+            .iter()
+            .find(|edge| edge.from == entity && is_invalidation_relation(&edge.relation));
         if let Some(edge) = invalidated {
             return StalenessResult {
                 state: StalenessState::Invalidated,
@@ -116,7 +133,7 @@ pub fn derive_staleness(state: &GraphState, entity: &str) -> StalenessResult {
     // invalidation edge exists after the latest change, escalate to Stale.
     let has_later_invalidation = state.edges.iter().any(|edge| {
         edge.from == entity
-            && INVALIDATION_RELATIONS.contains(&edge.relation.as_str())
+            && is_invalidation_relation(&edge.relation)
             && edge.occurred_at >= latest.occurred_at
     });
 
@@ -139,7 +156,7 @@ pub fn all_staleness(state: &GraphState) -> Vec<(String, StalenessResult)> {
     let mut entities: Vec<String> = state
         .edges
         .iter()
-        .filter(|edge| VERIFICATION_RELATIONS.contains(&edge.relation.as_str()))
+        .filter(|edge| is_verification_relation(&edge.relation))
         .map(|edge| edge.to.clone())
         .collect();
     entities.sort();

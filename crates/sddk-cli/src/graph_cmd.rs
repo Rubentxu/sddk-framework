@@ -93,7 +93,7 @@ fn run_graph_why_stale(args: GraphWhyStaleArgs, environment: &CliEnvironment) ->
         let staleness = crate::stale_cmd::derive_for_entity(&state, &args.entity);
         Ok(WhyStaleOutput {
             entity: args.entity.clone(),
-            state: format!("{:?}", staleness.state).to_ascii_lowercase(),
+            state: crate::stale_cmd::serde_state_name(staleness.state),
             causal_path: staleness.causal_path,
             verified_by: staleness.verified_by,
         })

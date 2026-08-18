@@ -68,6 +68,17 @@ pub(crate) fn run_stale(command: StaleCommand, environment: &CliEnvironment) -> 
     }
 }
 
+/// Serializes a staleness state in snake_case (matches the serde representation).
+pub(crate) fn serde_state_name(state: sddk_domain::StalenessState) -> String {
+    match state {
+        sddk_domain::StalenessState::Fresh => "fresh".into(),
+        sddk_domain::StalenessState::PossiblyStale => "possibly_stale".into(),
+        sddk_domain::StalenessState::Stale => "stale".into(),
+        sddk_domain::StalenessState::Invalidated => "invalidated".into(),
+        sddk_domain::StalenessState::Unknown => "unknown".into(),
+    }
+}
+
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
 struct StaleGateOutput {
@@ -92,7 +103,7 @@ fn run_stale_gate(args: StaleGateArgs, environment: &CliEnvironment) -> CommandO
         let mut advisory_stale = Vec::new();
         for entity in &critical {
             let result = sddk_domain::derive_staleness(&state, entity);
-            let state_str = format!("{:?}", result.state).to_ascii_lowercase();
+            let state_str = serde_state_name(result.state);
             let output = StaleEntityOutput {
                 entity: entity.clone(),
                 state: state_str.clone(),
@@ -108,7 +119,7 @@ fn run_stale_gate(args: StaleGateArgs, environment: &CliEnvironment) -> CommandO
         // Advisory severity: possibly_stale non-critical also fails when policy says so.
         if advisory_fail {
             for (entity, result) in all_staleness(&state) {
-                let state_str = format!("{:?}", result.state).to_ascii_lowercase();
+                let state_str = serde_state_name(result.state);
                 if state_str == "possibly_stale" && !critical.contains(&entity) {
                     advisory_stale.push(StaleEntityOutput {
                         entity,
@@ -201,7 +212,7 @@ fn run_stale_list(args: StaleListArgs, environment: &CliEnvironment) -> CommandO
                 let result = sddk_domain::derive_staleness(&state, entity);
                 vec![StaleEntityOutput {
                     entity: entity.clone(),
-                    state: format!("{:?}", result.state).to_ascii_lowercase(),
+                    state: serde_state_name(result.state),
                     causal_path: result.causal_path,
                 }]
             }
@@ -209,7 +220,7 @@ fn run_stale_list(args: StaleListArgs, environment: &CliEnvironment) -> CommandO
                 .into_iter()
                 .map(|(entity, result)| StaleEntityOutput {
                     entity,
-                    state: format!("{:?}", result.state).to_ascii_lowercase(),
+                    state: serde_state_name(result.state),
                     causal_path: result.causal_path,
                 })
                 .collect(),
