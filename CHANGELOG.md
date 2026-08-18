@@ -3,6 +3,16 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.23.0] - 2026-08-18
+
+### Features
+  - feat(cli): stale list/impact/gate + graph why-stale commands (phase6)
+  - feat(domain): context-read tracing recorder bounded + graph skip (phase6)
+  - feat(domain): universal staleness derivation over graph + UAT mapping (phase6)
+
+### Other
+  - test(cli): stale/impact/why-stale/gate e2e + uat stale surface intact (phase6)
+
 ## [1.22.0] - 2026-08-18
 
 ### Features
