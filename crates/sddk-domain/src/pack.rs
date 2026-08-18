@@ -41,15 +41,55 @@ pub struct PackCommand {
     pub surface: Vec<String>,
 }
 
-/// Declared pack dependencies.
+/// Declared pack dependencies (manifest v2 semantics, SPEC-006 §3).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct PackDependencies {
-    /// Required dependency names.
+    /// Required dependency names (v1 compat — normalizes to `requires`).
     #[serde(default)]
     pub required: Vec<String>,
-    /// Optional dependency names.
+    /// Optional dependency names (v1 compat — normalizes to `integrates_with`).
     #[serde(default)]
     pub optional: Vec<String>,
+    /// Hard dependencies: the pack cannot load without them.
+    #[serde(default)]
+    pub requires: Vec<String>,
+    /// Optional capabilities that improve behavior; absence degrades gracefully.
+    #[serde(default)]
+    pub integrates_with: Vec<String>,
+    /// Explicit incompatible combinations.
+    #[serde(default)]
+    pub conflicts_with: Vec<String>,
+}
+
+/// Capabilities, event schemas and view types exported by the pack (v2).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct PackProvides {
+    /// Exported capability names.
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+    /// Exported event schema names.
+    #[serde(default)]
+    pub event_schemas: Vec<String>,
+    /// Exported view type names.
+    #[serde(default)]
+    pub view_types: Vec<String>,
+}
+
+/// Pack category per SPEC-006 §2.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PackCategory {
+    /// Runtime contracts only.
+    Core,
+    /// Evidence, tool/capability adapters, identity bridges, storage projections.
+    Infrastructure,
+    /// UAT, architecture, testing, research, docs.
+    #[default]
+    Domain,
+    /// Translates foreign ontology/events to SDDK core primitives.
+    Bridge,
+    /// Named composition of packs, not a new ontology.
+    Bundle,
 }
 
 /// Pack fixture declarations.
@@ -82,6 +122,9 @@ pub struct PackManifest {
     /// Capability name to consequence class.
     #[serde(default)]
     pub capabilities: BTreeMap<String, PackConsequence>,
+    /// Exported capabilities/event schemas/view types (v2).
+    #[serde(default)]
+    pub provides: Option<PackProvides>,
     /// Declared fixtures.
     #[serde(default)]
     pub fixtures: PackFixtures,
@@ -105,6 +148,9 @@ pub struct PackIdentity {
     pub risk: PackRisk,
     /// Declared consequence class.
     pub consequence: PackConsequence,
+    /// Pack category (SPEC-006 §2); defaults to `domain`.
+    #[serde(default)]
+    pub category: PackCategory,
     /// Human-readable description.
     #[serde(default)]
     pub description: Option<String>,
@@ -144,10 +190,30 @@ const INVALID_CONSEQUENCE: &str = "PACK004";
 const UNKNOWN_REQUIRED_DEPENDENCY: &str = "PACK005";
 const NO_COMMANDS: &str = "PACK006";
 const NO_FIXTURES: &str = "PACK007";
+const EMPTY_REQUIRES: &str = "PACK008";
+const REQUIRES_CONFLICTS_WITH: &str = "PACK009";
+const DUPLICATE_PROVIDES: &str = "PACK010";
 
-/// Parses a pack manifest from TOML.
+/// Parses a pack manifest from TOML, normalizing v1 manifests to v2 semantics.
 pub fn parse_pack_manifest(toml: &str) -> Result<PackManifest, PackError> {
-    toml::from_str(toml).map_err(|error| PackError::Parse(error.to_string()))
+    let mut manifest: PackManifest =
+        toml::from_str(toml).map_err(|error| PackError::Parse(error.to_string()))?;
+    normalize_manifest(&mut manifest);
+    Ok(manifest)
+}
+
+/// Normalizes v1 dependency semantics into v2 fields (SPEC-006 §3).
+///
+/// `dependencies.required` maps to `requires`; `dependencies.optional` maps to
+/// `integrates_with`. The original `schema_version` is preserved.
+pub fn normalize_manifest(manifest: &mut PackManifest) {
+    let dependencies = &mut manifest.dependencies;
+    if dependencies.requires.is_empty() && !dependencies.required.is_empty() {
+        dependencies.requires = dependencies.required.clone();
+    }
+    if dependencies.integrates_with.is_empty() && !dependencies.optional.is_empty() {
+        dependencies.integrates_with = dependencies.optional.clone();
+    }
 }
 
 /// Loads a pack manifest from a file.
@@ -199,19 +265,24 @@ pub fn validate_pack_manifest(manifest: &PackManifest) -> Vec<PackDiagnostic> {
             hint: "use creates, modifies, or irreversible".into(),
         });
     }
-    for dependency in &manifest.dependencies.required {
-        if !manifest
-            .dependencies
-            .optional
-            .iter()
-            .any(|candidate| candidate == dependency)
-        {
-            diagnostics.push(PackDiagnostic {
-                code: UNKNOWN_REQUIRED_DEPENDENCY.into(),
-                message: format!("required dependency {dependency:?} is not declared"),
-                hint: "list the dependency in `dependencies.optional` or `dependencies.required`"
-                    .into(),
-            });
+    // PACK005 is a v1-model validation (required ⊆ optional). In v2 the
+    // `requires` satisfaction is validated by the registry against other
+    // packs' `provides`; the domain model only checks structural rules.
+    if manifest.pack.schema_version == 1 {
+        for dependency in &manifest.dependencies.required {
+            if !manifest
+                .dependencies
+                .optional
+                .iter()
+                .any(|candidate| candidate == dependency)
+            {
+                diagnostics.push(PackDiagnostic {
+                    code: UNKNOWN_REQUIRED_DEPENDENCY.into(),
+                    message: format!("required dependency {dependency:?} is not declared"),
+                    hint: "list the dependency in `dependencies.optional` or `dependencies.required`"
+                        .into(),
+                });
+            }
         }
     }
     if manifest.commands.is_empty() {
@@ -228,6 +299,45 @@ pub fn validate_pack_manifest(manifest: &PackManifest) -> Vec<PackDiagnostic> {
             hint: "list deterministic fixtures under [fixtures]".into(),
         });
     }
+    for dependency in &manifest.dependencies.requires {
+        if dependency.trim().is_empty() {
+            diagnostics.push(PackDiagnostic {
+                code: EMPTY_REQUIRES.into(),
+                message: "a `requires` entry is empty".into(),
+                hint: "remove empty entries from `dependencies.requires`".into(),
+            });
+        }
+    }
+    for dependency in &manifest.dependencies.requires {
+        if manifest
+            .dependencies
+            .conflicts_with
+            .iter()
+            .any(|candidate| candidate == dependency)
+        {
+            diagnostics.push(PackDiagnostic {
+                code: REQUIRES_CONFLICTS_WITH.into(),
+                message: format!("dependency {dependency:?} is both required and conflicting"),
+                hint: "remove the entry from `requires` or `conflicts_with`".into(),
+            });
+        }
+    }
+    if let Some(provides) = &manifest.provides {
+        for capability in &provides.capabilities {
+            let count = provides
+                .capabilities
+                .iter()
+                .filter(|candidate| *candidate == capability)
+                .count();
+            if count > 1 {
+                diagnostics.push(PackDiagnostic {
+                    code: DUPLICATE_PROVIDES.into(),
+                    message: format!("capability {capability:?} is declared more than once"),
+                    hint: "list each provided capability exactly once".into(),
+                });
+            }
+        }
+    }
     diagnostics
 }
 
@@ -238,7 +348,9 @@ pub fn pack_error_count(diagnostics: &[PackDiagnostic]) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{load_pack_manifest, parse_pack_manifest, validate_pack_manifest};
+    use super::{
+        PackCategory, load_pack_manifest, parse_pack_manifest, validate_pack_manifest,
+    };
 
     const VALID: &str = r#"
 [pack]
@@ -340,5 +452,164 @@ surface = ["a"]
     fn rejects_invalid_toml_and_missing_file() {
         assert!(parse_pack_manifest("not toml [").is_err());
         assert!(load_pack_manifest("/nonexistent/manifest.toml").is_err());
+    }
+
+    #[test]
+    fn parses_v2_manifest_with_full_semantics() {
+        let manifest = parse_pack_manifest(
+            r#"
+[pack]
+id = "sddk-pack-uat"
+version = "0.1.0"
+schema_version = 2
+compatibility = ">=1.85"
+risk = "medium"
+consequence = "modifies"
+category = "domain"
+description = "UAT pack"
+
+[dependencies]
+requires = ["sddk-core"]
+integrates_with = ["sddk-cognicode"]
+conflicts_with = []
+
+[provides]
+capabilities = ["uat.plan", "uat.dashboard"]
+event_schemas = ["uat.session"]
+view_types = ["uat-report"]
+
+[[commands]]
+name = "uat"
+surface = ["uat"]
+
+[fixtures]
+paths = ["fixtures/uat-plan.yaml"]
+"#,
+        )
+        .unwrap();
+        assert_eq!(manifest.pack.schema_version, 2);
+        assert_eq!(manifest.pack.category, PackCategory::Domain);
+        assert_eq!(manifest.dependencies.requires, vec!["sddk-core"]);
+        assert_eq!(
+            manifest.dependencies.integrates_with,
+            vec!["sddk-cognicode"]
+        );
+        let provides = manifest.provides.as_ref().unwrap();
+        assert_eq!(provides.capabilities, vec!["uat.plan", "uat.dashboard"]);
+        assert!(validate_pack_manifest(&manifest).is_empty());
+    }
+
+    #[test]
+    fn v1_manifest_normalizes_to_v2_semantics() {
+        let manifest = parse_pack_manifest(
+            r#"
+[pack]
+id = "x"
+version = "0.1.0"
+schema_version = 1
+compatibility = ">=1.85"
+risk = "low"
+consequence = "creates"
+
+[dependencies]
+required = ["sddk-core"]
+optional = ["sddk-core", "sddk-cognicode"]
+
+[[commands]]
+name = "a"
+surface = ["a"]
+
+[fixtures]
+paths = ["t.sh"]
+"#,
+        )
+        .unwrap();
+        assert_eq!(manifest.pack.schema_version, 1);
+        assert_eq!(manifest.dependencies.requires, vec!["sddk-core"]);
+        assert_eq!(
+            manifest.dependencies.integrates_with,
+            vec!["sddk-core", "sddk-cognicode"]
+        );
+        assert!(validate_pack_manifest(&manifest).is_empty());
+    }
+
+    #[test]
+    fn reports_requires_conflicts_with_overlap() {
+        let manifest = parse_pack_manifest(
+            r#"
+[pack]
+id = "x"
+version = "0.1.0"
+schema_version = 2
+compatibility = ">=1.85"
+risk = "low"
+consequence = "creates"
+
+[dependencies]
+requires = ["sddk-core"]
+conflicts_with = ["sddk-core"]
+
+[[commands]]
+name = "a"
+surface = ["a"]
+"#,
+        )
+        .unwrap();
+        let diagnostics = validate_pack_manifest(&manifest);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "PACK009")
+        );
+    }
+
+    #[test]
+    fn reports_duplicate_provides_capabilities() {
+        let manifest = parse_pack_manifest(
+            r#"
+[pack]
+id = "x"
+version = "0.1.0"
+schema_version = 2
+compatibility = ">=1.85"
+risk = "low"
+consequence = "creates"
+
+[provides]
+capabilities = ["uat.plan", "uat.plan"]
+"#,
+        )
+        .unwrap();
+        let diagnostics = validate_pack_manifest(&manifest);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "PACK010")
+        );
+    }
+
+    #[test]
+    fn reports_empty_requires_entry() {
+        let manifest = parse_pack_manifest(
+            r#"
+[pack]
+id = "x"
+version = "0.1.0"
+schema_version = 2
+compatibility = ">=1.85"
+risk = "low"
+consequence = "creates"
+
+[dependencies]
+requires = [""]
+"#,
+        )
+        .unwrap();
+        let diagnostics = validate_pack_manifest(&manifest);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "PACK008")
+        );
     }
 }
