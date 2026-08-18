@@ -381,7 +381,7 @@ fn register_into_report(
     warnings: &mut Vec<String>,
 ) {
     use crate::dev::agent_models::IdeKey;
-    use crate::dev::editor_adapters::{EditorAdapter, resolve_for_models};
+    use crate::dev::editor_adapters::resolve_for_models;
     let ide = match editor {
         super::LinkEditor::OpenCode => IdeKey::Opencode,
         super::LinkEditor::ZCode => IdeKey::Zcode,
@@ -398,7 +398,8 @@ fn register_into_report(
         if adapter_report.registered > 0 {
             warnings.push(format!(
                 "{}: registered {} framework agents",
-                adapter_report.editor, adapter_report.registered
+                adapter.editor_name(),
+                adapter_report.registered
             ));
         }
         if report.agents_skipped_unresolved > 0 {

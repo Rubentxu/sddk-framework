@@ -140,6 +140,7 @@ sddk system          # instalación del sistema
 [ ] cargo clippy --workspace                    # 0 errores
 [ ] Si tocaste assets/: sddk dev install        # bundle runtime actualizado
 [ ] Tras release: sddk dev doctor | grep bundle_coherence (binario == bundle)
+[ ] Si tocaste el TUI de modelos: bash tests-e2e/tui/run.sh
 [ ] git status                                  # clean
 [ ] git diff                                    # revisas lo que vas a commitear
 [ ] commit mensaje: feat(uat): … o fix(uat): …
