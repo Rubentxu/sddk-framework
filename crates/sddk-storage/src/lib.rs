@@ -10,6 +10,7 @@
 
 pub mod control_plane;
 pub mod event_store;
+pub mod graph_store;
 mod migrations;
 mod models;
 pub mod projection_store;

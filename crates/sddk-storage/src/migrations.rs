@@ -1,4 +1,4 @@
-pub(crate) const LATEST_SCHEMA_VERSION: i32 = 7;
+pub(crate) const LATEST_SCHEMA_VERSION: i32 = 8;
 
 /// Runs all pending migrations on an open SQLite connection.
 pub(crate) fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), super::StorageError> {
@@ -113,6 +113,16 @@ pub(crate) fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), supe
             }
         }
         tx.pragma_update(None, "user_version", 7)
+            .map_err(super::StorageError::Database)?;
+        tx.commit().map_err(super::StorageError::Database)?;
+    }
+    if version < 8 {
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(super::StorageError::Database)?;
+        tx.execute_batch(MIGRATION_8)
+            .map_err(super::StorageError::Database)?;
+        tx.pragma_update(None, "user_version", 8)
             .map_err(super::StorageError::Database)?;
         tx.commit().map_err(super::StorageError::Database)?;
     }
@@ -399,4 +409,12 @@ CREATE TABLE projection_checkpoints_v1 (
 
 CREATE INDEX projection_checkpoints_v1_name_idx
     ON projection_checkpoints_v1(projection_name);
+"#;
+
+pub(crate) const MIGRATION_8: &str = r#"
+-- graph_state_v1: reserved for graph snapshots.
+-- The current GraphStore adapter persists in projection_checkpoints_v1 under
+-- the `graph` projection name; this migration reserves the schema version so
+-- future graph-native storage can add tables without a version bump.
+SELECT 1;
 "#;

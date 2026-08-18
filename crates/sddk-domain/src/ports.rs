@@ -249,3 +249,16 @@ pub trait EventStore {
         sequence: u64,
     ) -> Result<Option<crate::event_envelope::EventEnvelopeV1>, StorageError>;
 }
+
+/// Graph store port (SPEC-004 §2). The graph is a projection — the ledger is
+/// the authority; this store only persists the derived snapshot.
+pub trait GraphStore {
+    /// Persists the full graph state snapshot (upsert).
+    fn save_state(&mut self, state: &crate::graph::GraphState) -> Result<(), StorageError>;
+
+    /// Loads the persisted graph state, or `None` when never saved.
+    fn load_state(&self) -> Result<Option<crate::graph::GraphState>, StorageError>;
+
+    /// Returns the persisted checkpoint for the graph projection.
+    fn checkpoint(&self) -> Result<Option<crate::projections::Checkpoint>, StorageError>;
+}

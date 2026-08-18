@@ -35,7 +35,7 @@ pub use legacy::*;
 pub use metrics::*;
 pub use models::*;
 pub use pack::*;
-pub use ports::{ControlPlane, EventAppended, EventStore, Ledger};
+pub use ports::{ControlPlane, EventAppended, EventStore, GraphStore, Ledger};
 pub use projections::{
     Checkpoint, CycleState, CycleStateProjection, Projection, ProjectionError, ProjectionVersion,
 };
