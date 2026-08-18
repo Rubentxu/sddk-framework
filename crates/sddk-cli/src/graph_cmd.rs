@@ -16,6 +16,20 @@ pub(crate) enum GraphCommand {
     Why(GraphWhyArgs),
     /// Rebuild the graph projection from the event ledger.
     Rebuild(GraphRebuildArgs),
+    /// Show staleness state and causal path for an entity.
+    WhyStale(GraphWhyStaleArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct GraphWhyStaleArgs {
+    /// Entity key (`kind:id`), e.g. `requirement:R1`.
+    #[arg(long)]
+    pub(crate) entity: String,
+    #[command(flatten)]
+    pub(crate) runtime: RuntimeArgs,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -68,7 +82,48 @@ pub(crate) fn run_graph(command: GraphCommand, environment: &CliEnvironment) -> 
         GraphCommand::Query(args) => run_graph_query(args, environment),
         GraphCommand::Why(args) => run_graph_why(args, environment),
         GraphCommand::Rebuild(args) => run_graph_rebuild(args, environment),
+        GraphCommand::WhyStale(args) => run_graph_why_stale(args, environment),
     }
+}
+
+fn run_graph_why_stale(args: GraphWhyStaleArgs, environment: &CliEnvironment) -> CommandOutput {
+    let format = args.format;
+    let result = (|| -> anyhow::Result<WhyStaleOutput> {
+        let state = crate::stale_cmd::load_graph_state(&args.runtime, environment)?;
+        let staleness = crate::stale_cmd::derive_for_entity(&state, &args.entity);
+        Ok(WhyStaleOutput {
+            entity: args.entity.clone(),
+            state: format!("{:?}", staleness.state).to_ascii_lowercase(),
+            causal_path: staleness.causal_path,
+            verified_by: staleness.verified_by,
+        })
+    })();
+    match result {
+        Ok(output) => render_result(Ok(output), format, why_stale_text),
+        Err(error) => crate::failure(error.to_string()),
+    }
+}
+
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "snake_case")]
+struct WhyStaleOutput {
+    entity: String,
+    state: String,
+    causal_path: Vec<String>,
+    verified_by: Option<String>,
+}
+
+fn why_stale_text(output: &WhyStaleOutput) -> String {
+    let path = if output.causal_path.is_empty() {
+        "-".to_string()
+    } else {
+        output.causal_path.join(" -> ")
+    };
+    let verified = output.verified_by.as_deref().unwrap_or("-");
+    format!(
+        "entity: {}\nstate: {}\nverified_by: {}\ncausal_path: {}\n",
+        output.entity, output.state, verified, path
+    )
 }
 
 fn open_graph_store(

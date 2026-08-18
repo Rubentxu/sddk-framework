@@ -25,6 +25,7 @@ mod permission;
 mod release_cmd;
 mod result_cmd;
 mod rules_cmd;
+mod stale_cmd;
 mod telemetry;
 mod uat;
 mod uat_common;
@@ -253,6 +254,11 @@ enum Command {
     Rules {
         #[command(subcommand)]
         command: RulesCommand,
+    },
+    /// Staleness and impact queries over the reactive graph (SPEC-012).
+    Stale {
+        #[command(subcommand)]
+        command: stale_cmd::StaleCommand,
     },
     /// Generate or install shell completion scripts.
     Completion {
@@ -557,6 +563,7 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         Command::Uat { command } => uat::run_uat(command, environment),
         Command::Approval { command } => approval::run_approval(command, environment),
         Command::Rules { command } => rules_cmd::run_rules(command, environment),
+        Command::Stale { command } => stale_cmd::run_stale(command, environment),
         Command::Completion { command } => run_completion(command),
     }
 }
