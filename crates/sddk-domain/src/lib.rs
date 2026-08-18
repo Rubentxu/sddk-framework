@@ -27,6 +27,7 @@ pub mod rules;
 pub mod schema;
 pub mod staleness;
 pub mod uat;
+pub mod view;
 pub mod workflow;
 
 pub use context_read::*;
@@ -50,4 +51,5 @@ pub use rules::*;
 pub use schema::*;
 pub use staleness::*;
 pub use uat::*;
+pub use view::*;
 pub use workflow::*;
