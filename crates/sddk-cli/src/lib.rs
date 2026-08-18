@@ -12,6 +12,7 @@ mod cycle;
 mod dev;
 
 mod docs;
+mod fork_cmd;
 mod git_cmd;
 mod graph_cmd;
 mod inventory;
@@ -259,6 +260,11 @@ enum Command {
     Stale {
         #[command(subcommand)]
         command: stale_cmd::StaleCommand,
+    },
+    /// Fork, replay, diff and promote controlled experiments (SPEC-009).
+    Fork {
+        #[command(subcommand)]
+        command: fork_cmd::ForkCommand,
     },
     /// Generate or install shell completion scripts.
     Completion {
@@ -564,6 +570,7 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         Command::Approval { command } => approval::run_approval(command, environment),
         Command::Rules { command } => rules_cmd::run_rules(command, environment),
         Command::Stale { command } => stale_cmd::run_stale(command, environment),
+        Command::Fork { command } => fork_cmd::run_fork(command, environment),
         Command::Completion { command } => run_completion(command),
     }
 }
