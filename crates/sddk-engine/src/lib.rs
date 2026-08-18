@@ -9,11 +9,13 @@
 
 mod adoption;
 pub mod event_bus;
+pub mod gate_signing;
 pub mod pack_registry;
 mod paths;
 pub mod rules;
 
 pub use adoption::*;
+pub use gate_signing::*;
 pub use pack_registry::*;
 pub use paths::*;
 

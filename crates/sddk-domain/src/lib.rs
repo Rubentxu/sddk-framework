@@ -7,6 +7,7 @@
 #![deny(clippy::all)]
 #![warn(missing_docs)]
 
+pub mod channel;
 pub mod context_read;
 pub mod cycle;
 pub mod error;
@@ -30,6 +31,7 @@ pub mod uat;
 pub mod view;
 pub mod workflow;
 
+pub use channel::*;
 pub use context_read::*;
 pub use cycle::*;
 pub use error::*;
