@@ -3,6 +3,14 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.21.0] - 2026-08-18
+
+### Features
+  - feat(pack): uat pack boundary, conformance fixtures, evidence aliases canonical (phase4)
+  - feat(cli): pack list/inspect/install/verify/enable/disable commands (phase4)
+  - feat(engine): pack registry lifecycle discover/verify/enable/disable/install (phase4)
+  - feat(domain): pack manifest v2 requires/integrates/conflicts/provides (phase4)
+
 ## [1.20.0] - 2026-08-18
 
 ### Features
