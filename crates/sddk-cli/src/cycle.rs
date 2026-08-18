@@ -10,7 +10,7 @@ use sddk_domain::{
 use sddk_engine::{
     AdoptionPaths, CycleStartInput, Engine, EventContext, GateEvaluationInput, TransitionEvidence,
     TransitionOutcome, WorkflowLoadError,
-    event_bus::{self, PhaseEventInput},
+    event_bus::{self, PhaseEventInput, OutcomeEventInput},
 };
 use sddk_storage::SqliteEventStore;
 use serde::Serialize;
@@ -630,7 +630,33 @@ fn run_cycle_transition(args: CycleTransitionArgs, environment: &CliEnvironment)
             .plan_transition(&args.cycle, &args.transition, evidence)?;
         let timestamp = args.timestamp.clone().unwrap_or_else(default_timestamp);
         let command_id = format!("cycle.transition-{}", Uuid::new_v4().hyphenated());
-        let applied = context.engine.apply_transition(
+        let actor_id = args
+            .actor
+            .clone()
+            .or_else(|| environment.sddk_actor.clone())
+            .or_else(|| environment.user.clone())
+            .unwrap_or_else(|| "sddk-cli".into());
+        let actor_kind = if actor_id.starts_with("user:") {
+            ActorKind::Human
+        } else if actor_id.starts_with("agent:") {
+            ActorKind::Agent
+        } else {
+            ActorKind::System
+        };
+        let event_id_prefix = format!("tr-{}", args.cycle);
+        let outcome_input = OutcomeEventInput {
+            project_id: context.identity.project_id.to_string(),
+            cycle_id: args.cycle.clone(),
+            transition_id: args.transition.clone(),
+            from_phase: None,
+            to_phase: None,
+            transition_at: timestamp.clone(),
+            actor_id: actor_id.clone(),
+            actor_kind,
+            event_id_prefix,
+            failed_gates: vec![],
+        };
+        let applied = match context.engine.apply_transition(
             &plan,
             &event_context(
                 &command_id,
@@ -639,45 +665,52 @@ fn run_cycle_transition(args: CycleTransitionArgs, environment: &CliEnvironment)
                 environment,
                 &timestamp,
             ),
-        )?;
-        // Emit workflow.phase events on successful phase transitions (fail-soft)
-        if applied.outcome == TransitionOutcome::Succeeded
-            && plan.state_before().phase != plan.state_after().phase
-        {
-            let actor_id = args
-                .actor
-                .clone()
-                .or_else(|| environment.sddk_actor.clone())
-                .or_else(|| environment.user.clone())
-                .unwrap_or_else(|| "sddk-cli".into());
-            let actor_kind = if actor_id.starts_with("user:") {
-                ActorKind::Human
-            } else if actor_id.starts_with("agent:") {
-                ActorKind::Agent
-            } else {
-                ActorKind::System
-            };
-            let input = PhaseEventInput {
-                project_id: context.identity.project_id.to_string(),
-                cycle_id: plan.state_before().cycle_id.clone(),
-                from_phase: wire(&plan.state_before().phase),
-                to_phase: wire(&plan.state_after().phase),
-                transition_at: timestamp.clone(),
-                actor_id,
-                actor_kind,
-                event_id_prefix: format!("ph-{}", plan.state_before().cycle_id),
-            };
-            match SqliteEventStore::open(context.paths.ledger.parent().unwrap()) {
-                Ok(mut store) => {
-                    if let Err(e) = event_bus::emit_phase_event(&mut store, &input) {
-                        eprintln!("warning: failed to emit workflow.phase events: {e}");
+        ) {
+            Ok(applied) => {
+                // Emit workflow.transition.succeeded
+                let mut outcome_input = outcome_input;
+                outcome_input.from_phase = Some(wire(&plan.state_before().phase));
+                outcome_input.to_phase = Some(wire(&plan.state_after().phase));
+                outcome_input.failed_gates = plan.failed_gates().to_vec();
+                let outcome_store_path = context.paths.ledger.parent().unwrap();
+                if let Ok(mut store) = SqliteEventStore::open(outcome_store_path) {
+                    let _ = event_bus::emit_outcome_event(
+                        &mut store,
+                        &outcome_input,
+                        TransitionOutcome::Succeeded,
+                    );
+                }
+                // Emit workflow.phase events on successful phase transitions (fail-soft)
+                if plan.state_before().phase != plan.state_after().phase {
+                    let phase_input = PhaseEventInput {
+                        project_id: context.identity.project_id.to_string(),
+                        cycle_id: plan.state_before().cycle_id.clone(),
+                        from_phase: wire(&plan.state_before().phase),
+                        to_phase: wire(&plan.state_after().phase),
+                        transition_at: timestamp.clone(),
+                        actor_id,
+                        actor_kind,
+                        event_id_prefix: format!("ph-{}", plan.state_before().cycle_id),
+                    };
+                    if let Ok(mut store) = SqliteEventStore::open(outcome_store_path) {
+                        let _ = event_bus::emit_phase_event(&mut store, &phase_input);
                     }
                 }
-                Err(e) => {
-                    eprintln!("warning: could not open event store for phase events: {e}");
-                }
+                applied
             }
-        }
+            Err(engine_err) => {
+                // Emit workflow.transition.failed for EngineError
+                let outcome_store_path = context.paths.ledger.parent().unwrap();
+                if let Ok(mut store) = SqliteEventStore::open(outcome_store_path) {
+                    let _ = event_bus::emit_outcome_event(
+                        &mut store,
+                        &outcome_input,
+                        TransitionOutcome::Failed,
+                    );
+                }
+                return Err(engine_err.into());
+            }
+        };
         if applied.manifest.status == sddk_domain::CycleStatus::Closed
             && let Err(error) = crate::metrics::capture_cycle_metrics(&context, &applied.manifest)
         {

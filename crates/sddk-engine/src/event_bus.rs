@@ -7,6 +7,8 @@ use sddk_domain::{
 };
 use serde_json::json;
 
+use crate::TransitionOutcome;
+
 /// Returns the canonical XDG storage dir for a project:
 /// `$XDG_STATE_HOME/sddk/projects/<id>/`.
 pub fn project_storage_dir(project_id: &str) -> Result<PathBuf, StorageError> {
@@ -53,6 +55,31 @@ pub struct PhaseEventInput {
     pub event_id_prefix: String,
 }
 
+/// Input for transition-outcome event emission.
+#[derive(Debug, Clone)]
+pub struct OutcomeEventInput {
+    /// Project that owns the cycle.
+    pub project_id: String,
+    /// Cycle being transitioned.
+    pub cycle_id: String,
+    /// Transition identifier.
+    pub transition_id: String,
+    /// Phase being exited (None if transition failed before planning).
+    pub from_phase: Option<String>,
+    /// Phase being entered (None if transition failed before reaching target).
+    pub to_phase: Option<String>,
+    /// Wall-clock time of the transition (RFC 3339).
+    pub transition_at: String,
+    /// Actor identifier.
+    pub actor_id: String,
+    /// Actor kind.
+    pub actor_kind: ActorKind,
+    /// Prefix for deterministic event_id generation.
+    pub event_id_prefix: String,
+    /// Names of gates that failed (empty for succeeded transitions).
+    pub failed_gates: Vec<String>,
+}
+
 /// Appends two events to events_v1:
 ///
 ///   - `workflow.phase.exited` (for `from_phase`)
@@ -85,6 +112,85 @@ pub fn emit_phase_event<S: EventStore>(
     let to_result = store.append(&entered_env)?;
 
     Ok((from_result, to_result))
+}
+
+/// Emits a `workflow.transition.succeeded` or `workflow.transition.failed` event
+/// to events_v1.
+///
+/// Idempotent: re-appending the same event_id returns the stored result.
+///
+/// Returns the stored `EventAppended` reference.
+pub fn emit_outcome_event<S: EventStore>(
+    store: &mut S,
+    input: &OutcomeEventInput,
+    outcome: TransitionOutcome,
+) -> Result<EventAppended, StorageError> {
+    let event_type = match outcome {
+        TransitionOutcome::Succeeded => "workflow.transition.succeeded",
+        TransitionOutcome::Failed => "workflow.transition.failed",
+    };
+    let event_id = format!("{}-outcome-{}", input.event_id_prefix, input.cycle_id);
+    let env = build_outcome_envelope(event_id, event_type, input);
+    store.append(&env)
+}
+
+/// Builds an `EventEnvelopeV1` for a transition-outcome event.
+fn build_outcome_envelope(
+    event_id: String,
+    event_type: &str,
+    input: &OutcomeEventInput,
+) -> EventEnvelopeV1 {
+    let payload = json!({
+        "transition_id": input.transition_id,
+        "outcome": serde_json::to_value(outcome_from_enum(event_type)).unwrap(),
+        "from_phase": input.from_phase,
+        "to_phase": input.to_phase,
+        "failed_gates": input.failed_gates,
+    });
+    let mut env = EventEnvelopeV1 {
+        event_id,
+        event_type: event_type.to_string(),
+        schema_version: 1,
+        stream_id: input.cycle_id.clone(),
+        sequence: 0,
+        project_id: input.project_id.clone(),
+        occurred_at: input.transition_at.clone(),
+        recorded_at: input.transition_at.clone(),
+        actor: ActorRef {
+            kind: input.actor_kind,
+            id: input.actor_id.clone(),
+            definition_hash: None,
+            policy_hash: None,
+            model: None,
+        },
+        subjects: vec![EntityRef {
+            kind: "cycle".into(),
+            id: input.cycle_id.clone(),
+            version: None,
+            content_hash: None,
+        }],
+        payload,
+        evidence_refs: vec![],
+        content_hash: String::new(),
+        metadata: None,
+        causation_id: None,
+        correlation_id: None,
+        cycle_id: Some(input.cycle_id.clone()),
+        frame_id: None,
+        fork_id: None,
+    };
+    env.content_hash = env.compute_content_hash();
+    env
+}
+
+/// Converts an event_type string to a TransitionOutcome enum value for the payload.
+/// `workflow.transition.succeeded` → Succeeded, `workflow.transition.failed` → Failed.
+fn outcome_from_enum(event_type: &str) -> TransitionOutcome {
+    match event_type {
+        "workflow.transition.succeeded" => TransitionOutcome::Succeeded,
+        "workflow.transition.failed" => TransitionOutcome::Failed,
+        _ => TransitionOutcome::Failed,
+    }
 }
 
 /// Builds an `EventEnvelopeV1` for a phase transition event.

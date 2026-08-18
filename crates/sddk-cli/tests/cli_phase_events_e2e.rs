@@ -133,28 +133,49 @@ fn e2e_transition_emits_phase_events() {
     // Load the stream for this cycle.
     let events = store.load_stream(cycle_id, None, 100).unwrap();
 
-    // Should have 2 events: workflow.phase.exited (explore) + workflow.phase.entered (specify).
+    // Should have 3 events: transition.succeeded + phase.exited + phase.entered.
     assert!(
         !events.is_empty(),
         "events_v1 should have events for cycle {cycle_id}"
     );
     assert_eq!(
         events.len(),
-        2,
-        "expected 2 events (exited + entered), got {}",
+        3,
+        "expected 3 events (succeeded + exited + entered), got {}",
         events.len()
     );
 
-    let exited = &events[0];
-    let entered = &events[1];
+    // Events are ordered by sequence: succeeded (1), exited (2), entered (3).
+    let succeeded = &events[0];
+    let exited = &events[1];
+    let entered = &events[2];
+
+    assert_eq!(
+        succeeded.event_type, "workflow.transition.succeeded",
+        "first event should be workflow.transition.succeeded"
+    );
+    assert_eq!(
+        succeeded.payload.get("outcome").unwrap().as_str().unwrap(),
+        "succeeded",
+        "outcome should be succeeded"
+    );
+    assert_eq!(
+        succeeded.payload.get("transition_id").unwrap().as_str().unwrap(),
+        "phase.explore.complete",
+        "transition_id should match"
+    );
+    assert!(
+        succeeded.payload.get("failed_gates").unwrap().as_array().unwrap().is_empty(),
+        "failed_gates should be empty for succeeded"
+    );
 
     assert_eq!(
         exited.event_type, "workflow.phase.exited",
-        "first event should be workflow.phase.exited"
+        "second event should be workflow.phase.exited"
     );
     assert_eq!(
         entered.event_type, "workflow.phase.entered",
-        "second event should be workflow.phase.entered"
+        "third event should be workflow.phase.entered"
     );
     assert_eq!(
         entered.payload.get("phase").unwrap().as_str().unwrap(),
@@ -168,6 +189,10 @@ fn e2e_transition_emits_phase_events() {
     );
 
     // Verify content_hash is computed.
+    assert!(
+        succeeded.content_hash.starts_with("sha256:"),
+        "succeeded.content_hash should start with sha256:"
+    );
     assert!(
         exited.content_hash.starts_with("sha256:"),
         "exited.content_hash should start with sha256:"
