@@ -1117,6 +1117,18 @@ pub enum UatScenarioStaleness {
     Stale,
 }
 
+impl UatScenarioStaleness {
+    /// Maps the UAT-specific staleness to the universal state (SPEC-012, Phase 6).
+    /// `Stale` maps to `PossiblyStale` conservatively: UAT fingerprints cannot
+    /// distinguish semantic invalidation, so universal derivation may escalate.
+    pub fn to_universal(self) -> crate::staleness::StalenessState {
+        match self {
+            UatScenarioStaleness::Fresh => crate::staleness::StalenessState::Fresh,
+            UatScenarioStaleness::Stale => crate::staleness::StalenessState::PossiblyStale,
+        }
+    }
+}
+
 /// Valida que todos los valores de la spec pertenezcan al vocabulario
 /// cerrado (REQ-RF-025 + REQ-RF-027). Devuelve lista de errores estables; vacío = válida.
 ///

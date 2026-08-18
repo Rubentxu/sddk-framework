@@ -22,6 +22,7 @@ pub mod projections;
 pub mod proposal;
 pub mod rules;
 pub mod schema;
+pub mod staleness;
 pub mod uat;
 pub mod workflow;
 
@@ -41,5 +42,6 @@ pub use projections::{
 };
 pub use rules::*;
 pub use schema::*;
+pub use staleness::*;
 pub use uat::*;
 pub use workflow::*;
