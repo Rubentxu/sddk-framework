@@ -3,6 +3,15 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.25.0] - 2026-08-18
+
+### Features
+  - feat(cli): sddk explore render views + explorer template (phase8)
+  - feat(domain): view descriptors + view models for moldable explorer (phase8)
+
+### Other
+  - test(cli): explore e2e views graph/timeline/verification + embedded template (phase8)
+
 ## [1.24.0] - 2026-08-18
 
 ### Features
