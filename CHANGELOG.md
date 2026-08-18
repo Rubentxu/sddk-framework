@@ -3,6 +3,13 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.26.0] - 2026-08-18
+
+### Features
+  - feat(test): golden dataset 10 cases + ratchet/channel e2e (phase9)
+  - feat(cli): release channel promote + signed gate receipts + rules ratchet (phase9)
+  - feat(domain): release channels + HMAC gate signing (phase9)
+
 ## [1.25.0] - 2026-08-18
 
 ### Features
