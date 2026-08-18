@@ -101,6 +101,10 @@ pub struct Proposal {
     /// Caller-supplied creation timestamp.
     pub created_at: String,
     /// Expiry timestamp (RFC 3339), after which the proposal is invalid.
+    /// This field also serves as the approval timeout: if an approval request
+    /// is pending when `now > expires_at`, the gateway returns
+    /// `GatewayError::ApprovalExpired`. Reusing this field avoids a new column
+    /// while keeping approval and proposal expiry in sync (ADR-NNN).
     pub expires_at: String,
     /// SHA-256 hash of the agent binary authorized to execute this proposal.
     pub agent_version_hash: String,

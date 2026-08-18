@@ -446,3 +446,132 @@ pub struct UatResultRow {
     /// RFC 3339 timestamp when the row was written.
     pub recorded_at: String,
 }
+
+/// Outcome of a human approval decision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalDecision {
+    /// Human granted the approval.
+    Granted,
+    /// Human denied the approval.
+    Denied,
+}
+
+/// Input data for recording an approval decision.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ApprovalReceiptInput {
+    /// Stable receipt identifier.
+    pub receipt_id: String,
+    /// Owning project identifier.
+    pub project_id: String,
+    /// Related cycle identifier.
+    pub cycle_id: String,
+    /// Capability identifier.
+    pub capability: String,
+    /// SHA-256 hash of the structured request.
+    pub request_hash: String,
+    /// Decision made by the human.
+    pub decision: ApprovalDecision,
+    /// Human operator identifier.
+    pub actor: String,
+    /// Mandatory justification for the decision.
+    pub reason: String,
+    /// RFC 3339 timestamp when approval was requested.
+    pub requested_at: String,
+    /// RFC 3339 timestamp when decision was made.
+    pub decided_at: String,
+}
+
+/// A persisted human approval receipt.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ApprovalReceipt {
+    /// Stable receipt identifier.
+    pub receipt_id: String,
+    /// Owning project identifier.
+    pub project_id: String,
+    /// Related cycle identifier.
+    pub cycle_id: String,
+    /// Capability identifier.
+    pub capability: String,
+    /// SHA-256 hash of the structured request.
+    pub request_hash: String,
+    /// Decision made by the human.
+    pub decision: ApprovalDecision,
+    /// Human operator identifier.
+    pub actor: String,
+    /// Mandatory justification for the decision.
+    pub reason: String,
+    /// RFC 3339 timestamp when approval was requested.
+    pub requested_at: String,
+    /// RFC 3339 timestamp when decision was made.
+    pub decided_at: String,
+    /// Event identifier of the `approval.capability.requested` event.
+    pub requested_event_id: String,
+    /// Event identifier of the `approval.capability.granted` or `denied` event.
+    pub decision_event_id: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_approval_decision_granted_roundtrip() {
+        let decision = ApprovalDecision::Granted;
+        let json = serde_json::to_string(&decision).unwrap();
+        assert_eq!(json, "\"granted\"");
+        let roundtrip: ApprovalDecision = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip, ApprovalDecision::Granted);
+    }
+
+    #[test]
+    fn test_approval_decision_denied_roundtrip() {
+        let decision = ApprovalDecision::Denied;
+        let json = serde_json::to_string(&decision).unwrap();
+        assert_eq!(json, "\"denied\"");
+        let roundtrip: ApprovalDecision = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip, ApprovalDecision::Denied);
+    }
+
+    #[test]
+    fn test_approval_receipt_input_roundtrip() {
+        let input = ApprovalReceiptInput {
+            receipt_id: "ar-1".into(),
+            project_id: "p-1".into(),
+            cycle_id: "c-1".into(),
+            capability: "git.delete_branch".into(),
+            request_hash: "sha256:abcd1234".into(),
+            decision: ApprovalDecision::Granted,
+            actor: "alice".into(),
+            reason: "ok, reversible via reflog".into(),
+            requested_at: "2026-08-18T10:00:00Z".into(),
+            decided_at: "2026-08-18T10:05:00Z".into(),
+        };
+        let json = serde_json::to_string(&input).unwrap();
+        let roundtrip: ApprovalReceiptInput = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip, input);
+    }
+
+    #[test]
+    fn test_approval_receipt_roundtrip() {
+        let receipt = ApprovalReceipt {
+            receipt_id: "ar-1".into(),
+            project_id: "p-1".into(),
+            cycle_id: "c-1".into(),
+            capability: "git.delete_branch".into(),
+            request_hash: "sha256:abcd1234".into(),
+            decision: ApprovalDecision::Granted,
+            actor: "alice".into(),
+            reason: "ok, reversible via reflog".into(),
+            requested_at: "2026-08-18T10:00:00Z".into(),
+            decided_at: "2026-08-18T10:05:00Z".into(),
+            requested_event_id: "approval-cap-git-delete_branch-abcd1234-requested".into(),
+            decision_event_id: "approval-cap-git-delete_branch-abcd1234-granted".into(),
+        };
+        let json = serde_json::to_string(&receipt).unwrap();
+        let roundtrip: ApprovalReceipt = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip, receipt);
+    }
+}

@@ -30,6 +30,8 @@ pub enum CycleStatus {
     Recovering,
     /// Cycle is waiting on a human UAT verdict (ADR-012, synchronous mode).
     UatWaiting,
+    /// Cycle is blocked waiting on a human approval decision.
+    ApprovalPending,
 }
 
 /// Workflow phases.
@@ -473,6 +475,15 @@ mod tests {
     fn test_cycle_status_default() {
         let status = CycleStatus::default();
         assert_eq!(status, CycleStatus::Open);
+    }
+
+    #[test]
+    fn test_cycle_status_approval_pending_roundtrip() {
+        let status = CycleStatus::ApprovalPending;
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(json, "\"APPROVAL_PENDING\"");
+        let roundtrip: CycleStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip, CycleStatus::ApprovalPending);
     }
 
     #[test]
