@@ -667,7 +667,7 @@ fn run_cycle_transition(args: CycleTransitionArgs, environment: &CliEnvironment)
                 actor_kind,
                 event_id_prefix: format!("ph-{}", plan.state_before().cycle_id),
             };
-            match SqliteEventStore::open(&context.paths.ledger) {
+            match SqliteEventStore::open(context.paths.ledger.parent().unwrap()) {
                 Ok(mut store) => {
                     if let Err(e) = event_bus::emit_phase_event(&mut store, &input) {
                         eprintln!("warning: failed to emit workflow.phase events: {e}");
