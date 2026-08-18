@@ -7,8 +7,10 @@ use super::LinkEditor;
 use crate::dev::agent_models::{AgentModelsConfig, IdeKey};
 use std::path::{Path, PathBuf};
 
+mod claude;
 mod json;
 
+pub(super) use claude::ClaudeAdapter;
 pub(super) use json::{OpenCodeAdapter, ZCodeAdapter};
 
 /// Agents marked "primary" (visible by default) in editor configs.
