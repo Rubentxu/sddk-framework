@@ -170,3 +170,36 @@ fn from_file_missing_is_none() {
     let missing = dir.path().join("nope.yaml");
     assert_eq!(AgentModelsConfig::from_file(&missing).unwrap(), None);
 }
+
+// BundleCoverage — the shipped canonical file parses and covers every
+// bundle agent in the workspace (missing agent = silent skip on link).
+#[test]
+fn asset_parses_and_covers_all_bundle_agents() {
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..");
+    let asset = workspace.join("assets/agent-models.yaml");
+    assert!(asset.is_file(), "canonical asset missing: {}", asset.display());
+    let config = AgentModelsConfig::from_file(&asset)
+        .expect("assets/agent-models.yaml must parse")
+        .expect("assets/agent-models.yaml must exist");
+    let agents_dir = workspace.join("agents");
+    let mut stems: Vec<String> = std::fs::read_dir(&agents_dir)
+        .unwrap()
+        .flatten()
+        .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("md"))
+        .filter_map(|entry| {
+            entry
+                .path()
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned())
+        })
+        .collect();
+    stems.sort();
+    let mut configured: Vec<String> = config.agents().keys().cloned().collect();
+    configured.sort();
+    assert_eq!(
+        configured, stems,
+        "agent-models.yaml must declare exactly one entry per bundle agent"
+    );
+}
+
