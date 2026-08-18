@@ -1,4 +1,4 @@
-pub(crate) const LATEST_SCHEMA_VERSION: i32 = 8;
+pub(crate) const LATEST_SCHEMA_VERSION: i32 = 9;
 
 /// Runs all pending migrations on an open SQLite connection.
 pub(crate) fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), super::StorageError> {
@@ -123,6 +123,16 @@ pub(crate) fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), supe
         tx.execute_batch(MIGRATION_8)
             .map_err(super::StorageError::Database)?;
         tx.pragma_update(None, "user_version", 8)
+            .map_err(super::StorageError::Database)?;
+        tx.commit().map_err(super::StorageError::Database)?;
+    }
+    if version < 9 {
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(super::StorageError::Database)?;
+        tx.execute_batch(MIGRATION_9)
+            .map_err(super::StorageError::Database)?;
+        tx.pragma_update(None, "user_version", 9)
             .map_err(super::StorageError::Database)?;
         tx.commit().map_err(super::StorageError::Database)?;
     }
@@ -417,4 +427,27 @@ pub(crate) const MIGRATION_8: &str = r#"
 -- the `graph` projection name; this migration reserves the schema version so
 -- future graph-native storage can add tables without a version bump.
 SELECT 1;
+"#;
+
+pub(crate) const MIGRATION_9: &str = r#"
+-- forks_v1: durable fork records (SPEC-009 §3, Phase 7).
+CREATE TABLE IF NOT EXISTS forks_v1 (
+    fork_id            TEXT PRIMARY KEY CHECK (fork_id <> ''),
+    parent_stream_id   TEXT NOT NULL CHECK (parent_stream_id <> ''),
+    at_sequence        INTEGER NOT NULL CHECK (at_sequence > 0),
+    shared_prefix_hash TEXT NOT NULL CHECK (shared_prefix_hash LIKE 'sha256:%'),
+    label              TEXT,
+    overrides_json     TEXT NOT NULL DEFAULT '{}',
+    creator            TEXT NOT NULL CHECK (creator <> ''),
+    created_at         TEXT NOT NULL CHECK (created_at <> ''),
+    replay_policy      TEXT NOT NULL CHECK (replay_policy IN ('reconstruct', 'strict'))
+);
+
+-- response_cache_v1: recorded LLM/tool responses (SPEC-009 §4, Phase 7).
+CREATE TABLE IF NOT EXISTS response_cache_v1 (
+    request_hash   TEXT PRIMARY KEY CHECK (request_hash <> ''),
+    response_json  TEXT NOT NULL,
+    model          TEXT,
+    created_at     TEXT NOT NULL CHECK (created_at <> '')
+);
 "#;
