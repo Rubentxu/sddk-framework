@@ -13,6 +13,7 @@ mod framework_check;
 mod install;
 mod link;
 mod manifest;
+mod models_cmd;
 pub(crate) mod paths;
 pub(crate) mod projection;
 mod registry;
@@ -93,6 +94,8 @@ pub(super) enum DevCommand {
     Update(UpdateArgs),
     /// Projection rebuild and inspection tooling.
     Projection(ProjectionArgs),
+    /// Manage agent-models.yaml (list/set/validate) and locate the TUI.
+    Models(self::models_cmd::ModelsArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -268,6 +271,7 @@ pub(super) fn run_dev(command: DevCommand, environment: &CliEnvironment) -> Comm
         DevCommand::Manifest(args) => self::manifest::run_dev_manifest(args),
         DevCommand::CheckArchitecture(args) => self::check_arch::run_check_architecture(args),
         DevCommand::Projection(args) => self::projection::run_dev_projection(&args, environment),
+        DevCommand::Models(args) => self::models_cmd::run_dev_models(args, environment),
     }
 }
 
@@ -331,5 +335,24 @@ mod smoke_tests {
         };
         // Smoke test: just verify it doesn't panic (exit status may be non-zero)
         let _ = self::check_arch::run_check_architecture(args);
+    }
+
+    #[test]
+    fn dev_models_list_does_not_panic() {
+        let args = self::models_cmd::ModelsArgs {
+            command: self::models_cmd::ModelsCommand::List(self::models_cmd::ModelsListArgs {
+                file: None,
+                format: OutputFormat::Text,
+            }),
+        };
+        let _ = self::models_cmd::run_dev_models(args, &env());
+    }
+
+    #[test]
+    fn dev_models_tui_path_does_not_panic() {
+        let args = self::models_cmd::ModelsArgs {
+            command: self::models_cmd::ModelsCommand::TuiPath,
+        };
+        let _ = self::models_cmd::run_dev_models(args, &env());
     }
 }
