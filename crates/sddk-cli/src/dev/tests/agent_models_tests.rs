@@ -175,10 +175,13 @@ fn from_file_missing_is_none() {
 // bundle agent in the workspace (missing agent = silent skip on link).
 #[test]
 fn asset_parses_and_covers_all_bundle_agents() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..");
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let asset = workspace.join("assets/agent-models.yaml");
-    assert!(asset.is_file(), "canonical asset missing: {}", asset.display());
+    assert!(
+        asset.is_file(),
+        "canonical asset missing: {}",
+        asset.display()
+    );
     let config = AgentModelsConfig::from_file(&asset)
         .expect("assets/agent-models.yaml must parse")
         .expect("assets/agent-models.yaml must exist");
@@ -202,4 +205,3 @@ fn asset_parses_and_covers_all_bundle_agents() {
         "agent-models.yaml must declare exactly one entry per bundle agent"
     );
 }
-

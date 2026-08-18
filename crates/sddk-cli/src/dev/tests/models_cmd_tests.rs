@@ -14,7 +14,10 @@ fn bundle_fixture(config: &str) -> (tempfile::TempDir, CliEnvironment) {
     let root = tmp.path().join("data/framework/v0.0.0");
     std::fs::create_dir_all(root.join("agents")).unwrap();
     std::fs::create_dir_all(root.join("assets")).unwrap();
-    for (name, desc) in [("orchestrator", "coordinator"), ("sddk-explore", "explorer")] {
+    for (name, desc) in [
+        ("orchestrator", "coordinator"),
+        ("sddk-explore", "explorer"),
+    ] {
         std::fs::write(
             root.join(format!("agents/{name}.md")),
             format!("---\nname: {name}\ndescription: {desc}\n---\n# Body\n"),
@@ -147,7 +150,11 @@ fn set_invalid_writes_nothing() {
         &environment,
     );
     assert_eq!(result.status, 2);
-    assert_eq!(std::fs::read(&file).unwrap(), before, "file must be untouched");
+    assert_eq!(
+        std::fs::read(&file).unwrap(),
+        before,
+        "file must be untouched"
+    );
 }
 
 // M4 — atomic write creates missing parents; failure preserves the original

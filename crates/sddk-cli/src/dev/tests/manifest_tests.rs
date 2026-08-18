@@ -325,3 +325,46 @@ fn manifest_round_trips_special_utf8_paths() {
     assert!(manifest.contains("agents/back\\\\slash.md"), "{manifest:?}");
     assert!(verify_manifest(repo.path()).unwrap().is_empty());
 }
+
+// B1 — BundleCoverage: agent-models.yaml rides the assets surface — manifest
+// hash-checks it and `dev install` ships it (manifest integrity covers it).
+#[test]
+fn manifest_covers_agent_models_yaml_and_install_ships_it() {
+    let source = temp_root("agent-models-source");
+    std::fs::create_dir_all(source.join("agents")).unwrap();
+    std::fs::write(source.join("agents/a.md"), "content-a").unwrap();
+    std::fs::create_dir_all(source.join("assets")).unwrap();
+    std::fs::write(
+        source.join("assets/agent-models.yaml"),
+        "tiers: {}\nagents: {}\n",
+    )
+    .unwrap();
+    write_manifest(&source).unwrap();
+    let manifest = std::fs::read_to_string(source.join(MANIFEST_FILE)).unwrap();
+    assert!(
+        manifest.contains("assets/agent-models.yaml"),
+        "manifest must hash the canonical config: {manifest}"
+    );
+
+    let prefix = temp_root("agent-models-prefix");
+    let args = InstallArgs {
+        prefix: prefix.clone(),
+        channel: "dev".to_owned(),
+        timestamp: None,
+        commit: None,
+        source: Some(source.clone()),
+        format: OutputFormat::Json,
+    };
+    let result = run_dev_install(args);
+    assert_eq!(result.status, 0, "{}", result.stderr);
+    assert!(
+        prefix.join("assets/agent-models.yaml").is_file(),
+        "install must ship the canonical config under assets/"
+    );
+    assert!(
+        verify_manifest(&prefix).unwrap().is_empty(),
+        "installed tree must verify against its manifest"
+    );
+    std::fs::remove_dir_all(&source).ok();
+    std::fs::remove_dir_all(&prefix).ok();
+}

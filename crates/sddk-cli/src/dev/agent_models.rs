@@ -1,6 +1,6 @@
 //! Agent→model mapping: `agent-models.yaml` schema, validation, and resolution.
 //! Single source of model IDs per IDE (ADR-0017) — replaces the hardcoded
-//! MiniMax fallback removed from `framework_check.rs`.
+//! fallback removed from `framework_check.rs`.
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
