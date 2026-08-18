@@ -9,6 +9,7 @@
 
 mod adoption;
 mod paths;
+pub mod event_bus;
 pub mod rules;
 
 pub use adoption::*;
