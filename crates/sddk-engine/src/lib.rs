@@ -9,10 +9,12 @@
 
 mod adoption;
 pub mod event_bus;
+pub mod pack_registry;
 mod paths;
 pub mod rules;
 
 pub use adoption::*;
+pub use pack_registry::*;
 pub use paths::*;
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
