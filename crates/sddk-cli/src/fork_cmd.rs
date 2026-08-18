@@ -138,6 +138,144 @@ fn open_stores(
     ))
 }
 
+/// EventStore adapter over the kernel ledger (`ledger_events`).
+///
+/// Used when the CEP store (`events_v1`) is empty — the CLI writes workflow
+/// events to the kernel ledger, and fork replay must read them.
+struct KernelEventStore {
+    /// Kernel storage handle.
+    storage: sddk_storage::Storage,
+}
+
+impl KernelEventStore {
+    fn open(ledger_path: &std::path::Path) -> anyhow::Result<Self> {
+        Ok(Self {
+            storage: sddk_storage::Storage::open(ledger_path)?,
+        })
+    }
+
+    fn events(&self) -> anyhow::Result<Vec<sddk_domain::LedgerEvent>> {
+        Ok(self.storage.load_all_ledger_events()?)
+    }
+}
+
+impl sddk_domain::EventStore for KernelEventStore {
+    fn append(
+        &mut self,
+        _envelope: &sddk_domain::EventEnvelopeV1,
+    ) -> Result<sddk_domain::EventAppended, sddk_domain::StorageError> {
+        Err(sddk_domain::StorageError::Other(
+            "kernel event store is read-only".into(),
+        ))
+    }
+
+    fn load_by_event_id(
+        &self,
+        event_id: &str,
+    ) -> Result<Option<sddk_domain::EventEnvelopeV1>, sddk_domain::StorageError> {
+        let events = self
+            .events()
+            .map_err(|e| sddk_domain::StorageError::Other(e.to_string()))?;
+        Ok(events
+            .iter()
+            .find(|e| e.event_id == event_id)
+            .map(kernel_to_envelope))
+    }
+
+    fn load_stream(
+        &self,
+        stream_id: &str,
+        after_sequence: Option<u64>,
+        limit: u32,
+    ) -> Result<Vec<sddk_domain::EventEnvelopeV1>, sddk_domain::StorageError> {
+        let events = self
+            .events()
+            .map_err(|e| sddk_domain::StorageError::Other(e.to_string()))?;
+        let start = after_sequence.unwrap_or(0);
+        Ok(events
+            .iter()
+            .filter(|e| {
+                e.sequence as u64 > start
+                    && e.cycle_id
+                        .as_deref()
+                        .map(|c| format!("project:{}", e.project_id) == stream_id || c == stream_id)
+                        .unwrap_or(false)
+            })
+            .take(limit as usize)
+            .map(kernel_to_envelope)
+            .collect())
+    }
+
+    fn last_sequence(&self, _stream_id: &str) -> Result<Option<u64>, sddk_domain::StorageError> {
+        let events = self
+            .events()
+            .map_err(|e| sddk_domain::StorageError::Other(e.to_string()))?;
+        Ok(events.last().map(|e| e.sequence as u64))
+    }
+
+    fn count(&self) -> Result<u64, sddk_domain::StorageError> {
+        Ok(self
+            .events()
+            .map_err(|e| sddk_domain::StorageError::Other(e.to_string()))?
+            .len() as u64)
+    }
+
+    fn head_hash(&self, _stream_id: &str) -> Result<Option<String>, sddk_domain::StorageError> {
+        let events = self
+            .events()
+            .map_err(|e| sddk_domain::StorageError::Other(e.to_string()))?;
+        Ok(events.last().map(|e| e.event_hash.clone()))
+    }
+
+    fn verify_stream_chain(&self, _stream_id: &str) -> Result<(), sddk_domain::StorageError> {
+        // The kernel ledger is verified by `sddk ledger verify`; replay reads
+        // it as-is (fail-closed happens at promote via prefix hash).
+        Ok(())
+    }
+
+    fn load_by_sequence(
+        &self,
+        _stream_id: &str,
+        _sequence: u64,
+    ) -> Result<Option<sddk_domain::EventEnvelopeV1>, sddk_domain::StorageError> {
+        unimplemented!("kernel store load_by_sequence")
+    }
+}
+
+/// Maps a kernel ledger event to an envelope.
+fn kernel_to_envelope(event: &sddk_domain::LedgerEvent) -> sddk_domain::EventEnvelopeV1 {
+    sddk_domain::EventEnvelopeV1 {
+        event_id: event.event_id.clone(),
+        event_type: event.event_type.clone(),
+        schema_version: 1,
+        stream_id: event
+            .cycle_id
+            .clone()
+            .unwrap_or_else(|| format!("project:{}", event.project_id)),
+        sequence: event.sequence as u64,
+        project_id: event.project_id.clone(),
+        occurred_at: event.occurred_at.clone(),
+        recorded_at: event.occurred_at.clone(),
+        actor: sddk_domain::ActorRef {
+            kind: sddk_domain::ActorKind::System,
+            id: event.actor.clone(),
+            definition_hash: None,
+            policy_hash: None,
+            model: None,
+        },
+        subjects: vec![],
+        payload: event.payload.clone(),
+        evidence_refs: vec![],
+        content_hash: event.event_hash.clone(),
+        metadata: None,
+        causation_id: None,
+        correlation_id: None,
+        cycle_id: event.cycle_id.clone(),
+        frame_id: Some(event.frame_id.clone()),
+        fork_id: None,
+    }
+}
+
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
 struct ForkCreateOutput {
@@ -151,9 +289,21 @@ fn run_fork_create(args: ForkCreateArgs, environment: &CliEnvironment) -> Comman
     let format = args.format;
     let result = (|| -> anyhow::Result<ForkCreateOutput> {
         let (mut fork_store, event_store, stream, _pid) = open_stores(&args.runtime, environment)?;
-        let event = event_store
-            .load_by_event_id(&args.at)?
-            .ok_or_else(|| anyhow::anyhow!("event not found: {}", args.at))?;
+        // Resolve the fork-point event: try the CEP store first, then fall
+        // back to the kernel ledger (which the CLI writes for workflow
+        // cycles). Consistent with the graph rebuild fallback.
+        let event = if let Some(event) = event_store.load_by_event_id(&args.at)? {
+            event
+        } else {
+            let context = crate::cycle::RuntimeContext::open(&args.runtime, environment, false)?;
+            let storage = sddk_storage::Storage::open(&context.paths.ledger)?;
+            let kernel_event = storage
+                .load_all_ledger_events()?
+                .into_iter()
+                .find(|e| e.event_id == args.at)
+                .ok_or_else(|| anyhow::anyhow!("event not found: {}", args.at))?;
+            kernel_to_envelope(&kernel_event)
+        };
         let overrides = args
             .set
             .iter()
@@ -234,6 +384,32 @@ fn run_fork_set(args: ForkSetArgs, environment: &CliEnvironment) -> CommandOutpu
     }
 }
 
+/// Opens the fork store and a replay event source.
+///
+/// Uses the CEP store (`events_v1`) when it has events; otherwise falls back
+/// to the kernel ledger (`ledger_events`) — consistent with graph rebuild.
+fn open_replay_source(
+    args: &RuntimeArgs,
+    environment: &CliEnvironment,
+) -> anyhow::Result<(SqliteForkStore, Box<dyn sddk_domain::EventStore>, String)> {
+    let context = crate::cycle::RuntimeContext::open(args, environment, false)?;
+    let ledger_dir = context
+        .paths
+        .ledger
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("ledger path has no parent"))?
+        .to_path_buf();
+    let stream = format!("project:{}", context.identity.project_id);
+    let fork_store = SqliteForkStore::open(&ledger_dir)?;
+    let cep = sddk_storage::event_store::SqliteEventStore::open(&ledger_dir)?;
+    let source: Box<dyn sddk_domain::EventStore> = if cep.count()? == 0 {
+        Box::new(KernelEventStore::open(&context.paths.ledger)?)
+    } else {
+        Box::new(cep)
+    };
+    Ok((fork_store, source, stream))
+}
+
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
 struct ForkRunOutput {
@@ -247,12 +423,12 @@ struct ForkRunOutput {
 fn run_fork_run(args: ForkRunArgs, environment: &CliEnvironment) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<ForkRunOutput> {
-        let (fork_store, event_store, stream, _pid) = open_stores(&args.runtime, environment)?;
+        let (fork_store, event_source, stream) = open_replay_source(&args.runtime, environment)?;
         let record = fork_store
             .load_fork(&args.fork_id)?
             .ok_or_else(|| anyhow::anyhow!("fork not found: {}", args.fork_id))?;
         let engine = sddk_domain::ReplayEngine::new(
-            &event_store,
+            event_source.as_ref(),
             Box::new(|| sddk_domain::GraphProjection::new(stream.clone())),
         );
         let state = if record.replay_policy == ReplayPolicy::Strict {
@@ -288,12 +464,12 @@ struct ForkDiffOutput {
 fn run_fork_diff(args: ForkDiffArgs, environment: &CliEnvironment) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<ForkDiffOutput> {
-        let (fork_store, event_store, stream, _pid) = open_stores(&args.runtime, environment)?;
+        let (fork_store, event_source, stream) = open_replay_source(&args.runtime, environment)?;
         let record = fork_store
             .load_fork(&args.fork_id)?
             .ok_or_else(|| anyhow::anyhow!("fork not found: {}", args.fork_id))?;
         let engine = sddk_domain::ReplayEngine::new(
-            &event_store,
+            event_source.as_ref(),
             Box::new(|| sddk_domain::GraphProjection::new(stream.clone())),
         );
         // Parent state: events before the fork point (at_sequence - 1).
@@ -335,11 +511,11 @@ struct ForkPromoteOutput {
 fn run_fork_promote(args: ForkPromoteArgs, environment: &CliEnvironment) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<ForkPromoteOutput> {
-        let (fork_store, event_store, _stream, _pid) = open_stores(&args.runtime, environment)?;
+        let (fork_store, event_source, _stream) = open_replay_source(&args.runtime, environment)?;
         let record = fork_store
             .load_fork(&args.fork_id)?
             .ok_or_else(|| anyhow::anyhow!("fork not found: {}", args.fork_id))?;
-        let parent_last_hash = event_store
+        let parent_last_hash = event_source
             .head_hash(&record.parent_stream_id)?
             .ok_or_else(|| anyhow::anyhow!("parent stream has no events"))?;
         let result = sddk_domain::promote_check(&record, &parent_last_hash);
