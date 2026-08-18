@@ -402,7 +402,7 @@ impl Projection for ApprovalProjection {
 }
 
 /// Returns the current wall-clock time as an RFC 3339 string with second precision.
-fn now_rfc3339() -> String {
+pub(crate) fn now_rfc3339() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let dur = SystemTime::now()
         .duration_since(UNIX_EPOCH)
