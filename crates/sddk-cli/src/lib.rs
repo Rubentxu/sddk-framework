@@ -5,6 +5,7 @@
 #![warn(missing_docs)]
 
 mod analytics;
+mod approval;
 mod artifact;
 mod capability;
 mod cycle;
@@ -38,6 +39,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 
 use analytics::AnalyticsCommand;
+use approval::ApprovalCommand;
 use artifact::ArtifactCommand;
 use capability::CapabilityCommand;
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
@@ -235,6 +237,11 @@ enum Command {
     Uat {
         #[command(subcommand)]
         command: uat::UatCommand,
+    },
+    /// Manage human approval decisions for governed capabilities.
+    Approval {
+        #[command(subcommand)]
+        command: ApprovalCommand,
     },
     /// Architecture-rule registry: evaluate rules against baseline JSON (SDDK2-003).
     Rules {
@@ -541,6 +548,7 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         Command::Analytics { command } => analytics::run_analytics(command, environment),
         Command::Telemetry { command } => telemetry::run_telemetry(command, environment),
         Command::Uat { command } => uat::run_uat(command, environment),
+        Command::Approval { command } => approval::run_approval(command, environment),
         Command::Rules { command } => rules_cmd::run_rules(command, environment),
         Command::Completion { command } => run_completion(command),
     }

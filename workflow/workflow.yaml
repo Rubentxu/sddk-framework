@@ -14,6 +14,7 @@ statuses:
   - ABANDONED
   - RECOVERING
   - UAT_WAITING
+  - APPROVAL_PENDING
 
 phases:
   - explore
@@ -424,6 +425,159 @@ transitions:
     produces:
       - archive-manifest
 
+  # ── Approval transitions ─────────────────────────────────────────────────────
+  # build phase
+  - id: phase.build.approval.requested
+    from:
+      status: OPEN
+      phase: build
+    to:
+      status: APPROVAL_PENDING
+      phase: build
+    requires:
+      - kind: gate
+        name: approval-requested
+    paths:
+      - A-min
+      - A-lite
+      - A-full
+    on_failure:
+      status: OPEN
+      phase: build
+    produces:
+      - approval-receipt
+
+  - id: phase.build.approval.resolved
+    from:
+      status: APPROVAL_PENDING
+      phase: build
+    to:
+      status: OPEN
+      phase: build
+    requires:
+      - kind: gate
+        name: approval-resolved
+    paths:
+      - A-min
+      - A-lite
+      - A-full
+    on_failure:
+      status: OPEN
+      phase: build
+    produces:
+      - approval-receipt
+
+  # uat phase
+  - id: phase.uat.approval.requested
+    from:
+      status: OPEN
+      phase: uat
+    to:
+      status: APPROVAL_PENDING
+      phase: uat
+    requires:
+      - kind: gate
+        name: approval-requested
+    paths:
+      - A-full
+    on_failure:
+      status: OPEN
+      phase: uat
+    produces:
+      - approval-receipt
+
+  - id: phase.uat.approval.resolved
+    from:
+      status: APPROVAL_PENDING
+      phase: uat
+    to:
+      status: OPEN
+      phase: uat
+    requires:
+      - kind: gate
+        name: approval-resolved
+    paths:
+      - A-full
+    on_failure:
+      status: OPEN
+      phase: uat
+    produces:
+      - approval-receipt
+
+  # review phase
+  - id: phase.review.approval.requested
+    from:
+      status: OPEN
+      phase: review
+    to:
+      status: APPROVAL_PENDING
+      phase: review
+    requires:
+      - kind: gate
+        name: approval-requested
+    paths:
+      - A-full
+    on_failure:
+      status: OPEN
+      phase: review
+    produces:
+      - approval-receipt
+
+  - id: phase.review.approval.resolved
+    from:
+      status: APPROVAL_PENDING
+      phase: review
+    to:
+      status: OPEN
+      phase: review
+    requires:
+      - kind: gate
+        name: approval-resolved
+    paths:
+      - A-full
+    on_failure:
+      status: OPEN
+      phase: review
+    produces:
+      - approval-receipt
+
+  # release phase
+  - id: phase.release.approval.requested
+    from:
+      status: OPEN
+      phase: release
+    to:
+      status: APPROVAL_PENDING
+      phase: release
+    requires:
+      - kind: gate
+        name: approval-requested
+    paths:
+      - A-full
+    on_failure:
+      status: OPEN
+      phase: release
+    produces:
+      - approval-receipt
+
+  - id: phase.release.approval.resolved
+    from:
+      status: APPROVAL_PENDING
+      phase: release
+    to:
+      status: OPEN
+      phase: release
+    requires:
+      - kind: gate
+        name: approval-resolved
+    paths:
+      - A-full
+    on_failure:
+      status: OPEN
+      phase: release
+    produces:
+      - approval-receipt
+
   - id: cycle.block
     from:
       status: OPEN
@@ -526,6 +680,12 @@ artifacts:
     required: true
     terminal: true
     description: Final archive manifest
+  approval-receipt:
+    producer: human
+    consumers:
+      - engine
+    required: true
+    description: Receipt confirming a human approval decision for a governed capability
 
 gates:
   exploration-sufficient:
@@ -596,6 +756,14 @@ gates:
     gate_type:
       binary: {}
     description: Release UAT gate passed for the configured release type (ADR-012)
+  approval-requested:
+    gate_type:
+      binary: {}
+    description: Human approval was requested for a governed capability
+  approval-resolved:
+    gate_type:
+      binary: {}
+    description: Human approved or denied a governed capability request
 
 forge:
   provider: auto
