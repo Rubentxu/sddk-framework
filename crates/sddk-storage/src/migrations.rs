@@ -1,4 +1,4 @@
-pub(crate) const LATEST_SCHEMA_VERSION: i32 = 6;
+pub(crate) const LATEST_SCHEMA_VERSION: i32 = 7;
 
 /// Runs all pending migrations on an open SQLite connection.
 pub(crate) fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), super::StorageError> {
@@ -63,6 +63,56 @@ pub(crate) fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), supe
         tx.execute_batch(MIGRATION_6)
             .map_err(super::StorageError::Database)?;
         tx.pragma_update(None, "user_version", 6)
+            .map_err(super::StorageError::Database)?;
+        tx.commit().map_err(super::StorageError::Database)?;
+    }
+    if version < 7 {
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(super::StorageError::Database)?;
+        // MIGRATION_7 adds columns to capability_receipts for governed capabilities.
+        // Defensively check if the table exists before ALTERing, since databases
+        // created by SqliteEventStore (migrations 5-6 only) never ran migrations
+        // 1-4 and lack the capability_receipts table entirely.
+        let table_exists: bool = tx
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='capability_receipts'",
+                [],
+                |_row| Ok(true),
+            )
+            .unwrap_or(false);
+        if table_exists {
+            // Only add columns if they don't already exist (idempotent on re-run)
+            let col_exists: bool = tx
+                .query_row(
+                    "SELECT 1 FROM pragma_table_info('capability_receipts') WHERE name='agent_version_hash'",
+                    [],
+                    |_row| Ok(true),
+                )
+                .unwrap_or(false);
+            if !col_exists {
+                tx.execute(
+                    "ALTER TABLE capability_receipts ADD COLUMN agent_version_hash TEXT",
+                    [],
+                )
+                .map_err(super::StorageError::Database)?;
+            }
+            let behavior_col_exists: bool = tx
+                .query_row(
+                    "SELECT 1 FROM pragma_table_info('capability_receipts') WHERE name='behavior_version_hash'",
+                    [],
+                    |_row| Ok(true),
+                )
+                .unwrap_or(false);
+            if !behavior_col_exists {
+                tx.execute(
+                    "ALTER TABLE capability_receipts ADD COLUMN behavior_version_hash TEXT",
+                    [],
+                )
+                .map_err(super::StorageError::Database)?;
+            }
+        }
+        tx.pragma_update(None, "user_version", 7)
             .map_err(super::StorageError::Database)?;
         tx.commit().map_err(super::StorageError::Database)?;
     }
@@ -338,7 +388,7 @@ CREATE TABLE projection_checkpoints_v1 (
     version              INTEGER NOT NULL,
     last_event_sequence  INTEGER NOT NULL
                          CHECK (last_event_sequence >= 0),
-    last_event_hash      TEXT    NOT NULL
+    last_event_hash     TEXT    NOT NULL
                          CHECK (last_event_hash LIKE 'sha256:%'),
     state_json           TEXT    NOT NULL
                          CHECK (length(state_json) > 0),

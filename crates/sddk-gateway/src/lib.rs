@@ -9,6 +9,7 @@
 #![warn(missing_docs)]
 
 mod artifact_store;
+mod capability;
 mod computer_use;
 mod evidence;
 mod filesystem;
@@ -25,6 +26,10 @@ mod semantic;
 mod uat_policy;
 
 pub use artifact_store::{ArtifactMeta, ArtifactStore, ArtifactStoreError};
+pub use capability::{
+    Capability, CapabilityError, CapabilityOutcome, EvidenceBundleWriteCapability,
+    VerificationRequest,
+};
 pub use computer_use::{ComputerUseError, ComputerUseOutcome, ComputerUseSpec, run_computer_use};
 pub use evidence::{EvidenceCollector, EvidenceCollectorError, EvidenceContext, EvidenceFile};
 pub use filesystem::{FsError, ScopedFs};
@@ -109,6 +114,7 @@ impl sddk_domain::SddkErrorCode for GatewayError {
             Self::Idempotency(..) => "GATEWAY_IDEMPOTENCY",
             Self::Runner(..) => "GATEWAY_RUNNER",
             Self::Serialization(..) => "GATEWAY_SERIALIZATION",
+            Self::Capability(..) => "GATEWAY_CAPABILITY",
         }
     }
 
@@ -121,6 +127,7 @@ impl sddk_domain::SddkErrorCode for GatewayError {
             Self::Idempotency(..) => "use a fresh idempotency key or the original request",
             Self::Runner(..) => "check the typed runner executable and arguments",
             Self::Serialization(..) => "fix the structured payload before retrying",
+            Self::Capability(..) => "check the capability execution and verification",
         }
     }
 }

@@ -732,8 +732,9 @@ impl Storage {
         transaction.execute(
             "INSERT INTO capability_receipts (
                 receipt_id, project_id, cycle_id, capability, request_hash,
-                request_json, status, result_json, started_at, completed_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                request_json, status, result_json, started_at, completed_at,
+                agent_version_hash, behavior_version_hash
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 input.receipt_id,
                 input.project_id,
@@ -744,7 +745,9 @@ impl Storage {
                 enum_string(&input.status)?,
                 optional_json(&input.result)?,
                 input.started_at,
-                input.completed_at
+                input.completed_at,
+                input.agent_version_hash,
+                input.behavior_version_hash
             ],
         )?;
         transaction.execute(
@@ -775,6 +778,29 @@ impl Storage {
         result: Option<Value>,
         completed_at: &str,
     ) -> Result<CapabilityReceipt> {
+        self.finalize_capability_receipt_with_hashes(
+            receipt_id,
+            status,
+            result,
+            completed_at,
+            None,
+            None,
+        )
+    }
+
+    ///
+    /// Accepts only terminal outcomes (`Succeeded`, `Failed`, `Unknown`) and
+    /// rejects transitions on receipts that are already terminal.
+    /// Optionally updates the version hashes if provided.
+    pub fn finalize_capability_receipt_with_hashes(
+        &mut self,
+        receipt_id: &str,
+        status: CapabilityStatus,
+        result: Option<Value>,
+        completed_at: &str,
+        agent_version_hash: Option<String>,
+        behavior_version_hash: Option<String>,
+    ) -> Result<CapabilityReceipt> {
         if status == CapabilityStatus::Started {
             return Err(StorageError::InvalidReceiptBegin);
         }
@@ -787,17 +813,37 @@ impl Storage {
                 receipt_id: receipt_id.to_owned(),
             });
         }
-        transaction.execute(
-            "UPDATE capability_receipts
-             SET status = ?2, result_json = ?3, completed_at = ?4
-             WHERE receipt_id = ?1",
-            params![
-                receipt_id,
-                enum_string(&status)?,
-                optional_json(&result)?,
-                completed_at
-            ],
-        )?;
+
+        // Build dynamic UPDATE based on which fields are provided
+        if agent_version_hash.is_some() || behavior_version_hash.is_some() {
+            transaction.execute(
+                "UPDATE capability_receipts
+                 SET status = ?2, result_json = ?3, completed_at = ?4,
+                     agent_version_hash = COALESCE(?5, agent_version_hash),
+                     behavior_version_hash = COALESCE(?6, behavior_version_hash)
+                 WHERE receipt_id = ?1",
+                params![
+                    receipt_id,
+                    enum_string(&status)?,
+                    optional_json(&result)?,
+                    completed_at,
+                    agent_version_hash,
+                    behavior_version_hash
+                ],
+            )?;
+        } else {
+            transaction.execute(
+                "UPDATE capability_receipts
+                 SET status = ?2, result_json = ?3, completed_at = ?4
+                 WHERE receipt_id = ?1",
+                params![
+                    receipt_id,
+                    enum_string(&status)?,
+                    optional_json(&result)?,
+                    completed_at
+                ],
+            )?;
+        }
         let receipt = get_capability_receipt_on(&transaction, receipt_id)?;
         transaction.commit()?;
         Ok(receipt)
@@ -807,7 +853,8 @@ impl Storage {
     pub fn list_capability_receipts(&self, project_id: &str) -> Result<Vec<CapabilityReceipt>> {
         let mut statement = self.connection.prepare(
             "SELECT receipt_id, project_id, cycle_id, capability, request_hash,
-                    request_json, status, result_json, started_at, completed_at
+                    request_json, status, result_json, started_at, completed_at,
+                    agent_version_hash, behavior_version_hash
              FROM capability_receipts WHERE project_id = ?1
              ORDER BY started_at ASC",
         )?;
@@ -819,7 +866,8 @@ impl Storage {
     pub fn list_all_capability_receipts(&self) -> Result<Vec<CapabilityReceipt>> {
         let mut statement = self.connection.prepare(
             "SELECT receipt_id, project_id, cycle_id, capability, request_hash,
-                    request_json, status, result_json, started_at, completed_at
+                    request_json, status, result_json, started_at, completed_at,
+                    agent_version_hash, behavior_version_hash
              FROM capability_receipts ORDER BY started_at ASC",
         )?;
         let rows = statement.query_map([], capability_receipt_from_row)?;
@@ -1421,7 +1469,8 @@ fn get_capability_receipt_on(
     connection
         .query_row(
             "SELECT receipt_id, project_id, cycle_id, capability, request_hash,
-                    request_json, status, result_json, started_at, completed_at
+                    request_json, status, result_json, started_at, completed_at,
+                    agent_version_hash, behavior_version_hash
              FROM capability_receipts WHERE receipt_id = ?1",
             [receipt_id],
             capability_receipt_from_row,
@@ -1444,6 +1493,8 @@ fn capability_receipt_from_row(row: &Row<'_>) -> rusqlite::Result<CapabilityRece
         result: parse_optional_json(row.get(7)?)?,
         started_at: row.get(8)?,
         completed_at: row.get(9)?,
+        agent_version_hash: row.get(10)?,
+        behavior_version_hash: row.get(11)?,
     })
 }
 fn get_cycle_lease_on(connection: &Connection, cycle_id: &str) -> rusqlite::Result<CycleLease> {

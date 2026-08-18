@@ -18,6 +18,7 @@ pub mod models;
 pub mod pack;
 pub mod ports;
 pub mod projections;
+pub mod proposal;
 pub mod rules;
 pub mod schema;
 pub mod uat;

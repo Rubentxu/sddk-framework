@@ -2,10 +2,14 @@
 
 use std::collections::BTreeMap;
 
+use sddk_domain::WorkflowManifest;
+use sddk_domain::proposal::{Proposal, ProposalPolicy, ProposalPolicyDecision};
 use sddk_storage::{CapabilityReceipt, CapabilityReceiptInput, CapabilityStatus, Storage};
 use serde_json::{Value, json};
 use thiserror::Error;
+use time::OffsetDateTime;
 
+use crate::capability::{Capability, EvidenceBundleWriteCapability};
 use crate::policy::{CapabilityPolicy, PolicyDecision};
 use crate::redact;
 use crate::runner::{RunSpec, run};
@@ -78,18 +82,26 @@ pub enum GatewayError {
     /// A structured payload could not be encoded.
     #[error("payload serialization failed: {0}")]
     Serialization(#[from] serde_json::Error),
+    /// A capability execution or verification error occurred.
+    #[error("capability error: {0}")]
+    Capability(#[from] crate::capability::CapabilityError),
 }
 
 /// Default-deny gateway combining policy, execution, and receipt persistence.
 pub struct CapabilityGateway {
     pub(crate) policy: CapabilityPolicy,
+    pub(crate) workflow: WorkflowManifest,
     pub(crate) storage: Storage,
 }
 
 impl CapabilityGateway {
-    /// Constructs a gateway with a policy and the project ledger.
-    pub fn new(policy: CapabilityPolicy, storage: Storage) -> Self {
-        Self { policy, storage }
+    /// Constructs a gateway with a policy, workflow manifest, and the project ledger.
+    pub fn new(policy: CapabilityPolicy, workflow: WorkflowManifest, storage: Storage) -> Self {
+        Self {
+            policy,
+            workflow,
+            storage,
+        }
     }
 
     /// Evaluates policy and builds an executable plan.
@@ -218,6 +230,8 @@ impl CapabilityGateway {
                 result: None,
                 started_at: input.timestamp.clone(),
                 completed_at: None,
+                agent_version_hash: None,
+                behavior_version_hash: None,
             })?)
     }
 
@@ -235,6 +249,130 @@ impl CapabilityGateway {
             Some(redact(result)),
             completed_at,
         )?)
+    }
+
+    /// Executes a governed capability via the Proposal → Policy → Verify → Capability → Receipt chain.
+    ///
+    /// This method orchestrates:
+    /// 1. Policy authorization via `ProposalPolicy::authorize`
+    /// 2. Capability execution via `EvidenceBundleWriteCapability::execute`
+    /// 3. Receipt persistence with version hashes via `finalize_capability_receipt_with_hashes`
+    ///
+    /// Returns the capability receipt on success, or an error if authorization was denied,
+    /// execution failed, or receipt persistence failed.
+    pub fn execute_governed(
+        &mut self,
+        proposal: Proposal,
+        approve: bool,
+    ) -> Result<CapabilityReceipt, GatewayError> {
+        // Step 1: Evaluate policy
+        // Build a ProposalPolicy from the workflow's forge capabilities
+        let proposal_policy = ProposalPolicy::from_workflow(&self.workflow);
+        let decision = proposal_policy.authorize(&proposal, approve);
+
+        match decision {
+            ProposalPolicyDecision::Deny => {
+                return Err(GatewayError::Denied {
+                    capability: proposal.capability.clone(),
+                });
+            }
+            ProposalPolicyDecision::ApprovalRequired => {
+                return Err(GatewayError::ApprovalRequired {
+                    capability: proposal.capability.clone(),
+                });
+            }
+            ProposalPolicyDecision::Allow => {
+                // Continue execution
+            }
+        }
+
+        // Step 2: Execute capability via EvidenceBundleWriteCapability
+        let capability = EvidenceBundleWriteCapability::new("/tmp/evidence");
+        let outcome = capability
+            .execute(&proposal, &mut self.storage)
+            .map_err(GatewayError::Capability)?;
+
+        // Step 3: Persist receipt with version hashes
+        let now = OffsetDateTime::now_utc();
+        let now_str = now
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap_or_else(|_| String::new());
+        let timestamp = now_str.clone();
+
+        // Build idempotency key and receipt_id
+        let request_key = crate::stable_request_key(
+            &proposal.project_id,
+            &proposal.cycle_id,
+            &proposal.capability,
+            &proposal.args,
+            &proposal.reason,
+        );
+        let idempotency_key = format!("{}-{}", proposal.capability, &request_key[..16]);
+        let receipt_id = format!(
+            "cap-{}-{}",
+            proposal.capability.replace('.', "-"),
+            &request_key[..12]
+        );
+
+        // Begin receipt
+        let request = json!({
+            "capability": proposal.capability,
+            "arguments": proposal.args,
+            "reason": proposal.reason,
+        });
+        let begin_receipt = self
+            .storage
+            .begin_capability_receipt(&CapabilityReceiptInput {
+                receipt_id: receipt_id.clone(),
+                project_id: proposal.project_id.clone(),
+                cycle_id: proposal.cycle_id.clone(),
+                capability: proposal.capability.clone(),
+                idempotency_key,
+                request: redact(request),
+                status: CapabilityStatus::Started,
+                result: None,
+                started_at: timestamp.clone(),
+                completed_at: None,
+                agent_version_hash: None,
+                behavior_version_hash: None,
+            })
+            .map_err(GatewayError::Idempotency)?;
+
+        // Determine final status and result from outcome
+        let (status, result) = if outcome.succeeded {
+            (
+                CapabilityStatus::Succeeded,
+                json!({
+                    "evidence_digest": outcome.evidence_digest,
+                    "exit_status": outcome.exit_status,
+                    "stdout": outcome.stdout,
+                    "stderr": outcome.stderr,
+                }),
+            )
+        } else {
+            (
+                CapabilityStatus::Failed,
+                json!({
+                    "exit_status": outcome.exit_status,
+                    "stderr": outcome.stderr,
+                }),
+            )
+        };
+
+        // Finalize with version hashes
+        let final_receipt = self
+            .storage
+            .finalize_capability_receipt_with_hashes(
+                &begin_receipt.receipt_id,
+                status,
+                Some(redact(result)),
+                &now_str,
+                Some(proposal.agent_version_hash),
+                Some(proposal.behavior_version_hash),
+            )
+            .map_err(GatewayError::Idempotency)?;
+
+        Ok(final_receipt)
     }
 
     /// Lists persisted receipts for a project.
@@ -289,7 +427,7 @@ mod tests {
             .unwrap();
         let gateway_storage = Storage::open(&path).unwrap();
         std::mem::forget(directory);
-        let gateway = CapabilityGateway::new(policy, gateway_storage);
+        let gateway = CapabilityGateway::new(policy, workflow, gateway_storage);
         (storage, gateway)
     }
 

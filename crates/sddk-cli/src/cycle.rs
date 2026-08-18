@@ -10,7 +10,7 @@ use sddk_domain::{
 use sddk_engine::{
     AdoptionPaths, CycleStartInput, Engine, EventContext, GateEvaluationInput, TransitionEvidence,
     TransitionOutcome, WorkflowLoadError,
-    event_bus::{self, PhaseEventInput, OutcomeEventInput},
+    event_bus::{self, OutcomeEventInput, PhaseEventInput},
 };
 use sddk_storage::SqliteEventStore;
 use serde::Serialize;

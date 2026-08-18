@@ -130,7 +130,8 @@ fn run_capability_plan(
             (None, None) => {}
             _ => anyhow::bail!("--agent and --phase must be supplied together"),
         }
-        let policy = CapabilityPolicy::from_workflow(context.engine.workflow());
+        let workflow = context.engine.workflow().clone();
+        let policy = CapabilityPolicy::from_workflow(&workflow);
         let env = parse_env(&args.env)?;
         let timestamp = args.timestamp.clone().unwrap_or_else(default_timestamp);
         let actor = args
@@ -153,7 +154,7 @@ fn run_capability_plan(
             timestamp: timestamp.clone(),
             actor: actor.clone(),
         };
-        let mut gateway = CapabilityGateway::new(policy, context.storage);
+        let mut gateway = CapabilityGateway::new(policy, workflow, context.storage);
         if apply {
             let plan = gateway.plan(input)?;
             let receipt = gateway.apply(&plan)?;
@@ -188,8 +189,9 @@ fn run_capability_status(
     let format = args.format;
     let result = (|| -> anyhow::Result<Vec<ReceiptOutput>> {
         let context = RuntimeContext::open(&args.runtime, environment, false)?;
-        let policy = CapabilityPolicy::from_workflow(context.engine.workflow());
-        let gateway = CapabilityGateway::new(policy, context.storage);
+        let workflow = context.engine.workflow().clone();
+        let policy = CapabilityPolicy::from_workflow(&workflow);
+        let gateway = CapabilityGateway::new(policy, workflow, context.storage);
         Ok(gateway
             .receipts(context.identity.project_id.as_str())?
             .into_iter()

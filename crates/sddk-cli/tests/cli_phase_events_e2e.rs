@@ -5,8 +5,6 @@
 //!
 //! MS-05: Uses the full gate evaluation workflow (evaluate-gate → transition).
 
-
-
 use sddk_domain::EventStore;
 use serde_json::Value;
 
@@ -65,8 +63,18 @@ fn e2e_transition_emits_phase_events() {
 
     // Adopt project.
     let adopt_out = run(&[
-        "adopt", "apply", "--root", root.to_str().unwrap(), "--scope", ".",
-        "--timestamp", TIMESTAMP, "--actor", "test", "--format", "json",
+        "adopt",
+        "apply",
+        "--root",
+        root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--timestamp",
+        TIMESTAMP,
+        "--actor",
+        "test",
+        "--format",
+        "json",
     ]);
     assert!(
         adopt_out.status.success(),
@@ -78,9 +86,20 @@ fn e2e_transition_emits_phase_events() {
 
     // Start cycle.
     let start_out = run(&[
-        "cycle", "start", "--root", root.to_str().unwrap(), "--scope", ".",
-        "--name", "phase-events-test",
-        "--timestamp", TIMESTAMP, "--actor", "test", "--format", "json",
+        "cycle",
+        "start",
+        "--root",
+        root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--name",
+        "phase-events-test",
+        "--timestamp",
+        TIMESTAMP,
+        "--actor",
+        "test",
+        "--format",
+        "json",
     ]);
     assert!(
         start_out.status.success(),
@@ -92,14 +111,26 @@ fn e2e_transition_emits_phase_events() {
 
     // Evaluate gate exploration-sufficient to get a receipt.
     let gate_out = run(&[
-        "cycle", "evaluate-gate",
-        "--root", root.to_str().unwrap(), "--scope", ".",
-        "--cycle", cycle_id,
-        "--transition", "phase.explore.complete",
-        "--gate", "exploration-sufficient",
-        "--outcome", "passed",
-        "--timestamp", TIMESTAMP, "--actor", "test",
-        "--format", "json",
+        "cycle",
+        "evaluate-gate",
+        "--root",
+        root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--cycle",
+        cycle_id,
+        "--transition",
+        "phase.explore.complete",
+        "--gate",
+        "exploration-sufficient",
+        "--outcome",
+        "passed",
+        "--timestamp",
+        TIMESTAMP,
+        "--actor",
+        "test",
+        "--format",
+        "json",
     ]);
     assert!(
         gate_out.status.success(),
@@ -111,14 +142,26 @@ fn e2e_transition_emits_phase_events() {
 
     // Transition explore -> specify using the gate receipt.
     let trans_out = run(&[
-        "cycle", "transition",
-        "--root", root.to_str().unwrap(), "--scope", ".",
-        "--cycle", cycle_id,
-        "--transition", "phase.explore.complete",
-        "--artifact", "exploration-report=/dev/null",
-        "--gate-receipt", receipt_id,
-        "--timestamp", TIMESTAMP, "--actor", "test",
-        "--format", "json",
+        "cycle",
+        "transition",
+        "--root",
+        root.to_str().unwrap(),
+        "--scope",
+        ".",
+        "--cycle",
+        cycle_id,
+        "--transition",
+        "phase.explore.complete",
+        "--artifact",
+        "exploration-report=/dev/null",
+        "--gate-receipt",
+        receipt_id,
+        "--timestamp",
+        TIMESTAMP,
+        "--actor",
+        "test",
+        "--format",
+        "json",
     ]);
     assert!(
         trans_out.status.success(),
@@ -160,12 +203,23 @@ fn e2e_transition_emits_phase_events() {
         "outcome should be succeeded"
     );
     assert_eq!(
-        succeeded.payload.get("transition_id").unwrap().as_str().unwrap(),
+        succeeded
+            .payload
+            .get("transition_id")
+            .unwrap()
+            .as_str()
+            .unwrap(),
         "phase.explore.complete",
         "transition_id should match"
     );
     assert!(
-        succeeded.payload.get("failed_gates").unwrap().as_array().unwrap().is_empty(),
+        succeeded
+            .payload
+            .get("failed_gates")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .is_empty(),
         "failed_gates should be empty for succeeded"
     );
 

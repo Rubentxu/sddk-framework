@@ -353,8 +353,9 @@ fn run_release_apply(args: ReleaseArgs, environment: &CliEnvironment) -> Command
                 )
             })
             .transpose()?;
-        let policy = CapabilityPolicy::from_workflow(context.engine.workflow());
-        let gateway = CapabilityGateway::new(policy, context.storage);
+        let workflow = context.engine.workflow().clone();
+        let policy = CapabilityPolicy::from_workflow(&workflow);
+        let gateway = CapabilityGateway::new(policy, workflow, context.storage);
         let timestamp = args
             .timestamp
             .clone()

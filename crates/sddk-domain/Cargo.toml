@@ -21,6 +21,7 @@ regex = { workspace = true }
 jsonschema = { version = "0.49", default-features = false, features = ["resolve-file"] }
 toml = "1.1"
 serde-saphyr = { workspace = true }
+time = { workspace = true }
 
 [dev-dependencies]
 proptest = "1.11"

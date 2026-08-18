@@ -279,7 +279,7 @@ pub struct ForgeDef {
 }
 
 /// A capability definition.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct CapabilityDef {
     /// Risk level.
@@ -288,6 +288,22 @@ pub struct CapabilityDef {
     /// Consequence type.
     #[serde(default)]
     pub consequence: Option<String>,
+}
+
+impl CapabilityDef {
+    /// Whether this capability requires explicit human approval based on
+    /// risk level and consequence type.
+    pub fn requires_approval(&self) -> bool {
+        let risk_high_or_critical = self
+            .risk
+            .as_ref()
+            .is_some_and(|r| r.eq_ignore_ascii_case("high") || r.eq_ignore_ascii_case("critical"));
+        let consequence_irreversible_or_modifies = self.consequence.as_ref().is_some_and(|c| {
+            c.eq_ignore_ascii_case("irreversible") || c.eq_ignore_ascii_case("modifies")
+        });
+
+        risk_high_or_critical || consequence_irreversible_or_modifies
+    }
 }
 
 /// Storage configuration.

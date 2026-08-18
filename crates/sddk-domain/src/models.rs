@@ -233,6 +233,10 @@ pub struct CapabilityReceiptInput {
     pub started_at: String,
     /// Caller-supplied completion timestamp, when complete.
     pub completed_at: Option<String>,
+    /// Hash of the agent binary that executed this capability (optional for backward compat).
+    pub agent_version_hash: Option<String>,
+    /// Hash of the behavior/workflow that authorized this capability (optional for backward compat).
+    pub behavior_version_hash: Option<String>,
 }
 
 /// A persisted capability execution receipt.
@@ -258,6 +262,10 @@ pub struct CapabilityReceipt {
     pub started_at: String,
     /// Caller-supplied completion timestamp, when complete.
     pub completed_at: Option<String>,
+    /// Hash of the agent binary that executed this capability (optional for backward compat).
+    pub agent_version_hash: Option<String>,
+    /// Hash of the behavior/workflow that authorized this capability (optional for backward compat).
+    pub behavior_version_hash: Option<String>,
 }
 
 /// Outcome of an idempotent capability receipt write.

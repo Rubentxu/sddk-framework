@@ -13,8 +13,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use sddk_domain::{
-    EvidenceArtifact, EvidenceBundle, EvidenceEnvironment, EvidenceExecution,
-    EvidenceKind,
+    EvidenceArtifact, EvidenceBundle, EvidenceEnvironment, EvidenceExecution, EvidenceKind,
 };
 
 /// What the collector knows about the execution context.

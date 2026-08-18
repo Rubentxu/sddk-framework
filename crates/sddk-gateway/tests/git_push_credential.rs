@@ -22,7 +22,7 @@ fn gateway() -> (tempfile::TempDir, CapabilityGateway) {
         .unwrap();
     let workflow = sddk_engine::load_workflow_str(WORKFLOW_YAML).unwrap();
     let policy = CapabilityPolicy::from_workflow(&workflow);
-    let gateway = CapabilityGateway::new(policy, Storage::open(&path).unwrap());
+    let gateway = CapabilityGateway::new(policy, workflow, Storage::open(&path).unwrap());
     (directory, gateway)
 }
 

@@ -4,8 +4,10 @@
 //! Tests PE-01..PE-04 (phase events) and OE-01..OE-04 (outcome events).
 
 use sddk_domain::{ActorKind, EventStore};
-use sddk_engine::event_bus::{PhaseEventInput, OutcomeEventInput, emit_phase_event, emit_outcome_event};
 use sddk_engine::TransitionOutcome;
+use sddk_engine::event_bus::{
+    OutcomeEventInput, PhaseEventInput, emit_outcome_event, emit_phase_event,
+};
 use sddk_storage::SqliteEventStore;
 
 /// Helper to build a PhaseEventInput for testing.
@@ -180,11 +182,22 @@ fn oe01_succeeded_event_payload() {
         "succeeded"
     );
     assert_eq!(
-        loaded.payload.get("transition_id").unwrap().as_str().unwrap(),
+        loaded
+            .payload
+            .get("transition_id")
+            .unwrap()
+            .as_str()
+            .unwrap(),
         "phase.explore.complete"
     );
     assert!(
-        loaded.payload.get("failed_gates").unwrap().as_array().unwrap().is_empty(),
+        loaded
+            .payload
+            .get("failed_gates")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .is_empty(),
         "failed_gates should be empty"
     );
     assert!(loaded.content_hash.starts_with("sha256:"));
@@ -210,9 +223,12 @@ fn oe02_failed_event_with_gates() {
         loaded.payload.get("outcome").unwrap().as_str().unwrap(),
         "failed"
     );
-    let gates = loaded.payload
-        .get("failed_gates").unwrap()
-        .as_array().unwrap()
+    let gates = loaded
+        .payload
+        .get("failed_gates")
+        .unwrap()
+        .as_array()
+        .unwrap()
         .iter()
         .map(|v| v.as_str().unwrap().to_owned())
         .collect::<Vec<_>>();
@@ -228,7 +244,10 @@ fn oe03_idempotency_returns_stored() {
     let first = emit_outcome_event(&mut store, &input, TransitionOutcome::Succeeded).unwrap();
     let second = emit_outcome_event(&mut store, &input, TransitionOutcome::Succeeded).unwrap();
 
-    assert_eq!(first.sequence, second.sequence, "should return same sequence");
+    assert_eq!(
+        first.sequence, second.sequence,
+        "should return same sequence"
+    );
     assert_eq!(store.count().unwrap(), 1, "no duplicate events");
 }
 
@@ -241,7 +260,8 @@ fn oe04_outcome_and_phase_coexist() {
 
     // Emit outcome first (as run_cycle_transition does).
     let outcome_input = make_outcome_input(cycle_id, "phase.explore.complete");
-    let outcome_result = emit_outcome_event(&mut store, &outcome_input, TransitionOutcome::Succeeded).unwrap();
+    let outcome_result =
+        emit_outcome_event(&mut store, &outcome_input, TransitionOutcome::Succeeded).unwrap();
     assert_eq!(outcome_result.sequence, 1);
 
     // Then emit phase events.

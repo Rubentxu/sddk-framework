@@ -31,7 +31,8 @@ fn persists_canonical_records_across_reopen() {
         let storage = Storage::open(&database_path).unwrap();
         // MIGRATION_4 adds 'waived' to gate_receipts.outcome CHECK;
         // MIGRATION_5 adds events_v1; MIGRATION_6 adds projection_checkpoints_v1
-        assert_eq!(storage.schema_version().unwrap(), 6);
+        // MIGRATION_7 adds agent/behavior_version_hash to capability_receipts
+        assert_eq!(storage.schema_version().unwrap(), 7);
         storage.insert_project(&project_record()).unwrap();
         storage.insert_workspace(&workspace_record()).unwrap();
         storage.insert_cycle(&cycle).unwrap();
@@ -566,6 +567,8 @@ fn capability_receipt(receipt_id: &str, request: serde_json::Value) -> Capabilit
         result: None,
         started_at: CREATED_AT.into(),
         completed_at: None,
+        agent_version_hash: None,
+        behavior_version_hash: None,
     }
 }
 
@@ -923,9 +926,9 @@ fn storage_migration_3_backfills_seq_default_one() {
         conn.pragma_update(None, "user_version", 2).unwrap();
     }
 
-    // Open with current code — MIGRATION_3, MIGRATION_4, MIGRATION_5, and MIGRATION_6 all run
+    // Open with current code — MIGRATION_3, MIGRATION_4, MIGRATION_5, MIGRATION_6, and MIGRATION_7 all run
     let storage = Storage::open(&database_path).unwrap();
-    assert_eq!(storage.schema_version().unwrap(), 6);
+    assert_eq!(storage.schema_version().unwrap(), 7);
 
     // The pre-existing row now carries seq = 1
     let receipt = storage
@@ -1282,4 +1285,149 @@ fn storage_insert_legacy_rejects_long_gate() {
 
     // Transaction rolled back: no gate_receipt rows for this cycle.
     assert!(storage.list_gate_receipts(&cycle_id).unwrap().is_empty());
+}
+
+#[test]
+fn finalize_capability_receipt_with_hashes_writes_version_columns() {
+    let mut storage = Storage::open_in_memory().unwrap();
+    storage.insert_project(&project_record()).unwrap();
+
+    // Begin a capability receipt
+    let input = CapabilityReceiptInput {
+        receipt_id: "receipt-hash-test".into(),
+        project_id: "project-1".into(),
+        cycle_id: None,
+        capability: "git.create_branch".into(),
+        idempotency_key: "create-feature-branch".into(),
+        request: json!({"branch": "feature"}),
+        status: CapabilityStatus::Started,
+        result: None,
+        started_at: CREATED_AT.into(),
+        completed_at: None,
+        agent_version_hash: None,
+        behavior_version_hash: None,
+    };
+    let began = storage.begin_capability_receipt(&input).unwrap();
+    assert_eq!(began.status, CapabilityStatus::Started);
+
+    // Finalize with version hashes via the new code path
+    let finalized = storage
+        .finalize_capability_receipt_with_hashes(
+            "receipt-hash-test",
+            CapabilityStatus::Succeeded,
+            Some(json!({"merged": true})),
+            "2026-08-04T10:00:01Z",
+            Some("agent-sha-abc123".into()),
+            Some("behavior-sha-def456".into()),
+        )
+        .unwrap();
+
+    assert_eq!(finalized.status, CapabilityStatus::Succeeded);
+    assert_eq!(
+        finalized.agent_version_hash.as_deref(),
+        Some("agent-sha-abc123")
+    );
+    assert_eq!(
+        finalized.behavior_version_hash.as_deref(),
+        Some("behavior-sha-def456")
+    );
+
+    // Round-trip through get_capability_receipt also preserves the values
+    let reloaded = storage.get_capability_receipt("receipt-hash-test").unwrap();
+    assert_eq!(
+        reloaded.agent_version_hash.as_deref(),
+        Some("agent-sha-abc123")
+    );
+    assert_eq!(
+        reloaded.behavior_version_hash.as_deref(),
+        Some("behavior-sha-def456")
+    );
+}
+
+#[test]
+fn legacy_receipt_without_version_columns_returns_none() {
+    let directory = tempfile::tempdir().unwrap();
+    let database_path = directory.path().join("legacy_receipts.sqlite");
+
+    // Create a pre-MIGRATION_7 database with capability_receipts table
+    // that does NOT have the agent_version_hash / behavior_version_hash columns
+    {
+        let conn = Connection::open(&database_path).unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE projects (
+                project_id TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL,
+                remote_url TEXT,
+                scope TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE workspaces (
+                workspace_id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL REFERENCES projects(project_id),
+                canonical_path TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE cycles (
+                cycle_id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                workspace_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                phase TEXT NOT NULL,
+                manifest_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE capability_receipts (
+                receipt_id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                cycle_id TEXT,
+                capability TEXT NOT NULL,
+                request_hash TEXT NOT NULL,
+                request_json TEXT NOT NULL,
+                status TEXT NOT NULL,
+                result_json TEXT,
+                started_at TEXT NOT NULL,
+                completed_at TEXT
+            );
+            CREATE TABLE idempotency_records (
+                project_id TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                request_hash TEXT NOT NULL,
+                receipt_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (project_id, idempotency_key)
+            );
+            "#,
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO projects VALUES ('project-1', 'Project One', 'https://example.com/owner/project', 'owner', '2026-08-03T12:00:00Z')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO workspaces VALUES ('workspace-1', 'project-1', '/work/project', '2026-08-03T12:00:00Z')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO capability_receipts (receipt_id, project_id, cycle_id, capability, request_hash, request_json, status, result_json, started_at, completed_at) VALUES ('legacy-receipt-1', 'project-1', NULL, 'git.create_branch', 'hash123', '{}', 'succeeded', '{\"merged\":true}', '2026-08-03T12:00:00Z', '2026-08-03T12:01:00Z')",
+            [],
+        )
+        .unwrap();
+        // Schema version 6 (pre-MIGRATION_7)
+        conn.pragma_update(None, "user_version", 6).unwrap();
+    }
+
+    // Open with current code — MIGRATION_7 adds the new columns with DEFAULT NULL
+    let storage = Storage::open(&database_path).unwrap();
+    assert_eq!(storage.schema_version().unwrap(), 7);
+
+    // Read back the legacy receipt — new columns must be None
+    let receipt = storage.get_capability_receipt("legacy-receipt-1").unwrap();
+    assert_eq!(receipt.receipt_id, "legacy-receipt-1");
+    assert_eq!(receipt.agent_version_hash, None);
+    assert_eq!(receipt.behavior_version_hash, None);
+    assert_eq!(receipt.status, CapabilityStatus::Succeeded);
 }

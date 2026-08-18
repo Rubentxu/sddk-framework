@@ -218,8 +218,9 @@ fn effect_setup(
     approve: &bool,
 ) -> anyhow::Result<EffectContext> {
     let context = RuntimeContext::open(runtime, environment, false)?;
-    let policy = CapabilityPolicy::from_workflow(context.engine.workflow());
-    let gateway = CapabilityGateway::new(policy, context.storage);
+    let workflow = context.engine.workflow().clone();
+    let policy = CapabilityPolicy::from_workflow(&workflow);
+    let gateway = CapabilityGateway::new(policy, workflow, context.storage);
     let git = GitExecutor::new(context.root.clone());
     let timestamp = timestamp.clone().unwrap_or_else(default_timestamp);
     let actor = actor
