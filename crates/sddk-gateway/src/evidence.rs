@@ -1,5 +1,5 @@
 //! EvidenceCollector — normaliza artefactos de ejecución a un
-//! `UatEvidenceBundle` content-addressable (ADR-014 §2.3).
+//! `EvidenceBundle` content-addressable (ADR-014 §2.3).
 //!
 //! El executor (Playwright ahora, ComputerUse en F8) escribe un directorio
 //! de evidencia cruda; el collector lee ese directorio, hashea cada payload
@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use sddk_domain::{
-    UatEvidenceArtifact, UatEvidenceBundle, UatEvidenceEnvironment, UatEvidenceExecution,
-    UatEvidenceKind,
+    EvidenceArtifact, EvidenceBundle, EvidenceEnvironment, EvidenceExecution,
+    EvidenceKind,
 };
 
 /// What the collector knows about the execution context.
@@ -51,7 +51,7 @@ pub struct EvidenceContext {
 pub struct EvidenceFile {
     /// Evidence kind (Screenshot, Trace, Console, Network, Dom, Aria,
     /// Geometry, Video, Trajectory, CommandOutput, File, ...).
-    pub kind: UatEvidenceKind,
+    pub kind: EvidenceKind,
     /// Absolute or relative path to the payload file.
     pub path: PathBuf,
     /// Optional mime type.
@@ -99,7 +99,7 @@ impl EvidenceCollector {
     }
 
     /// Builds the bundle, hashing every payload to `sha256:<hex>`.
-    pub fn build(&self) -> Result<UatEvidenceBundle, EvidenceCollectorError> {
+    pub fn build(&self) -> Result<EvidenceBundle, EvidenceCollectorError> {
         if self.files.is_empty() {
             return Err(EvidenceCollectorError::Empty);
         }
@@ -112,7 +112,7 @@ impl EvidenceCollector {
                 })?;
             let digest = sddk_domain::sha256_hex(&bytes);
             let size = bytes.len() as u64;
-            artifacts.push(UatEvidenceArtifact {
+            artifacts.push(EvidenceArtifact {
                 kind: file.kind,
                 r#ref: digest,
                 path: Some(file.path.display().to_string()),
@@ -122,16 +122,16 @@ impl EvidenceCollector {
             });
         }
         artifacts.sort_by(|a, b| a.kind.cmp(&b.kind).then(a.r#ref.cmp(&b.r#ref)));
-        Ok(UatEvidenceBundle {
+        Ok(EvidenceBundle {
             artifacts,
-            environment: UatEvidenceEnvironment {
+            environment: EvidenceEnvironment {
                 git_sha: self.context.git_sha.clone(),
                 app_version: self.context.app_version.clone(),
                 browser: self.context.browser.clone(),
                 viewport: self.context.viewport.clone(),
                 os: Some(std::env::consts::OS.to_owned()),
             },
-            execution: UatEvidenceExecution {
+            execution: EvidenceExecution {
                 executor: Some(self.context.executor.clone()),
                 model: self.context.model.clone(),
                 model_hash: self.context.model_hash.clone(),
@@ -142,10 +142,10 @@ impl EvidenceCollector {
 
     /// Convenience: collect the standard driver layout from an evidence dir.
     /// Scans for the driver's canonical filenames and maps each to the
-    /// matching `UatEvidenceKind`.
+    /// matching `EvidenceKind`.
     pub fn collect_dir(&mut self, dir: &Path) -> &mut Self {
-        use UatEvidenceKind::*;
-        let candidates: &[(UatEvidenceKind, &str, &str)] = &[
+        use EvidenceKind::*;
+        let candidates: &[(EvidenceKind, &str, &str)] = &[
             (Screenshot, "screenshot.png", "image/png"),
             (Trace, "trace.zip", "application/zip"),
             (Console, "console.json", "application/json"),
@@ -204,7 +204,7 @@ mod tests {
 
         assert_eq!(bundle.artifacts.len(), 1);
         let artifact = &bundle.artifacts[0];
-        assert_eq!(artifact.kind, UatEvidenceKind::Screenshot);
+        assert_eq!(artifact.kind, EvidenceKind::Screenshot);
         assert!(artifact.r#ref.starts_with("sha256:"));
         assert_eq!(artifact.size_bytes, Some(14));
         assert_eq!(bundle.environment.browser.as_deref(), Some("chromium"));
@@ -218,7 +218,7 @@ mod tests {
     fn missing_payload_is_read_error() {
         let mut collector = EvidenceCollector::new(EvidenceContext::default());
         collector.add(EvidenceFile {
-            kind: UatEvidenceKind::Screenshot,
+            kind: EvidenceKind::Screenshot,
             path: PathBuf::from("/nonexistent/never.png"),
             mime: None,
             note: None,

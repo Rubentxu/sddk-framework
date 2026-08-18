@@ -26,6 +26,15 @@ pub use crate::evidence::{
     EvidenceOrigin, EvidenceRiskClassification,
 };
 
+/// Backward-compat aliases — new code should use the Evidence* names directly.
+pub type UatExpectedCheck = EvidenceExpectedCheck;
+pub type UatEvidenceKind = EvidenceKind;
+pub type UatEvidenceKindItem = EvidenceKindItem;
+pub type UatAutomationStatus = EvidenceAutomationStatus;
+pub type UatBlastRadius = EvidenceBlastRadius;
+pub type UatOrigin = EvidenceOrigin;
+pub type UatRiskClassification = EvidenceRiskClassification;
+
 // ---------------------------------------------------------------------------
 // Scenario v2 extensions (ADR-012 §4, §7 + ISO/IEC/IEEE 29119-3 alignment).
 //
@@ -45,108 +54,6 @@ pub enum UatStepKind {
     Api,
     File,
     Manual,
-}
-
-/// How strict the comparison between `expected` and `observed` should be (v2).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum UatExpectedCheck {
-    #[default]
-    ExactMatch,
-    Contains,
-    Regex,
-    JsonPath,
-    ExitCode,
-}
-
-/// Closed vocabulary for risk classification (v2).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum UatRiskClassification {
-    Critical,
-    High,
-    #[default]
-    Medium,
-    Low,
-}
-
-/// How much a single scenario failure can impact the release (v2).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum UatBlastRadius {
-    #[default]
-    FeatureBlocker,
-    ReleaseBlocker,
-    Advisory,
-}
-
-/// Status of automation for a scenario (v2). Metadata-only.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum UatAutomationStatus {
-    #[default]
-    Manual,
-    Scripted,
-    Automated,
-}
-
-/// Origin of a scenario (v2): why this test exists.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum UatOrigin {
-    Spec,
-    Bug,
-    Incident,
-    #[default]
-    Regression,
-}
-
-/// Closed vocabulary for evidence kinds (v2, extendido en v3 con tipos de
-/// captura del control plane: trace, console, network, dom, aria, geometry,
-/// video, trajectory).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum UatEvidenceKind {
-    File,
-    Screenshot,
-    CommandOutput,
-    Assertion,
-    Metric,
-    /// Playwright trace archive.
-    Trace,
-    /// Captured console messages (JSON).
-    Console,
-    /// Captured network failures (JSON array).
-    Network,
-    /// HTTP response snapshot of the main navigation (status/url/headers).
-    Http,
-    /// DOM snapshot (HTML).
-    Dom,
-    /// ARIA accessibility snapshot (JSON).
-    Aria,
-    /// Bounding-box geometry of selectors (JSON).
-    Geometry,
-    /// Video recording (webm).
-    Video,
-    /// Computer-use trajectory (JSON).
-    Trajectory,
-    #[default]
-    Note,
-}
-
-/// One evidence kind descriptor (v2).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct UatEvidenceKindItem {
-    pub kind: UatEvidenceKind,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub r#ref: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub match_mode: Option<UatExpectedCheck>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expected_value: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub min_bytes: Option<u64>,
 }
 
 /// Structured evidence specification for a scenario (v2).

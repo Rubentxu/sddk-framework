@@ -23,7 +23,7 @@
 //!   (expect: `{"golden_sha256": "sha256:..."}`)
 
 use sddk_domain::{
-    UatEvidenceArtifact, UatEvidenceBundle, UatEvidenceKind, UatOracleAssessment, UatOracleKind,
+    EvidenceArtifact, EvidenceBundle, EvidenceKind, UatOracleAssessment, UatOracleKind,
     UatOracleSpec, UatOracleVerdict,
 };
 use serde_json::Value;
@@ -81,7 +81,7 @@ pub enum OracleError {
 /// typically `Uncertain` at the aggregation layer).
 pub fn evaluate_deterministic(
     spec: &UatOracleSpec,
-    bundle: &UatEvidenceBundle,
+    bundle: &EvidenceBundle,
     run: &OracleRunContext,
 ) -> Result<UatOracleAssessment, OracleError> {
     let assessment = |verdict: UatOracleVerdict, details: Option<String>| UatOracleAssessment {
@@ -130,13 +130,13 @@ pub fn evaluate_deterministic(
 
 fn evaluate_http<F>(
     spec: &UatOracleSpec,
-    bundle: &UatEvidenceBundle,
+    bundle: &EvidenceBundle,
     assessment: &F,
 ) -> Result<UatOracleAssessment, OracleError>
 where
     F: Fn(UatOracleVerdict, Option<String>) -> UatOracleAssessment,
 {
-    let artifact = artifact_of_kind(bundle, spec.kind, UatEvidenceKind::Http)?;
+    let artifact = artifact_of_kind(bundle, spec.kind, EvidenceKind::Http)?;
     let payload = read_json(artifact, spec.kind)?;
     let status = payload
         .get("status")
@@ -182,7 +182,7 @@ where
 
 fn evaluate_text<F>(
     spec: &UatOracleSpec,
-    bundle: &UatEvidenceBundle,
+    bundle: &EvidenceBundle,
     assessment: &F,
 ) -> Result<UatOracleAssessment, OracleError>
 where
@@ -191,8 +191,8 @@ where
     // Text oracle: busca en dom.html si existe; si el executor fue cli/script
     // (command_output), busca en la salida capturada. Esto permite oracles
     // `text` sobre runs no-browser (dogfooding del propio framework).
-    let artifact = artifact_of_kind(bundle, spec.kind, UatEvidenceKind::Dom)
-        .or_else(|_| artifact_of_kind(bundle, spec.kind, UatEvidenceKind::CommandOutput))?;
+    let artifact = artifact_of_kind(bundle, spec.kind, EvidenceKind::Dom)
+        .or_else(|_| artifact_of_kind(bundle, spec.kind, EvidenceKind::CommandOutput))?;
     let haystack = read_text(artifact, spec.kind)?;
     let expect = spec.expect.clone().unwrap_or(Value::Null);
     let contains = expect.get("contains").and_then(Value::as_str);
@@ -235,7 +235,7 @@ where
 
 fn evaluate_json_schema<F>(
     spec: &UatOracleSpec,
-    bundle: &UatEvidenceBundle,
+    bundle: &EvidenceBundle,
     assessment: &F,
 ) -> Result<UatOracleAssessment, OracleError>
 where
@@ -263,7 +263,7 @@ where
         None => bundle
             .artifacts
             .iter()
-            .find(|a| matches!(a.kind, UatEvidenceKind::Network | UatEvidenceKind::File))
+            .find(|a| matches!(a.kind, EvidenceKind::Network | EvidenceKind::File))
             .ok_or_else(|| OracleError::MissingEvidence {
                 kind: spec.kind,
                 reference: "<any json artifact>".into(),
@@ -289,13 +289,13 @@ where
 
 fn evaluate_dom<F>(
     spec: &UatOracleSpec,
-    bundle: &UatEvidenceBundle,
+    bundle: &EvidenceBundle,
     assessment: &F,
 ) -> Result<UatOracleAssessment, OracleError>
 where
     F: Fn(UatOracleVerdict, Option<String>) -> UatOracleAssessment,
 {
-    let artifact = artifact_of_kind(bundle, spec.kind, UatEvidenceKind::Dom)?;
+    let artifact = artifact_of_kind(bundle, spec.kind, EvidenceKind::Dom)?;
     let html = read_text(artifact, spec.kind)?;
     let expect = spec.expect.clone().unwrap_or(Value::Null);
     let selector = expect
@@ -328,13 +328,13 @@ where
 
 fn evaluate_geometry<F>(
     spec: &UatOracleSpec,
-    bundle: &UatEvidenceBundle,
+    bundle: &EvidenceBundle,
     assessment: &F,
 ) -> Result<UatOracleAssessment, OracleError>
 where
     F: Fn(UatOracleVerdict, Option<String>) -> UatOracleAssessment,
 {
-    let artifact = artifact_of_kind(bundle, spec.kind, UatEvidenceKind::Geometry)?;
+    let artifact = artifact_of_kind(bundle, spec.kind, EvidenceKind::Geometry)?;
     let payload = read_json(artifact, spec.kind)?;
     let expect = spec.expect.clone().unwrap_or(Value::Null);
     let selector = expect
@@ -389,13 +389,13 @@ where
 
 fn evaluate_accessibility<F>(
     spec: &UatOracleSpec,
-    bundle: &UatEvidenceBundle,
+    bundle: &EvidenceBundle,
     assessment: &F,
 ) -> Result<UatOracleAssessment, OracleError>
 where
     F: Fn(UatOracleVerdict, Option<String>) -> UatOracleAssessment,
 {
-    let artifact = artifact_of_kind(bundle, spec.kind, UatEvidenceKind::Aria)?;
+    let artifact = artifact_of_kind(bundle, spec.kind, EvidenceKind::Aria)?;
     let payload = read_json(artifact, spec.kind)?;
     let severity_order = ["minor", "moderate", "serious", "critical"];
     let expected_severity = spec
@@ -450,13 +450,13 @@ where
 
 fn evaluate_visual_diff<F>(
     spec: &UatOracleSpec,
-    bundle: &UatEvidenceBundle,
+    bundle: &EvidenceBundle,
     assessment: &F,
 ) -> Result<UatOracleAssessment, OracleError>
 where
     F: Fn(UatOracleVerdict, Option<String>) -> UatOracleAssessment,
 {
-    let artifact = artifact_of_kind(bundle, spec.kind, UatEvidenceKind::Screenshot)?;
+    let artifact = artifact_of_kind(bundle, spec.kind, EvidenceKind::Screenshot)?;
     let actual_ref = artifact.r#ref.clone();
     let expected_ref = spec
         .expect
@@ -483,10 +483,10 @@ where
 // --- helpers ---
 
 fn artifact_of_kind(
-    bundle: &UatEvidenceBundle,
+    bundle: &EvidenceBundle,
     oracle_kind: UatOracleKind,
-    kind: UatEvidenceKind,
-) -> Result<&UatEvidenceArtifact, OracleError> {
+    kind: EvidenceKind,
+) -> Result<&EvidenceArtifact, OracleError> {
     bundle
         .artifacts
         .iter()
@@ -498,7 +498,7 @@ fn artifact_of_kind(
 }
 
 fn read_text(
-    artifact: &UatEvidenceArtifact,
+    artifact: &EvidenceArtifact,
     oracle_kind: UatOracleKind,
 ) -> Result<String, OracleError> {
     let path = artifact
@@ -515,7 +515,7 @@ fn read_text(
 }
 
 fn read_json(
-    artifact: &UatEvidenceArtifact,
+    artifact: &EvidenceArtifact,
     oracle_kind: UatOracleKind,
 ) -> Result<Value, OracleError> {
     let path = artifact
@@ -667,7 +667,7 @@ pub fn aggregate_verdict(assessments: &[UatOracleAssessment]) -> UatOracleVerdic
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sddk_domain::{UatEvidenceEnvironment, UatEvidenceExecution};
+    use sddk_domain::{EvidenceEnvironment, EvidenceExecution};
 
     static NEXT_DIR: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -679,7 +679,7 @@ mod tests {
         dir
     }
 
-    fn bundle_with_files(files: &[(&str, &str, &[u8])]) -> UatEvidenceBundle {
+    fn bundle_with_files(files: &[(&str, &str, &[u8])]) -> EvidenceBundle {
         // Unique dir per call (atomic counter) to avoid parallel-write
         // collisions between tests sharing artifact names.
         let tag = if files.is_empty() {
@@ -692,24 +692,24 @@ mod tests {
                 .join("+")
         };
         let dir = temp_dir(&tag);
-        let mut bundle = UatEvidenceBundle {
+        let mut bundle = EvidenceBundle {
             artifacts: Vec::new(),
-            environment: UatEvidenceEnvironment::default(),
-            execution: UatEvidenceExecution::default(),
+            environment: EvidenceEnvironment::default(),
+            execution: EvidenceExecution::default(),
         };
         for (name, kind, bytes) in files {
             let path = dir.join(name);
             std::fs::write(&path, bytes).unwrap();
-            bundle.artifacts.push(UatEvidenceArtifact {
+            bundle.artifacts.push(EvidenceArtifact {
                 kind: match *kind {
-                    "screenshot" => UatEvidenceKind::Screenshot,
-                    "dom" => UatEvidenceKind::Dom,
-                    "network" => UatEvidenceKind::Network,
-                    "http" => UatEvidenceKind::Http,
-                    "command_output" => UatEvidenceKind::CommandOutput,
-                    "geometry" => UatEvidenceKind::Geometry,
-                    "aria" => UatEvidenceKind::Aria,
-                    _ => UatEvidenceKind::File,
+                    "screenshot" => EvidenceKind::Screenshot,
+                    "dom" => EvidenceKind::Dom,
+                    "network" => EvidenceKind::Network,
+                    "http" => EvidenceKind::Http,
+                    "command_output" => EvidenceKind::CommandOutput,
+                    "geometry" => EvidenceKind::Geometry,
+                    "aria" => EvidenceKind::Aria,
+                    _ => EvidenceKind::File,
                 },
                 r#ref: sddk_domain::sha256_hex(bytes),
                 path: Some(path.display().to_string()),
