@@ -14,6 +14,19 @@
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
+// Evidence types (ADR-0016): universal Evidence model, UAT specialization.
+// Re-export from canonical evidence.rs. The UatEvidence* names (EvidenceKind,
+// EvidenceArtifact, EvidenceBundle, etc.) are preserved here so downstream
+// code (sddk-gateway, oracles, CLI) keeps compiling without changes.
+// ---------------------------------------------------------------------------
+
+pub use crate::evidence::{
+    EvidenceArtifact, EvidenceAutomationStatus, EvidenceBlastRadius, EvidenceBundle,
+    EvidenceEnvironment, EvidenceExecution, EvidenceExpectedCheck, EvidenceKind, EvidenceKindItem,
+    EvidenceOrigin, EvidenceRiskClassification,
+};
+
+// ---------------------------------------------------------------------------
 // Scenario v2 extensions (ADR-012 §4, §7 + ISO/IEC/IEEE 29119-3 alignment).
 //
 // All v2 fields are `Option<...>` or `Vec<...>` with `#[serde(default)]` so a

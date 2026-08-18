@@ -10,6 +10,7 @@
 pub mod cycle;
 pub mod error;
 pub mod event_envelope;
+pub mod evidence;
 pub mod identity;
 pub mod legacy;
 pub mod metrics;
@@ -25,6 +26,7 @@ pub mod workflow;
 pub use cycle::*;
 pub use error::*;
 pub use event_envelope::*;
+pub use evidence::*;
 pub use identity::*;
 pub use legacy::*;
 pub use metrics::*;
