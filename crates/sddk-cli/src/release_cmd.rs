@@ -27,6 +27,24 @@ pub(crate) enum ReleaseCommand {
     Dist(DistArgs),
     /// Verify a dist prefix against its checksums and attestation.
     Verify(DistArgs),
+    /// Manage release channels and promotion.
+    Channel(ChannelArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(crate) struct ChannelArgs {
+    /// Promotion source channel.
+    #[arg(long)]
+    pub(crate) from: String,
+    /// Promotion target channel.
+    #[arg(long)]
+    pub(crate) to: String,
+    /// Assume gates passed (required for edge→candidate and candidate→stable).
+    #[arg(long)]
+    pub(crate) gates_ok: bool,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub(crate) format: OutputFormat,
 }
 
 /// Release authority selected for one invocation.
@@ -53,6 +71,9 @@ pub(crate) struct DistArgs {
     /// Explicit source commit.
     #[arg(long)]
     pub(crate) commit: Option<String>,
+    /// Verify a signed gate receipt: `receipt_id|gate|transition|plan_hash|signature`.
+    #[arg(long)]
+    pub(crate) receipt: Option<String>,
     /// Output format.
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     pub(crate) format: OutputFormat,
@@ -112,8 +133,72 @@ pub(crate) fn run_release(command: ReleaseCommand, environment: &CliEnvironment)
         ReleaseCommand::Plan(args) => run_release_plan(args, environment),
         ReleaseCommand::Apply(args) => run_release_apply(args, environment),
         ReleaseCommand::Dist(args) => run_release_dist(args),
-        ReleaseCommand::Verify(args) => run_release_dist_verify(args),
+        ReleaseCommand::Verify(args) => run_release_dist_verify(args, environment),
+        ReleaseCommand::Channel(args) => run_release_channel(args),
     }
+}
+
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "snake_case")]
+struct ChannelPromoteOutput {
+    from: String,
+    to: String,
+    allowed: bool,
+    gates_ok: bool,
+    reason: String,
+}
+
+fn run_release_channel(args: ChannelArgs) -> CommandOutput {
+    let format = args.format;
+    let result = (|| -> anyhow::Result<ChannelPromoteOutput> {
+        let from = sddk_domain::ReleaseChannel::parse(&args.from).ok_or_else(|| {
+            anyhow::anyhow!(
+                "unknown channel '{}' (stable|candidate|edge|dev)",
+                args.from
+            )
+        })?;
+        let to = sddk_domain::ReleaseChannel::parse(&args.to).ok_or_else(|| {
+            anyhow::anyhow!("unknown channel '{}' (stable|candidate|edge|dev)", args.to)
+        })?;
+        let allowed = sddk_domain::can_promote(from, to, args.gates_ok);
+        let reason = if allowed {
+            format!("promotion {} → {} allowed", args.from, args.to)
+        } else if sddk_domain::promotion_target(from) != Some(to) {
+            format!(
+                "promotion {} → {} is not an adjacent channel step",
+                args.from, args.to
+            )
+        } else {
+            format!(
+                "promotion {} → {} requires gates to pass (--gates-ok)",
+                args.from, args.to
+            )
+        };
+        Ok(ChannelPromoteOutput {
+            from: args.from,
+            to: args.to,
+            allowed,
+            gates_ok: args.gates_ok,
+            reason,
+        })
+    })();
+    match result {
+        Ok(output) => {
+            let mut command = render_result(Ok(output.clone()), format, channel_promote_text);
+            if !output.allowed {
+                command.status = 1;
+            }
+            command
+        }
+        Err(error) => crate::failure(error.to_string()),
+    }
+}
+
+fn channel_promote_text(output: &ChannelPromoteOutput) -> String {
+    format!(
+        "from: {}\nto: {}\nallowed: {}\ngates_ok: {}\nreason: {}\n",
+        output.from, output.to, output.allowed, output.gates_ok, output.reason
+    )
 }
 
 const CHECKSUMS_FILE: &str = "checksums.txt";
@@ -194,7 +279,7 @@ fn run_release_dist(args: DistArgs) -> CommandOutput {
     render_result(result, format, dist_text)
 }
 
-fn run_release_dist_verify(args: DistArgs) -> CommandOutput {
+fn run_release_dist_verify(args: DistArgs, environment: &CliEnvironment) -> CommandOutput {
     let format = args.format;
     let result = (|| -> anyhow::Result<serde_json::Value> {
         let dist_dir = args.prefix.join("dist");
@@ -220,6 +305,26 @@ fn run_release_dist_verify(args: DistArgs) -> CommandOutput {
             anyhow::bail!("attestation.json digest does not match");
         }
 
+        // Verify a signed gate receipt when provided (fail-closed).
+        if let Some(receipt_spec) = &args.receipt {
+            let parts: Vec<&str> = receipt_spec.split('|').collect();
+            if parts.len() != 5 {
+                anyhow::bail!(
+                    "receipt spec must be receipt_id|gate|transition|plan_hash|signature"
+                );
+            }
+            let key_dir = environment
+                .sddk_data_dir
+                .clone()
+                .or(environment.data_home.clone())
+                .unwrap_or_else(|| std::path::PathBuf::from("~/.local/share"));
+            let keys_dir = key_dir.join("sddk").join("keys");
+            let key = sddk_engine::load_or_create_key(&keys_dir)?;
+            let payload = format!("{}|{}|{}|{}", parts[0], parts[1], parts[2], parts[3]);
+            if !sddk_engine::verify_payload(&payload, parts[4], &key) {
+                anyhow::bail!("gate receipt signature verification FAILED");
+            }
+        }
         Ok(serde_json::json!({
             "valid": true,
             "binary_sha256": digest,

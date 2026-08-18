@@ -1111,6 +1111,19 @@ struct GateEvaluationOutput {
     evaluator: String,
     transition_id: String,
     plan_hash: String,
+    /// HMAC-SHA256 signature over the canonical receipt payload (Phase 9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    signature: Option<String>,
+}
+
+/// Builds the canonical payload that gets signed for a gate receipt.
+fn gate_receipt_payload(
+    receipt_id: &str,
+    gate: &str,
+    transition_id: &str,
+    plan_hash: &str,
+) -> String {
+    format!("{receipt_id}|{gate}|{transition_id}|{plan_hash}")
 }
 
 fn run_cycle_evaluate_gate(
@@ -1145,12 +1158,26 @@ fn run_cycle_evaluate_gate(
             actor,
             command_id: format!("gate-{}", uuid::Uuid::new_v4().hyphenated()),
         })?;
+        // Sign the receipt with the local key (fail-closed: no key → no
+        // signature; release verify will reject unsigned receipts).
+        let signature = {
+            let keys_dir = context.paths.project_data.join("keys");
+            let key = sddk_engine::load_or_create_key(&keys_dir)?;
+            let payload = gate_receipt_payload(
+                &receipt.receipt_id,
+                &receipt.gate,
+                &receipt.transition_id,
+                &receipt.plan_hash,
+            );
+            Some(sddk_engine::sign_payload(&payload, &key)?)
+        };
         Ok(GateEvaluationOutput {
             receipt_id: receipt.receipt_id,
             gate: receipt.gate,
             evaluator: receipt.evaluator,
             transition_id: receipt.transition_id,
             plan_hash: receipt.plan_hash,
+            signature,
         })
     })();
     render_result(result, format, gate_evaluation_text)

@@ -30,6 +30,21 @@ pub(crate) struct RulesCheckArgs {
     pub(crate) fallback_seed: Option<String>,
     #[arg(long)]
     pub(crate) out: Option<PathBuf>,
+    /// Ratchet mode: compare the current score against a baseline file and
+    /// fail when the score is worse (higher).
+    #[arg(long)]
+    pub(crate) ratchet: bool,
+    /// Baseline JSON file for the ratchet (default: fixtures/baseline-arch.json).
+    #[arg(long)]
+    pub(crate) baseline: Option<PathBuf>,
+}
+
+/// Computes the ratchet score: number of failed evaluations.
+fn ratchet_score(evaluations: &[RuleEvaluation]) -> usize {
+    evaluations
+        .iter()
+        .filter(|e| e.status == sddk_domain::RuleStatus::Fail)
+        .count()
 }
 
 pub(crate) fn run_rules(command: RulesCommand, environment: &CliEnvironment) -> CommandOutput {
@@ -75,23 +90,24 @@ fn run_rules_check(args: RulesCheckArgs, environment: &CliEnvironment) -> Comman
     ) {
         Ok(context) => context,
         Err(error) => {
-            return write_output(
-                &args,
-                EvaluationOutput {
-                    schema_version: ARCHITECTURE_RULES_SCHEMA_VERSION,
-                    evaluator_version: EVALUATOR_VERSION,
-                    applicable: false,
-                    reason: Some(error.to_string()),
-                    capability_id: None,
-                    capability_authority: None,
-                    capability_status: "not_applicable".to_owned(),
-                    receipt_id: "kr-unadopted".to_owned(),
-                    baseline_schema_version: None,
-                    baseline_sha256: None,
-                    evaluated_at: now_rfc3339(),
-                    evaluations: Vec::new(),
-                },
-            );
+            let output = EvaluationOutput {
+                schema_version: ARCHITECTURE_RULES_SCHEMA_VERSION,
+                evaluator_version: EVALUATOR_VERSION,
+                applicable: false,
+                reason: Some(error.to_string()),
+                capability_id: None,
+                capability_authority: None,
+                capability_status: "not_applicable".to_owned(),
+                receipt_id: "kr-unadopted".to_owned(),
+                baseline_schema_version: None,
+                baseline_sha256: None,
+                evaluated_at: now_rfc3339(),
+                evaluations: Vec::new(),
+            };
+            if args.ratchet {
+                return run_ratchet(&args, &output);
+            }
+            return write_output(&args, output);
         }
     };
     let capability = match crate::knowledge_ingest::resolve_architecture_capability(&context) {
@@ -101,23 +117,24 @@ fn run_rules_check(args: RulesCheckArgs, environment: &CliEnvironment) -> Comman
     let (catalog, baseline_path) = match (&capability.catalog, &capability.baseline) {
         (Some(catalog), Some(baseline)) => (catalog.clone(), baseline.clone()),
         _ => {
-            return write_output(
-                &args,
-                EvaluationOutput {
-                    schema_version: ARCHITECTURE_RULES_SCHEMA_VERSION,
-                    evaluator_version: EVALUATOR_VERSION,
-                    applicable: false,
-                    reason: Some(capability.reason),
-                    capability_id: capability.capability_id,
-                    capability_authority: capability.authority,
-                    capability_status: capability.status,
-                    receipt_id: capability.receipt_id,
-                    baseline_schema_version: None,
-                    baseline_sha256: None,
-                    evaluated_at: now_rfc3339(),
-                    evaluations: Vec::new(),
-                },
-            );
+            let output = EvaluationOutput {
+                schema_version: ARCHITECTURE_RULES_SCHEMA_VERSION,
+                evaluator_version: EVALUATOR_VERSION,
+                applicable: false,
+                reason: Some(capability.reason),
+                capability_id: capability.capability_id,
+                capability_authority: capability.authority,
+                capability_status: capability.status,
+                receipt_id: capability.receipt_id,
+                baseline_schema_version: None,
+                baseline_sha256: None,
+                evaluated_at: now_rfc3339(),
+                evaluations: Vec::new(),
+            };
+            if args.ratchet {
+                return run_ratchet(&args, &output);
+            }
+            return write_output(&args, output);
         }
     };
     let yaml = match std::fs::read_to_string(&catalog) {
@@ -152,7 +169,53 @@ fn run_rules_check(args: RulesCheckArgs, environment: &CliEnvironment) -> Comman
         evaluated_at,
         evaluations,
     };
+    if args.ratchet {
+        return run_ratchet(&args, &output);
+    }
     write_output(&args, output)
+}
+
+/// Ratchet: fail when the current score is worse than the baseline.
+fn run_ratchet(args: &RulesCheckArgs, output: &EvaluationOutput) -> CommandOutput {
+    let baseline_path = args
+        .baseline
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("fixtures/baseline-arch.json"));
+    let baseline_json = match std::fs::read_to_string(&baseline_path) {
+        Ok(content) => content,
+        Err(e) => {
+            return failure(format!(
+                "ratchet: cannot read baseline {}: {e}",
+                baseline_path.display()
+            ));
+        }
+    };
+    let baseline: serde_json::Value = match serde_json::from_str(&baseline_json) {
+        Ok(value) => value,
+        Err(e) => return failure(format!("ratchet: invalid baseline JSON: {e}")),
+    };
+    let baseline_score = baseline.get("score").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+
+    let current_score = ratchet_score(&output.evaluations);
+    let body = serde_json::json!({
+        "schema_version": ARCHITECTURE_RULES_SCHEMA_VERSION,
+        "ratchet": true,
+        "baseline_score": baseline_score,
+        "current_score": current_score,
+        "passed": current_score <= baseline_score,
+        "evaluations": output.evaluations.len(),
+    });
+    let body = format!("{body}\n");
+    let status = if current_score <= baseline_score {
+        0
+    } else {
+        1
+    };
+    CommandOutput {
+        status,
+        stdout: body,
+        stderr: String::new(),
+    }
 }
 
 fn write_output(args: &RulesCheckArgs, output: EvaluationOutput) -> CommandOutput {
