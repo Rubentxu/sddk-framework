@@ -5,7 +5,7 @@ use super::run_dev_link;
 use crate::CliEnvironment;
 use crate::dev::editor_adapters::test_fixtures::FIXTURE_YAML;
 use crate::dev::{LinkArgs, LinkEditor, OutputFormat};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 fn link_fixture(config: Option<&str>) -> (tempfile::TempDir, CliEnvironment) {
     let tmp = tempfile::tempdir().unwrap();

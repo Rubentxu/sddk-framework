@@ -20,7 +20,7 @@ fn e2e_transition_emits_phase_events() {
     let data = tmp.path().join("data");
     let cache = tmp.path().join("cache");
     std::fs::create_dir_all(&root).unwrap();
-    std::fs::create_dir_all(&state.join("sddk")).unwrap();
+    std::fs::create_dir_all(state.join("sddk")).unwrap();
 
     // Run CLI with isolated XDG.
     let run = |args: &[&str]| {

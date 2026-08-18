@@ -3,14 +3,6 @@
 use crate::dev::uninstall::{run_dev_uninstall, uninstall_native_editor};
 use crate::dev::{LinkEditor, OutputFormat, UninstallArgs};
 
-fn temp_root(tag: &str) -> std::path::PathBuf {
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("sddk-uninstall-{tag}-{}-{n}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
 fn fixture_root() -> (tempfile::TempDir, std::path::PathBuf) {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("root");

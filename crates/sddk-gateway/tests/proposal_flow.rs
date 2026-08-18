@@ -256,7 +256,7 @@ fn execute_governed_receipt_contains_version_hashes() {
     let db_path = directory.path().join("ledger.sqlite");
 
     // Use file-backed storage so project insertion and gateway share the same database
-    let mut storage = Storage::open(&db_path).unwrap();
+    let storage = Storage::open(&db_path).unwrap();
     storage
         .insert_project(&ProjectRecord {
             project_id: "test-project".into(),
