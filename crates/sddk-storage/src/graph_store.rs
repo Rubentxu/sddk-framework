@@ -4,7 +4,7 @@
 //! adapter persists the derived snapshot + checkpoint in
 //! `projection_checkpoints_v1` under the `graph` projection name.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use sddk_domain::{
     Checkpoint, EventStore, GraphProjection, GraphState, GraphStore, Projection, ProjectionError,
@@ -18,6 +18,8 @@ use crate::projection_store::SqliteProjectionStore;
 pub struct SqliteGraphStore {
     /// Projection store that owns the checkpoint persistence.
     proj_store: SqliteProjectionStore,
+    /// Directory containing `ledger.sqlite` (retained for ledger access).
+    ledger_dir_path: Option<PathBuf>,
 }
 
 impl SqliteGraphStore {
@@ -25,6 +27,7 @@ impl SqliteGraphStore {
     pub fn open(dir: &Path) -> Result<Self, StorageError> {
         Ok(Self {
             proj_store: SqliteProjectionStore::open(dir)?,
+            ledger_dir_path: Some(dir.to_path_buf()),
         })
     }
 
@@ -32,6 +35,7 @@ impl SqliteGraphStore {
     pub fn open_in_memory() -> Result<Self, StorageError> {
         Ok(Self {
             proj_store: SqliteProjectionStore::open_in_memory()?,
+            ledger_dir_path: None,
         })
     }
 
@@ -72,6 +76,34 @@ impl SqliteGraphStore {
             .save_checkpoint(&cp, &state_json)
             .map_err(|e| ProjectionError::Storage(format!("save_checkpoint: {e}")))?;
         Ok(projection.state_ref().clone())
+    }
+
+    /// Rebuilds the graph from the ledger at the same `ledger.sqlite` path.
+    ///
+    /// Convenience for CLI consumers that do not hold an `SqliteEventStore`.
+    pub fn rebuild_from_ledger(&mut self, stream_id: &str) -> Result<GraphState, ProjectionError> {
+        // Both stores share `dir/ledger.sqlite`; the graph store keeps its
+        // projection connection, and this opens a second read connection.
+        let dir = self
+            .ledger_dir()
+            .map_err(|e| ProjectionError::Storage(e.to_string()))?;
+        let event_store = SqliteEventStore::open(&dir)
+            .map_err(|e| ProjectionError::Storage(format!("open event store: {e}")))?;
+        self.rebuild(&event_store, stream_id)
+    }
+}
+
+impl SqliteGraphStore {
+    /// Returns the directory containing `ledger.sqlite` (derived from the
+    /// projection store connection path via the open directory).
+    fn ledger_dir(&self) -> Result<std::path::PathBuf, StorageError> {
+        // The projection store does not retain its path; callers of
+        // `open(dir)` know it. We reconstruct it by convention: this adapter
+        // is constructed with the directory, so we store it at open time.
+        // Fallback: current directory (should not happen in practice).
+        self.ledger_dir_path
+            .clone()
+            .ok_or_else(|| StorageError::Database("ledger dir not retained".into()))
     }
 }
 
