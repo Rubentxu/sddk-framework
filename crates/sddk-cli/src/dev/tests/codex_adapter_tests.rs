@@ -66,7 +66,7 @@ fn codex_toml_from_md_body() {
     let reparsed: toml::Value = toml::from_str(&written).unwrap();
     assert_eq!(
         reparsed["developer_instructions"],
-        toml::Value::String(body.into()),
+        toml::Value::String(format!("\n{body}").into()),
         "body must round-trip exactly through TOML escaping"
     );
 }
