@@ -58,7 +58,7 @@ pub struct CapabilityPlan {
     pub receipt_id: String,
 }
 
-/// Errors emitted by the capability gateway.
+    /// Errors emitted by the capability gateway.
 #[derive(Debug, Error)]
 pub enum GatewayError {
     /// The policy denies the capability.
@@ -73,6 +73,25 @@ pub enum GatewayError {
         /// Capability awaiting approval.
         capability: String,
     },
+    /// Approval window has expired before a decision was recorded.
+    #[error("approval for capability {capability} expired at {expired_at}")]
+    ApprovalExpired {
+        /// Capability whose approval window closed.
+        capability: String,
+        /// RFC3339 expiry timestamp from the proposal.
+        expired_at: String,
+    },
+    /// An approval decision has already been recorded for this cycle and capability.
+    #[error("approval for cycle {cycle_id} capability {capability} is already resolved")]
+    ApprovalAlreadyResolved {
+        /// Cycle that owns the approval.
+        cycle_id: String,
+        /// Capability that was already decided.
+        capability: String,
+    },
+    /// A decision reason is required but was not supplied.
+    #[error("approval decision reason is required")]
+    ApprovalReasonRequired,
     /// The stored request disagrees with the supplied idempotency key.
     #[error("gateway idempotency error: {0}")]
     Idempotency(#[from] sddk_storage::StorageError),
@@ -379,6 +398,20 @@ impl CapabilityGateway {
     pub fn receipts(&self, project_id: &str) -> Result<Vec<CapabilityReceipt>, GatewayError> {
         Ok(self.storage.list_capability_receipts(project_id)?)
     }
+
+    /// Checks whether a proposal's approval window has expired.
+    ///
+    /// Returns `Err(ApprovalExpired)` if `now > proposal.expires_at`, otherwise `Ok(())`.
+    /// The orchestrator polls this after receiving `ApprovalRequired` to detect stale requests.
+    pub fn check_proposal_expiry(&self, proposal: &Proposal) -> Result<(), GatewayError> {
+        if proposal.is_expired() {
+            return Err(GatewayError::ApprovalExpired {
+                capability: proposal.capability.clone(),
+                expired_at: proposal.expires_at.clone(),
+            });
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -493,5 +526,93 @@ mod tests {
         let first = gateway.apply(&plan).unwrap();
         let second = gateway.apply(&plan).unwrap();
         assert_eq!(first.receipt_id, second.receipt_id);
+    }
+
+    #[test]
+    fn approval_expired_error_contains_capability_and_expiry() {
+        let err = crate::GatewayError::ApprovalExpired {
+            capability: "git.delete_branch".into(),
+            expired_at: "2026-08-18T18:00:00Z".into(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("git.delete_branch"));
+        assert!(msg.contains("2026-08-18T18:00:00Z"));
+    }
+
+    #[test]
+    fn approval_already_resolved_error_contains_cycle_and_capability() {
+        let err = crate::GatewayError::ApprovalAlreadyResolved {
+            cycle_id: "c-42".into(),
+            capability: "git.delete_branch".into(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("c-42"));
+        assert!(msg.contains("git.delete_branch"));
+    }
+
+    #[test]
+    fn approval_reason_required_error() {
+        let err = crate::GatewayError::ApprovalReasonRequired;
+        let msg = err.to_string();
+        assert!(msg.contains("reason"));
+    }
+
+    #[test]
+    fn check_proposal_expiry_returns_err_for_expired_proposal() {
+        let (_storage, gateway) = gateway();
+        // Build a proposal that is already expired (created 2 hours ago, expires 1 hour ago)
+        let proposal = sddk_domain::proposal::Proposal {
+            proposal_id: "p-1".into(),
+            project_id: "project-1".into(),
+            cycle_id: Some("c-1".into()),
+            capability: "git.delete_branch".into(),
+            reason: "test".into(),
+            program: "echo".into(),
+            args: vec!["hello".into()],
+            env: Default::default(),
+            timeout_ms: 5_000,
+            output_max_bytes: 1_024,
+            created_at: "2026-08-17T10:00:00Z".into(),
+            expires_at: "2026-08-17T12:00:00Z".into(), // already expired
+            status: sddk_domain::proposal::ProposalStatus::Pending,
+            agent_version_hash: String::new(),
+            behavior_version_hash: String::new(),
+        };
+        let result = gateway.check_proposal_expiry(&proposal);
+        assert!(matches!(
+            result,
+            Err(crate::GatewayError::ApprovalExpired { capability, expired_at })
+                if capability == "git.delete_branch" && expired_at == "2026-08-17T12:00:00Z"
+        ));
+    }
+
+    #[test]
+    fn check_proposal_expiry_returns_ok_for_valid_proposal() {
+        let (_storage, gateway) = gateway();
+        // Build a proposal that is not yet expired (expires 1 hour from now)
+        let now = time::OffsetDateTime::now_utc();
+        let future = now + time::Duration::hours(1);
+        let future_str = future
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap();
+        let proposal = sddk_domain::proposal::Proposal {
+            proposal_id: "p-1".into(),
+            project_id: "project-1".into(),
+            cycle_id: Some("c-1".into()),
+            capability: "git.delete_branch".into(),
+            reason: "test".into(),
+            program: "echo".into(),
+            args: vec!["hello".into()],
+            env: Default::default(),
+            timeout_ms: 5_000,
+            output_max_bytes: 1_024,
+            created_at: now.format(&time::format_description::well_known::Rfc3339).unwrap(),
+            expires_at: future_str,
+            status: sddk_domain::proposal::ProposalStatus::Pending,
+            agent_version_hash: String::new(),
+            behavior_version_hash: String::new(),
+        };
+        let result = gateway.check_proposal_expiry(&proposal);
+        assert!(result.is_ok());
     }
 }

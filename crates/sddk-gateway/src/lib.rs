@@ -111,6 +111,9 @@ impl sddk_domain::SddkErrorCode for GatewayError {
         match self {
             Self::Denied { .. } => "GATEWAY_DENIED",
             Self::ApprovalRequired { .. } => "GATEWAY_APPROVAL_REQUIRED",
+            Self::ApprovalExpired { .. } => "APPROVAL_EXPIRED",
+            Self::ApprovalAlreadyResolved { .. } => "GATEWAY_APPROVAL_ALREADY_RESOLVED",
+            Self::ApprovalReasonRequired => "GATEWAY_APPROVAL_REASON_REQUIRED",
             Self::Idempotency(..) => "GATEWAY_IDEMPOTENCY",
             Self::Runner(..) => "GATEWAY_RUNNER",
             Self::Serialization(..) => "GATEWAY_SERIALIZATION",
@@ -123,6 +126,15 @@ impl sddk_domain::SddkErrorCode for GatewayError {
             Self::Denied { .. } => "use a capability declared in the workflow policy",
             Self::ApprovalRequired { .. } => {
                 "re-run with explicit `--approve` for R3/R4 capabilities"
+            }
+            Self::ApprovalExpired { .. } => {
+                "the approval window has closed; a new proposal must be submitted"
+            }
+            Self::ApprovalAlreadyResolved { .. } => {
+                "this capability was already decided for the given cycle"
+            }
+            Self::ApprovalReasonRequired => {
+                "supply a non-empty `--reason` with the approval decision"
             }
             Self::Idempotency(..) => "use a fresh idempotency key or the original request",
             Self::Runner(..) => "check the typed runner executable and arguments",
@@ -216,6 +228,7 @@ pub fn redact(value: Value) -> Value {
 
 #[cfg(test)]
 mod tests {
+    use sddk_domain::SddkErrorCode;
     use serde_json::json;
 
     use super::redact;
@@ -241,5 +254,30 @@ mod tests {
         let output = redact(input);
         assert_eq!(output[0]["token"], "<redacted>");
         assert_eq!(output[1]["value"], 1);
+    }
+
+    #[test]
+    fn approval_expired_error_code_is_stable() {
+        let err = crate::GatewayError::ApprovalExpired {
+            capability: "git.delete_branch".into(),
+            expired_at: "2026-08-18T18:00:00Z".into(),
+        };
+        assert_eq!(err.code(), "APPROVAL_EXPIRED");
+        assert!(err.recovery().contains("approval window"));
+    }
+
+    #[test]
+    fn approval_already_resolved_error_code_is_stable() {
+        let err = crate::GatewayError::ApprovalAlreadyResolved {
+            cycle_id: "c-1".into(),
+            capability: "git.delete_branch".into(),
+        };
+        assert_eq!(err.code(), "GATEWAY_APPROVAL_ALREADY_RESOLVED");
+    }
+
+    #[test]
+    fn approval_reason_required_error_code_is_stable() {
+        let err = crate::GatewayError::ApprovalReasonRequired;
+        assert_eq!(err.code(), "GATEWAY_APPROVAL_REASON_REQUIRED");
     }
 }
