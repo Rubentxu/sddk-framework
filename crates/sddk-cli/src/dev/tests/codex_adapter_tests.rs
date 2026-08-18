@@ -2,7 +2,7 @@
 
 use super::CodexAdapter;
 use crate::dev::editor_adapters::test_fixtures::{self, ctx};
-use crate::dev::editor_adapters::{AgentSource, EditorAdapter, RegistrationContext};
+use crate::dev::editor_adapters::{EditorAdapter, RegistrationContext};
 
 fn register_into(
     fixture: &test_fixtures::Fixture,

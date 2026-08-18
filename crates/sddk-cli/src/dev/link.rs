@@ -2,6 +2,7 @@
 
 use super::LinkEditor;
 use crate::dev::common::walk_dir;
+use crate::dev::editor_adapters::LinkProfile;
 use crate::dev::framework_check::{LinkReport, link_report_text, sync_assets};
 use crate::dev::paths::resolve_active_framework_root;
 use crate::dev::registry::write_skill_registry;
@@ -136,7 +137,7 @@ pub(crate) fn prune_editor(root: &Path, editor_dir: &Path) -> usize {
     pruned
 }
 
-fn link_editor(root: &Path, editor_dir: &Path) -> LinkReport {
+fn link_editor(root: &Path, editor_dir: &Path, profile: LinkProfile) -> LinkReport {
     let mut report = LinkReport {
         editor: editor_dir.to_string_lossy().into_owned(),
         agents_linked: 0,
@@ -152,72 +153,82 @@ fn link_editor(root: &Path, editor_dir: &Path) -> LinkReport {
     };
     let mut stale = 0usize;
 
-    let agents_source = root.join("agents");
-    if let Ok(entries) = std::fs::read_dir(&agents_source) {
-        let agents_target = editor_dir.join("agents");
-        for entry in entries.flatten() {
-            if entry.path().extension().and_then(|e| e.to_str()) == Some("md") {
-                let name = entry.file_name();
-                if let Err(error) = link_file(&entry.path(), &agents_target.join(&name), &mut stale)
+    if profile.agents {
+        let agents_source = root.join("agents");
+        if let Ok(entries) = std::fs::read_dir(&agents_source) {
+            let agents_target = editor_dir.join("agents");
+            for entry in entries.flatten() {
+                if entry.path().extension().and_then(|e| e.to_str()) == Some("md") {
+                    let name = entry.file_name();
+                    if let Err(error) =
+                        link_file(&entry.path(), &agents_target.join(&name), &mut stale)
+                    {
+                        report.errors.push(format!("agents/{name:?}: {error}"));
+                    } else {
+                        report.agents_linked += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    if profile.skills {
+        let skills_source = root.join("skills");
+        if let Ok(entries) = std::fs::read_dir(&skills_source) {
+            let skills_target = editor_dir.join("skills");
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let is_skill_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+                let is_markdown = path.extension().and_then(|e| e.to_str()) == Some("md");
+                if is_skill_dir || is_markdown {
+                    let name = entry.file_name();
+                    if let Err(error) = link_file(&path, &skills_target.join(&name), &mut stale) {
+                        report.errors.push(format!("skills/{name:?}: {error}"));
+                    } else {
+                        report.skills_linked += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    if profile.prompts {
+        let prompts_source = root.join("prompts/sddk");
+        let prompts_target = editor_dir.join("prompts/sddk");
+        if prompts_source.is_dir() {
+            for entry in walk_dir(&prompts_source) {
+                if entry.is_file() {
+                    let relative = entry
+                        .strip_prefix(&prompts_source)
+                        .unwrap_or(entry.as_path());
+                    let target = prompts_target.join(relative);
+                    if let Err(error) = link_file(&entry, &target, &mut stale) {
+                        report.errors.push(format!("prompts/{relative:?}: {error}"));
+                    } else {
+                        report.prompts_linked += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    if profile.workflows {
+        let workflows_source = root.join("prompts/sddk/workflows");
+        let workflows_target = editor_dir.join("workflows");
+        if workflows_source.is_dir() {
+            for entry in walk_dir(&workflows_source) {
+                if entry.is_file()
+                    && let Some(name) = entry
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .map(str::to_owned)
                 {
-                    report.errors.push(format!("agents/{name:?}: {error}"));
-                } else {
-                    report.agents_linked += 1;
-                }
-            }
-        }
-    }
-
-    let skills_source = root.join("skills");
-    if let Ok(entries) = std::fs::read_dir(&skills_source) {
-        let skills_target = editor_dir.join("skills");
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let is_skill_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-            let is_markdown = path.extension().and_then(|e| e.to_str()) == Some("md");
-            if is_skill_dir || is_markdown {
-                let name = entry.file_name();
-                if let Err(error) = link_file(&path, &skills_target.join(&name), &mut stale) {
-                    report.errors.push(format!("skills/{name:?}: {error}"));
-                } else {
-                    report.skills_linked += 1;
-                }
-            }
-        }
-    }
-
-    let prompts_source = root.join("prompts/sddk");
-    let prompts_target = editor_dir.join("prompts/sddk");
-    if prompts_source.is_dir() {
-        for entry in walk_dir(&prompts_source) {
-            if entry.is_file() {
-                let relative = entry
-                    .strip_prefix(&prompts_source)
-                    .unwrap_or(entry.as_path());
-                let target = prompts_target.join(relative);
-                if let Err(error) = link_file(&entry, &target, &mut stale) {
-                    report.errors.push(format!("prompts/{relative:?}: {error}"));
-                } else {
-                    report.prompts_linked += 1;
-                }
-            }
-        }
-    }
-
-    let workflows_source = root.join("prompts/sddk/workflows");
-    let workflows_target = editor_dir.join("workflows");
-    if workflows_source.is_dir() {
-        for entry in walk_dir(&workflows_source) {
-            if entry.is_file()
-                && let Some(name) = entry
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .map(str::to_owned)
-            {
-                if let Err(error) = link_file(&entry, &workflows_target.join(&name), &mut stale) {
-                    report.errors.push(format!("workflows/{name:?}: {error}"));
-                } else {
-                    report.workflows_linked += 1;
+                    if let Err(error) = link_file(&entry, &workflows_target.join(&name), &mut stale)
+                    {
+                        report.errors.push(format!("workflows/{name:?}: {error}"));
+                    } else {
+                        report.workflows_linked += 1;
+                    }
                 }
             }
         }
@@ -232,6 +243,7 @@ fn link_editor(root: &Path, editor_dir: &Path) -> LinkReport {
 
 pub(super) fn run_dev_link(args: super::LinkArgs, environment: &CliEnvironment) -> CommandOutput {
     let format = args.format;
+    let mut warnings: Vec<String> = Vec::new();
     let result = (|| -> anyhow::Result<Vec<LinkReport>> {
         let root = if args.root.as_os_str() == "." {
             resolve_active_framework_root(environment)?
@@ -251,15 +263,15 @@ pub(super) fn run_dev_link(args: super::LinkArgs, environment: &CliEnvironment) 
         let models = match crate::dev::agent_models::AgentModelsConfig::from_file(&models_path) {
             Ok(models) => models,
             Err(error) => {
-                eprintln!("warning: {error}");
+                warnings.push(format!("warning: {error}"));
                 None
             }
         };
         if models.is_none() {
-            eprintln!(
+            warnings.push(format!(
                 "warning: agent-models.yaml not found at {}; agents will be registered without a model",
                 models_path.display()
-            );
+            ));
         }
         // One agent-source pass shared by all adapters.
         let agents = crate::dev::editor_adapters::load_agent_sources(&root);
@@ -279,21 +291,40 @@ pub(super) fn run_dev_link(args: super::LinkArgs, environment: &CliEnvironment) 
             .zcode_dir
             .clone()
             .unwrap_or_else(|| home.join(".zcode"));
+        let claude_dir = args
+            .claude_dir
+            .clone()
+            .unwrap_or_else(|| home.join(".claude"));
+        let codex_dir = args
+            .codex_dir
+            .clone()
+            .unwrap_or_else(|| home.join(".codex"));
         let dirs = crate::dev::editor_adapters::EditorDirs {
             opencode: opencode_dir.clone(),
             zcode: zcode_dir.clone(),
-            claude: home.join(".claude"),
-            codex: home.join(".codex"),
+            claude: claude_dir.clone(),
+            codex: codex_dir.clone(),
         };
         let mut reports = Vec::new();
-        if matches!(args.editor, LinkEditor::OpenCode | LinkEditor::All) {
-            let mut report = link_editor(&root, &opencode_dir);
-            register_into_report(super::LinkEditor::OpenCode, &dirs, &ctx, &mut report);
-            reports.push(report);
-        }
-        if matches!(args.editor, LinkEditor::ZCode | LinkEditor::All) {
-            let mut report = link_editor(&root, &zcode_dir);
-            register_into_report(super::LinkEditor::ZCode, &dirs, &ctx, &mut report);
+        for editor in [
+            LinkEditor::OpenCode,
+            LinkEditor::ZCode,
+            LinkEditor::Claude,
+            LinkEditor::Codex,
+        ] {
+            if !matches!(args.editor, LinkEditor::All) && args.editor != editor {
+                continue;
+            }
+            let editor_dir = match editor {
+                LinkEditor::OpenCode => &opencode_dir,
+                LinkEditor::ZCode => &zcode_dir,
+                LinkEditor::Claude => &claude_dir,
+                LinkEditor::Codex => &codex_dir,
+                LinkEditor::All => unreachable!("single-editor loop"),
+            };
+            let profile = crate::dev::editor_adapters::LinkProfile::for_editor(editor);
+            let mut report = link_editor(&root, editor_dir, profile);
+            register_into_report(editor, &dirs, &ctx, &mut report, &mut warnings);
             reports.push(report);
         }
 
@@ -317,13 +348,26 @@ pub(super) fn run_dev_link(args: super::LinkArgs, environment: &CliEnvironment) 
 
         Ok(reports)
     })();
-    render_result(result, format, |reports: &Vec<LinkReport>| {
+    let has_errors = result
+        .as_ref()
+        .map(|reports: &Vec<LinkReport>| reports.iter().any(|report| !report.errors.is_empty()))
+        .unwrap_or(true);
+    let mut output = render_result(result, format, |reports: &Vec<LinkReport>| {
         let mut text = String::new();
         for report in reports {
             text.push_str(&link_report_text(report));
         }
         text
-    })
+    });
+    // PerEditorReporting: any editor failure yields a non-zero exit while all
+    // editors still report their outcome.
+    if has_errors {
+        output.status = 1;
+    }
+    if !warnings.is_empty() {
+        output.stderr = format!("{}\n", warnings.join("\n"));
+    }
+    output
 }
 
 /// Run the selected editor's adapters and merge their reports into the
@@ -334,8 +378,17 @@ fn register_into_report(
     dirs: &crate::dev::editor_adapters::EditorDirs,
     ctx: &crate::dev::editor_adapters::RegistrationContext<'_>,
     report: &mut LinkReport,
+    warnings: &mut Vec<String>,
 ) {
-    use crate::dev::editor_adapters::EditorAdapter;
+    use crate::dev::agent_models::IdeKey;
+    use crate::dev::editor_adapters::{EditorAdapter, resolve_for_models};
+    let ide = match editor {
+        super::LinkEditor::OpenCode => IdeKey::Opencode,
+        super::LinkEditor::ZCode => IdeKey::Zcode,
+        super::LinkEditor::Claude => IdeKey::Claude,
+        super::LinkEditor::Codex => IdeKey::Codex,
+        super::LinkEditor::All => unreachable!("single-editor dispatch"),
+    };
     for adapter in crate::dev::editor_adapters::adapters_for(editor, dirs) {
         let adapter_report = adapter.register(ctx);
         report.agents_registered = adapter_report.registered;
@@ -343,16 +396,24 @@ fn register_into_report(
         report.agents_skipped_unresolved = adapter_report.skipped_unresolved;
         report.errors.extend(adapter_report.errors);
         if adapter_report.registered > 0 {
-            eprintln!(
+            warnings.push(format!(
                 "{}: registered {} framework agents",
                 adapter_report.editor, adapter_report.registered
-            );
+            ));
         }
-        if adapter_report.skipped_unresolved > 0 {
-            eprintln!(
-                "warning: {}: {} agents skipped (no model configured in agent-models.yaml)",
-                adapter_report.editor, adapter_report.skipped_unresolved
-            );
+        if report.agents_skipped_unresolved > 0 {
+            let names: Vec<String> = ctx
+                .agents
+                .iter()
+                .filter(|agent| resolve_for_models(ctx.models, &agent.name, ide).is_err())
+                .map(|agent| agent.name.clone())
+                .collect();
+            warnings.push(format!(
+                "warning: {}: {} agents skipped (no model configured): {}",
+                adapter_report.editor,
+                report.agents_skipped_unresolved,
+                names.join(", ")
+            ));
         }
     }
 }
@@ -362,3 +423,7 @@ fn register_into_report(
 #[cfg(test)]
 #[path = "tests/reconciliation_tests.rs"]
 mod reconciliation_tests;
+
+#[cfg(test)]
+#[path = "tests/link_e2e_tests.rs"]
+mod link_e2e_tests;

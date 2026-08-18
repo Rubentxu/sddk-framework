@@ -60,6 +60,42 @@ pub(super) struct EditorDirs {
     pub codex: PathBuf,
 }
 
+/// Symlink surface profile per editor: claude/codex own their agents dir
+/// natively, so the agents symlink surface is skipped for them (ADR-0019).
+#[derive(Debug, Clone, Copy)]
+pub(super) struct LinkProfile {
+    pub agents: bool,
+    pub skills: bool,
+    pub prompts: bool,
+    pub workflows: bool,
+}
+
+impl LinkProfile {
+    /// opencode/zcode: all four surfaces symlinked.
+    pub(super) const ALL: Self = Self {
+        agents: true,
+        skills: true,
+        prompts: true,
+        workflows: true,
+    };
+
+    /// claude/codex: agents are adapter-owned native files, not symlinks.
+    pub(super) const NATIVE_AGENTS: Self = Self {
+        agents: false,
+        skills: true,
+        prompts: true,
+        workflows: true,
+    };
+
+    pub(super) fn for_editor(editor: LinkEditor) -> Self {
+        match editor {
+            LinkEditor::OpenCode | LinkEditor::ZCode => Self::ALL,
+            LinkEditor::Claude | LinkEditor::Codex => Self::NATIVE_AGENTS,
+            LinkEditor::All => Self::ALL,
+        }
+    }
+}
+
 /// Dispatch: adapter instances for the selected editor(s).
 pub(super) fn adapters_for(editor: LinkEditor, dirs: &EditorDirs) -> Vec<Box<dyn EditorAdapter>> {
     let mut adapters: Vec<Box<dyn EditorAdapter>> = Vec::new();
@@ -71,6 +107,16 @@ pub(super) fn adapters_for(editor: LinkEditor, dirs: &EditorDirs) -> Vec<Box<dyn
     if matches!(editor, LinkEditor::ZCode | LinkEditor::All) {
         adapters.push(Box::new(ZCodeAdapter {
             dir: dirs.zcode.clone(),
+        }));
+    }
+    if matches!(editor, LinkEditor::Claude | LinkEditor::All) {
+        adapters.push(Box::new(ClaudeAdapter {
+            dir: dirs.claude.clone(),
+        }));
+    }
+    if matches!(editor, LinkEditor::Codex | LinkEditor::All) {
+        adapters.push(Box::new(CodexAdapter {
+            dir: dirs.codex.clone(),
         }));
     }
     adapters
@@ -172,7 +218,7 @@ pub(super) mod test_fixtures {
     use super::*;
     use crate::dev::agent_models::AgentModelsConfig;
 
-    pub(super) const FIXTURE_YAML: &str = "tiers:\n  premium:\n    opencode: deepseek/deepseek-chat\n    zcode: deepseek/deepseek-chat\n    claude: sonnet\n    codex: openai/gpt-5.4\n  fast:\n    opencode: zai-coding-plan/glm-5-turbo\n    zcode: zai-coding-plan/glm-5-turbo\n    claude: haiku\n    codex: openai/gpt-5.4-fast\nagents:\n  orchestrator:\n    tier: premium\n  sddk-foo:\n    tier: fast\n    overrides:\n      opencode: deepseek/deepseek-reasoner\n  gentle-bar:\n    tier: fast\n";
+    pub(crate) const FIXTURE_YAML: &str = "tiers:\n  premium:\n    opencode: deepseek/deepseek-chat\n    zcode: deepseek/deepseek-chat\n    claude: sonnet\n    codex: openai/gpt-5.4\n  fast:\n    opencode: zai-coding-plan/glm-5-turbo\n    zcode: zai-coding-plan/glm-5-turbo\n    claude: haiku\n    codex: openai/gpt-5.4-fast\nagents:\n  orchestrator:\n    tier: premium\n  sddk-foo:\n    tier: fast\n    overrides:\n      opencode: deepseek/deepseek-reasoner\n  gentle-bar:\n    tier: fast\n";
 
     pub(super) struct Fixture {
         pub root: tempfile::TempDir,

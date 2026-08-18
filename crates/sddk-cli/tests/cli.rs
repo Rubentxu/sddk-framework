@@ -5668,7 +5668,11 @@ fn cli_dev_link_doctor_and_framework_checks() {
     );
     let link_json: serde_json::Value = serde_json::from_slice(&linked.stdout).unwrap();
     let reports = link_json.as_array().unwrap();
-    assert_eq!(reports.len(), 2, "one report per editor");
+    assert_eq!(
+        reports.len(),
+        4,
+        "one report per editor (all spans 4 editors)"
+    );
     assert_eq!(reports[0]["agents_linked"], 3);
     assert_eq!(reports[0]["workflows_linked"], 1);
     assert_eq!(

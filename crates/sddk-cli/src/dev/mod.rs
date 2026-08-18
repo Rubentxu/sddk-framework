@@ -64,6 +64,10 @@ pub(super) enum LinkEditor {
     OpenCode,
     #[value(name = "zcode")]
     ZCode,
+    #[value(name = "claude")]
+    Claude,
+    #[value(name = "codex")]
+    Codex,
     #[value(name = "all")]
     All,
 }
@@ -195,6 +199,12 @@ pub(super) struct UninstallArgs {
     /// Override the ZCode dir.
     #[arg(long)]
     pub(super) zcode_dir: Option<std::path::PathBuf>,
+    /// Override the Claude Code dir.
+    #[arg(long)]
+    pub(super) claude_dir: Option<std::path::PathBuf>,
+    /// Override the Codex dir.
+    #[arg(long)]
+    pub(super) codex_dir: Option<std::path::PathBuf>,
     /// Output format.
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     pub(super) format: OutputFormat,
@@ -214,6 +224,12 @@ pub(super) struct LinkArgs {
     /// Override the ZCode dir.
     #[arg(long)]
     pub(super) zcode_dir: Option<std::path::PathBuf>,
+    /// Override the Claude Code dir.
+    #[arg(long)]
+    pub(super) claude_dir: Option<std::path::PathBuf>,
+    /// Override the Codex dir.
+    #[arg(long)]
+    pub(super) codex_dir: Option<std::path::PathBuf>,
     /// Write an idempotent, deduplicated skill registry to
     /// `$SDDK_DATA_DIR/projects/<project_id>/skill-registry.md`.
     #[arg(long)]
