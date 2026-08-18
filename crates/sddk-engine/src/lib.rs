@@ -8,8 +8,8 @@
 #![warn(missing_docs)]
 
 mod adoption;
-mod paths;
 pub mod event_bus;
+mod paths;
 pub mod rules;
 
 pub use adoption::*;

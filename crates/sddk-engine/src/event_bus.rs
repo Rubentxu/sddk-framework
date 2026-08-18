@@ -2,19 +2,17 @@
 
 use std::path::PathBuf;
 
-use serde_json::json;
 use sddk_domain::{
     ActorKind, ActorRef, EntityRef, EventAppended, EventEnvelopeV1, EventStore, StorageError,
 };
+use serde_json::json;
 
 /// Returns the canonical XDG storage dir for a project:
 /// `$XDG_STATE_HOME/sddk/projects/<id>/`.
 pub fn project_storage_dir(project_id: &str) -> Result<PathBuf, StorageError> {
     let base = std::env::var_os("XDG_STATE_HOME")
         .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("state"))
-        })
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("state")))
         .ok_or_else(|| StorageError::Other("cannot resolve XDG state dir".into()))?;
     Ok(base.join("sddk").join("projects").join(project_id))
 }
@@ -56,22 +54,34 @@ pub struct PhaseEventInput {
 }
 
 /// Appends two events to events_v1:
+///
 ///   - `workflow.phase.exited` (for `from_phase`)
 ///   - `workflow.phase.entered` (for `to_phase`)
+///
 /// Both share `stream_id = cycle_id`. Idempotency comes from the unique
-/// `event_id` built deterministically from `(event_id_prefix, cycle_id,
-/// phase_label)`. Returns the stored `from_phase` and `to_phase`
-/// `EventAppended` references.
+/// `event_id` built deterministically from `(event_id_prefix, cycle_id, phase_label)`.
+///
+/// Returns the stored `from_phase` and `to_phase` `EventAppended` references.
 pub fn emit_phase_event<S: EventStore>(
     store: &mut S,
     input: &PhaseEventInput,
 ) -> Result<(EventAppended, EventAppended), StorageError> {
     let exited_id = format!("{}-exited-{}", input.event_id_prefix, input.cycle_id);
-    let exited_env = build_event_envelope(&exited_id, "workflow.phase.exited", &input.from_phase, input);
+    let exited_env = build_event_envelope(
+        &exited_id,
+        "workflow.phase.exited",
+        &input.from_phase,
+        input,
+    );
     let from_result = store.append(&exited_env)?;
 
     let entered_id = format!("{}-entered-{}", input.event_id_prefix, input.cycle_id);
-    let entered_env = build_event_envelope(&entered_id, "workflow.phase.entered", &input.to_phase, input);
+    let entered_env = build_event_envelope(
+        &entered_id,
+        "workflow.phase.entered",
+        &input.to_phase,
+        input,
+    );
     let to_result = store.append(&entered_env)?;
 
     Ok((from_result, to_result))
@@ -127,9 +137,8 @@ mod tests {
 
     #[test]
     fn project_storage_dir_uses_xdg_state_home() {
-        let dir =
-            project_storage_dir_with(Some("/custom/xdg/state"), Some("/home/test"), "proj-1")
-                .unwrap();
+        let dir = project_storage_dir_with(Some("/custom/xdg/state"), Some("/home/test"), "proj-1")
+            .unwrap();
         assert_eq!(
             dir.to_str().unwrap(),
             "/custom/xdg/state/sddk/projects/proj-1"
@@ -157,7 +166,12 @@ mod tests {
             actor_kind: ActorKind::Human,
             event_id_prefix: "e-c-1".into(),
         };
-        let env = build_event_envelope("e-c-1-entered-c-1", "workflow.phase.entered", "test", &input);
+        let env = build_event_envelope(
+            "e-c-1-entered-c-1",
+            "workflow.phase.entered",
+            "test",
+            &input,
+        );
 
         assert_eq!(env.event_type, "workflow.phase.entered");
         assert_eq!(env.stream_id, "c-1");
@@ -170,4 +184,3 @@ mod tests {
         assert_eq!(env.subjects[0].id, "c-1");
     }
 }
-

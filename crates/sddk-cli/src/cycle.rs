@@ -4,12 +4,15 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
 use sddk_domain::{
-    ArtifactRef, ControlPlane, CycleId, CycleManifest, CyclePath, WorkflowManifest, normalize_scope,
+    ActorKind, ArtifactRef, ControlPlane, CycleId, CycleManifest, CyclePath, WorkflowManifest,
+    normalize_scope,
 };
 use sddk_engine::{
-    CycleStartInput, Engine, EventContext, GateEvaluationInput, TransitionEvidence,
-    WorkflowLoadError,
+    AdoptionPaths, CycleStartInput, Engine, EventContext, GateEvaluationInput, TransitionEvidence,
+    TransitionOutcome, WorkflowLoadError,
+    event_bus::{self, PhaseEventInput},
 };
+use sddk_storage::SqliteEventStore;
 use serde::Serialize;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use uuid::Uuid;
@@ -53,6 +56,8 @@ pub(crate) struct RuntimeContext {
     pub(crate) control_plane: Box<dyn ControlPlane>,
     pub(crate) artifacts_path: PathBuf,
     pub(crate) cycle_artifacts_path: PathBuf,
+    /// Resolved XDG storage paths for the project workspace.
+    pub(crate) paths: AdoptionPaths,
 }
 
 impl RuntimeContext {
@@ -98,8 +103,9 @@ impl RuntimeContext {
             engine,
             storage,
             control_plane: Box::new(plane),
-            artifacts_path: paths.artifacts,
-            cycle_artifacts_path: paths.cycle_artifacts,
+            artifacts_path: paths.artifacts.clone(),
+            cycle_artifacts_path: paths.cycle_artifacts.clone(),
+            paths,
         })
     }
 }
@@ -634,6 +640,44 @@ fn run_cycle_transition(args: CycleTransitionArgs, environment: &CliEnvironment)
                 &timestamp,
             ),
         )?;
+        // Emit workflow.phase events on successful phase transitions (fail-soft)
+        if applied.outcome == TransitionOutcome::Succeeded
+            && plan.state_before().phase != plan.state_after().phase
+        {
+            let actor_id = args
+                .actor
+                .clone()
+                .or_else(|| environment.sddk_actor.clone())
+                .or_else(|| environment.user.clone())
+                .unwrap_or_else(|| "sddk-cli".into());
+            let actor_kind = if actor_id.starts_with("user:") {
+                ActorKind::Human
+            } else if actor_id.starts_with("agent:") {
+                ActorKind::Agent
+            } else {
+                ActorKind::System
+            };
+            let input = PhaseEventInput {
+                project_id: context.identity.project_id.to_string(),
+                cycle_id: plan.state_before().cycle_id.clone(),
+                from_phase: wire(&plan.state_before().phase),
+                to_phase: wire(&plan.state_after().phase),
+                transition_at: timestamp.clone(),
+                actor_id,
+                actor_kind,
+                event_id_prefix: format!("ph-{}", plan.state_before().cycle_id),
+            };
+            match SqliteEventStore::open(&context.paths.ledger) {
+                Ok(mut store) => {
+                    if let Err(e) = event_bus::emit_phase_event(&mut store, &input) {
+                        eprintln!("warning: failed to emit workflow.phase events: {e}");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("warning: could not open event store for phase events: {e}");
+                }
+            }
+        }
         if applied.manifest.status == sddk_domain::CycleStatus::Closed
             && let Err(error) = crate::metrics::capture_cycle_metrics(&context, &applied.manifest)
         {
