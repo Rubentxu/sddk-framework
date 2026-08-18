@@ -176,6 +176,18 @@ pub(super) fn run_dev_doctor(
             });
         }
     }
+    // Advisory, non-blocking: report presence of the claude/codex editor dirs
+    // (native agent registration targets). Absence is informational — it does
+    // not affect `all_present`.
+    for (label, editor_dir) in [
+        ("claude", home.join(".claude")),
+        ("codex", home.join(".codex")),
+    ] {
+        checks.push(DoctorCheck {
+            tool: format!("editor.{label}_dir"),
+            present: editor_dir.is_dir(),
+        });
+    }
     // Runtime assets integrity: the CLI resolves dashboard kit + UAT drivers
     // from the active framework bundle (ADR-013). A dev update without asset
     // sync leaves stale/missing assets that break `uat dashboard` and
