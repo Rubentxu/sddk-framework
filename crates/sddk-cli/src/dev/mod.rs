@@ -4,6 +4,7 @@ use self::projection::ProjectionArgs;
 use clap::{Args, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 
+mod agent_models;
 mod check;
 mod check_arch;
 mod common;
