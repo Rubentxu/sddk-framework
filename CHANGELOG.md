@@ -3,6 +3,14 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.24.0] - 2026-08-18
+
+### Features
+  - feat(cli): fork replay with kernel ledger fallback event source (phase7)
+  - feat(cli): fork create/set/run/diff/promote commands + e2e (phase7)
+  - feat(storage): fork store + response cache tables (migration 9) (phase7)
+  - feat(domain): fork model + replay engine + structural diff + promote check (phase7)
+
 ## [1.23.0] - 2026-08-18
 
 ### Features
