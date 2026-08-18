@@ -150,6 +150,12 @@ impl Projection for GraphProjection {
         self.state.last_event_sequence = event.sequence;
         self.state.last_event_hash = event.content_hash.clone();
 
+        // context.read is bookkeeping-only (SPEC-011 §3): it MUST NOT create
+        // graph nodes/edges nor trigger reactive behaviors.
+        if event.event_type == crate::context_read::CONTEXT_READ_EVENT_TYPE {
+            return Ok(());
+        }
+
         // Skip malformed event types (no 3-segment realm.object.verb).
         if !is_valid_event_type(&event.event_type) {
             return Ok(());
@@ -817,6 +823,26 @@ mod tests {
         projection.apply(&event).unwrap();
         let state = projection.state_ref();
         assert!(state.edges.is_empty());
+    }
+
+    #[test]
+    fn context_read_is_bookkeeping_only() {
+        let mut projection = GraphProjection::new("project:p-1");
+        let event = make_event(
+            "project:p-1",
+            crate::context_read::CONTEXT_READ_EVENT_TYPE,
+            1,
+            vec![subject("cycle", "c-1")],
+            Some("c-1"),
+            json!({ "execution_id": "exec-1" }),
+        );
+        projection.apply(&event).unwrap();
+        let state = projection.state_ref();
+        assert!(state.edges.is_empty(), "context.read must not create edges");
+        assert!(
+            !state.nodes.contains_key("cycle:c-1"),
+            "context.read must not create nodes"
+        );
     }
 
     #[test]
