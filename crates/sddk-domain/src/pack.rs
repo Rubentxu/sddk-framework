@@ -279,8 +279,9 @@ pub fn validate_pack_manifest(manifest: &PackManifest) -> Vec<PackDiagnostic> {
                 diagnostics.push(PackDiagnostic {
                     code: UNKNOWN_REQUIRED_DEPENDENCY.into(),
                     message: format!("required dependency {dependency:?} is not declared"),
-                    hint: "list the dependency in `dependencies.optional` or `dependencies.required`"
-                        .into(),
+                    hint:
+                        "list the dependency in `dependencies.optional` or `dependencies.required`"
+                            .into(),
                 });
             }
         }
@@ -348,9 +349,7 @@ pub fn pack_error_count(diagnostics: &[PackDiagnostic]) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        PackCategory, load_pack_manifest, parse_pack_manifest, validate_pack_manifest,
-    };
+    use super::{PackCategory, load_pack_manifest, parse_pack_manifest, validate_pack_manifest};
 
     const VALID: &str = r#"
 [pack]

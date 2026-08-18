@@ -143,7 +143,12 @@ impl PackRegistry {
                     id: manifest.pack.id.clone(),
                     version: manifest.pack.version.clone(),
                     category: format!("{:?}", manifest.pack.category).to_ascii_lowercase(),
-                    enabled: self.load_state().enabled.get(&manifest.pack.id).copied().unwrap_or(true),
+                    enabled: self
+                        .load_state()
+                        .enabled
+                        .get(&manifest.pack.id)
+                        .copied()
+                        .unwrap_or(true),
                     manifest_path,
                 });
             }
@@ -163,8 +168,11 @@ impl PackRegistry {
     /// Verifies a pack manifest and its dependency satisfaction.
     pub fn verify(&self, id: &str) -> Result<VerifyReport, PackRegistryError> {
         let entry = self.find(id)?;
-        let manifest = load_pack_manifest(&entry.manifest_path)
-            .map_err(|source| PackRegistryError::Load { id: id.to_string(), source })?;
+        let manifest =
+            load_pack_manifest(&entry.manifest_path).map_err(|source| PackRegistryError::Load {
+                id: id.to_string(),
+                source,
+            })?;
         let diagnostics = validate_pack_manifest(&manifest);
         let available: Vec<String> = self
             .discover()?
@@ -222,8 +230,8 @@ impl PackRegistry {
                 source.display()
             )));
         }
-        let manifest = load_pack_manifest(&manifest_path)
-            .map_err(|source| PackRegistryError::Load {
+        let manifest =
+            load_pack_manifest(&manifest_path).map_err(|source| PackRegistryError::Load {
                 id: "install-source".to_string(),
                 source,
             })?;
@@ -238,10 +246,13 @@ impl PackRegistry {
             ));
         }
         if self.find(&manifest.pack.id).is_ok() {
-            return Err(PackRegistryError::AlreadyInstalled(manifest.pack.id.clone()));
+            return Err(PackRegistryError::AlreadyInstalled(
+                manifest.pack.id.clone(),
+            ));
         }
         let target = self.root.join("packs").join(&manifest.pack.id);
-        fs::create_dir_all(&target).map_err(|source| PackRegistryError::State(source.to_string()))?;
+        fs::create_dir_all(&target)
+            .map_err(|source| PackRegistryError::State(source.to_string()))?;
         copy_dir(source, &target).map_err(|source| PackRegistryError::State(source.to_string()))?;
         Ok(RegistryEntry {
             id: manifest.pack.id,
@@ -323,7 +334,8 @@ paths = ["fixtures/plan.yaml"]
     }
 
     fn temp_root(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("sddk-pack-registry-{tag}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("sddk-pack-registry-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -436,7 +448,9 @@ paths = ["fixtures/plan.yaml"]
         let registry = PackRegistry::new(&root, &state);
         let source = root.join("src");
         write_manifest(&source, "sddk-pack-cognicode", "");
-        let entry = registry.install(&source.join("sddk-pack-cognicode")).unwrap();
+        let entry = registry
+            .install(&source.join("sddk-pack-cognicode"))
+            .unwrap();
         assert_eq!(entry.id, "sddk-pack-cognicode");
         assert!(registry.find("sddk-pack-cognicode").is_ok());
         fs::remove_dir_all(&root).ok();

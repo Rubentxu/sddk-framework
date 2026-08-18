@@ -543,7 +543,7 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         Command::Vault { command } => vault_cmd::run_vault(command, environment),
         Command::Knowledge { command } => knowledge_cmd::run_knowledge(command, environment),
         Command::Dev { command } => dev::run_dev(command, environment),
-        Command::Pack { command } => pack_cmd::run_pack(command),
+        Command::Pack { command } => pack_cmd::run_pack(command, environment),
         Command::Metrics { command } => metrics::run_metrics(command, environment),
         Command::Analytics { command } => analytics::run_analytics(command, environment),
         Command::Telemetry { command } => telemetry::run_telemetry(command, environment),
@@ -1153,7 +1153,10 @@ pub(crate) fn find_persisted_fallback_seed(
     Ok(found)
 }
 
-fn resolve_remote(root: &Path, explicit: Option<String>) -> anyhow::Result<Option<String>> {
+pub(crate) fn resolve_remote(
+    root: &Path,
+    explicit: Option<String>,
+) -> anyhow::Result<Option<String>> {
     if explicit.is_some() {
         return Ok(explicit);
     }
