@@ -3,6 +3,21 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.19.0] - 2026-08-18
+
+### Features
+  - feat(engine): event_bus module with emit_phase_event dual envelope appender (SDDK2-204 MS-01+MS-02)
+  - feat(cli+engine): emit workflow.phase events on cycle transition success (SDDK2-204 MS-03 wire-up)
+  - feat(engine): PhaseEventInput struct with actor metadata for workflow.phase events
+  - feat(cli): RuntimeContext.paths field added for ledger path access in event emission
+
+### Tests
+  - test(engine): phase events integration — PE-01 dual-emit, PE-02 idempotency, PE-03 rebuild, PE-04 ledger coexistence
+
+### Other
+  - chore(rules): refresh WV-0015 granted_until_sha to f0db2bd (post-SDDK2-204)
+  - fix(engine): event_bus uses EventStore trait (not concrete SqliteEventStore) to satisfy ARCH001
+
 ## [1.18.0] - 2026-08-17
 
 ### Features
