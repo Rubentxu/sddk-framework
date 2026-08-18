@@ -1,15 +1,20 @@
 [pack]
 id = "sddk-framework"
 version = "1.20.0"
-schema_version = 1
+schema_version = 2
 compatibility = ">=1.91"
 risk = "medium"
 consequence = "modifies"
+category = "core"
 description = "SDDK framework pack: deterministic workflow runtime, capability gateway, vault, and distribution"
 
 [dependencies]
-required = []
-optional = ["sddk-domain", "sddk-storage", "sddk-engine", "sddk-gateway", "sddk-vault", "sddk-cli"]
+requires = []
+integrates_with = ["sddk-domain", "sddk-storage", "sddk-engine", "sddk-gateway", "sddk-vault", "sddk-cli"]
+conflicts_with = []
+
+[provides]
+capabilities = ["workflow.run", "capability.govern", "git.operate", "release.create", "vault.access"]
 
 [[commands]]
 name = "adopt"

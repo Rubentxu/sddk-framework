@@ -347,3 +347,61 @@ fn pack_inspect_shows_entry() {
     );
     assert!(stdout.contains("id: sddk-pack-uat"), "got: {stdout}");
 }
+
+/// Conformance fixtures (SPEC-017): valid fixtures exit 0, invalid fixtures
+/// exit non-zero with their stable diagnostic code.
+#[test]
+fn pack_conformance_fixtures() {
+    let (env, run) = pack_test_setup();
+    let fixtures = env.root.join("fixtures/packs");
+    std::fs::create_dir_all(&fixtures).unwrap();
+    // Copy fixture manifests from the repo into the test root.
+    for (name, expected_code) in [
+        ("valid-v2.toml", None),
+        ("valid-v1.toml", None),
+        ("invalid-conflict.toml", Some("PACK009")),
+        ("invalid-dup-provides.toml", Some("PACK010")),
+        ("invalid-empty-req.toml", Some("PACK008")),
+    ] {
+        let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/packs")
+            .join(name);
+        std::fs::copy(&source, fixtures.join(name)).unwrap();
+    }
+
+    for (name, expected_code) in [
+        ("valid-v2.toml", None),
+        ("valid-v1.toml", None),
+        ("invalid-conflict.toml", Some("PACK009")),
+        ("invalid-dup-provides.toml", Some("PACK010")),
+        ("invalid-empty-req.toml", Some("PACK008")),
+    ] {
+        let out = run(&[
+            "pack",
+            "validate",
+            "--manifest",
+            &format!("fixtures/packs/{name}"),
+        ]);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        match expected_code {
+            None => {
+                assert_eq!(
+                    out.status.code(),
+                    Some(0),
+                    "{name} should be valid, got stdout: {stdout}"
+                );
+            }
+            Some(code) => {
+                assert_ne!(
+                    out.status.code(),
+                    Some(0),
+                    "{name} should be invalid, got stdout: {stdout}"
+                );
+                assert!(
+                    stdout.contains(code),
+                    "{name} should report {code}, got: {stdout}"
+                );
+            }
+        }
+    }
+}
