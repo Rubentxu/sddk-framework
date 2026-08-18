@@ -353,8 +353,16 @@ impl Projection for ApprovalProjection {
                 state.last_event_at = event.occurred_at.clone();
                 state.last_event_id = event.event_id.clone();
                 state.decision = Some(crate::models::ApprovalDecision::Granted);
-                state.actor = event.payload.get("actor").and_then(|v| v.as_str()).map(String::from);
-                state.reason = event.payload.get("reason").and_then(|v| v.as_str()).map(String::from);
+                state.actor = event
+                    .payload
+                    .get("actor")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                state.reason = event
+                    .payload
+                    .get("reason")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
                 Ok(())
             }
             "approval.capability.denied" => {
@@ -362,8 +370,16 @@ impl Projection for ApprovalProjection {
                 state.last_event_at = event.occurred_at.clone();
                 state.last_event_id = event.event_id.clone();
                 state.decision = Some(crate::models::ApprovalDecision::Denied);
-                state.actor = event.payload.get("actor").and_then(|v| v.as_str()).map(String::from);
-                state.reason = event.payload.get("reason").and_then(|v| v.as_str()).map(String::from);
+                state.actor = event
+                    .payload
+                    .get("actor")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                state.reason = event
+                    .payload
+                    .get("reason")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
                 Ok(())
             }
             _ => unreachable!(),
@@ -680,8 +696,14 @@ mod tests {
         .unwrap();
 
         assert_eq!(proj.state_ref().len(), 2);
-        assert!(proj.state_ref().contains_key(&("c-1".into(), "git.delete_branch".into())));
-        assert!(proj.state_ref().contains_key(&("c-1".into(), "git.merge".into())));
+        assert!(
+            proj.state_ref()
+                .contains_key(&("c-1".into(), "git.delete_branch".into()))
+        );
+        assert!(
+            proj.state_ref()
+                .contains_key(&("c-1".into(), "git.merge".into()))
+        );
     }
 
     #[test]

@@ -126,7 +126,11 @@ struct ApprovalTestEnv {
 
 /// Opens the event store at the ledger path for the approval test environment.
 fn open_test_ledger(env: &ApprovalTestEnv) -> sddk_storage::SqliteEventStore {
-    let ledger_dir = env.state.join("sddk").join("projects").join(&env.project_id);
+    let ledger_dir = env
+        .state
+        .join("sddk")
+        .join("projects")
+        .join(&env.project_id);
     sddk_storage::SqliteEventStore::open(&ledger_dir).unwrap()
 }
 
@@ -151,31 +155,35 @@ fn append_approval_requested(env: &ApprovalTestEnv) {
 /// Appends approval.requested + approval.granted events to the test ledger.
 fn append_approval_granted(env: &ApprovalTestEnv) {
     let mut store = open_test_ledger(env);
-    store.append(&make_event(
-        &env.project_id,
-        "c-1",
-        "approval.capability.requested",
-        1,
-        json!({
-            "cycle_id": "c-1",
-            "capability": "git.delete_branch",
-            "request_hash": "sha256:abc1234",
-            "expires_at": "2026-08-18T18:00:00Z"
-        }),
-    )).unwrap();
-    store.append(&make_event(
-        &env.project_id,
-        "c-1",
-        "approval.capability.granted",
-        2,
-        json!({
-            "cycle_id": "c-1",
-            "capability": "git.delete_branch",
-            "request_hash": "sha256:abc1234",
-            "actor": "alice",
-            "reason": "ok, reversible via reflog"
-        }),
-    )).unwrap();
+    store
+        .append(&make_event(
+            &env.project_id,
+            "c-1",
+            "approval.capability.requested",
+            1,
+            json!({
+                "cycle_id": "c-1",
+                "capability": "git.delete_branch",
+                "request_hash": "sha256:abc1234",
+                "expires_at": "2026-08-18T18:00:00Z"
+            }),
+        ))
+        .unwrap();
+    store
+        .append(&make_event(
+            &env.project_id,
+            "c-1",
+            "approval.capability.granted",
+            2,
+            json!({
+                "cycle_id": "c-1",
+                "capability": "git.delete_branch",
+                "request_hash": "sha256:abc1234",
+                "actor": "alice",
+                "reason": "ok, reversible via reflog"
+            }),
+        ))
+        .unwrap();
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────────
@@ -198,10 +206,21 @@ fn cli_approval_list_shows_pending() {
         "00000000-0000-0000-0000-000000000001",
     ]);
 
-    assert_eq!(out.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("git.delete_branch"), "expected git.delete_branch in output, got: {stdout}");
-    assert!(stdout.contains("sha256:abc1234"), "expected request_hash in output, got: {stdout}");
+    assert!(
+        stdout.contains("git.delete_branch"),
+        "expected git.delete_branch in output, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("sha256:abc1234"),
+        "expected request_hash in output, got: {stdout}"
+    );
 }
 
 #[test]
@@ -222,9 +241,17 @@ fn cli_approval_list_empty_when_no_pending() {
         "00000000-0000-0000-0000-000000000001",
     ]);
 
-    assert_eq!(out.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("no pending approvals"), "expected 'no pending approvals' in output, got: {stdout}");
+    assert!(
+        stdout.contains("no pending approvals"),
+        "expected 'no pending approvals' in output, got: {stdout}"
+    );
 }
 
 #[test]
@@ -249,7 +276,12 @@ fn cli_approval_grant_resolves_pending() {
         "00000000-0000-0000-0000-000000000001",
     ]);
 
-    assert_eq!(out.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
         stdout.contains("approval-cap-git-delete_branch-sha256:abc1234-granted"),
@@ -307,7 +339,12 @@ fn cli_approval_grant_idempotent_already_resolved() {
         "--fallback-seed",
         "00000000-0000-0000-0000-000000000001",
     ]);
-    assert_eq!(out.status.code(), Some(0), "first grant should succeed: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "first grant should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     // Second grant should fail with "already resolved".
     let out2 = run(&[
@@ -329,7 +366,9 @@ fn cli_approval_grant_idempotent_already_resolved() {
     assert_ne!(out2.status.code(), Some(0), "second grant should fail");
     let stderr2 = String::from_utf8_lossy(&out2.stderr);
     assert!(
-        stderr2.contains("already resolved") || stderr2.contains("approval already resolved") || stderr2.contains("no pending approval"),
+        stderr2.contains("already resolved")
+            || stderr2.contains("approval already resolved")
+            || stderr2.contains("no pending approval"),
         "expected 'already resolved' or 'no pending approval' error, got: {stderr2}"
     );
 }

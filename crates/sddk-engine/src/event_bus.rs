@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 
 use sddk_domain::{
-    ActorKind, ActorRef, EntityRef, EventAppended, EventEnvelopeV1, EventStore, StorageError,
-    ApprovalDecision,
+    ActorKind, ActorRef, ApprovalDecision, EntityRef, EventAppended, EventEnvelopeV1, EventStore,
+    StorageError,
 };
 use serde_json::json;
 
@@ -473,7 +473,10 @@ mod tests {
         // Compute the expected event_id manually
         let capability_segment = "git-delete_branch"; // dots replaced with hyphens
         let hash_prefix = "sha256:abcdef123"; // first 16 chars
-        let expected_event_id = format!("approval-cap-{}-{}-requested", capability_segment, hash_prefix);
+        let expected_event_id = format!(
+            "approval-cap-{}-{}-requested",
+            capability_segment, hash_prefix
+        );
 
         // Verify the deterministic formula
         let computed = format!(
@@ -482,7 +485,10 @@ mod tests {
             &input.request_hash[..16]
         );
         assert_eq!(computed, expected_event_id);
-        assert!(expected_event_id.starts_with("approval-cap-git-delete_branch-sha256:abcdef123-requested"));
+        assert!(
+            expected_event_id
+                .starts_with("approval-cap-git-delete_branch-sha256:abcdef123-requested")
+        );
     }
 
     #[test]
@@ -492,7 +498,10 @@ mod tests {
         let capability_segment = capability.replace('.', "-");
         let hash_prefix = &request_hash[..16]; // "sha256:abcdef123" (16 chars)
 
-        let granted_id = format!("approval-cap-{}-{}-granted", capability_segment, hash_prefix);
+        let granted_id = format!(
+            "approval-cap-{}-{}-granted",
+            capability_segment, hash_prefix
+        );
         let denied_id = format!("approval-cap-{}-{}-denied", capability_segment, hash_prefix);
 
         assert_ne!(granted_id, denied_id);

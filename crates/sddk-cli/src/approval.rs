@@ -179,10 +179,7 @@ fn run_approval_decision(
             anyhow::bail!("reason cannot be empty");
         }
 
-        let timestamp = args
-            .timestamp
-            .clone()
-            .unwrap_or_else(default_timestamp);
+        let timestamp = args.timestamp.clone().unwrap_or_else(default_timestamp);
 
         let actor = args
             .actor
@@ -205,16 +202,13 @@ fn run_approval_decision(
         }
 
         let key = (args.cycle.clone(), args.capability.clone());
-        let state = proj
-            .states()
-            .get(&key)
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "no pending approval found for cycle={}, capability={}",
-                    args.cycle,
-                    args.capability
-                )
-            })?;
+        let state = proj.states().get(&key).ok_or_else(|| {
+            anyhow::anyhow!(
+                "no pending approval found for cycle={}, capability={}",
+                args.cycle,
+                args.capability
+            )
+        })?;
 
         if state.decision.is_some() {
             anyhow::bail!(
@@ -262,10 +256,7 @@ struct ApprovalDecisionOutput {
 fn approval_decision_text(output: &ApprovalDecisionOutput) -> String {
     format!(
         "event_id: {}\ndecision: {}\ncycle_id: {}\ncapability: {}\n",
-        output.event_id,
-        output.decision,
-        output.cycle_id,
-        output.capability
+        output.event_id, output.decision, output.cycle_id, output.capability
     )
 }
 

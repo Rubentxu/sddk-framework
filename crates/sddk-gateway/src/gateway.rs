@@ -58,7 +58,7 @@ pub struct CapabilityPlan {
     pub receipt_id: String,
 }
 
-    /// Errors emitted by the capability gateway.
+/// Errors emitted by the capability gateway.
 #[derive(Debug, Error)]
 pub enum GatewayError {
     /// The policy denies the capability.
@@ -606,7 +606,9 @@ mod tests {
             env: Default::default(),
             timeout_ms: 5_000,
             output_max_bytes: 1_024,
-            created_at: now.format(&time::format_description::well_known::Rfc3339).unwrap(),
+            created_at: now
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap(),
             expires_at: future_str,
             status: sddk_domain::proposal::ProposalStatus::Pending,
             agent_version_hash: String::new(),
