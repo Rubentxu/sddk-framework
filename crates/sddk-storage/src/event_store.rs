@@ -66,6 +66,20 @@ impl SqliteEventStore {
         Ok(Self { conn })
     }
 
+    /// Lists all stream ids present in the event ledger (distinct).
+    pub fn list_streams(&self) -> Result<Vec<String>, DomainStorageError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT DISTINCT stream_id FROM events_v1 ORDER BY stream_id")
+            .map_err(|e| DomainStorageError::Database(format!("list_streams prep: {e}")))?;
+        let streams = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| DomainStorageError::Database(format!("list_streams query: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| DomainStorageError::Database(format!("list_streams collect: {e}")))?;
+        Ok(streams)
+    }
+
     fn run_migrations(conn: &mut Connection) -> Result<(), DomainStorageError> {
         let version: i32 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))

@@ -92,9 +92,12 @@ impl GraphProjection {
     }
 }
 
-/// Validates that an event type has the `realm.object.verb` shape (3+ segments).
+/// Validates that an event type has the `realm.object[.verb]` shape (2+ segments).
+///
+/// CEP events use `realm.object.verb` (3 segments); kernel ledger events use
+/// `realm.object` (2 segments). Both contribute to the graph.
 fn is_valid_event_type(event_type: &str) -> bool {
-    event_type.split('.').count() >= 3
+    event_type.split('.').count() >= 2
 }
 
 /// Upserts a node from an event subject, preserving first `created_by`.
@@ -139,10 +142,9 @@ impl Projection for GraphProjection {
     }
 
     fn apply(&mut self, event: &EventEnvelopeV1) -> Result<(), ProjectionError> {
-        // Only process events from our stream.
-        if event.stream_id != self.stream_id {
-            return Ok(());
-        }
+        // The graph is project-global: events from ANY stream of the project
+        // contribute nodes/edges. `stream_id` is retained for the projection
+        // contract but does not filter.
 
         // Update monotone fields regardless of event type.
         self.state.last_event_sequence = event.sequence;
