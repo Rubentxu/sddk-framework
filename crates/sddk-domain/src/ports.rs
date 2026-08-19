@@ -108,6 +108,39 @@ pub trait Ledger {
     fn load_all_ledger_events(&self) -> Result<Vec<LedgerEvent>, StorageError>;
 }
 
+// ── Ledger factory ───────────────────────────────────────────────────────────
+
+/// Hexagonal factory port for opening a [`Ledger`] from a path.
+///
+/// Callers (typically the CLI composition root) use this trait to create
+/// ledger instances without depending on the concrete `Storage` type directly.
+/// The trait is object-safe; callers can store `Box<dyn LedgerFactory>`.
+///
+/// # Example
+///
+/// ```ignore
+/// let factory: Box<dyn LedgerFactory> = Box::new(SqliteLedgerFactory);
+/// let ledger = factory.open_ledger("/path/to/ledger.sqlite")?;
+/// ```
+pub trait LedgerFactory: Send + Sync {
+    /// The ledger type produced by this factory.
+    type Ledger: Ledger;
+
+    /// Opens (or creates) a ledger at the given path.
+    ///
+    /// Implementations may also open in-memory variants for testing.
+    fn open_ledger(&self, path: &std::path::Path) -> Result<Self::Ledger, StorageError>;
+
+    /// Opens an in-memory ledger for testing.
+    ///
+    /// Default implementation returns an error; override for test-friendly factories.
+    fn open_in_memory(&self) -> Result<Self::Ledger, StorageError> {
+        Err(StorageError::Database(
+            "this factory does not support in-memory ledgers".into(),
+        ))
+    }
+}
+
 // ── Control-plane port ────────────────────────────────────────────────────────
 
 /// Hexagonal port over the SDDK control-plane SQLite store (SDDK2-103).

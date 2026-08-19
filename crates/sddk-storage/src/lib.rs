@@ -31,6 +31,7 @@ use rusqlite::{
     Connection, OpenFlags, OptionalExtension, Row, Transaction, TransactionBehavior, params,
 };
 use sddk_domain::CycleManifest;
+use sddk_domain::ports::LedgerFactory; // needed for impl LedgerFactory below
 use serde::Serialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -1784,5 +1785,35 @@ impl sddk_domain::Ledger for Storage {
         &self,
     ) -> std::result::Result<Vec<LedgerEvent>, sddk_domain::StorageError> {
         Storage::load_all_ledger_events(self).map_err(|e| e.into())
+    }
+}
+
+/// `LedgerFactory` for the concrete SQLite-backed [`Storage`].
+///
+/// This implementation satisfies the [`sddk_domain::LedgerFactory`] port,
+/// allowing the CLI composition root to create ledger instances without
+/// a direct compile-time dependency on `sddk-storage` in production code
+/// that only needs the trait.
+///
+/// # Example
+///
+/// ```ignore
+/// use sddk_domain::LedgerFactory;
+/// use sddk_storage::SqliteLedgerFactory;
+///
+/// let factory = SqliteLedgerFactory;
+/// let ledger = factory.open_ledger(Path::new("/data/ledger.sqlite"))?;
+/// ```
+pub struct SqliteLedgerFactory;
+
+impl LedgerFactory for SqliteLedgerFactory {
+    type Ledger = Storage;
+
+    fn open_ledger(&self, path: &std::path::Path) -> std::result::Result<Storage, sddk_domain::StorageError> {
+        Storage::open(path).map_err(|e| e.into())
+    }
+
+    fn open_in_memory(&self) -> std::result::Result<Storage, sddk_domain::StorageError> {
+        Storage::open_in_memory().map_err(|e| e.into())
     }
 }
