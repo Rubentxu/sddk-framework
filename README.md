@@ -67,11 +67,28 @@ The current agent and skill paths are tracked in the [generated repository inven
 ### Install
 
 ```bash
+# 1. Clone the framework (single source of truth — never edit the runtime copy directly)
 git clone https://github.com/Rubentxu/sddk-framework.git ~/Proyectos/agentesIA/sddk-framework
-~/Proyectos/agentesIA/sddk-framework/bootstrap.sh --all
+
+# 2. Install the runtime binary with atomic install + receipt
+#    (uses the source repo as bundle; verify receipt after)
+cd ~/Proyectos/agentesIA/sddk-framework
+cargo build --release -p sddk-cli
+sddk dev install --prefix ~/.local --source .
+sddk dev verify --prefix ~/.local
+# Expected: valid: true, version: <x.y.z>
+
+# 3. Link the framework into every detected editor (agents + skills + prompts + workflows)
+sddk dev link --editor all
+
+# 4. Diagnose the toolchain + framework layout
+sddk dev doctor
+# Expected: all_present: true
 ```
 
-The bootstrap script auto-detects installed editors (ZCode, OpenCode) and creates symlinks. Your project repos stay clean — **zero documentation files in your code repos**.
+The bootstrap script (`./bootstrap.sh --all`) is an **alternative** to step 3 — it creates the same symlinks but only for content surfaces. Prefer `sddk dev install` + `sddk dev link` because they verify the install with a receipt and a doctor pass.
+
+Your project repos stay clean — **zero documentation files in your code repos**. All SDDK state (cycle artifacts, knowledge vault, telemetry) lives under `$XDG_DATA_HOME/sddk/` (`~/.local/share/sddk/` by default).
 
 ### Run a cycle
 
@@ -171,11 +188,19 @@ sddk-framework/
 ├── agents/                 # Agent prompts; see docs/generated/inventory.md
 ├── skills/                 # Skills; see docs/generated/inventory.md
 ├── prompts/sddk/            # Phase specs, MCW, git-contract, decision-model, ADR/roadmap templates
+│   └── workflows/          # Path-specific workflow YAML (A-full/A-lite/A-min/B-direct)
+├── workflows/              # Top-level workflow trees (e.g. sddk-b-research)
 ├── knowledge-template/     # Vault template (6 node types, MOCs, serialization lock)
 ├── golden-dataset/         # Meta-verification test cases (5 initial cases + runner)
-├── bootstrap.sh            # Installer for ZCode/OpenCode
+├── assets/                 # Runtime assets (UAT drivers, dashboard kit, MCP overrides)
+├── packs/                  # Declarative pack manifests (sddk-pack-uat, etc.)
+├── crates/                 # sddk-cli, sddk-domain, sddk-gateway, ...
+├── tests/                  # Integration + golden tests
+├── docs/                   # ADRs, history, handoff notes, generated inventory
+├── bootstrap.sh            # Legacy installer for ZCode/OpenCode content surfaces
 ├── README.md               # This file
 ├── README.es.md            # Spanish documentation
+├── CONTRIBUTING.md         # Contribution guide (commit conventions, review process)
 └── LICENSE                 # MIT
 ```
 
@@ -195,7 +220,7 @@ sddk-framework/
 
 ## Contributing
 
-Contributions are welcome. Please read the architecture in `prompts/sddk/mcw.md` before proposing changes.
+Contributions are welcome. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) for the workflow (commit conventions, review process, CI policy). The architecture lives in `prompts/sddk/mcw.md` — read it before proposing changes to phase agents or the orchestrator.
 
 ## License
 
