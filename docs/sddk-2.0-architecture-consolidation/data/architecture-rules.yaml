@@ -1,4 +1,4 @@
-schema_version: "1.1.0"
+schema_version: "1.2.0"
 rules:
   - id: ARCH001
     severity: error
@@ -89,3 +89,19 @@ waivers:
     granted_until_sha: "9999999999999999999999999999999999999999"
     granted_by: orchestrator + sddk-apply
     granted_at: '2026-08-19T00:00:00Z'
+  - id: WV-0027-ARCH008-kernel-internal-phase
+    rule_id: ARCH008
+    reason: >-
+      Cycle 2 introduced `compiler.rs` and `validator.rs` (kernel-legacy-sdd-compiler)
+      that legitimately use the SDD-agnostic `Phase` enum (workflow_ir.rs::Phase) to
+      translate legacy `WorkflowManifest` phases into kernel capabilities. ARCH008's
+      regex `\bPhase::` cannot distinguish kernel-internal `Phase::Explore` from
+      legacy SDD `Phase::Variant`, so both files are exempted. Re-evaluate at v1.33.0
+      when the kernel Phase enum is fully separated from any legacy semantics.
+    scope:
+      ARCH008:
+        - "**/sddk-domain/src/compiler.rs"
+        - "**/sddk-domain/src/validator.rs"
+    granted_until_sha: "9999999999999999999999999999999999999999"
+    granted_by: orchestrator + sddk-apply
+    granted_at: '2026-08-19T19:00:00Z'

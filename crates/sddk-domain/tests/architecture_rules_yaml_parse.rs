@@ -1,9 +1,9 @@
-//! Parse and validation tests for architecture-rules.yaml (1.0.0 and 1.1.0 schemas).
+//! Parse and validation tests for architecture-rules.yaml (1.0.0, 1.1.0, 1.2.0 schemas).
 //!
 //! Verifies:
-//! - 1.0.0 YAML still parses under the 1.1.0 reader
-//! - WV-0026 waiver scope covers only declared paths
-//! - Schema version 1.1.0 is readable
+//! - 1.0.0 YAML still parses under the 1.2.0 reader
+//! - WV-0026 + WV-0027 waiver scopes cover only declared paths
+//! - Schema version 1.2.0 is readable (cycle 3 bumped from 1.1.0)
 //!
 //! Uses regex/string parsing instead of serde_yaml since the crate is not
 //! a dev-dependency of sddk-domain.
@@ -27,7 +27,7 @@ fn load_rules_yaml() -> String {
         .expect(&format!("architecture-rules.yaml must exist at {:?}", path))
 }
 
-// ── Schema 1.1.0 parsing ─────────────────────────────────────────────────────
+// ── Schema 1.2.0 parsing ─────────────────────────────────────────────────────
 
 #[test]
 fn architecture_rules_yaml_is_valid_utf8() {
@@ -38,13 +38,13 @@ fn architecture_rules_yaml_is_valid_utf8() {
 }
 
 #[test]
-fn schema_version_is_1_1_0() {
+fn schema_version_is_1_2_0() {
     let content = load_rules_yaml();
-    // Look for "schema_version: \"1.1.0\"" or 'schema_version: "1.1.0"'
+    // Cycle 3: bumped from 1.1.0 → 1.2.0 to add WV-0027.
     assert!(
-        content.contains(r#"schema_version: "1.1.0""#)
-            || content.contains("schema_version: '1.1.0'"),
-        "schema_version must be 1.1.0"
+        content.contains(r#"schema_version: "1.2.0""#)
+            || content.contains("schema_version: '1.2.0'"),
+        "schema_version must be 1.2.0"
     );
 }
 
@@ -174,6 +174,32 @@ fn wv0026_has_legacy_compat_reason() {
     assert!(
         wv_block.to_lowercase().contains("legacy") || wv_block.to_lowercase().contains("compat"),
         "WV-0026 reason should mention legacy compat seam"
+    );
+}
+
+#[test]
+fn wv0027_kernal_internal_phase_waiver_exists() {
+    let content = load_rules_yaml();
+    assert!(
+        content.contains("WV-0027-ARCH008-kernel-internal-phase"),
+        "WV-0027 waiver must exist (cycle 3)"
+    );
+    let wv_start = content.find("WV-0027").expect("WV-0027 must exist");
+    let wv_block = &content[wv_start..];
+
+    // Must reference ARCH008
+    assert!(
+        wv_block.contains("ARCH008"),
+        "WV-0027 must reference ARCH008"
+    );
+    // Must scope to compiler + validator
+    assert!(
+        wv_block.contains("compiler.rs"),
+        "WV-0027 scope must include compiler.rs"
+    );
+    assert!(
+        wv_block.contains("validator.rs"),
+        "WV-0027 scope must include validator.rs"
     );
 }
 
