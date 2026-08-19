@@ -107,7 +107,7 @@ impl WorkflowCompiler {
         }
         // All expansion permissions must be valid (closed set)
         for perm in &ctx.template.expansion_permissions {
-            if !perm.is_allowed(&ctx.template.expansion_permissions) {
+            if !perm.is_known_permission() {
                 return Err(CompileError::ExpansionNotAllowed);
             }
         }
