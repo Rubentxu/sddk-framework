@@ -249,11 +249,28 @@ During phases 0–4, do not add a new top-level product domain. New ideas are ca
 | Architecture lints ratcheted to fail (ARCH003) | DONE | ADR-0021 §3 | P1-FIX-005 |
 | ArtifactStore port (insert/get/list) implemented for Storage | DONE (d712fc7) | ADR-0021 §3 | P1-FIX-005 |
 
+### Phase 2 MUST Completion (P2-BLOCK)
+
+> Retroactive Phase 2 verification (2026-08-19). All items verified against existing implementation.
+
+| Item | Status | Spec | Issue |
+|------|--------|------|-------|
+| Versioned EventEnvelope (EventEnvelopeV1, schema_version=1) | DONE (pre-existing) | ADR-0023 | — |
+| SQLite EventStore adapter (SqliteEventStore) | DONE (pre-existing) | ADR-0023 | — |
+| Projection checkpoint/rebuild contract (Projection trait + rebuild fn) | DONE (pre-existing) | ADR-0023 | — |
+| Emit CEP events for one bounded slice (phase transition events via event_bus) | DONE (pre-existing) | ADR-0023 | — |
+| Event hashing/canonicalization tests (content_hash + chain_hash) | DONE (pre-existing) | ADR-0023 | — |
+| Outcome-vs-error taxonomy (TransitionOutcome, GateOutcomeStatus) | DONE (pre-existing) | ADR-0023 | — |
+| Stream hash chaining (chain_hash column + verify_stream_chain) | DONE (pre-existing) | ADR-0023 | — |
+| Event schema compatibility fixtures (5 roundtrip/back-compat tests) | DONE (df8d820) | — | P2-SC-001 |
+| Projection rebuild byte/semantic equivalence tests | DONE (rebuild_integration.rs) | ADR-0023 | — |
+
 ### Phase 2 SHOULD Completion (P2-SHOULD)
 
 | Item | Status | Spec | Issue |
 |------|--------|------|-------|
 | Event export JSONL for debugging/tooling | DONE (e197405) | ADR-0023 | P2-JL-001..006 |
+| Stream hash chaining | DONE (chain_hash in events_v1) | ADR-0023 | — |
 
 ### Phase 3 MUST Completion (P3-MUST)
 
