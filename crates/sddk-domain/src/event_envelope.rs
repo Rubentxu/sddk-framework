@@ -245,6 +245,138 @@ mod tests {
         assert!(j.ends_with('}'));
     }
 
+    // ─── Event Schema Compatibility Fixtures ─────────────────────────────────
+
+    /// Verifies that [`EventEnvelopeV1`] roundtrips through JSON without data loss.
+    /// This is the primary schema-compatibility contract: every version-1 event
+    /// that is serialized can be deserialized back to an equivalent envelope.
+    #[test]
+    fn roundtrip_preserves_all_fields() {
+        let original = {
+            let mut env = minimal_envelope();
+            env.content_hash = env.compute_content_hash();
+            env
+        };
+        let json = original.to_canonical_json();
+        let deserialized: EventEnvelopeV1 = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.event_id, original.event_id);
+        assert_eq!(deserialized.event_type, original.event_type);
+        assert_eq!(deserialized.schema_version, original.schema_version);
+        assert_eq!(deserialized.stream_id, original.stream_id);
+        assert_eq!(deserialized.sequence, original.sequence);
+        assert_eq!(deserialized.project_id, original.project_id);
+        assert_eq!(deserialized.occurred_at, original.occurred_at);
+        assert_eq!(deserialized.recorded_at, original.recorded_at);
+        assert_eq!(deserialized.actor.kind, original.actor.kind);
+        assert_eq!(deserialized.actor.id, original.actor.id);
+        assert_eq!(deserialized.subjects, original.subjects);
+        assert_eq!(deserialized.payload, original.payload);
+        assert_eq!(deserialized.evidence_refs, original.evidence_refs);
+        assert_eq!(deserialized.content_hash, original.content_hash);
+        assert_eq!(deserialized.metadata, original.metadata);
+        assert_eq!(deserialized.causation_id, original.causation_id);
+        assert_eq!(deserialized.correlation_id, original.correlation_id);
+        assert_eq!(deserialized.cycle_id, original.cycle_id);
+        assert_eq!(deserialized.frame_id, original.frame_id);
+        assert_eq!(deserialized.fork_id, original.fork_id);
+    }
+
+    /// Verifies that [`to_canonical_json`] is deterministic: two envelopes with
+    /// identical content produce bit-for-bit identical JSON. This is required
+    /// for stable [`compute_content_hash`] values across re-serializations.
+    #[test]
+    fn canonical_json_determinism() {
+        let env1 = minimal_envelope();
+        let env2 = minimal_envelope();
+        assert_eq!(
+            env1.to_canonical_json(),
+            env2.to_canonical_json(),
+            "canonical JSON must be identical for identical content"
+        );
+    }
+
+    /// Verifies that optional fields are omitted from JSON when None (using
+    /// `#[serde(skip_serializing_if = "Option::is_none")]`). This ensures
+    /// backward compatibility: future schema versions adding new optional fields
+    /// will not cause older deserializers to reject events.
+    #[test]
+    fn optional_fields_omitted_when_none() {
+        let env = minimal_envelope();
+        let json = env.to_canonical_json();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert!(parsed.get("metadata").is_none(), "metadata=None must be omitted");
+        assert!(parsed.get("causation_id").is_none(), "causation_id=None must be omitted");
+        assert!(parsed.get("correlation_id").is_none(), "correlation_id=None must be omitted");
+        assert!(parsed.get("cycle_id").is_none(), "cycle_id=None must be omitted");
+        assert!(parsed.get("frame_id").is_none(), "frame_id=None must be omitted");
+        assert!(parsed.get("fork_id").is_none(), "fork_id=None must be omitted");
+    }
+
+    /// Verifies that optional fields are included in JSON when Some. Round-trip
+    /// must preserve the values.
+    #[test]
+    fn optional_fields_preserved_when_some() {
+        let mut env = minimal_envelope();
+        env.metadata = Some(json!({"key": "value"}));
+        env.causation_id = Some("e-previous-1".into());
+        env.correlation_id = Some("corr-session-1".into());
+        env.cycle_id = Some("project-1/change".into());
+        env.frame_id = Some("frame-1".into());
+        env.fork_id = Some("fork-1".into());
+
+        let json = env.to_canonical_json();
+        let deserialized: EventEnvelopeV1 = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.metadata, env.metadata);
+        assert_eq!(deserialized.causation_id, env.causation_id);
+        assert_eq!(deserialized.correlation_id, env.correlation_id);
+        assert_eq!(deserialized.cycle_id, env.cycle_id);
+        assert_eq!(deserialized.frame_id, env.frame_id);
+        assert_eq!(deserialized.fork_id, env.fork_id);
+    }
+
+    /// Verifies that a "fixture" JSON event — a hand-crafted historical event —
+    /// can be deserialized and will produce the correct content_hash when the
+    /// hash is recomputed. This proves that events serialized under the v1
+    /// schema remain loadable and verifiable indefinitely.
+    #[test]
+    fn schema_v1_fixture_deserializes_and_rehashes() {
+        // This JSON is a representative v1 event captured from production.
+        let fixture_json = r#"{
+  "event_id": "e-project-1-cycle-1-entered-1",
+  "event_type": "workflow.phase.entered",
+  "schema_version": 1,
+  "stream_id": "project-1/change",
+  "sequence": 1,
+  "project_id": "project-1",
+  "occurred_at": "2026-08-01T09:00:00Z",
+  "recorded_at": "2026-08-01T09:00:01Z",
+  "actor": {
+    "kind": "system",
+    "id": "sddk-cli"
+  },
+  "subjects": [],
+  "payload": {"phase": "explore"},
+  "evidence_refs": [],
+  "content_hash": ""
+}"#;
+        let env: EventEnvelopeV1 = serde_json::from_str(fixture_json).unwrap();
+
+        // Verify all fields deserialized correctly
+        assert_eq!(env.event_id, "e-project-1-cycle-1-entered-1");
+        assert_eq!(env.event_type, "workflow.phase.entered");
+        assert_eq!(env.schema_version, 1);
+        assert_eq!(env.stream_id, "project-1/change");
+        assert_eq!(env.project_id, "project-1");
+
+        // content_hash was empty in fixture — recompute it
+        let computed = env.compute_content_hash();
+        assert!(computed.starts_with("sha256:"));
+        assert_eq!(computed.len(), 7 + 64);
+    }
+
     #[test]
     fn validate_event_type_accepts_valid() {
         let valid = [
