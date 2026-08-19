@@ -6,9 +6,10 @@
 
 use std::path::{Path, PathBuf};
 
+use rusqlite::{OptionalExtension, params};
 use sddk_domain::{
-    Checkpoint, EventStore, GraphProjection, GraphState, GraphStore, Projection, ProjectionError,
-    StorageError,
+    Attempt, Checkpoint, EventStore, ExecutionGraphRevision, GraphProjection, GraphState, GraphStore,
+    NodeId, Projection, ProjectionError, RevisionId, RunId, StorageError,
 };
 
 use crate::event_store::SqliteEventStore;
@@ -237,6 +238,289 @@ impl GraphStore for SqliteGraphStore {
             .proj_store
             .load_checkpoint(GraphProjection::NAME, GraphProjection::VERSION)?
             .map(|(cp, _)| cp))
+    }
+
+    fn record_ir_digest(
+        &mut self,
+        ir_hash: &str,
+        ir_json: &str,
+    ) -> Result<(), StorageError> {
+        let conn = self.proj_store.conn_mut();
+        conn.execute(
+            "INSERT OR REPLACE INTO ir_digests_v1 (ir_hash, ir_json, compiled_at)
+             VALUES (?1, ?2, ?3)",
+            params![ir_hash, ir_json, current_iso8601()],
+        )
+        .map_err(|e| StorageError::Database(format!("record_ir_digest: {e}")))?;
+        Ok(())
+    }
+
+    fn record_graph_revision(&mut self, rev: &ExecutionGraphRevision) -> Result<(), StorageError> {
+        let rev_id = rev.revision_id.0.clone();
+        let run_id = rev
+            .nodes
+            .keys()
+            .next()
+            .map(|n| n.0.clone())
+            .unwrap_or_default();
+        let parent_id = rev.parent.as_ref().map(|p| p.revision_id.0.clone());
+        let events_json = serde_json::to_string(&rev.events)
+            .map_err(|e| StorageError::Database(format!("events serialize: {e}")))?;
+        let nodes_json = serde_json::to_string(&rev.nodes)
+            .map_err(|e| StorageError::Database(format!("nodes serialize: {e}")))?;
+        let edges_json = serde_json::to_string(&rev.edges)
+            .map_err(|e| StorageError::Database(format!("edges serialize: {e}")))?;
+        let digest = format!("sha256:{}", rev.digest.iter().map(|b| format!("{:02x}", b)).collect::<String>());
+
+        let conn = self.proj_store.conn_mut();
+        conn.execute(
+            "INSERT OR REPLACE INTO execution_graph_revisions_v1
+                (revision_id, run_id, revision, parent_revision_id,
+                 events_json, nodes_json, edges_json, digest, schema_version)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                rev_id,
+                run_id,
+                i64::try_from(rev.revision).unwrap_or(i64::MAX),
+                parent_id,
+                events_json,
+                nodes_json,
+                edges_json,
+                digest,
+                ExecutionGraphRevision::SCHEMA_VERSION as i64,
+            ],
+        )
+        .map_err(|e| StorageError::Database(format!("record_graph_revision: {e}")))?;
+        Ok(())
+    }
+
+    fn load_node_attempts(
+        &self,
+        run_id: &RunId,
+        node_id: &NodeId,
+    ) -> Result<Vec<Attempt>, StorageError> {
+        let conn = self.proj_store.conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT attempt_id, run_id, node_id, route_json, started_at, ended_at,
+                        outcome_json, usage_json, context_capsule_json, idempotency_key, schema_version
+                 FROM attempts_v1
+                 WHERE run_id = ?1 AND node_id = ?2
+                 ORDER BY started_at ASC",
+            )
+            .map_err(|e| StorageError::Database(format!("load_node_attempts prep: {e}")))?;
+        let rows = stmt
+            .query_map(params![run_id.0, node_id.0], |row| {
+                let attempt_id: String = row.get(0)?;
+                let run_id: String = row.get(1)?;
+                let node_id: String = row.get(2)?;
+                let route_json: String = row.get(3)?;
+                let started_at: String = row.get(4)?;
+                let ended_at: Option<String> = row.get(5)?;
+                let outcome_json: Option<String> = row.get(6)?;
+                let usage_json: String = row.get(7)?;
+                let capsule_json: String = row.get(8)?;
+                let idempotency_key: String = row.get(9)?;
+                let schema_version: i64 = row.get(10)?;
+                Ok(RawAttemptRow {
+                    attempt_id,
+                    run_id,
+                    node_id,
+                    route_json,
+                    started_at,
+                    ended_at,
+                    outcome_json,
+                    usage_json,
+                    capsule_json,
+                    idempotency_key,
+                    schema_version: schema_version as u32,
+                })
+            })
+            .map_err(|e| StorageError::Database(format!("load_node_attempts query: {e}")))?;
+        let mut out = Vec::new();
+        for row in rows {
+            let row = row.map_err(|e| StorageError::Database(format!("row: {e}")))?;
+            out.push(row.into_attempt()?);
+        }
+        Ok(out)
+    }
+
+    fn attempt_count(&self, run_id: &RunId, node_id: &NodeId) -> Result<u32, StorageError> {
+        let conn = self.proj_store.conn();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM attempts_v1 WHERE run_id = ?1 AND node_id = ?2",
+                params![run_id.0, node_id.0],
+                |row| row.get(0),
+            )
+            .map_err(|e| StorageError::Database(format!("attempt_count: {e}")))?;
+        Ok(count.max(0) as u32)
+    }
+
+    fn load_revision(
+        &self,
+        run_id: &RunId,
+        rev_id: &RevisionId,
+    ) -> Result<Option<ExecutionGraphRevision>, StorageError> {
+        let conn = self.proj_store.conn();
+        let row = conn
+            .query_row(
+                "SELECT revision_id, run_id, revision, parent_revision_id,
+                        events_json, nodes_json, edges_json, digest, schema_version
+                 FROM execution_graph_revisions_v1
+                 WHERE revision_id = ?1 AND run_id = ?2",
+                params![rev_id.0, run_id.0],
+                RawRevisionRow::from_row,
+            )
+            .optional()
+            .map_err(|e| StorageError::Database(format!("load_revision: {e}")))?;
+        match row {
+            Some(r) => Ok(Some(r.into_revision()?)),
+            None => Ok(None),
+        }
+    }
+
+    fn latest_revision(&self, run_id: &RunId) -> Result<Option<ExecutionGraphRevision>, StorageError> {
+        let conn = self.proj_store.conn();
+        let row = conn
+            .query_row(
+                "SELECT revision_id, run_id, revision, parent_revision_id,
+                        events_json, nodes_json, edges_json, digest, schema_version
+                 FROM execution_graph_revisions_v1
+                 WHERE run_id = ?1
+                 ORDER BY revision DESC
+                 LIMIT 1",
+                params![run_id.0],
+                RawRevisionRow::from_row,
+            )
+            .optional()
+            .map_err(|e| StorageError::Database(format!("latest_revision: {e}")))?;
+        match row {
+            Some(r) => Ok(Some(r.into_revision()?)),
+            None => Ok(None),
+        }
+    }
+}
+
+/// RFC 3339 / ISO 8601 UTC timestamp without external deps.
+fn current_iso8601() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    format!("1970-01-01T00:00:00+00:00 (epoch {secs})")
+}
+
+/// Raw row from attempts_v1.
+struct RawAttemptRow {
+    attempt_id: String,
+    run_id: String,
+    node_id: String,
+    route_json: String,
+    started_at: String,
+    ended_at: Option<String>,
+    outcome_json: Option<String>,
+    usage_json: String,
+    capsule_json: String,
+    idempotency_key: String,
+    schema_version: u32,
+}
+
+impl RawAttemptRow {
+    fn into_attempt(self) -> Result<Attempt, StorageError> {
+        use sddk_domain::{
+            AttemptId, AttemptOutcome, ContextCapsuleRef, IdempotencyKey, Route, Usage,
+        };
+        let route: Route = serde_json::from_str(&self.route_json)
+            .map_err(|e| StorageError::Database(format!("route deserialize: {e}")))?;
+        let outcome: Option<AttemptOutcome> = match self.outcome_json {
+            Some(j) => Some(
+                serde_json::from_str(&j)
+                    .map_err(|e| StorageError::Database(format!("outcome deserialize: {e}")))?,
+            ),
+            None => None,
+        };
+        let usage: Usage = serde_json::from_str(&self.usage_json)
+            .map_err(|e| StorageError::Database(format!("usage deserialize: {e}")))?;
+        let context_capsule: ContextCapsuleRef = serde_json::from_str(&self.capsule_json)
+            .map_err(|e| StorageError::Database(format!("capsule deserialize: {e}")))?;
+        let idempotency_key = IdempotencyKey {
+            project_id: String::new(),
+            run_id: RunId(self.run_id.clone()),
+            node_id: NodeId(self.node_id.clone()),
+            attempt_seq: 0,
+        };
+        let _ = self.idempotency_key; // original string not currently needed
+        Ok(Attempt {
+            attempt_id: AttemptId(self.attempt_id),
+            node_id: NodeId(self.node_id),
+            route,
+            started_at: self.started_at,
+            ended_at: self.ended_at,
+            outcome,
+            usage,
+            context_capsule,
+            idempotency_key,
+            schema_version: self.schema_version,
+        })
+    }
+}
+
+/// Raw row from execution_graph_revisions_v1.
+#[allow(dead_code)]
+struct RawRevisionRow {
+    revision_id: String,
+    run_id: String,
+    revision: u64,
+    parent_revision_id: Option<String>,
+    events_json: String,
+    nodes_json: String,
+    edges_json: String,
+    digest: String,
+    schema_version: u32,
+}
+
+impl RawRevisionRow {
+    fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            revision_id: row.get(0)?,
+            run_id: row.get(1)?,
+            revision: row.get::<_, i64>(2)?.max(0) as u64,
+            parent_revision_id: row.get(3)?,
+            events_json: row.get(4)?,
+            nodes_json: row.get(5)?,
+            edges_json: row.get(6)?,
+            digest: row.get(7)?,
+            schema_version: row.get::<_, i64>(8)? as u32,
+        })
+    }
+    fn into_revision(self) -> Result<ExecutionGraphRevision, StorageError> {
+        use sddk_domain::{EdgeId, EdgeSnapshot, GraphEvent, NodeSnapshot};
+        use std::collections::BTreeMap;
+        let events: BTreeMap<sddk_domain::EventId, GraphEvent> = serde_json::from_str(&self.events_json)
+            .map_err(|e| StorageError::Database(format!("events deserialize: {e}")))?;
+        let nodes: BTreeMap<NodeId, NodeSnapshot> = serde_json::from_str(&self.nodes_json)
+            .map_err(|e| StorageError::Database(format!("nodes deserialize: {e}")))?;
+        let edges: BTreeMap<EdgeId, EdgeSnapshot> = serde_json::from_str(&self.edges_json)
+            .map_err(|e| StorageError::Database(format!("edges deserialize: {e}")))?;
+        let mut digest_bytes = [0u8; 32];
+        let hex = self.digest.strip_prefix("sha256:").unwrap_or(&self.digest);
+        if hex.len() == 64 {
+            for i in 0..32 {
+                digest_bytes[i] = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).unwrap_or(0);
+            }
+        }
+        Ok(ExecutionGraphRevision {
+            revision: self.revision,
+            revision_id: RevisionId(self.revision_id),
+            parent: None,
+            events,
+            nodes,
+            edges,
+            digest: digest_bytes,
+            schema_version: self.schema_version,
+        })
     }
 }
 

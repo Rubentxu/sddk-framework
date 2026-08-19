@@ -12,6 +12,16 @@ pub struct SqliteProjectionStore {
 }
 
 impl SqliteProjectionStore {
+    /// Borrows the underlying SQLite connection (read-only).
+    pub fn conn(&self) -> &rusqlite::Connection {
+        &self.conn
+    }
+
+    /// Borrows the underlying SQLite connection (mutable).
+    pub fn conn_mut(&mut self) -> &mut rusqlite::Connection {
+        &mut self.conn
+    }
+
     /// Opens (or creates) a `ledger.sqlite` file at `$dir/ledger.sqlite` and
     /// applies all pending migrations.
     pub fn open(dir: &Path) -> Result<Self, StorageError> {
