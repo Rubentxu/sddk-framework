@@ -320,52 +320,34 @@ pub trait GraphStore {
     fn checkpoint(&self) -> Result<Option<crate::projections::Checkpoint>, StorageError>;
 
     // ── v1.29.0: Workflow IR revision surface (additive) ─────────────────────
+    //
+    // These methods are REQUIRED — no default body. The `SqliteGraphStore`
+    // implementation lives in `crates/sddk-storage/src/graph_store.rs`.
 
     /// Records a compiled IR digest for deduplication.
-    ///
-    /// Default implementation returns `unimplemented!()`.
-    fn record_ir_digest(&mut self, _ir_hash: &str, _ir_json: &str) -> Result<(), StorageError> {
-        unimplemented!("GraphStore::record_ir_digest must be implemented by the storage adapter")
-    }
+    fn record_ir_digest(&mut self, ir_hash: &str, ir_json: &str) -> Result<(), StorageError>;
 
     /// Records a graph revision with its parent chain.
-    ///
-    /// Default implementation returns `unimplemented!()`.
     fn record_graph_revision(
         &mut self,
-        _rev: &crate::graph::ExecutionGraphRevision,
-    ) -> Result<(), StorageError> {
-        unimplemented!(
-            "GraphStore::record_graph_revision must be implemented by the storage adapter"
-        )
-    }
+        rev: &crate::graph::ExecutionGraphRevision,
+    ) -> Result<(), StorageError>;
 
     /// Loads all attempts for a given node run.
-    ///
-    /// Default implementation returns `unimplemented!()`.
     fn load_node_attempts(
         &self,
-        _run_id: &crate::workflow_ir::RunId,
-        _node_id: &crate::workflow_ir::NodeId,
-    ) -> Result<Vec<crate::workflow_run::Attempt>, StorageError> {
-        unimplemented!("GraphStore::load_node_attempts must be implemented by the storage adapter")
-    }
+        run_id: &crate::workflow_ir::RunId,
+        node_id: &crate::workflow_ir::NodeId,
+    ) -> Result<Vec<crate::workflow_run::Attempt>, StorageError>;
 
     /// Returns the number of attempts for a given node.
-    ///
-    /// Default implementation returns `unimplemented!()`.
     fn attempt_count(
         &self,
-        _run_id: &crate::workflow_ir::RunId,
-        _node_id: &crate::workflow_ir::NodeId,
-    ) -> Result<u32, StorageError> {
-        unimplemented!("GraphStore::attempt_count must be implemented by the storage adapter")
-    }
+        run_id: &crate::workflow_ir::RunId,
+        node_id: &crate::workflow_ir::NodeId,
+    ) -> Result<u32, StorageError>;
 
     /// Saves a graph revision (alias for `record_graph_revision`).
-    ///
-    /// Delegates to `record_graph_revision`. Override only if a different
-    /// implementation is needed.
     fn save_revision(
         &mut self,
         rev: &crate::graph::ExecutionGraphRevision,
@@ -374,25 +356,17 @@ pub trait GraphStore {
     }
 
     /// Loads a specific revision by run_id and revision_id.
-    ///
-    /// Default implementation returns `unimplemented!()`.
     fn load_revision(
         &self,
-        _run_id: &crate::workflow_ir::RunId,
-        _rev_id: &crate::workflow_ir::RevisionId,
-    ) -> Result<Option<crate::graph::ExecutionGraphRevision>, StorageError> {
-        unimplemented!("GraphStore::load_revision must be implemented by the storage adapter")
-    }
+        run_id: &crate::workflow_ir::RunId,
+        rev_id: &crate::workflow_ir::RevisionId,
+    ) -> Result<Option<crate::graph::ExecutionGraphRevision>, StorageError>;
 
     /// Loads the latest (highest-revision) graph revision for a run.
-    ///
-    /// Default implementation returns `unimplemented!()`.
     fn latest_revision(
         &self,
-        _run_id: &crate::workflow_ir::RunId,
-    ) -> Result<Option<crate::graph::ExecutionGraphRevision>, StorageError> {
-        unimplemented!("GraphStore::latest_revision must be implemented by the storage adapter")
-    }
+        run_id: &crate::workflow_ir::RunId,
+    ) -> Result<Option<crate::graph::ExecutionGraphRevision>, StorageError>;
 }
 
 /// Artifact store port (Phase 1 MUST).
