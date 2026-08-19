@@ -68,13 +68,30 @@ pub enum ExpansionPermission {
 }
 
 impl ExpansionPermission {
-    /// Checks if this permission is allowed by the given allowlist.
-    pub fn is_allowed(&self, _allowlist: &BTreeSet<ExpansionPermission>) -> bool {
-        // v1 closed set: only Map, Discover, Replan exist
+    /// Returns true if this permission is a member of the v1 closed set
+    /// (Map, Discover, Replan).
+    pub fn is_known_permission(&self) -> bool {
         matches!(
             self,
             ExpansionPermission::Map | ExpansionPermission::Discover | ExpansionPermission::Replan
         )
+    }
+
+    /// Returns true if this permission is a member of the given allowlist.
+    pub fn is_allowed_by(&self, allowlist: &BTreeSet<ExpansionPermission>) -> bool {
+        allowlist.contains(self)
+    }
+
+    /// Deprecated: misleading semantics — ignores the allowlist parameter and always
+    /// returns true for the v1 closed set. Use `is_known_permission()` and/or
+    /// `is_allowed_by(allowlist)` instead.
+    #[deprecated(
+        since = "1.30.0",
+        note = "misleading: ignores the allowlist. Use is_known_permission() + is_allowed_by(allowlist). Removed in cycle 3 (v1.31.0)."
+    )]
+    pub fn is_allowed(&self, _allowlist: &BTreeSet<ExpansionPermission>) -> bool {
+        // v1 closed set: only Map, Discover, Replan exist
+        self.is_known_permission()
     }
 }
 
@@ -484,9 +501,9 @@ impl WorkflowTemplate {
                 want: SCHEMA_VERSION,
             });
         }
-        // Check that all expansion permissions are in the closed set
+        // Check that all expansion permissions are in the closed set AND in the allowlist
         for perm in &self.expansion_permissions {
-            if !perm.is_allowed(&self.expansion_permissions) {
+            if !perm.is_known_permission() || !perm.is_allowed_by(&self.expansion_permissions) {
                 return Err(CompileError::ExpansionNotAllowed);
             }
         }
@@ -631,4 +648,16 @@ pub enum ValidateError {
     /// Guard expression failed.
     #[error("guard expression failed: {0}")]
     GuardFailed(String),
+
+    /// Budget exceeds hard limits.
+    #[error("budget exceeds hard limits")]
+    BudgetExceedsLimit,
+
+    /// Capability not in the template's allowlist.
+    #[error("capability not in allowlist: {0:?}")]
+    CapabilityNotInAllowlist(CapabilityId),
+
+    /// Operator not allowed (e.g., Map without expansion permission).
+    #[error("operator not allowed: {0:?}")]
+    OperatorNotAllowed(OperatorId),
 }

@@ -4,6 +4,8 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use thiserror::Error;
 
 // Re-export IR types needed by run types
 pub use super::workflow_ir::{
@@ -66,9 +68,76 @@ pub enum ContextCapsuleRef {
     Inline {
         /// Content summary.
         summary: String,
-        /// SHA-256 content hash.
+        /// SHA-256 content hash (bare 64 hex chars, no prefix).
         sha256: String,
     },
+}
+
+/// Errors from [`ContextCapsuleRef::validate`].
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum CapsuleError {
+    /// Inline capsule exceeds the maximum size limit.
+    #[error("inline capsule exceeds 4096 bytes: got {got}")]
+    InlineTooLarge {
+        /// Actual byte count.
+        got: usize,
+    },
+    /// SHA-256 digest mismatch between declared and recomputed.
+    #[error("inline capsule sha256 mismatch: expected {expected}, got {got}")]
+    Sha256Mismatch {
+        /// Expected digest (recomputed).
+        expected: String,
+        /// Actual digest found.
+        got: String,
+    },
+    /// SHA-256 string is malformed (not 64 lowercase hex chars).
+    #[error("inline capsule sha256 malformed: {0}")]
+    Sha256Malformed(String),
+}
+
+impl ContextCapsuleRef {
+    /// Maximum inline context capsule size in bytes.
+    pub const INLINE_CAPSULE_MAX_BYTES: usize = crate::workflow_ir::INLINE_CAPSULE_MAX_BYTES;
+
+    /// Validates this capsule reference.
+    ///
+    /// - `Pointer` variants always pass (CID resolution is a runtime concern).
+    /// - `Inline` variants are validated for:
+    ///   1. SHA-256 format (64 lowercase hex chars)
+    ///   2. Size bound (≤ 4096 bytes)
+    ///   3. Digest integrity (recomputed sha256 matches declared)
+    pub fn validate(&self) -> Result<(), CapsuleError> {
+        match self {
+            ContextCapsuleRef::Pointer { .. } => Ok(()),
+            ContextCapsuleRef::Inline { summary, sha256 } => {
+                // 1. Check sha256 format: 64 lowercase hex chars, no prefix
+                if sha256.len() != 64
+                    || !sha256
+                        .chars()
+                        .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+                {
+                    return Err(CapsuleError::Sha256Malformed(sha256.clone()));
+                }
+
+                // 2. Check size bound
+                let summary_bytes = summary.len();
+                if summary_bytes > Self::INLINE_CAPSULE_MAX_BYTES {
+                    return Err(CapsuleError::InlineTooLarge { got: summary_bytes });
+                }
+
+                // 3. Verify sha256 integrity
+                let computed = format!("{:064x}", Sha256::digest(summary.as_bytes()));
+                if computed != *sha256 {
+                    return Err(CapsuleError::Sha256Mismatch {
+                        expected: computed,
+                        got: sha256.clone(),
+                    });
+                }
+
+                Ok(())
+            }
+        }
+    }
 }
 
 // ── IdempotencyKey ────────────────────────────────────────────────────────
