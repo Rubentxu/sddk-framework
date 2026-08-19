@@ -21,6 +21,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - chore(fmt): rustfmt --all aligns with the repo's rustfmt.toml (cosmetic only).
   - chore(manifest): regenerated MANIFEST.sha256 with the 92nd skill entry.
 
+### Distribution
+  - chore(distribution): SDDK now ships as pre-compiled binaries on GitHub Releases. The `scripts/install.sh` one-liner (rustup/mise model) detects platform, downloads the binary + SHA256, verifies integrity, and links the framework bundle into the chosen editor. Linux x86_64-musl and Linux aarch64-musl are the first supported targets (both static, run on any distro). Closes the gap between docs (which claimed "asdf-vm model") and reality (which was "git clone + cargo build").
+
 ## [1.27.0] - 2026-08-19
 
 ### Features

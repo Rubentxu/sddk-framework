@@ -66,6 +66,70 @@ y se actualiza con `sddk dev install`.
 - Los minutos del plan free de GitHub están agotados — el cloud puede ni
   ejecutar; confía en el gate local.
 
+### 2.6. Distribución (GitHub Releases + install.sh)
+
+Desde v1.28.0 SDDK distribuye **binarios pre-compilados** vía GitHub Releases,
+no requiere clonar el repo ni compilar. El usuario instala con un one-liner
+(modelo `rustup` / `mise`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Rubentxu/sddk-framework/main/scripts/install.sh | bash
+```
+
+El script `scripts/install.sh` (244 líneas):
+- Detecta plataforma (`uname -s/m`) → asset `sddk-linux-{x86_64,aarch64}-musl`
+  (Linux: **musl static**, corre en cualquier distro sin importar glibc)
+- Descarga binario + `sha256` desde GitHub Releases
+- Verifica SHA256 antes de instalar (falla si no coincide)
+- Si `cosign` está disponible, verifica firma keyless (opcional)
+- Pregunta qué editor configurar (opencode/zcode/claude/codex o todos)
+- Descarga `sddk-framework.tar.gz` (bundle: `agents/`, `skills/`,
+  `prompts/sddk/`, `assets/`, `MANIFEST.sha256`) y lo extrae en
+  `$SDDK_DATA_DIR/framework/<v>/`
+- Ejecuta `sddk dev link --editor <X>` (symlink del bundle al dir del editor)
+- Imprime `sddk dev doctor` (verificación final)
+
+**Plataformas soportadas en v1.28.0:**
+- ✅ Linux x86_64 (musl static)
+- ✅ Linux aarch64 (musl static)
+- ⏳ macOS x86_64 + arm64 (pendiente: toolchain `cargo-zigbuild` ya instalado;
+  falta generar binarios y subirlos al release)
+- ⏳ Windows x86_64 (pendiente: requiere `#[cfg(unix)]` en código que usa
+  `std::os::unix::*` — ver `crates/sddk-cli/src/dev_cmd.rs`)
+
+**Release local-first (manual):** el tag se empuja primero (`git tag vX.Y.Z &&
+git push origin vX.Y.Z`), después se sube el binario a GitHub Releases.
+Workflow `.github/workflows/release.yml` queda en modo `workflow_dispatch`
+manual desde 2026-08-10 (CI agotado); el camino operativo hoy es:
+
+```bash
+# 1. Tag + push (local)
+cargo build --release --target x86_64-unknown-linux-musl -p sddk-cli --locked
+git tag vX.Y.Z && git push origin vX.Y.Z
+
+# 2. Stage assets (Linux x86_64 + aarch64)
+./target/x86_64-unknown-linux-musl/release/sddk release dist \
+  --prefix dist-amd64 --channel release --commit "$(git rev-parse HEAD)"
+cp dist-amd64/dist/sddk sddk-linux-x86_64-musl
+cp dist-amd64/dist/{checksums.txt,sbom.json,attestation.json} sddk-linux-x86_64-musl.{CHECKSUMS,sbom.json,attestation.json}
+sha256sum sddk-linux-x86_64-musl > sddk-linux-x86_64-musl.sha256
+# (repetir para aarch64)
+
+# 3. Framework bundle
+tar czf sddk-framework.tar.gz agents skills prompts/sddk assets MANIFEST.sha256
+sha256sum sddk-framework.tar.gz > sddk-framework.tar.gz.sha256
+
+# 4. gh release create
+gh release create vX.Y.Z --repo Rubentxu/sddk-framework \
+  --target <commit> --title "vX.Y.Z" --notes "..." \
+  sddk-linux-x86_64-musl sddk-linux-x86_64-musl.{sha256,CHECKSUMS,sbom.json,attestation.json} \
+  sddk-linux-aarch64-musl sddk-linux-aarch64-musl.{sha256,CHECKSUMS,sbom.json,attestation.json} \
+  sddk-framework.tar.gz sddk-framework.tar.gz.sha256
+```
+
+El smoke-test E2E vive en `.github/workflows/release.yml:170-217` y se ejecuta
+automáticamente cuando CI está disponible.
+
 ---
 
 ## 3. Layout de directorios (modelo asdf-vm)

@@ -64,7 +64,24 @@ The current agent and skill paths are tracked in the [generated repository inven
 
 ## Quick start
 
-### Install
+### Install (users — one-liner)
+
+Since v1.28.0 SDDK ships pre-compiled binaries on GitHub Releases. Install
+with a single command (rustup / mise model):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Rubentxu/sddk-framework/main/scripts/install.sh | bash
+```
+
+The script auto-detects your platform (Linux x86_64 / Linux aarch64, macOS,
+Windows — see [Supported platforms](#supported-platforms)), downloads the
+binary + SHA256, verifies integrity, asks which editor to configure
+(opencode/zcode/claude/codex), and links the framework bundle into your
+`~/.config/<editor>/` directory.
+
+### Install (developers — from source)
+
+If you are modifying the framework itself, build and install from the repo:
 
 ```bash
 # 1. Clone the framework (single source of truth — never edit the runtime copy directly)
@@ -87,6 +104,16 @@ sddk dev doctor
 ```
 
 The bootstrap script (`./bootstrap.sh --all`) is an **alternative** to step 3 — it creates the same symlinks but only for content surfaces. Prefer `sddk dev install` + `sddk dev link` because they verify the install with a receipt and a doctor pass.
+
+### Supported platforms
+
+| Platform | Architecture | Status |
+|----------|--------------|--------|
+| Linux | x86_64 | ✅ musl static (ships in release) |
+| Linux | aarch64 | ✅ musl static (ships in release) |
+| macOS | x86_64 | ⏳ pending (cargo-zigbuild ready, binaries not yet uploaded) |
+| macOS | arm64 | ⏳ pending (cargo-zigbuild ready, binaries not yet uploaded) |
+| Windows | x86_64 | ⏳ pending (requires `#[cfg(unix)]` in `dev_cmd.rs`) |
 
 Your project repos stay clean — **zero documentation files in your code repos**. All SDDK state (cycle artifacts, knowledge vault, telemetry) lives under `$XDG_DATA_HOME/sddk/` (`~/.local/share/sddk/` by default).
 
