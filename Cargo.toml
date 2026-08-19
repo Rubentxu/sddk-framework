@@ -8,6 +8,7 @@ members = [
     "crates/sddk-vault",
     "crates/sddk-cli",
     "crates/sddk-testkit",
+    "crates/sddk-pack-uat",
 ]
 exclude = ["docs/sddk-stabilization-plan"]
 

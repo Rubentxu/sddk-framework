@@ -1453,6 +1453,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sddk-pack-uat"
+version = "1.26.0"
+dependencies = [
+ "sddk-domain",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "sddk-storage"
 version = "1.26.0"
 dependencies = [
