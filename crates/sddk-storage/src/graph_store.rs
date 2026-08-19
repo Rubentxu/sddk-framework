@@ -407,14 +407,50 @@ impl GraphStore for SqliteGraphStore {
     }
 }
 
-/// RFC 3339 / ISO 8601 UTC timestamp without external deps.
+/// RFC 3339 / ISO 8601 UTC timestamp, no external deps.
+///
+/// Uses Howard Hinnant's `civil_from_days` algorithm to convert Unix
+/// epoch seconds into a Gregorian civil date without pulling in `chrono`
+/// or `time`. Returns `YYYY-MM-DDTHH:MM:SSZ`.
 fn current_iso8601() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    format!("1970-01-01T00:00:00+00:00 (epoch {secs})")
+    format_rfc3339_utc(secs)
+}
+
+/// Format `epoch_secs` (Unix seconds, UTC) as RFC 3339: `YYYY-MM-DDTHH:MM:SSZ`.
+///
+/// Howard Hinnant's algorithm (https://howardhinnant.github.io/date_algorithms.html).
+/// Public so tests can pin deterministic values.
+fn format_rfc3339_utc(epoch_secs: u64) -> String {
+    // Days since 1970-01-01 (Unix epoch)
+    let z = (epoch_secs / 86_400) as i64;
+    let secs_of_day = epoch_secs % 86_400;
+
+    // Hinnant's `civil_from_days(z)` shifts `z` by 719468 to align day 0
+    // with 0000-03-01 (so the year boundary falls inside the era).
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    let y = if m <= 2 { y + 1 } else { y };
+
+    let hour = secs_of_day / 3600;
+    let minute = (secs_of_day % 3600) / 60;
+    let second = secs_of_day % 60;
+
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        y, m, d, hour, minute, second
+    )
 }
 
 /// Raw row from attempts_v1.
@@ -800,5 +836,53 @@ mod tests {
         );
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Regression test for CRIT-DV-1: `current_iso8601()` must return a real
+    /// RFC 3339 timestamp, not the broken `1970-01-01T00:00:00+00:00 (epoch ...)`
+    /// stub that landed in commit `41957f9`.
+    #[test]
+    fn current_iso8601_is_real_timestamp() {
+        let s = current_iso8601();
+        assert!(
+            !s.contains("(epoch"),
+            "current_iso8601() leaked the (epoch ...) debug suffix: {s}"
+        );
+        assert!(s.ends_with('Z'), "expected UTC Z suffix: {s}");
+        // Format: YYYY-MM-DDTHH:MM:SSZ (20 chars)
+        assert_eq!(s.len(), 20, "expected 20-char RFC 3339, got: {s}");
+        // Year prefix should be the current civil year (2026 in the dev era).
+        let year_prefix: i64 = s[..4].parse().expect("year prefix");
+        assert!(
+            (2020..=2100).contains(&year_prefix),
+            "current year out of plausible range: {year_prefix}"
+        );
+    }
+
+    /// Pin a deterministic epoch-seconds value to the expected RFC 3339 string.
+    /// Catches off-by-one errors in Hinnant's algorithm.
+    #[test]
+    fn format_rfc3339_utc_pinned_values() {
+        // Unix epoch = 1970-01-01T00:00:00Z
+        assert_eq!(format_rfc3339_utc(0), "1970-01-01T00:00:00Z");
+        // 2026-08-19T12:34:56Z
+        //   1970-01-01..2026-01-01 = 56 yrs × 365 + 14 leap days = 20_454 days
+        //   2026-01-01..2026-08-19 = 230 days (Jan-Aug 19)
+        //   20_454 + 230 = 20_684 days × 86_400 = 1_787_097_600 s
+        //   12:34:56 = 4*3600 + 34*60 + 56 = 14_456 + 2040 + 56 = 45_296 s
+        //   total = 1_787_097_600 + 45_296 = 1_787_142_896
+        assert_eq!(
+            format_rfc3339_utc(1_787_142_896),
+            "2026-08-19T12:34:56Z"
+        );
+        // Leap-year handling: 2024 is a leap year, so Feb 29 exists.
+        // 2024-02-29T00:00:00Z
+        //   1970-01-01..2024-01-01 = 54 yrs × 365 + 13 leap days = 19_710 + 13 = 19_723 days
+        //   2024-01-01..2024-02-29 = 59 days (Jan 31 + Feb 29 - 1)
+        //   19_723 + 59 = 19_782 days × 86_400 = 1_709_164_800
+        assert_eq!(
+            format_rfc3339_utc(1_709_164_800),
+            "2024-02-29T00:00:00Z"
+        );
     }
 }
