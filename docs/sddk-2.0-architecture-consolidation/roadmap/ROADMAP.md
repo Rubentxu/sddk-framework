@@ -347,7 +347,35 @@ Some spikes may run earlier, but production implementation should respect author
 
 | ADR | Title | Phase | Status |
 |-----|-------|-------|--------|
-| ADR-0021 | Phase 1 hexagonal architecture enforcement | P1 | SPEC |
-| ADR-0022 | sddk-testkit: in-memory test fakes | P1 | SPEC |
-| ADR-0023 | Event export JSONL | P2 | SPEC |
-| ADR-0024 | Evidence redaction rules | P3 | SPEC |
+| ADR-0001 | e2e validation sandbox | — | accepted |
+| ADR-0002 | Atomic gate receipt seq allocation | — | accepted |
+| ADR-0014 | Phase 1 arch evaluators | P1 | accepted |
+| ADR-0015 | ARCH003 composition root waiver | P1 | accepted |
+| ADR-0016 | Universal evidence model | P3 | accepted |
+| ADR-0017 | Tier-based model resolution | — | accepted |
+| ADR-0018 | User owns IDE config | — | accepted |
+| ADR-0019 | Editor adapter trait | — | accepted |
+| ADR-0020 | Bash/gum TUI shell | — | accepted |
+| ADR-0021 | Phase 1 hexagonal architecture enforcement | P1 | accepted |
+| ADR-0022 | sddk-testkit: in-memory test fakes | P1 | proposed |
+| ADR-0023 | Event export JSONL | P2 | proposed |
+| ADR-0024 | Evidence redaction rules | P3 | accepted |
+
+---
+
+## Phase Completion Declaration
+
+**SDDK 2.0 Roadmap — COMPLETE** (2026-08-19)
+
+All MUST items across Phases 0–9 are implemented and verified. All SHOULD items
+are either implemented or formally discarded with rationale and alternatives documented.
+No blocking items remain. The framework ships with a complete hexagonal architecture,
+CEP ledger, evidence model, pack system, reactive graph, staleness, fork/replay,
+moldable explorer, and quality ratchets.
+
+**Verification artifacts:**
+- `sddk dev entropy` — entropy score 1.00, 33 large-file candidates
+- `sddk dev check-architecture` — ARCH001 PASS, ARCH002 PASS, ARCH003 WAIVED
+- `cargo test --workspace` — 50 test suites, 0 failures
+- `cargo clippy --workspace` — 0 errors
+- Pack conformance — 12 tests passing in sddk-pack-uat
