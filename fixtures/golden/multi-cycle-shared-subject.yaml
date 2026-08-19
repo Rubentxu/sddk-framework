@@ -1,0 +1,11 @@
+name: multi-cycle-shared-subject
+events:
+  - event_type: test.verifies
+    subjects: [[test, t1], [requirement, r1]]
+    cycle_id: c-1
+  - event_type: test.verifies
+    subjects: [[test, t1], [requirement, r2]]
+    cycle_id: c-2
+expect:
+  nodes: 5
+  edges: 2

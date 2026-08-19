@@ -1,0 +1,14 @@
+name: pack-lifecycle
+events:
+  - event_type: pack.installed
+    subjects: [[pack, p1]]
+    cycle_id: c-1
+  - event_type: pack.enabled
+    subjects: [[pack, p1]]
+    cycle_id: c-1
+  - event_type: pack.disabled
+    subjects: [[pack, p1]]
+    cycle_id: c-1
+expect:
+  nodes: 2
+  edges: 3

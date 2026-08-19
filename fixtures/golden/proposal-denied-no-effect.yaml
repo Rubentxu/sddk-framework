@@ -1,0 +1,14 @@
+name: proposal-denied-no-effect
+events:
+  - event_type: proposal.submitted
+    subjects: [[proposal, p1], [cycle, c-1]]
+    cycle_id: c-1
+  - event_type: proposal.denied
+    subjects: [[proposal, p1]]
+    cycle_id: c-1
+  - event_type: capability.attempted
+    subjects: [[capability, git.push], [actor, alice]]
+    cycle_id: c-1
+expect:
+  nodes: 4
+  edges: 3

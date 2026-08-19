@@ -1,0 +1,14 @@
+name: staleness-diamond
+events:
+  - event_type: test.verifies
+    subjects: [[test, t1], [requirement, r1]]
+    cycle_id: c-1
+  - event_type: test.verifies
+    subjects: [[test, t2], [requirement, r1]]
+    cycle_id: c-1
+  - event_type: requirement.modified
+    subjects: [[requirement, r1]]
+    cycle_id: c-1
+expect:
+  nodes: 4
+  edges: 3

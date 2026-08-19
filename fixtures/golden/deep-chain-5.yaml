@@ -1,0 +1,20 @@
+name: deep-chain-5
+events:
+  - event_type: task.depends_on
+    subjects: [[task, A], [task, B]]
+    cycle_id: c-1
+  - event_type: task.depends_on
+    subjects: [[task, B], [task, C]]
+    cycle_id: c-1
+  - event_type: task.depends_on
+    subjects: [[task, C], [task, D]]
+    cycle_id: c-1
+  - event_type: task.depends_on
+    subjects: [[task, D], [task, E]]
+    cycle_id: c-1
+  - event_type: task.created
+    subjects: [[task, A]]
+    cycle_id: c-1
+expect:
+  nodes: 6
+  edges: 5
