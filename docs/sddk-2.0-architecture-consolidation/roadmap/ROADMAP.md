@@ -274,9 +274,15 @@ During phases 0–4, do not add a new top-level product domain. New ideas are ca
 
 ### Phase 3 MUST Completion (P3-MUST)
 
+> Retroactive Phase 3 verification (2026-08-19).
+
 | Item | Status | Spec | Issue |
 |------|--------|------|-------|
-| Define redaction rules for evidence | SPEC | ADR-0024 | P3-RD-001..006 |
+| Extract universal Evidence model from UAT concepts | DONE (pre-existing) | ADR-0016 | — |
+| Proposal -> Policy -> Capability -> Verify -> Receipt flow | DONE (pre-existing) | ADR-0020 | — |
+| Bind agent/behavior version hashes into receipts | DONE (pre-existing) | — | — |
+| Human approval as first-class events (emit_approval_requested/granted/denied) | DONE (pre-existing) | — | — |
+| Define redaction rules for evidence | DONE (3e95d64) | ADR-0024 | P3-RD-001..005 |
 
 ### Phase 5 SHOULD Pending (P5-SHOULD)
 
