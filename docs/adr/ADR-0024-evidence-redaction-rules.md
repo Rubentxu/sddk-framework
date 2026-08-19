@@ -1,6 +1,6 @@
 # ADR-0024 — Evidence Redaction Rules
 
-**Status:** draft
+**Status:** proposed
 **Date:** 2026-08-19
 **Trigger:** Roadmap SDDK 2.0 Phase 3 MUST: *"Define redaction rules for evidence"*
 

@@ -1,6 +1,6 @@
 # ADR-0023 — Event Export JSONL for Debugging and Tooling
 
-**Status:** draft
+**Status:** proposed
 **Date:** 2026-08-19
 **Trigger:** Roadmap SDDK 2.0 Phase 2 SHOULD: *"Add event export JSONL for debugging/tooling"*
 

@@ -1,6 +1,6 @@
 # ADR-0021 — Phase 1 Hexagonal Architecture Enforcement
 
-**Status:** draft
+**Status:** accepted
 **Date:** 2026-08-19
 **Supersedes:** ADR-0015 (partial)
 **Trigger:** Roadmap SDDK 2.0 Phase 1 block
@@ -84,14 +84,14 @@ trait from `sddk-domain`. The production dependency declaration is wrong; it bel
 
 ## Implementation Plan (P1-FIX-001)
 
-| Step | Description | File | Issue |
-|------|-------------|------|-------|
-| 1 | Move `sddk-storage` to `[dev-dependencies]` | `crates/sddk-engine/Cargo.toml` | P1-FIX-001 |
-| 2 | Add `LedgerFactory` trait to `sddk-domain/src/ports.rs` | `ports.rs` | P1-FIX-002 |
-| 3 | Implement `LedgerFactory for sddk_storage::Storage` in `sddk-storage/src/lib.rs` | `lib.rs` | P1-FIX-003 |
-| 4 | Update `sddk-cli` composition root to use `LedgerFactory` (optional, additive) | `sddk-cli/src/lib.rs` | P1-FIX-004 |
-| 5 | Add `ARCH003` lint to `archcheck` | `tools/archcheck/` | P1-FIX-005 |
-| 6 | Verify: `cargo tree -p sddk-engine -e normal` shows no `sddk-storage` | CI gate | P1-FIX-006 |
+| Step | Description | File | Issue | Status |
+|------|-------------|------|-------|--------|
+| 1 | Move `sddk-storage` to `[dev-dependencies]` | `crates/sddk-engine/Cargo.toml` | P1-FIX-001 | ✅ DONE (37da426) |
+| 2 | Add `LedgerFactory` trait to `sddk-domain/src/ports.rs` | `ports.rs` | P1-FIX-002 | ✅ DONE (050f4e0) |
+| 3 | Implement `LedgerFactory for SqliteLedgerFactory` in `sddk-storage/src/lib.rs` | `lib.rs` | P1-FIX-003 | ✅ DONE (050f4e0) |
+| 4 | Update `sddk-cli` composition root to use `LedgerFactory` (optional, additive) | `sddk-cli/src/lib.rs` | P1-FIX-004 | OPEN |
+| 5 | Add `ARCH003` lint to `archcheck` | `tools/archcheck/` | P1-FIX-005 | OPEN |
+| 6 | Verify: `cargo tree -p sddk-engine -e normal` shows no `sddk-storage` | CI gate | P1-FIX-006 | ✅ DONE |
 
 ---
 

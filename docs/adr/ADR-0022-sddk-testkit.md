@@ -1,6 +1,6 @@
 # ADR-0022 — `sddk-testkit`: In-Memory Test Fakes for Core Ports
 
-**Status:** draft
+**Status:** proposed
 **Date:** 2026-08-19
 **Trigger:** Roadmap SDDK 2.0 Phase 1 (reduce coupling, explicit composition root)
 

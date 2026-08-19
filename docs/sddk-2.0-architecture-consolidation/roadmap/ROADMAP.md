@@ -241,7 +241,7 @@ During phases 0–4, do not add a new top-level product domain. New ideas are ca
 
 | Item | Status | Spec | Issue |
 |------|--------|------|-------|
-| Remove `sddk-engine → sddk-storage` production dependency | SPEC | ADR-0021 | P1-FIX-001..006 |
+| Remove `sddk-engine → sddk-storage` production dependency | DONE (P1-FIX-001, P1-FIX-002) | ADR-0021 | P1-FIX-001..006 |
 | Move persistence orchestration out of CLI | PARTIAL | — | needs audit |
 | Create `sddk-testkit` crate with in-memory fakes | SPEC | ADR-0022 | P1-TK-001..007 |
 | Composition root explicit (LedgerFactory port) | SPEC | ADR-0021 §2 | P1-FIX-002 |
