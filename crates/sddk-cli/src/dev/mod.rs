@@ -10,6 +10,7 @@ mod check_arch;
 mod common;
 mod doctor;
 mod editor_adapters;
+mod entropy;
 mod framework_check;
 mod install;
 mod link;
@@ -101,6 +102,8 @@ pub(super) enum DevCommand {
     Projection(ProjectionArgs),
     /// Manage agent-models.yaml (list/set/validate) and locate the TUI.
     Models(self::models_cmd::ModelsArgs),
+    /// Multidimensional architecture health report (LOC, coupling, fan-in/out).
+    Entropy(EntropyArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -275,6 +278,25 @@ pub(super) struct CheckArchitectureArgs {
     pub(super) out: Option<std::path::PathBuf>,
 }
 
+#[derive(Debug, Clone, ValueEnum)]
+pub(super) enum EntropyFormat {
+    Text,
+    Json,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct EntropyArgs {
+    /// Workspace root (default: current directory).
+    #[arg(long, default_value = ".")]
+    pub(super) root: std::path::PathBuf,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = EntropyFormat::Text)]
+    pub(super) format: EntropyFormat,
+    /// Exit 1 if any WARN-level issues are found (advisory by default).
+    #[arg(long)]
+    pub(super) strict: bool,
+}
+
 pub(super) fn run_dev(command: DevCommand, environment: &CliEnvironment) -> CommandOutput {
     match command {
         DevCommand::Doctor(args) => self::doctor::run_dev_doctor(args, environment),
@@ -289,6 +311,7 @@ pub(super) fn run_dev(command: DevCommand, environment: &CliEnvironment) -> Comm
         DevCommand::CheckArchitecture(args) => self::check_arch::run_check_architecture(args),
         DevCommand::Projection(args) => self::projection::run_dev_projection(&args, environment),
         DevCommand::Models(args) => self::models_cmd::run_dev_models(args, environment),
+        DevCommand::Entropy(args) => self::entropy::run_dev_entropy(args, environment),
     }
 }
 
@@ -371,5 +394,15 @@ mod smoke_tests {
             command: self::models_cmd::ModelsCommand::TuiPath,
         };
         let _ = self::models_cmd::run_dev_models(args, &env());
+    }
+
+    #[test]
+    fn dev_entropy_does_not_panic() {
+        let args = super::EntropyArgs {
+            root: std::path::PathBuf::from("."),
+            format: super::EntropyFormat::Text,
+            strict: false,
+        };
+        let _ = self::entropy::run_dev_entropy(args, &env());
     }
 }
