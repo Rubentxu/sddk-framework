@@ -3,6 +3,26 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.31.0] - 2026-08-20
+
+### Features
+  - feat(domain): `format_rfc3339_utc` extraído a `sddk-domain::format` (Hinnant `civil_from_days` + `z += 719_468` shift). 5 tests pinned-value. Cierra W-DV-1 (state_updated_at fix) + W-DV-7 (cross-crate Hinnant duplication).
+  - feat(arch): `architecture-rules.yaml` schema_version 1.1.0 → 1.2.0 + WV-0027 phase-string waiver para `compiler.rs`/`validator.rs` (10 reglas, 2 waivers). Cierra WV-0027.
+
+### Refactors
+  - refactor: `Storage::current_iso8601` + `state_updated_at` delega a `sddk_domain::format::format_rfc3339_utc`. `sddk-cli::uat::now_rfc3339` ya no tiene bloque Hinnant propio.
+  - chore(domain): error variant audit — trim 15 unused en 5 enums (`CompileError`, `WorkflowError`, `AttemptError`, `NodeRunError`, `WorkflowRunError`). Cierra U6 (REQ-K3-001).
+
+### Tests
+  - test(domain): `compiler_determinism` proptest 1000 iters (hash determinístico + formato `sha256:<64-hex>`). REQ-K3-002 #1.
+  - test(domain): `validator_closure` proptest 500 iters (closure property `validate(compile(m))`). REQ-K3-002 #2.
+  - test(storage): `graph_store_roundtrip` proptest 200 iters (in-memory `SqliteGraphStore` roundtrip). REQ-K3-002 #3.
+  - test(domain): `capsule_validate` proptest 7 invariants (Pointer always valid, sha256 format/length, size bound, digest integrity). REQ-K3-002 #4.
+  - test(domain): `budgets_proptests` 5 invariants algebraicos (zero identity, underflow, hard limits, fits-within componente-wise, monotonicity consume). REQ-K3-002 #5.
+
+### Fixes
+  - fix(domain): bump `ARCHITECTURE_RULES_SCHEMA_VERSION` constant 1.1.0 → 1.2.0 (closes WU-3b schema gap — runtime must accept the YAML it produces).
+
 ## [1.30.0] - 2026-08-19
 
 ### Features
