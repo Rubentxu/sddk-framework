@@ -11,25 +11,20 @@ use crate::cycle::{CycleStatus, Phase};
 
 /// Errors that can occur during workflow operations.
 #[derive(Debug, Error)]
+/// Errors for legacy workflow manifest validation.
+///
+/// Audit (cycle 3, kernel-cycle-3-carries-over): trimmed 4 unused variants
+/// (`InvalidTransition`, `InvalidStateRef`, `ManifestNotFound`, `PolicyViolation`).
+/// All remaining variants are emitted by `WorkflowManifest::validate`. Adding a
+/// variant requires updating the manifest validator and the cycle-3 audit
+/// results at `docs/audit/error-variants.md`.
 pub enum WorkflowError {
-    /// The requested state transition is not valid.
-    #[error("invalid transition: {0}")]
-    InvalidTransition(String),
     /// A transition requires an artifact that is not available.
     #[error("missing required artifact: {0}")]
     MissingArtifact(String),
     /// A transition requires a gate that is not satisfied.
     #[error("missing required gate: {0}")]
     MissingGate(String),
-    /// A state reference cannot be parsed or resolved.
-    #[error("invalid state reference: {0}")]
-    InvalidStateRef(String),
-    /// The workflow manifest could not be found.
-    #[error("workflow manifest not found")]
-    ManifestNotFound,
-    /// A workflow policy rejected the operation.
-    #[error("policy violation: {0}")]
-    PolicyViolation(String),
     /// The requested transition identifier is not declared.
     #[error("transition not found by id: {0}")]
     TransitionNotFound(String),

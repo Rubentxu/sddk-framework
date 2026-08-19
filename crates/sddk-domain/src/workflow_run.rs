@@ -241,15 +241,16 @@ impl Attempt {
 
 /// Errors for Attempt operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Errors for attempt lifecycle transitions.
+///
+/// Audit (cycle 3, kernel-cycle-3-carries-over): trimmed 3 unused variants
+/// (`StillInFlight`, `IdempotencyCollision`, `CapsuleMissing`). All remaining
+/// variants are emitted by `Attempt::complete()`. Adding a variant requires
+/// updating the lifecycle code and the cycle-3 audit results at
+/// `docs/audit/error-variants.md`.
 pub enum AttemptError {
     /// Attempt is already terminal and cannot be mutated.
     AlreadyTerminal,
-    /// Attempt is still in-flight and cannot transition.
-    StillInFlight,
-    /// Idempotency key collision detected.
-    IdempotencyCollision,
-    /// Context capsule is missing.
-    CapsuleMissing,
 }
 
 // ── NodeRunState ─────────────────────────────────────────────────────────
@@ -317,15 +318,14 @@ impl NodeRun {
 
 /// Errors for NodeRun operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Errors for node-run state transitions.
+///
+/// Audit (cycle 3, kernel-cycle-3-carries-over): trimmed 4 unused variants
+/// (`DepsUnsatisfied`, `MaxRetriesExceeded`, `AlreadyRunning`, `CascadeRequired`).
+/// All remaining variants are emitted by `NodeRunState` transition logic.
+/// Adding a variant requires updating the state machine and the cycle-3 audit
+/// results at `docs/audit/error-variants.md`.
 pub enum NodeRunError {
-    /// Dependencies not yet satisfied.
-    DepsUnsatisfied,
-    /// Max retries exceeded.
-    MaxRetriesExceeded,
-    /// Node is already running.
-    AlreadyRunning,
-    /// Cascade skip required.
-    CascadeRequired,
     /// Invalid state transition.
     InvalidStateTransition,
 }
@@ -462,6 +462,12 @@ impl WorkflowRun {
 
 /// Errors for WorkflowRun operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Errors for workflow-run state transitions.
+///
+/// Audit (cycle 3, kernel-cycle-3-carries-over): trimmed 2 unused variants
+/// (`BudgetExhausted`, `IrHashMismatch`). All remaining variants are emitted by
+/// `WorkflowRun::transition()`. Adding a variant requires updating the state
+/// machine and the cycle-3 audit results at `docs/audit/error-variants.md`.
 pub enum WorkflowRunError {
     /// Invalid state transition attempted.
     InvalidTransition {
@@ -472,8 +478,4 @@ pub enum WorkflowRunError {
     },
     /// Run is already in a terminal state.
     AlreadyTerminal,
-    /// Budget has been exhausted.
-    BudgetExhausted,
-    /// IR hash mismatch detected.
-    IrHashMismatch,
 }

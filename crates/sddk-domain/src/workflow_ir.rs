@@ -577,6 +577,11 @@ impl WorkflowIR {
 // ── Errors ─────────────────────────────────────────────────────────────────
 
 /// Compile-time errors for WorkflowTemplate validation.
+///
+/// Audit (cycle 3, kernel-cycle-3-carries-over): trimmed 2 unused variants
+/// (`YamlSerde`, `InvariantSubsumed`). All remaining variants are emitted by
+/// `WorkflowCompiler`. Adding a variant requires updating both `compiler.rs`
+/// usage and the cycle-3 audit results at `docs/audit/error-variants.md`.
 #[derive(Debug, Error)]
 pub enum CompileError {
     /// Capability allowlist is empty.
@@ -600,10 +605,6 @@ pub enum CompileError {
     #[error("budget exceeds template limit")]
     BudgetExceedsLimit,
 
-    /// YAML serialization error.
-    #[error("YAML serialization error: {0}")]
-    YamlSerde(String),
-
     /// Operator not in allowlist.
     #[error("operator not in allowlist: {0:?}")]
     OperatorNotAllowed(CapabilityId),
@@ -619,10 +620,6 @@ pub enum CompileError {
     /// Hash collision detected.
     #[error("hash collision detected")]
     HashCollision,
-
-    /// Invariant subsumed by template.
-    #[error("invariant subsumed by template")]
-    InvariantSubsumed,
 }
 
 /// Runtime validation errors for WorkflowIR.
