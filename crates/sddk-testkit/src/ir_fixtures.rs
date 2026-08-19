@@ -4,12 +4,21 @@
 //! - [`sample_template`] — a minimal `WorkflowTemplate`
 //! - [`sample_ir`] — a `WorkflowIR` with known hash
 //! - [`sample_workflow_run`] — a `WorkflowRun` in Pending state
+//! - [`a_min_manifest`] / [`a_min_template`] — 5-phase single-path fixture
+//! - [`a_lite_manifest`] / [`a_lite_template`] — 6-phase single-path fixture
+//! - [`a_full_manifest`] / [`a_full_template`] — 8-phase single-path with 2 guards
 
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
+use std::collections::HashMap;
 
+use sddk_domain::compiler::WorkflowCompiler;
+use sddk_domain::cycle::{CycleStatus, Phase};
+use sddk_domain::workflow::WorkflowManifest;
+use sddk_domain::workflow::{PathDef, Policies, Requirement, StateRef, Transition};
 use sddk_domain::workflow_ir::{
     Budgets, CapabilityId, ExpansionPermission, Operator, OperatorId, Provenance, RunId,
-    SCHEMA_VERSION, TemplateRef, WorkflowIR,
+    SCHEMA_VERSION, TemplateRef, WorkflowIR, WorkflowTemplate,
 };
 use sddk_domain::workflow_run::{CorrelationId, WorkflowRun, WorkflowRunState};
 
@@ -17,6 +26,215 @@ use sddk_domain::workflow_run::{CorrelationId, WorkflowRun, WorkflowRunState};
 /// This is a derived constant — if the IR structure changes, update this value.
 pub const SAMPLE_IR_EXPECTED_HASH: &str =
     "sha256:0d1f4d3c5e7a9b2f4e6d8a0c3e5f7a1b3d5e7f9a1b3d5e7f9a1b3d5e7f9a1b";
+
+// ── A-min / A-lite / A-full golden hashes ─────────────────────────────────────
+//
+// These are derived from actual `WorkflowCompiler::compile()` output.
+// Update by running `cargo test -- --nocapture a_*_hash_matches_golden`.
+
+/// Golden hash for A-min (1 path × 5 phases: discover.intent, spec.draft,
+/// uat.run, release.tag, audit.snapshot). Pinned from compile output.
+pub const A_MIN_COMPILED_HASH: &str =
+    "sha256:664bc63bfe37ec34c24cca74a41223a7438f37919b947405f420453315ef061d";
+
+/// Golden hash for A-lite (1 path × 6 phases: explore/specify/uat/review/release/archive).
+/// Pinned from compile output.
+pub const A_LITE_COMPILED_HASH: &str =
+    "sha256:4479d23121098fbdc8d62d462cf0cc5ff032082ffbe3ba6a202ecf6ad5296e9e";
+
+/// Golden hash for A-full (8 phases + 2 guards: explore→evidence_present, release→uat_passed).
+pub const A_FULL_COMPILED_HASH: &str =
+    "sha256:f85434b566d2041cbd1d9e7a528a939a8a0be6a89fe2f49e7b3926266dcd4161";
+
+// ── Manifest helpers ──────────────────────────────────────────────────────────
+
+fn make_workflow_template(capabilities: Vec<&str>) -> WorkflowTemplate {
+    let allowlist: BTreeSet<CapabilityId> = capabilities
+        .into_iter()
+        .map(|s| CapabilityId(s.to_string()))
+        .collect();
+    WorkflowTemplate {
+        template_id: "sddk.test".to_string(),
+        name: "Test".to_string(),
+        version: "1.0.0".to_string(),
+        intent: "Test template".to_string(),
+        capability_allowlist: allowlist,
+        expansion_permissions: [ExpansionPermission::Discover, ExpansionPermission::Map].into(),
+        invariants: Default::default(),
+        budgets: Budgets {
+            max_wall_ms: 3_600_000,
+            max_tokens: 1_000_000,
+            max_cost_micros: 100_000_000,
+            max_depth: 32,
+            max_nodes: 1_000,
+            remaining_tokens: None,
+        },
+        policies: Default::default(),
+        convergence: sddk_domain::workflow_ir::ConvergenceSpec {
+            max_iterations: 10,
+            no_progress_signature: None,
+        },
+        schema_version: SCHEMA_VERSION,
+    }
+}
+
+fn make_workflow_manifest(path_name: &str, phases: Vec<&str>) -> WorkflowManifest {
+    let mut paths = HashMap::new();
+    paths.insert(
+        path_name.to_string(),
+        PathDef {
+            description: format!("{path_name} path"),
+            debt_verification: "false".to_string(),
+            phases: phases.into_iter().map(|s| s.to_string()).collect(),
+        },
+    );
+    WorkflowManifest {
+        schema_version: 1,
+        workflow: sddk_domain::workflow::WorkflowDef {
+            id: "test".to_string(),
+            version: "0.1.0".to_string(),
+            description: "Test manifest".to_string(),
+        },
+        statuses: vec![],
+        phases: vec![],
+        paths,
+        policies: Policies::default(),
+        transitions: vec![],
+        artifacts: HashMap::new(),
+        gates: HashMap::new(),
+        forge: None,
+        storage: None,
+        project_identity: None,
+    }
+}
+
+/// A-min manifest — 1 path × 5 phases (discover.intent, spec.draft, uat.run,
+/// release.tag, audit.snapshot). All 5 capabilities appear in the allowlist.
+pub fn a_min_manifest() -> WorkflowManifest {
+    make_workflow_manifest(
+        "a_min",
+        vec!["explore", "specify", "uat", "release", "archive"],
+    )
+}
+
+/// A-lite manifest — 1 path × 6 phases (+ review phase for evidence handling).
+/// Uses standard phases: explore, specify, uat, review, release, archive.
+pub fn a_lite_manifest() -> WorkflowManifest {
+    make_workflow_manifest(
+        "a_lite",
+        vec!["explore", "specify", "uat", "review", "release", "archive"],
+    )
+}
+
+/// A-full manifest — 1 path × 8 phases. Uses all 8 non-Uat phases:
+/// explore, specify, design, plan, verify, uat, release, archive.
+/// Two guards:
+/// - discover.intent (explore phase) requires evidence_present
+/// - release requires uat_passed
+pub fn a_full_manifest() -> WorkflowManifest {
+    let mut manifest = make_workflow_manifest(
+        "a_full",
+        vec![
+            "explore", "specify", "design", "plan", "verify", "uat", "release", "archive",
+        ],
+    );
+    // Guard: explore phase requires evidence_present
+    manifest.transitions.push(Transition {
+        id: "guard_evidence_present".to_string(),
+        from: None,
+        to: StateRef {
+            status: CycleStatus::default(),
+            phase: Some(Phase::Explore),
+        },
+        requires: vec![Requirement::Simple("evidence_present".to_string())],
+        paths: vec!["a_full".to_string()],
+        produces: vec![],
+        implementation_binding: None,
+        on_failure: None,
+    });
+    // Guard: release phase requires uat_passed
+    manifest.transitions.push(Transition {
+        id: "guard_uat_passed".to_string(),
+        from: None,
+        to: StateRef {
+            status: CycleStatus::default(),
+            phase: Some(Phase::Release),
+        },
+        requires: vec![Requirement::Simple("uat_passed".to_string())],
+        paths: vec!["a_full".to_string()],
+        produces: vec![],
+        implementation_binding: None,
+        on_failure: None,
+    });
+    manifest
+}
+
+/// A-min template ref.
+pub fn a_min_template() -> TemplateRef {
+    TemplateRef {
+        id: "sddk.test.a_min".into(),
+        version: "1.0.0".into(),
+    }
+}
+
+/// A-lite template ref.
+pub fn a_lite_template() -> TemplateRef {
+    TemplateRef {
+        id: "sddk.test.a_lite".into(),
+        version: "1.0.0".into(),
+    }
+}
+
+/// A-full template ref.
+pub fn a_full_template() -> TemplateRef {
+    TemplateRef {
+        id: "sddk.test.a_full".into(),
+        version: "1.0.0".into(),
+    }
+}
+
+/// Compiles A-min manifest + template into a `WorkflowIR`.
+pub fn a_min_compiled_ir() -> WorkflowIR {
+    let compiler = WorkflowCompiler;
+    let template = make_workflow_template(vec![
+        "discover.intent",
+        "spec.draft",
+        "change.accept",
+        "change.integrate",
+        "change.archive",
+    ]);
+    compiler.compile(&a_min_manifest(), &template).unwrap()
+}
+
+/// Compiles A-lite manifest + template into a `WorkflowIR`.
+pub fn a_lite_compiled_ir() -> WorkflowIR {
+    let compiler = WorkflowCompiler;
+    let template = make_workflow_template(vec![
+        "discover.intent",
+        "spec.draft",
+        "change.accept",
+        "change.review",
+        "change.integrate",
+        "change.archive",
+    ]);
+    compiler.compile(&a_lite_manifest(), &template).unwrap()
+}
+
+/// Compiles A-full manifest + template into a `WorkflowIR`.
+pub fn a_full_compiled_ir() -> WorkflowIR {
+    let compiler = WorkflowCompiler;
+    let template = make_workflow_template(vec![
+        "discover.intent",
+        "spec.draft",
+        "design.shape",
+        "change.shape",
+        "change.verify",
+        "change.accept",
+        "change.integrate",
+        "change.archive",
+    ]);
+    compiler.compile(&a_full_manifest(), &template).unwrap()
+}
 
 /// Returns a golden `WorkflowTemplate` with deterministic content.
 pub fn sample_template() -> TemplateRef {
@@ -130,5 +348,34 @@ mod tests {
     fn sample_workflow_run_is_pending() {
         let run = sample_workflow_run();
         assert!(matches!(run.state, WorkflowRunState::Pending));
+    }
+
+    // ── A-min / A-lite / A-full golden-hash tests ───────────────────────────
+
+    #[test]
+    fn a_min_hash_matches_golden() {
+        let ir = a_min_compiled_ir();
+        let hash = ir.compute_content_hash();
+        // Print hash so we can update A_MIN_COMPILED_HASH
+        println!("A_MIN_COMPILED_HASH = \"{}\"", hash);
+        assert_eq!(hash, A_MIN_COMPILED_HASH, "A-min golden hash mismatch");
+    }
+
+    #[test]
+    fn a_lite_hash_matches_golden() {
+        let ir = a_lite_compiled_ir();
+        let hash = ir.compute_content_hash();
+        // Print hash so we can update A_LITE_COMPILED_HASH
+        println!("A_LITE_COMPILED_HASH = \"{}\"", hash);
+        assert_eq!(hash, A_LITE_COMPILED_HASH, "A-lite golden hash mismatch");
+    }
+
+    #[test]
+    fn a_full_hash_matches_golden() {
+        let ir = a_full_compiled_ir();
+        let hash = ir.compute_content_hash();
+        // Print hash so we can update A_FULL_COMPILED_HASH
+        println!("A_FULL_COMPILED_HASH = \"{}\"", hash);
+        assert_eq!(hash, A_FULL_COMPILED_HASH, "A-full golden hash mismatch");
     }
 }
