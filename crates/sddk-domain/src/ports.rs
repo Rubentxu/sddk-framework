@@ -319,3 +319,26 @@ pub trait GraphStore {
     /// Returns the persisted checkpoint for the graph projection.
     fn checkpoint(&self) -> Result<Option<crate::projections::Checkpoint>, StorageError>;
 }
+
+/// Artifact store port (Phase 1 MUST).
+///
+/// Artifacts are immutable blobs stored outside SQLite; this port governs metadata only.
+/// The concrete implementation is `sddk_storage::Storage` which satisfies it via
+/// `impl ArtifactStore for Storage` in the storage crate.
+pub trait ArtifactStore {
+    /// Inserts artifact metadata.
+    ///
+    /// Returns error if `artifact_id` already exists (idempotent — use get+replace
+    /// if overwriting is needed).
+    fn insert_artifact(&mut self, artifact: &crate::models::ArtifactRecord)
+        -> Result<(), StorageError>;
+
+    /// Loads artifact metadata by identifier, or `None` if not found.
+    fn get_artifact(&self, artifact_id: &str) -> Result<Option<crate::models::ArtifactRecord>, StorageError>;
+
+    /// Lists all artifact metadata for a project.
+    fn list_project_artifacts(
+        &self,
+        project_id: &str,
+    ) -> Result<Vec<crate::models::ArtifactRecord>, StorageError>;
+}

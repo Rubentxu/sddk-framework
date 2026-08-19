@@ -31,7 +31,7 @@ use rusqlite::{
     Connection, OpenFlags, OptionalExtension, Row, Transaction, TransactionBehavior, params,
 };
 use sddk_domain::CycleManifest;
-use sddk_domain::ports::LedgerFactory; // needed for impl LedgerFactory below
+use sddk_domain::ports::{ArtifactStore, LedgerFactory};
 use serde::Serialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -692,6 +692,17 @@ impl Storage {
             )
             .optional()?
             .ok_or_else(|| not_found("artifact", artifact_id))
+    }
+
+    /// Lists all artifact metadata for a project.
+    pub fn list_project_artifacts(&self, project_id: &str) -> Result<Vec<ArtifactRecord>> {
+        let mut stmt = self.connection.prepare(
+            "SELECT artifact_id, project_id, cycle_id, kind, path, sha256,
+                    producer, created_at, metadata_json
+             FROM artifacts WHERE project_id = ?1 ORDER BY created_at ASC",
+        )?;
+        let rows = stmt.query_map([project_id], artifact_from_row)?;
+        rows.map(|row| row.map_err(StorageError::from)).collect()
     }
 
     /// Records the start of a capability execution exactly once for an idempotency key.
@@ -1815,5 +1826,36 @@ impl LedgerFactory for SqliteLedgerFactory {
 
     fn open_in_memory(&self) -> std::result::Result<Storage, sddk_domain::StorageError> {
         Storage::open_in_memory().map_err(|e| e.into())
+    }
+}
+
+// ── ArtifactStore impl ────────────────────────────────────────────────────────
+
+/// Satisfies the [`sddk_domain::ArtifactStore`] port for the concrete SQLite store.
+#[allow(clippy::useless_conversion, clippy::only_used_in_recursion)]
+impl ArtifactStore for Storage {
+    fn insert_artifact(
+        &mut self,
+        artifact: &sddk_domain::ArtifactRecord,
+    ) -> std::result::Result<(), sddk_domain::StorageError> {
+        Storage::insert_artifact(self, artifact).map_err(sddk_domain::StorageError::from)
+    }
+
+    fn get_artifact(
+        &self,
+        artifact_id: &str,
+    ) -> std::result::Result<Option<sddk_domain::ArtifactRecord>, sddk_domain::StorageError> {
+        match Storage::get_artifact(self, artifact_id) {
+            Ok(a) => Ok(Some(a)),
+            Err(StorageError::NotFound { .. }) => Ok(None),
+            Err(e) => Err(sddk_domain::StorageError::from(e)),
+        }
+    }
+
+    fn list_project_artifacts(
+        &self,
+        project_id: &str,
+    ) -> std::result::Result<Vec<sddk_domain::ArtifactRecord>, sddk_domain::StorageError> {
+        Storage::list_project_artifacts(self, project_id).map_err(sddk_domain::StorageError::from)
     }
 }

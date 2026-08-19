@@ -58,9 +58,10 @@ use release_cmd::ReleaseCommand;
 use result_cmd::{AgentResultCommand, ValidateCommand};
 use rules_cmd::RulesCommand;
 use sddk_domain::{
-    IdentitySource, SddkErrorCode, normalize_scope, resolve_project_identity, stable_workspace_id,
+    IdentitySource, LedgerFactory, SddkErrorCode, normalize_scope, resolve_project_identity,
+    stable_workspace_id,
 };
-use sddk_storage::SqliteControlPlane;
+use sddk_storage::{SqliteControlPlane, SqliteLedgerFactory};
 
 use sddk_engine::{
     AdoptionPlan, AdoptionPlanInput, AdoptionStatus, AdoptionStatusKind, XdgEnvironment,
@@ -109,13 +110,19 @@ fn control_plane_dir(env: &CliEnvironment) -> anyhow::Result<PathBuf> {
 
 /// Composition root: opens both the project ledger and the control-plane store.
 ///
+/// Uses `SqliteLedgerFactory` (which implements `LedgerFactory`) to open the ledger,
+/// making the factory the explicit entry point per ADR-0021 §2.
+///
 /// Returns `(Storage, SqliteControlPlane)` so that callers can pass
 /// `&mut dyn ControlPlane` down to helpers without exposing concrete types.
 pub(crate) fn compose(
     env: &CliEnvironment,
     ledger_path: &Path,
 ) -> anyhow::Result<(Storage, SqliteControlPlane)> {
-    let storage = Storage::open(ledger_path)?;
+    let factory = SqliteLedgerFactory;
+    let storage = factory
+        .open_ledger(ledger_path)
+        .map_err(|e| anyhow::anyhow!("LedgerFactory: {e}"))?;
     let plane = SqliteControlPlane::open(&control_plane_dir(env)?)?;
     Ok((storage, plane))
 }

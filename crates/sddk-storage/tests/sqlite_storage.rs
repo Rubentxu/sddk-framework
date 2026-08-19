@@ -1,5 +1,5 @@
 use rusqlite::Connection;
-use sddk_domain::{CycleId, CycleManifest, CycleStatus};
+use sddk_domain::{ArtifactStore, CycleId, CycleManifest, CycleStatus};
 use sddk_storage::{
     ArtifactRecord, CapabilityReceiptInput, CapabilityStatus, CycleRecord, GateOutcomeStatus,
     GateReceiptInput, GateReceiptNextSeqInput, LedgerEventInput, ProjectRecord, RID_FORMAT_REGEX,
@@ -1430,4 +1430,46 @@ fn legacy_receipt_without_version_columns_returns_none() {
     assert_eq!(receipt.agent_version_hash, None);
     assert_eq!(receipt.behavior_version_hash, None);
     assert_eq!(receipt.status, CapabilityStatus::Succeeded);
+}
+
+/// Verifies the `ArtifactStore` port implementation for `Storage`.
+#[test]
+fn artifact_store_port_impl() {
+    let directory = tempdir().unwrap();
+    let db_path = directory.path().join("ledger.sqlite");
+    let mut storage = Storage::open(&db_path).unwrap();
+
+    // Insert project, workspace, and cycle (all required for artifact FK)
+    storage.insert_project(&project_record()).unwrap();
+    storage.insert_workspace(&workspace_record()).unwrap();
+    let cycle = cycle_record();
+    storage.insert_cycle(&cycle).unwrap();
+
+    let artifact = ArtifactRecord {
+        artifact_id: "art-test-001".into(),
+        project_id: "project-1".into(),
+        cycle_id: Some(cycle.manifest.cycle_id.clone()),
+        kind: "spec".into(),
+        path: "sha256/abc123/spec.md".into(),
+        sha256: Some("sha256:abc123".into()),
+        producer: Some("test".into()),
+        created_at: "2026-08-19T12:00:00Z".into(),
+        metadata: json!({}),
+    };
+
+    // insert_artifact via port
+    ArtifactStore::insert_artifact(&mut storage, &artifact).unwrap();
+
+    // get_artifact via port — returns Option
+    let found = ArtifactStore::get_artifact(&storage, "art-test-001").unwrap();
+    assert_eq!(found.as_ref().map(|a| a.artifact_id.as_str()), Some("art-test-001"));
+
+    // get_artifact for unknown id returns None
+    let missing = ArtifactStore::get_artifact(&storage, "does-not-exist").unwrap();
+    assert_eq!(missing, None);
+
+    // list_project_artifacts via port
+    let list = ArtifactStore::list_project_artifacts(&storage, "project-1").unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].artifact_id, "art-test-001");
 }
