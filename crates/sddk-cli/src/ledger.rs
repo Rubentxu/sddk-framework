@@ -204,7 +204,8 @@ fn verify_chain_text(output: &VerifyChainOutput) -> String {
         ),
         VerifyChainStatus::Fail { error } => format!(
             "stream: {}\nevent_count: {}\nhead_chain_hash: {}\nstatus: FAIL\nerror: {}\n",
-            output.stream, output.event_count,
+            output.stream,
+            output.event_count,
             output.head_chain_hash.as_deref().unwrap_or("null"),
             error
         ),
@@ -296,7 +297,11 @@ fn run_ledger_export(args: LedgerExportArgs, environment: &CliEnvironment) -> Co
             context.storage.list_events()?
         };
 
-        let limit = if args.limit == 0 { usize::MAX } else { args.limit };
+        let limit = if args.limit == 0 {
+            usize::MAX
+        } else {
+            args.limit
+        };
         let events: Vec<_> = all_events.into_iter().take(limit).collect();
 
         // Write JSONL — one JSON object per line.
@@ -305,8 +310,7 @@ fn run_ledger_export(args: LedgerExportArgs, environment: &CliEnvironment) -> Co
         let mut buf = std::io::BufWriter::new(file);
         let mut count = 0;
         for event in &events {
-            let json = serde_json::to_string(event)
-                .context("serializing LedgerEvent to JSON")?;
+            let json = serde_json::to_string(event).context("serializing LedgerEvent to JSON")?;
             use std::io::Write;
             writeln!(buf, "{json}").context("writing JSON line")?;
             count += 1;
@@ -322,7 +326,11 @@ fn run_ledger_export(args: LedgerExportArgs, environment: &CliEnvironment) -> Co
     match result {
         Ok(output) => CommandOutput {
             status: 0,
-            stdout: format!("exported {} events to {}\n", output.count, output.path.display()),
+            stdout: format!(
+                "exported {} events to {}\n",
+                output.count,
+                output.path.display()
+            ),
             stderr: String::new(),
         },
         Err(e) => CommandOutput {

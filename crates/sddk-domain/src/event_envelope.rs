@@ -306,12 +306,30 @@ mod tests {
         let json = env.to_canonical_json();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
-        assert!(parsed.get("metadata").is_none(), "metadata=None must be omitted");
-        assert!(parsed.get("causation_id").is_none(), "causation_id=None must be omitted");
-        assert!(parsed.get("correlation_id").is_none(), "correlation_id=None must be omitted");
-        assert!(parsed.get("cycle_id").is_none(), "cycle_id=None must be omitted");
-        assert!(parsed.get("frame_id").is_none(), "frame_id=None must be omitted");
-        assert!(parsed.get("fork_id").is_none(), "fork_id=None must be omitted");
+        assert!(
+            parsed.get("metadata").is_none(),
+            "metadata=None must be omitted"
+        );
+        assert!(
+            parsed.get("causation_id").is_none(),
+            "causation_id=None must be omitted"
+        );
+        assert!(
+            parsed.get("correlation_id").is_none(),
+            "correlation_id=None must be omitted"
+        );
+        assert!(
+            parsed.get("cycle_id").is_none(),
+            "cycle_id=None must be omitted"
+        );
+        assert!(
+            parsed.get("frame_id").is_none(),
+            "frame_id=None must be omitted"
+        );
+        assert!(
+            parsed.get("fork_id").is_none(),
+            "fork_id=None must be omitted"
+        );
     }
 
     /// Verifies that optional fields are included in JSON when Some. Round-trip

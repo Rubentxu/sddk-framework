@@ -24,8 +24,8 @@
 //! - `uat.receipt.emit` — emit a signed execution receipt
 
 // Re-export the universal evidence model from sddk-domain for use by UAT types.
-pub use sddk_domain::EvidenceBundle;
 pub use sddk_domain::EvidenceArtifact;
+pub use sddk_domain::EvidenceBundle;
 pub use sddk_domain::EvidenceEnvironment;
 pub use sddk_domain::EvidenceExecution;
 pub use sddk_domain::EvidenceKind;
@@ -37,16 +37,16 @@ pub use sddk_domain::EvidenceKindItem;
 pub use sddk_domain::uat;
 
 // Re-export evidence-related types that UAT uses.
-pub use sddk_domain::EvidenceExpectedCheck as UatExpectedCheck;
 pub use sddk_domain::EvidenceAutomationStatus as UatAutomationStatus;
 pub use sddk_domain::EvidenceBlastRadius as UatBlastRadius;
+pub use sddk_domain::EvidenceExpectedCheck as UatExpectedCheck;
 pub use sddk_domain::EvidenceOrigin as UatOrigin;
 pub use sddk_domain::EvidenceRiskClassification as UatRiskClassification;
 
 // Pack manifest and conformance.
 pub use sddk_domain::pack::{
-    PackManifest, PackRisk, PackConsequence, PackError, PackDiagnostic,
-    load_pack_manifest, parse_pack_manifest, validate_pack_manifest,
+    PackConsequence, PackDiagnostic, PackError, PackManifest, PackRisk, load_pack_manifest,
+    parse_pack_manifest, validate_pack_manifest,
 };
 
 pub mod conformance;

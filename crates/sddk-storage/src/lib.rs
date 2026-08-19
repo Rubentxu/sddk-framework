@@ -1820,7 +1820,10 @@ pub struct SqliteLedgerFactory;
 impl LedgerFactory for SqliteLedgerFactory {
     type Ledger = Storage;
 
-    fn open_ledger(&self, path: &std::path::Path) -> std::result::Result<Storage, sddk_domain::StorageError> {
+    fn open_ledger(
+        &self,
+        path: &std::path::Path,
+    ) -> std::result::Result<Storage, sddk_domain::StorageError> {
         Storage::open(path).map_err(|e| e.into())
     }
 

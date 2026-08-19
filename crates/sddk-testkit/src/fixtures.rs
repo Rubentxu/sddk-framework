@@ -91,7 +91,11 @@ pub fn ledger_with_lease(
     owner: &str,
     now_ms: i64,
     expires_ms: i64,
-) -> (InMemoryLedger, sddk_domain::CycleRecord, sddk_domain::CycleLease) {
+) -> (
+    InMemoryLedger,
+    sddk_domain::CycleRecord,
+    sddk_domain::CycleLease,
+) {
     let mut ledger = InMemoryLedger::new();
     let cycle = CycleBuilder::new(CyclePath::AFull)
         .with_id(cycle_id)

@@ -74,10 +74,7 @@ impl sddk_domain::Ledger for InMemoryLedger {
             })
     }
 
-    fn list_cycle_events(
-        &self,
-        cycle_id: &str,
-    ) -> Sr<Vec<sddk_domain::LedgerEvent>> {
+    fn list_cycle_events(&self, cycle_id: &str) -> Sr<Vec<sddk_domain::LedgerEvent>> {
         let events = self.events.read().unwrap();
         let mut result: Vec<_> = events
             .iter()
@@ -95,7 +92,12 @@ impl sddk_domain::Ledger for InMemoryLedger {
     ) -> Sr<sddk_domain::LedgerEvent> {
         let seq = self.next_sequence();
         let event_hash = format!("sha256:{:032x}", (seq as u64).wrapping_mul(13));
-        let previous_hash = self.events.read().unwrap().last().map(|e| e.event_hash.clone());
+        let previous_hash = self
+            .events
+            .read()
+            .unwrap()
+            .last()
+            .map(|e| e.event_hash.clone());
         let ledger_event = sddk_domain::LedgerEvent {
             sequence: seq,
             event_id: event.event_id.clone(),
@@ -129,7 +131,12 @@ impl sddk_domain::Ledger for InMemoryLedger {
     ) -> Sr<sddk_domain::LedgerEvent> {
         let seq = self.next_sequence();
         let event_hash = format!("sha256:{:032x}", (seq as u64).wrapping_mul(17));
-        let previous_hash = self.events.read().unwrap().last().map(|e| e.event_hash.clone());
+        let previous_hash = self
+            .events
+            .read()
+            .unwrap()
+            .last()
+            .map(|e| e.event_hash.clone());
         let ledger_event = sddk_domain::LedgerEvent {
             sequence: seq,
             event_id: event.event_id.clone(),
@@ -148,13 +155,14 @@ impl sddk_domain::Ledger for InMemoryLedger {
         };
         // Update cycle snapshot
         let mut cycles = self.cycles.write().unwrap();
-        let record = cycles
-            .entry(manifest.cycle_id.clone())
-            .or_insert_with(|| sddk_domain::CycleRecord {
-                manifest: manifest.clone(),
-                created_at: updated_at.to_string(),
-                updated_at: updated_at.to_string(),
-            });
+        let record =
+            cycles
+                .entry(manifest.cycle_id.clone())
+                .or_insert_with(|| sddk_domain::CycleRecord {
+                    manifest: manifest.clone(),
+                    created_at: updated_at.to_string(),
+                    updated_at: updated_at.to_string(),
+                });
         record.manifest = manifest.clone();
         record.updated_at = updated_at.to_string();
         drop(cycles);
@@ -258,10 +266,7 @@ impl sddk_domain::Ledger for InMemoryLedger {
         })
     }
 
-    fn get_gate_receipt(
-        &self,
-        receipt_id: &str,
-    ) -> Sr<sddk_domain::GateReceipt> {
+    fn get_gate_receipt(&self, receipt_id: &str) -> Sr<sddk_domain::GateReceipt> {
         self.gate_receipts
             .read()
             .unwrap()
@@ -301,10 +306,7 @@ impl sddk_domain::Ledger for InMemoryLedger {
         Ok(receipt)
     }
 
-    fn get_project_optional(
-        &self,
-        project_id: &str,
-    ) -> Sr<Option<sddk_domain::ProjectRecord>> {
+    fn get_project_optional(&self, project_id: &str) -> Sr<Option<sddk_domain::ProjectRecord>> {
         Ok(self.projects.read().unwrap().get(project_id).cloned())
     }
 
@@ -312,12 +314,7 @@ impl sddk_domain::Ledger for InMemoryLedger {
         &self,
         workspace_id: &str,
     ) -> Sr<Option<sddk_domain::WorkspaceRecord>> {
-        Ok(self
-            .workspaces
-            .read()
-            .unwrap()
-            .get(workspace_id)
-            .cloned())
+        Ok(self.workspaces.read().unwrap().get(workspace_id).cloned())
     }
 
     fn has_projects(&self) -> Sr<bool> {
@@ -624,9 +621,12 @@ impl TestRepository {
     pub fn write(&self, relative: impl AsRef<Path>, content: &str) -> io::Result<PathBuf> {
         let relative = relative.as_ref();
         if relative.is_absolute()
-            || relative
-                .components()
-                .any(|c| matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_)))
+            || relative.components().any(|c| {
+                matches!(
+                    c,
+                    Component::ParentDir | Component::RootDir | Component::Prefix(_)
+                )
+            })
         {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -645,8 +645,8 @@ impl TestRepository {
 #[cfg(test)]
 mod tests {
     use super::{ChildGuard, CycleBuilder, EventBuilder, InMemoryLedger, TestRepository};
-    use std::path::PathBuf;
     use sddk_domain::{CyclePath, Ledger};
+    use std::path::PathBuf;
 
     #[test]
     fn in_memory_ledger_insert_and_get_cycle() {
@@ -675,7 +675,9 @@ mod tests {
             .with_project(&cycle.manifest.project_id)
             .build();
 
-        let first = ledger.insert_cycle_with_event(&cycle, &event_input).unwrap();
+        let first = ledger
+            .insert_cycle_with_event(&cycle, &event_input)
+            .unwrap();
         let second = ledger
             .insert_cycle_with_event(&cycle, &event_input)
             .unwrap();

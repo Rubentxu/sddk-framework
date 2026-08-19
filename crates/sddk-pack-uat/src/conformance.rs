@@ -77,20 +77,20 @@ fn provides_capabilities_are_declared_in_capabilities_map() {
 
 #[test]
 fn empty_id_produces_diagnostic() {
-    let manifest = parse_pack_manifest(
-        &VALID_MANIFEST.replace("id = \"sddk-uat\"", "id = \"\""),
-    )
-    .unwrap();
+    let manifest =
+        parse_pack_manifest(&VALID_MANIFEST.replace("id = \"sddk-uat\"", "id = \"\"")).unwrap();
     let diagnostics = validate_pack_manifest(&manifest);
-    assert!(!diagnostics.is_empty(), "empty id should produce a diagnostic");
+    assert!(
+        !diagnostics.is_empty(),
+        "empty id should produce a diagnostic"
+    );
 }
 
 #[test]
 fn empty_version_produces_diagnostic() {
-    let manifest = parse_pack_manifest(
-        &VALID_MANIFEST.replace("version = \"1.26.0\"", "version = \"\""),
-    )
-    .unwrap();
+    let manifest =
+        parse_pack_manifest(&VALID_MANIFEST.replace("version = \"1.26.0\"", "version = \"\""))
+            .unwrap();
     let diagnostics = validate_pack_manifest(&manifest);
     assert!(
         !diagnostics.is_empty(),
@@ -119,12 +119,17 @@ fn invalid_risk_produces_diagnostic() {
         commands: vec![],
         capabilities: BTreeMap::new(),
         provides: None,
-        fixtures: PackFixtures { paths: vec!["fixture.yaml".into()] },
+        fixtures: PackFixtures {
+            paths: vec!["fixture.yaml".into()],
+        },
         artifacts: Default::default(),
     };
     // Valid manifest with no commands — should fail on NO_COMMANDS
     let diagnostics = validate_pack_manifest(&manifest);
-    assert!(!diagnostics.is_empty(), "empty commands should produce a diagnostic");
+    assert!(
+        !diagnostics.is_empty(),
+        "empty commands should produce a diagnostic"
+    );
 }
 
 #[test]

@@ -291,14 +291,15 @@ fn is_array_segment(s: &str) -> Option<usize> {
 
 /// Returns the value at `field_path` within `value` following JSON pointer rules.
 /// Supports both object keys (`/foo/bar`) and array indices (`/foo/0`).
-fn get_at_path<'a>(value: &'a serde_json::Value, field_path: &str) -> Option<&'a serde_json::Value> {
+fn get_at_path<'a>(
+    value: &'a serde_json::Value,
+    field_path: &str,
+) -> Option<&'a serde_json::Value> {
     let segments: Vec<&str> = field_path.split('/').filter(|s| !s.is_empty()).collect();
     let mut current = value;
     for seg in segments {
         match current {
-            serde_json::Value::Object(map) => {
-                current = map.get(seg)?
-            }
+            serde_json::Value::Object(map) => current = map.get(seg)?,
             serde_json::Value::Array(arr) => {
                 let idx = is_array_segment(seg)?;
                 current = arr.get(idx)?
@@ -310,7 +311,11 @@ fn get_at_path<'a>(value: &'a serde_json::Value, field_path: &str) -> Option<&'a
 }
 
 /// Sets `value` at `field_path` following JSON pointer rules, cloning as needed.
-fn set_at_path(value: &serde_json::Value, field_path: &str, new_val: serde_json::Value) -> serde_json::Value {
+fn set_at_path(
+    value: &serde_json::Value,
+    field_path: &str,
+    new_val: serde_json::Value,
+) -> serde_json::Value {
     let segments: Vec<&str> = field_path.split('/').filter(|s| !s.is_empty()).collect();
     let mut result = value.clone();
     set_at_path_inner(&mut result, &segments, new_val);
@@ -404,11 +409,8 @@ impl EvidenceBundle {
                         fields_redacted.push(rule.field_path.to_string());
                     }
                     RedactionLevel::Confidential => {
-                        redacted_json = set_at_path(
-                            &redacted_json,
-                            rule.field_path,
-                            serde_json::Value::Null,
-                        );
+                        redacted_json =
+                            set_at_path(&redacted_json, rule.field_path, serde_json::Value::Null);
                         fields_redacted.push(rule.field_path.to_string());
                     }
                 }
@@ -607,7 +609,11 @@ mod tests {
     #[test]
     fn set_at_path_overwrites_correctly() {
         let value = serde_json::json!({"foo": {"bar": "original"}});
-        let updated = set_at_path(&value, "foo/bar", serde_json::Value::String("new".to_string()));
+        let updated = set_at_path(
+            &value,
+            "foo/bar",
+            serde_json::Value::String("new".to_string()),
+        );
         assert_eq!(
             get_at_path(&updated, "foo/bar"),
             Some(&serde_json::Value::String("new".to_string()))

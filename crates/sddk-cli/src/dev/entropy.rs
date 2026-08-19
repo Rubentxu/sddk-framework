@@ -245,7 +245,9 @@ pub fn build_report(root: &Path) -> Result<EntropyReport, String> {
     // ── Coupling pairs ────────────────────────────────────────────────────────
     let mut coupling_map: HashMap<(String, String), usize> = HashMap::new();
     for edge in &baseline.cross_crate_imports {
-        *coupling_map.entry((edge.from_crate.clone(), edge.to_crate.clone())).or_default() += 1;
+        *coupling_map
+            .entry((edge.from_crate.clone(), edge.to_crate.clone()))
+            .or_default() += 1;
     }
     let coupling_pairs: Vec<CouplingPair> = coupling_map
         .into_iter()
@@ -301,11 +303,26 @@ pub fn render_text(report: &EntropyReport) -> String {
 
     // Summary
     out.push_str("┌─ Summary ────────────────────────────────────────────────────┐\n");
-    out.push_str(&format!("│  Total LOC        {:>8}                               │\n", report.summary.total_loc));
-    out.push_str(&format!("│  Crates          {:>8}                               │\n", report.summary.total_crates));
-    out.push_str(&format!("│  Coupling edges  {:>8}                               │\n", report.summary.total_coupling_edges));
-    out.push_str(&format!("│  Large files     {:>8}                               │\n", report.summary.total_large_files));
-    out.push_str(&format!("│  Entropy score   {:>8.2} (0=perfect, 1=chaotic)      │\n", report.summary.entropy_score));
+    out.push_str(&format!(
+        "│  Total LOC        {:>8}                               │\n",
+        report.summary.total_loc
+    ));
+    out.push_str(&format!(
+        "│  Crates          {:>8}                               │\n",
+        report.summary.total_crates
+    ));
+    out.push_str(&format!(
+        "│  Coupling edges  {:>8}                               │\n",
+        report.summary.total_coupling_edges
+    ));
+    out.push_str(&format!(
+        "│  Large files     {:>8}                               │\n",
+        report.summary.total_large_files
+    ));
+    out.push_str(&format!(
+        "│  Entropy score   {:>8.2} (0=perfect, 1=chaotic)      │\n",
+        report.summary.entropy_score
+    ));
     out.push_str("└────────────────────────────────────────────────────────────┘\n\n");
 
     // Per-crate table
@@ -324,20 +341,17 @@ pub fn render_text(report: &EntropyReport) -> String {
         };
         out.push_str(&format!(
             "│ {} {:19} {:>7} {:>6} {:>5} {:>8} {:>8} │\n",
-            status_ch,
-            c.name,
-            c.loc,
-            c.files,
-            c.test_files,
-            c.fan_in,
-            c.fan_out
+            status_ch, c.name, c.loc, c.files, c.test_files, c.fan_in, c.fan_out
         ));
     }
     out.push_str("└────────────────────────────────────────────────────────────┘\n\n");
 
     // Large files
     if !report.large_files.is_empty() {
-        out.push_str(&format!("┌─ Large Files (≥{} LOC) ───────────────────────────────────┐\n", LARGE_FILE_LOC_THRESHOLD));
+        out.push_str(&format!(
+            "┌─ Large Files (≥{} LOC) ───────────────────────────────────┐\n",
+            LARGE_FILE_LOC_THRESHOLD
+        ));
         for f in &report.large_files {
             out.push_str(&format!(
                 "│  {:>6} LOC  {:45} │\n",
@@ -361,7 +375,10 @@ pub fn render_text(report: &EntropyReport) -> String {
             ));
         }
         if pairs.len() > 10 {
-            out.push_str(&format!("│  … and {} more edges                                         │\n", pairs.len() - 10));
+            out.push_str(&format!(
+                "│  … and {} more edges                                         │\n",
+                pairs.len() - 10
+            ));
         }
         out.push_str("└────────────────────────────────────────────────────────────┘\n");
     }
@@ -378,10 +395,7 @@ fn abbreviate_path(path: &str) -> String {
     format!("…{}", &path[start..])
 }
 
-pub fn run_dev_entropy(
-    args: super::EntropyArgs,
-    _environment: &CliEnvironment,
-) -> CommandOutput {
+pub fn run_dev_entropy(args: super::EntropyArgs, _environment: &CliEnvironment) -> CommandOutput {
     let root = args.root.as_path();
     let report = match build_report(root) {
         Ok(r) => r,
@@ -402,18 +416,16 @@ pub fn run_dev_entropy(
 
     let output = match args.format {
         super::EntropyFormat::Text => render_text(&report),
-        super::EntropyFormat::Json => {
-            match serde_json::to_string_pretty(&report) {
-                Ok(s) => s,
-                Err(e) => {
-                    return CommandOutput {
-                        status: 1,
-                        stdout: String::new(),
-                        stderr: format!("error: failed to serialize JSON: {e}\n"),
-                    };
-                }
+        super::EntropyFormat::Json => match serde_json::to_string_pretty(&report) {
+            Ok(s) => s,
+            Err(e) => {
+                return CommandOutput {
+                    status: 1,
+                    stdout: String::new(),
+                    stderr: format!("error: failed to serialize JSON: {e}\n"),
+                };
             }
-        }
+        },
     };
 
     CommandOutput {

@@ -1462,7 +1462,10 @@ fn artifact_store_port_impl() {
 
     // get_artifact via port — returns Option
     let found = ArtifactStore::get_artifact(&storage, "art-test-001").unwrap();
-    assert_eq!(found.as_ref().map(|a| a.artifact_id.as_str()), Some("art-test-001"));
+    assert_eq!(
+        found.as_ref().map(|a| a.artifact_id.as_str()),
+        Some("art-test-001")
+    );
 
     // get_artifact for unknown id returns None
     let missing = ArtifactStore::get_artifact(&storage, "does-not-exist").unwrap();

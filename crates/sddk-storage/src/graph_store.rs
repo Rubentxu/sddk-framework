@@ -409,18 +409,18 @@ mod tests {
     /// since `append()` validates content_hash (preventing injection there).
     #[test]
     fn graph_rebuild_detects_content_hash_drift_and_chain_tamper() {
-        use sddk_domain::{EventEnvelopeV1, ActorKind, ActorRef};
+        use sddk_domain::{ActorKind, ActorRef, EventEnvelopeV1};
 
-        let dir = std::env::temp_dir().join(format!(
-            "sddk-graph-integrity-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("sddk-graph-integrity-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
         // Append two valid events with correctly-computed content_hash via append().
         let mut event_store = SqliteEventStore::open(&dir).unwrap();
-        for (seq, event_type) in [(1, "approval.capability.requested"), (2, "approval.capability.granted")] {
+        for (seq, event_type) in [
+            (1, "approval.capability.requested"),
+            (2, "approval.capability.granted"),
+        ] {
             let mut envelope = EventEnvelopeV1 {
                 event_id: format!("evt-{seq}"),
                 event_type: event_type.into(),
@@ -472,7 +472,8 @@ mod tests {
         // We insert evt-2 again with a different content_hash (simulating tamper after append).
         // Use INSERT OR REPLACE to overwrite the original evt-2.
         let conn = rusqlite::Connection::open(dir.join("ledger.sqlite")).unwrap();
-        let tampered_content_hash = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+        let tampered_content_hash =
+            "sha256:0000000000000000000000000000000000000000000000000000000000000000";
         conn.execute(
             "INSERT OR REPLACE INTO events_v1 \
              (event_id, event_type, schema_version, stream_id, sequence, project_id, \
@@ -487,7 +488,8 @@ mod tests {
               chain_hash \
              FROM events_v1 WHERE event_id = 'evt-2'",
             rusqlite::params![tampered_content_hash],
-        ).unwrap();
+        )
+        .unwrap();
 
         // verify_stream_chain MUST fail when content_hash doesn't match recomputed value.
         let drift_err = event_store.verify_stream_chain("project:p-1").unwrap_err();
@@ -498,7 +500,9 @@ mod tests {
         );
 
         // verify_chain_integrity also fails because chain_hash depends on content_hash.
-        let chain_err = event_store.verify_chain_integrity("project:p-1").unwrap_err();
+        let chain_err = event_store
+            .verify_chain_integrity("project:p-1")
+            .unwrap_err();
         assert!(
             matches!(chain_err, sddk_domain::StorageError::Other(ref msg)
                 if msg.contains("chain_drift")),

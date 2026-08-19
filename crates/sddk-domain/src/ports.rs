@@ -330,11 +330,16 @@ pub trait ArtifactStore {
     ///
     /// Returns error if `artifact_id` already exists (idempotent — use get+replace
     /// if overwriting is needed).
-    fn insert_artifact(&mut self, artifact: &crate::models::ArtifactRecord)
-        -> Result<(), StorageError>;
+    fn insert_artifact(
+        &mut self,
+        artifact: &crate::models::ArtifactRecord,
+    ) -> Result<(), StorageError>;
 
     /// Loads artifact metadata by identifier, or `None` if not found.
-    fn get_artifact(&self, artifact_id: &str) -> Result<Option<crate::models::ArtifactRecord>, StorageError>;
+    fn get_artifact(
+        &self,
+        artifact_id: &str,
+    ) -> Result<Option<crate::models::ArtifactRecord>, StorageError>;
 
     /// Lists all artifact metadata for a project.
     fn list_project_artifacts(
