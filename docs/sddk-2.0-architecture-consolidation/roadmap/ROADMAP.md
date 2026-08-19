@@ -284,6 +284,20 @@ During phases 0–4, do not add a new top-level product domain. New ideas are ca
 | Human approval as first-class events (emit_approval_requested/granted/denied) | DONE (pre-existing) | — | — |
 | Define redaction rules for evidence | DONE (3e95d64) | ADR-0024 | P3-RD-001..005 |
 
+### Phase 4 MUST Completion (P4-MUST)
+
+> Retroactive Phase 4 verification (2026-08-19).
+
+| Item | Status | Spec | Issue |
+|------|--------|------|-------|
+| Pack Manifest v2 (requires, integrates_with, provides, conflicts_with) | DONE (pre-existing) | ADR-0020 | — |
+| Pack registry/load/verify/disable lifecycle | DONE (pre-existing) | — | — |
+| sddk-pack-uat crate created — UAT pack boundary established | DONE (f34d179) | — | P4-PACK-001 |
+| UAT types re-exported from sddk-pack-uat (transition compat) | DONE (f34d179) | — | P4-PACK-001 |
+| Preserve v1.9 guided runner commands (via compat facade) | IN PROGRESS | — | P4-GUIDED-001 |
+| Move UAT evidence references to universal Evidence model | DONE (pre-existing) | ADR-0016 | — |
+| Pack conformance fixtures (12 tests) | DONE (f34d179) | — | P4-PACK-001 |
+
 ### Phase 5 SHOULD Pending (P5-SHOULD)
 
 | Item | Status | Spec | Issue |
