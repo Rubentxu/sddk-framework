@@ -40,6 +40,14 @@ impl SqliteGraphStore {
         })
     }
 
+    /// Mutable access to the underlying projection store connection.
+    /// Exposed for tests that need to set up foreign-key parents before
+    /// calling `record_graph_revision` (which requires a `workflow_runs_v1`
+    /// row to exist).
+    pub fn proj_store_conn_mut(&mut self) -> &mut rusqlite::Connection {
+        self.proj_store.conn_mut()
+    }
+
     /// Rebuilds the graph projection from the event ledger and persists it.
     ///
     /// Mirrors the generic `rebuild()` contract: verifies chain integrity
