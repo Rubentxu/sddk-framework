@@ -3,6 +3,32 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.28.0] - 2026-08-19
+
+### Features
+  - feat(orchestrator): Pre-flight Gate 0 — rebuild state from CLI (sddk cycle lock status + cycle status + vault validate) before each phase delegation. Replaces in-memory-only state_token with pull-based reconstruction; survives compaction and session restarts.
+  - feat(skill): sddk-cycle-resume — pull-based state_token envelope with cycle_id, phase, branch, head_sha, fencing_token, vault drift count, head drift flag. Hard rules for lease desync, head drift, and "cycle closed by another orchestrator" cases.
+  - feat(mcw): Phase 0 Step 0.2 now queries `sddk cycle lock status` as the authoritative gate (vault `_active.md` becomes a secondary informational view).
+
+### Fixes
+  - fix(install): bootstrap.sh now symlinks the `workflows/` tree and the `prompts/sddk/workflows/*.yaml` registry. Previously the orchestrator fell back to mcw-prose for path-specific sequences because the YAMLs were never linked into the editor.
+
+### Documentation
+  - docs(repo): CONTRIBUTING.md — contribution guide (commit conventions, review process, CI policy, layout, release procedure).
+  - docs(repo): README.md — install procedure now documented as `sddk dev install --prefix ~/.local --source .` + `sddk dev link --editor all` (was `bootstrap.sh --all` only).
+
+### Other
+  - chore(fmt): rustfmt --all aligns with the repo's rustfmt.toml (cosmetic only).
+  - chore(manifest): regenerated MANIFEST.sha256 with the 92nd skill entry.
+
+## [1.27.0] - 2026-08-19
+
+### Features
+  - feat(test): golden dataset 10 cases + ratchet/channel e2e (phase9)
+  - feat(cli): release channel promote + signed gate receipts + rules ratchet (phase9)
+  - feat(domain): release channels + HMAC gate signing (phase9)
+  - chore: SDDK 2.0 roadmap complete (Phases 1-4, all MUST done, all SHOULD discarded with rationale)
+
 ## [1.26.0] - 2026-08-18
 
 ### Features

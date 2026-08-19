@@ -7,7 +7,7 @@
 
 [pack]
 id = "sddk-uat"
-version = "1.27.0"
+version = "1.28.0"
 schema_version = 2
 compatibility = ">=1.26.0"
 risk = "medium"
