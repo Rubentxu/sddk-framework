@@ -233,12 +233,83 @@ During phases 0–4, do not add a new top-level product domain. New ideas are ca
 - Architecture regressions are caught automatically.
 - Stable release can be traced to signed gate evidence and immutable artifacts.
 
+## Phase 10 — Phase 1 Completion and Remaining SHOULD Items
+
+> Retroactive Phase 1 fixes identified during Phase 0–9 implementation audit (2026-08-19).
+
+### Phase 1 Blockers (P1-BLOCK)
+
+| Item | Status | Spec | Issue |
+|------|--------|------|-------|
+| Remove `sddk-engine → sddk-storage` production dependency | SPEC | ADR-0021 | P1-FIX-001..006 |
+| Move persistence orchestration out of CLI | PARTIAL | — | needs audit |
+| Create `sddk-testkit` crate with in-memory fakes | SPEC | ADR-0022 | P1-TK-001..007 |
+| Composition root explicit (LedgerFactory port) | SPEC | ADR-0021 §2 | P1-FIX-002 |
+| `sddk dev entropy` advisory command | MISSING | — | P1-ENTROPY |
+| Architecture lints ratcheted to fail (ARCH003) | SPEC | ADR-0021 §3 | P1-FIX-005 |
+
+### Phase 2 SHOULD Completion (P2-SHOULD)
+
+| Item | Status | Spec | Issue |
+|------|--------|------|-------|
+| Event export JSONL for debugging/tooling | SPEC | ADR-0023 | P2-JL-001..006 |
+
+### Phase 3 MUST Completion (P3-MUST)
+
+| Item | Status | Spec | Issue |
+|------|--------|------|-------|
+| Define redaction rules for evidence | SPEC | ADR-0024 | P3-RD-001..006 |
+
+### Phase 5 SHOULD Pending (P5-SHOULD)
+
+| Item | Status | Spec | Issue |
+|------|--------|------|-------|
+| Graph structural diff | MISSING | — | P5-DIFF |
+| Architecture/C4 mapping from Cognicode | MISSING | — | P5-C4 |
+
+### Phase 7 SHOULD Pending (P7-SHOULD)
+
+| Item | Status | Spec | Issue |
+|------|--------|------|-------|
+| Semantic diff metrics | MISSING | — | P7-SEM |
+| Model/prompt/policy A/B workflow | MISSING | — | P7-AB |
+| Git worktree/branch experiment via capability gateway | MISSING | — | P7-WORKTREE |
+
+### Phase 8 SHOULD Pending (P8-SHOULD)
+
+| Item | Status | Spec | Issue |
+|------|--------|------|-------|
+| High-performance WebGL renderer | MISSING | — | P8-WEBGL |
+| tldraw-like editable canvas adapter | MISSING | — | P8-TLDRAW |
+| Mermaid/PlantUML export | MISSING | — | P8-MERMAID |
+| Fork side-by-side diff UX | MISSING | — | P8-FORK-DIFF |
+
+### Phase 9 SHOULD Pending (P9-SHOULD)
+
+| Item | Status | Spec | Issue |
+|------|--------|------|-------|
+| in-toto/Sigstore provenance mapping | MISSING | — | P9-SIGSTORE |
+| Third-party pack authoring guide | MISSING | — | P9-PACK-GUIDE |
+
+---
+
 ## Dependency summary
 
 ```text
 P0 -> P1 -> P2 -> P3 -> P4 -> P5 -> P6 -> P7 -> P8 -> P9
                    \              \             /
                     +-- attestation+-- explorer
+
+P10: Phase 1 completion + remaining SHOULD items (can run in parallel with P2-P9)
 ```
 
 Some spikes may run earlier, but production implementation should respect authority and data-contract dependencies.
+
+## ADR Index
+
+| ADR | Title | Phase | Status |
+|-----|-------|-------|--------|
+| ADR-0021 | Phase 1 hexagonal architecture enforcement | P1 | SPEC |
+| ADR-0022 | sddk-testkit: in-memory test fakes | P1 | SPEC |
+| ADR-0023 | Event export JSONL | P2 | SPEC |
+| ADR-0024 | Evidence redaction rules | P3 | SPEC |
