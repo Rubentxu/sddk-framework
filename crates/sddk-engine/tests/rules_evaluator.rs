@@ -73,7 +73,7 @@ fn baseline_consumer_parses_and_normalizes_crates() {
 
 #[test]
 fn evaluate_all_returns_not_applicable_for_all_rules() {
-    let yaml = r#"schema_version: 1.1.0
+    let yaml = r#"schema_version: 1.2.0
 rules:
   - id: ARCH001
     severity: error
@@ -106,7 +106,7 @@ rules:
 
 #[test]
 fn evaluate_all_applies_waiver_when_head_anchor_within_granted_sha() {
-    let yaml = r#"schema_version: 1.1.0
+    let yaml = r#"schema_version: 1.2.0
 rules:
   - id: ARCH001
     severity: error
@@ -131,7 +131,7 @@ waivers:
 
 #[test]
 fn evaluate_all_returns_not_applicable_when_waiver_expired() {
-    let yaml = r#"schema_version: 1.1.0
+    let yaml = r#"schema_version: 1.2.0
 rules:
   - id: ARCH001
     severity: error
@@ -243,7 +243,7 @@ fn shipped_catalog_against_baseline_produces_fifteen_evaluations() {
 /// ARCH001 fails when a baseline contains an engine→storage edge.
 #[test]
 fn arch001_fails_when_engine_depends_on_storage() {
-    let yaml = r#"schema_version: 1.1.0
+    let yaml = r#"schema_version: 1.2.0
 rules:
   - id: ARCH001
     severity: error
@@ -263,7 +263,7 @@ rules:
 /// ARCH002 passes when the baseline shows no domain→adapters edges.
 #[test]
 fn arch002_passes_when_domain_isolated() {
-    let yaml = r#"schema_version: 1.1.0
+    let yaml = r#"schema_version: 1.2.0
 rules:
   - id: ARCH002
     severity: error
@@ -280,7 +280,7 @@ rules:
 /// ARCH003 reports Fail when a cli→storage edge exists; Pass otherwise.
 #[test]
 fn arch003_reports_imports_from_cli() {
-    let yaml = r#"schema_version: 1.1.0
+    let yaml = r#"schema_version: 1.2.0
 rules:
   - id: ARCH003
     severity: error
@@ -303,7 +303,7 @@ rules:
 /// ARCH004 and ARCH005 always return NotApplicable with a non-empty provenance.
 #[test]
 fn arch004_and_arch005_return_not_applicable() {
-    let yaml = r#"schema_version: 1.1.0
+    let yaml = r#"schema_version: 1.2.0
 rules:
   - id: ARCH004
     severity: error
@@ -332,7 +332,7 @@ rules:
 /// A valid waiver (head_anchor <= granted_until_sha) supersedes a Fail.
 #[test]
 fn waiver_with_valid_until_supersedes_fail() {
-    let yaml = r#"schema_version: 1.1.0
+    let yaml = r#"schema_version: 1.2.0
 rules:
   - id: ARCH001
     severity: error
