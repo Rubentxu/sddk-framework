@@ -398,6 +398,112 @@ mod tests {
         let mut graph_store = SqliteGraphStore::open(&dir).unwrap();
         let state = graph_store.rebuild(&event_store, "project:p-1").unwrap();
         assert!(state.nodes.is_empty());
+        assert!(state.edges.is_empty());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Integration test: verifies that `verify_stream_chain` (used by graph rebuild)
+    /// detects content_hash drift, and that `verify_chain_integrity` detects chain
+    /// tampering. Both gates are fail-closed. Uses raw SQL to inject tampered events
+    /// since `append()` validates content_hash (preventing injection there).
+    #[test]
+    fn graph_rebuild_detects_content_hash_drift_and_chain_tamper() {
+        use sddk_domain::{EventEnvelopeV1, ActorKind, ActorRef};
+
+        let dir = std::env::temp_dir().join(format!(
+            "sddk-graph-integrity-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Append two valid events with correctly-computed content_hash via append().
+        let mut event_store = SqliteEventStore::open(&dir).unwrap();
+        for (seq, event_type) in [(1, "approval.capability.requested"), (2, "approval.capability.granted")] {
+            let mut envelope = EventEnvelopeV1 {
+                event_id: format!("evt-{seq}"),
+                event_type: event_type.into(),
+                schema_version: 1,
+                stream_id: "project:p-1".into(),
+                sequence: seq,
+                project_id: "p-1".into(),
+                occurred_at: format!("2026-08-18T10:00:{seq:02}Z"),
+                recorded_at: format!("2026-08-18T10:00:{seq:02}Z"),
+                actor: ActorRef {
+                    kind: ActorKind::System,
+                    id: "sddk-test".into(),
+                    definition_hash: None,
+                    policy_hash: None,
+                    model: None,
+                },
+                subjects: vec![subject("cycle", "c-1")],
+                payload: serde_json::json!({}),
+                evidence_refs: vec![],
+                content_hash: String::new(),
+                metadata: None,
+                causation_id: None,
+                correlation_id: None,
+                cycle_id: Some("c-1".into()),
+                frame_id: None,
+                fork_id: None,
+            };
+            envelope.content_hash = envelope.compute_content_hash();
+            event_store.append(&envelope).unwrap();
+        }
+
+        // Rebuild succeeds with valid content hashes.
+        let mut graph_store = SqliteGraphStore::open(&dir).unwrap();
+        let state = graph_store.rebuild(&event_store, "project:p-1").unwrap();
+        assert_eq!(state.last_event_sequence, 2);
+
+        // verify_stream_chain passes for correct content_hash.
+        assert!(
+            event_store.verify_stream_chain("project:p-1").is_ok(),
+            "verify_stream_chain should pass for valid content_hash"
+        );
+        // verify_chain_integrity passes for valid chain.
+        assert!(
+            event_store.verify_chain_integrity("project:p-1").is_ok(),
+            "verify_chain_integrity should pass for valid chain"
+        );
+
+        // Inject a tampered event with wrong content_hash using raw SQL.
+        // We insert evt-2 again with a different content_hash (simulating tamper after append).
+        // Use INSERT OR REPLACE to overwrite the original evt-2.
+        let conn = rusqlite::Connection::open(dir.join("ledger.sqlite")).unwrap();
+        let tampered_content_hash = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+        conn.execute(
+            "INSERT OR REPLACE INTO events_v1 \
+             (event_id, event_type, schema_version, stream_id, sequence, project_id, \
+              occurred_at, recorded_at, actor_json, subjects_json, payload_json, \
+              evidence_refs_json, content_hash, metadata_json, causation_id, \
+              correlation_id, cycle_id, frame_id, fork_id, chain_hash) \
+             SELECT \
+              'evt-2', 'approval.capability.granted', 1, 'project:p-1', 2, 'p-1', \
+              '2026-08-18T10:00:02Z', '2026-08-18T10:00:02Z', \
+              actor_json, subjects_json, payload_json, evidence_refs_json, \
+              ?1, metadata_json, causation_id, correlation_id, cycle_id, frame_id, fork_id, \
+              chain_hash \
+             FROM events_v1 WHERE event_id = 'evt-2'",
+            rusqlite::params![tampered_content_hash],
+        ).unwrap();
+
+        // verify_stream_chain MUST fail when content_hash doesn't match recomputed value.
+        let drift_err = event_store.verify_stream_chain("project:p-1").unwrap_err();
+        assert!(
+            matches!(drift_err, sddk_domain::StorageError::Other(ref msg)
+                if msg.contains("hash_drift")),
+            "expected hash_drift error, got: {drift_err}"
+        );
+
+        // verify_chain_integrity also fails because chain_hash depends on content_hash.
+        let chain_err = event_store.verify_chain_integrity("project:p-1").unwrap_err();
+        assert!(
+            matches!(chain_err, sddk_domain::StorageError::Other(ref msg)
+                if msg.contains("chain_drift")),
+            "expected chain_drift error, got: {chain_err}"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }

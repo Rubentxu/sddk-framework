@@ -258,6 +258,12 @@ mod tests {
         fn verify_chain_integrity(&self, _stream_id: &str) -> Result<(), crate::StorageError> {
             Ok(())
         }
+        fn backfill_chain_hash(
+            &mut self,
+            _stream_id: &str,
+        ) -> Result<usize, crate::StorageError> {
+            Ok(0)
+        }
         fn load_by_sequence(
             &self,
             _stream_id: &str,

@@ -261,6 +261,11 @@ pub trait EventStore {
     /// `Err(StorageError::Other("event_store:chain_drift:<seq>"))` on first mismatch.
     fn verify_chain_integrity(&self, stream_id: &str) -> Result<(), StorageError>;
 
+    /// Backfills `chain_hash` for events that lack it (pre-MIGRATION_10 events).
+    /// Idempotent: skips events with a non-empty chain_hash.
+    /// Returns the number of events updated.
+    fn backfill_chain_hash(&mut self, stream_id: &str) -> Result<usize, StorageError>;
+
     /// Loads a single event by stream identifier and sequence number.
     fn load_by_sequence(
         &self,

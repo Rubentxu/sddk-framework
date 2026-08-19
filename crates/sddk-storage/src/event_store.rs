@@ -513,6 +513,75 @@ impl EventStore for SqliteEventStore {
         Ok(())
     }
 
+    /// Backfills `chain_hash` for existing events that were inserted before the
+    /// chain_hash column was added (MIGRATION_10). Idempotent: skips events with
+    /// a non-empty chain_hash. Operates within a transaction per stream.
+    fn backfill_chain_hash(&mut self, stream_id: &str) -> Result<usize, DomainStorageError> {
+        use sha2::{Digest, Sha256};
+
+        let events = self.load_stream(stream_id, None, u32::MAX)?;
+        if events.is_empty() {
+            return Ok(0);
+        }
+
+        let mut updated = 0;
+        let genesis_prev = b"genesis";
+        let mut prev_chain_hash: Option<String> = None;
+
+        // Process events in sequence order, collecting backfills
+        let mut backfills: Vec<(String, String)> = Vec::new();
+        for ev in &events {
+            // Read current chain_hash from DB
+            let stored_chain: Option<String> = self
+                .conn
+                .query_row(
+                    "SELECT chain_hash FROM events_v1 WHERE event_id = ?1",
+                    rusqlite::params![ev.event_id],
+                    |row| row.get::<_, Option<String>>(0),
+                )
+                .map_err(|e| DomainStorageError::Database(format!("read chain_hash: {e}")))?;
+
+            // Skip if already has chain_hash
+            if stored_chain.as_deref().unwrap_or("").is_empty() {
+                // Compute chain_hash
+                let prev_input: Vec<u8> = match prev_chain_hash {
+                    Some(ref prev) => prev.as_bytes().to_vec(),
+                    None => genesis_prev.to_vec(),
+                };
+                let mut hasher = Sha256::new();
+                hasher.update(ev.content_hash.as_bytes());
+                hasher.update(&prev_input);
+                let digest = hasher.finalize();
+                let chain_hash = format!("sha256:{:x}", digest);
+                backfills.push((ev.event_id.clone(), chain_hash.clone()));
+                prev_chain_hash = Some(chain_hash);
+            } else {
+                prev_chain_hash = stored_chain;
+            }
+        }
+
+        // Apply all backfills in a single transaction
+        if !backfills.is_empty() {
+            let tx = self
+                .conn
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                .map_err(|e| DomainStorageError::Database(format!("backfill tx: {e}")))?;
+            for (event_id, chain_hash) in &backfills {
+                let rows = tx
+                    .execute(
+                        "UPDATE events_v1 SET chain_hash = ?1 WHERE event_id = ?2 AND chain_hash = ''",
+                        rusqlite::params![chain_hash, event_id],
+                    )
+                    .map_err(|e| DomainStorageError::Database(format!("backfill update: {e}")))?;
+                updated += rows;
+            }
+            tx.commit()
+                .map_err(|e| DomainStorageError::Database(format!("backfill commit: {e}")))?;
+        }
+
+        Ok(updated)
+    }
+
     fn load_by_sequence(
         &self,
         stream_id: &str,

@@ -246,6 +246,14 @@ impl sddk_domain::EventStore for KernelEventStore {
         Ok(())
     }
 
+    fn backfill_chain_hash(
+        &mut self,
+        _stream_id: &str,
+    ) -> Result<usize, sddk_domain::StorageError> {
+        // KernelEventStore is read-only; backfill is done by the primary EventStore.
+        Ok(0)
+    }
+
     fn load_by_sequence(
         &self,
         _stream_id: &str,
