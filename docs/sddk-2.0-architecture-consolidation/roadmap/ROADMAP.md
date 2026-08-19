@@ -252,7 +252,7 @@ During phases 0–4, do not add a new top-level product domain. New ideas are ca
 
 | Item | Status | Spec | Issue |
 |------|--------|------|-------|
-| Event export JSONL for debugging/tooling | SPEC | ADR-0023 | P2-JL-001..006 |
+| Event export JSONL for debugging/tooling | DONE (e197405) | ADR-0023 | P2-JL-001..006 |
 
 ### Phase 3 MUST Completion (P3-MUST)
 
