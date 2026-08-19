@@ -242,11 +242,12 @@ During phases 0–4, do not add a new top-level product domain. New ideas are ca
 | Item | Status | Spec | Issue |
 |------|--------|------|-------|
 | Remove `sddk-engine → sddk-storage` production dependency | DONE (P1-FIX-001, P1-FIX-002) | ADR-0021 | P1-FIX-001..006 |
-| Move persistence orchestration out of CLI | PARTIAL | — | needs audit |
+| Move persistence orchestration out of CLI | DONE (d712fc7) | — | P1-FIX-004 |
 | Create `sddk-testkit` crate with in-memory fakes | DONE (P1-TK-001..004) | ADR-0022 | P1-TK-001..007 |
-| Composition root explicit (LedgerFactory port) | SPEC | ADR-0021 §2 | P1-FIX-002 |
+| Composition root explicit (LedgerFactory port) | DONE (d712fc7) | ADR-0021 §2 | P1-FIX-002 |
 | `sddk dev entropy` advisory command | DONE (0ca8360) | — | P1-ENTROPY |
 | Architecture lints ratcheted to fail (ARCH003) | DONE | ADR-0021 §3 | P1-FIX-005 |
+| ArtifactStore port (insert/get/list) implemented for Storage | DONE (d712fc7) | ADR-0021 §3 | P1-FIX-005 |
 
 ### Phase 2 SHOULD Completion (P2-SHOULD)
 
