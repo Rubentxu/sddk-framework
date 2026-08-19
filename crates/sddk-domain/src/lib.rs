@@ -30,6 +30,7 @@ pub mod staleness;
 pub mod uat;
 pub mod view;
 pub mod workflow;
+pub mod workflow_ir;
 
 pub use channel::*;
 pub use context_read::*;
@@ -57,3 +58,4 @@ pub use staleness::*;
 pub use uat::*;
 pub use view::*;
 pub use workflow::*;
+pub use workflow_ir::*;
