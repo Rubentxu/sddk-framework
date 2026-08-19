@@ -2321,31 +2321,14 @@ fn read_asset(path: &Path) -> anyhow::Result<String> {
 }
 
 fn now_rfc3339() -> String {
-    // Local clock in RFC 3339; deterministic tests inject overrides elsewhere.
-    let now = std::time::SystemTime::now()
+    // Use the shared `sddk_domain::format::format_rfc3339_utc` instead of a
+    // local copy. The local `civil_from_days` was removed in cycle 3
+    // (W-DV-7) to eliminate cross-crate duplication.
+    let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = now.as_secs();
-    // Simple RFC3339 UTC rendering without external deps.
-    let days = secs / 86400;
-    let (y, m, d) = civil_from_days(days as i64);
-    let rem = secs % 86400;
-    let (h, mi, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
-    format!("{y:04}-{m:02}-{d:02}T{h:02}:{mi:02}:{s:02}Z")
-}
-
-/// Days since 1970-01-01 to civil date (Howard Hinnant's algorithm).
-fn civil_from_days(z: i64) -> (i64, u32, u32) {
-    let z = z + 719468;
-    let era = if z >= 0 { z } else { z - 146096 } / 146097;
-    let doe = z - era * 146097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    (if m <= 2 { y + 1 } else { y }, m as u32, d as u32)
+        .unwrap_or_default()
+        .as_secs();
+    sddk_domain::format::format_rfc3339_utc(secs)
 }
 
 #[cfg(test)]

@@ -14,6 +14,7 @@ pub mod cycle;
 pub mod error;
 pub mod event_envelope;
 pub mod evidence;
+pub mod format;
 pub mod fork;
 pub mod graph;
 pub mod identity;

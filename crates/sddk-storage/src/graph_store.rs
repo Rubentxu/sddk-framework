@@ -407,50 +407,17 @@ impl GraphStore for SqliteGraphStore {
     }
 }
 
-/// RFC 3339 / ISO 8601 UTC timestamp, no external deps.
+/// RFC 3339 / ISO 8601 UTC timestamp.
 ///
-/// Uses Howard Hinnant's `civil_from_days` algorithm to convert Unix
-/// epoch seconds into a Gregorian civil date without pulling in `chrono`
-/// or `time`. Returns `YYYY-MM-DDTHH:MM:SSZ`.
+/// Delegates to `sddk_domain::format::format_rfc3339_utc` so the algorithm
+/// lives in one place across the workspace (cycle 3 W-DV-7 cleanup).
 fn current_iso8601() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    format_rfc3339_utc(secs)
-}
-
-/// Format `epoch_secs` (Unix seconds, UTC) as RFC 3339: `YYYY-MM-DDTHH:MM:SSZ`.
-///
-/// Howard Hinnant's algorithm (https://howardhinnant.github.io/date_algorithms.html).
-/// Public so tests can pin deterministic values.
-fn format_rfc3339_utc(epoch_secs: u64) -> String {
-    // Days since 1970-01-01 (Unix epoch)
-    let z = (epoch_secs / 86_400) as i64;
-    let secs_of_day = epoch_secs % 86_400;
-
-    // Hinnant's `civil_from_days(z)` shifts `z` by 719468 to align day 0
-    // with 0000-03-01 (so the year boundary falls inside the era).
-    let z = z + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = (z - era * 146_097) as u64; // [0, 146096]
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
-    let y = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
-    let mp = (5 * doy + 2) / 153; // [0, 11]
-    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
-    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
-    let y = if m <= 2 { y + 1 } else { y };
-
-    let hour = secs_of_day / 3600;
-    let minute = (secs_of_day % 3600) / 60;
-    let second = secs_of_day % 60;
-
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        y, m, d, hour, minute, second
-    )
+    sddk_domain::format::format_rfc3339_utc(secs)
 }
 
 /// Raw row from attempts_v1.
@@ -568,18 +535,17 @@ impl RawRevisionRow {
 
 /// Derives a stable `updated_at` for the checkpoint from state (RFC 3339),
 /// or a fallback timestamp when no events have been applied.
+///
+/// Used only for the checkpoint audit field; the graph state itself is
+/// deterministic. Cycle 3 (W-DV-1) replaced the broken `"2026-08-18T00:00:00Z (day N)"`
+/// stub with a real RFC 3339 timestamp via `sddk_domain::format`.
 fn state_updated_at(_state: &GraphState) -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let now = SystemTime::now()
+    let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = now.as_secs();
-    let days = secs / 86_400;
-    let rem = secs % 86_400;
-    let (h, m, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
-    // Approximate date from Unix epoch (2026-08-18 era) — used only for the
-    // checkpoint audit field; the graph state itself is deterministic.
-    format!("2026-08-18T{:02}:{:02}:{:02}Z (day {days})", h, m, s)
+        .unwrap_or_default()
+        .as_secs();
+    sddk_domain::format::format_rfc3339_utc(secs)
 }
 
 #[cfg(test)]
@@ -859,24 +825,22 @@ mod tests {
         );
     }
 
-    /// Pin a deterministic epoch-seconds value to the expected RFC 3339 string.
-    /// Catches off-by-one errors in Hinnant's algorithm.
+    /// Regression test for W-DV-1: `state_updated_at()` must return a real
+    /// RFC 3339 timestamp, not the `"2026-08-18T00:00:00Z (day N)"` stub
+    /// that was present in the codebase before cycle 3.
     #[test]
-    fn format_rfc3339_utc_pinned_values() {
-        // Unix epoch = 1970-01-01T00:00:00Z
-        assert_eq!(format_rfc3339_utc(0), "1970-01-01T00:00:00Z");
-        // 2026-08-19T12:34:56Z
-        //   1970-01-01..2026-01-01 = 56 yrs × 365 + 14 leap days = 20_454 days
-        //   2026-01-01..2026-08-19 = 230 days (Jan-Aug 19)
-        //   20_454 + 230 = 20_684 days × 86_400 = 1_787_097_600 s
-        //   12:34:56 = 4*3600 + 34*60 + 56 = 14_456 + 2040 + 56 = 45_296 s
-        //   total = 1_787_097_600 + 45_296 = 1_787_142_896
-        assert_eq!(format_rfc3339_utc(1_787_142_896), "2026-08-19T12:34:56Z");
-        // Leap-year handling: 2024 is a leap year, so Feb 29 exists.
-        // 2024-02-29T00:00:00Z
-        //   1970-01-01..2024-01-01 = 54 yrs × 365 + 13 leap days = 19_710 + 13 = 19_723 days
-        //   2024-01-01..2024-02-29 = 59 days (Jan 31 + Feb 29 - 1)
-        //   19_723 + 59 = 19_782 days × 86_400 = 1_709_164_800
-        assert_eq!(format_rfc3339_utc(1_709_164_800), "2024-02-29T00:00:00Z");
+    fn state_updated_at_is_real_timestamp() {
+        let s = state_updated_at(&GraphState::default());
+        assert!(
+            !s.contains("(day"),
+            "state_updated_at() leaked the (day ...) debug suffix: {s}"
+        );
+        assert!(s.ends_with('Z'), "expected UTC Z suffix: {s}");
+        assert_eq!(s.len(), 20, "expected 20-char RFC 3339, got: {s}");
+        let year_prefix: i64 = s[..4].parse().expect("year prefix");
+        assert!(
+            (2020..=2100).contains(&year_prefix),
+            "current year out of plausible range: {year_prefix}"
+        );
     }
 }
