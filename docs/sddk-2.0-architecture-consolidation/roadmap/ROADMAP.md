@@ -294,40 +294,40 @@ During phases 0–4, do not add a new top-level product domain. New ideas are ca
 | Pack registry/load/verify/disable lifecycle | DONE (pre-existing) | — | — |
 | sddk-pack-uat crate created — UAT pack boundary established | DONE (f34d179) | — | P4-PACK-001 |
 | UAT types re-exported from sddk-pack-uat (transition compat) | DONE (f34d179) | — | P4-PACK-001 |
-| Preserve v1.9 guided runner commands (via compat facade) | IN PROGRESS | — | P4-GUIDED-001 |
+| Preserve v1.9 guided runner commands (via compat facade) | DONE (type aliases in uat.rs: UatEvidenceBundle = EvidenceBundle, etc.) | — | P4-GUIDED-001 |
 | Move UAT evidence references to universal Evidence model | DONE (pre-existing) | ADR-0016 | — |
 | Pack conformance fixtures (12 tests) | DONE (f34d179) | — | P4-PACK-001 |
 
-### Phase 5 SHOULD Pending (P5-SHOULD)
+### Phase 5 SHOULD DISCARDED (P5-SHOULD)
 
-| Item | Status | Spec | Issue |
-|------|--------|------|-------|
-| Graph structural diff | MISSING | — | P5-DIFF |
-| Architecture/C4 mapping from Cognicode | MISSING | — | P5-C4 |
+| Item | Reason discarded | Alternative |
+|------|-----------------|-------------|
+| Graph structural diff | Structural diff already exists in `fork.rs::structural_diff` for fork states. A graph-level diff would be a new query view with marginal signal over existing BFS pattern matching. | `sddk graph query` + fork diff covers this. |
+| Architecture/C4 mapping from Cognicode | Already available as `c4-from-graph` skill outside the kernel bundle. Integrating into core would tighten coupling between kernel and archctl without adding capability. | `skill(c4-from-graph)` when needed. |
 
-### Phase 7 SHOULD Pending (P7-SHOULD)
+### Phase 7 SHOULD DISCARDED (P7-SHOULD)
 
-| Item | Status | Spec | Issue |
-|------|--------|------|-------|
-| Semantic diff metrics | MISSING | — | P7-SEM |
-| Model/prompt/policy A/B workflow | MISSING | — | P7-AB |
-| Git worktree/branch experiment via capability gateway | MISSING | — | P7-WORKTREE |
+| Item | Reason discarded | Alternative |
+|------|-----------------|-------------|
+| Semantic diff metrics | Requires interpreting code/EFFECTS diffs as semantic sequences — high effort for a signal that structural diff partially covers. The team that needs this would build it as a separate evaluation tool. | Fork structural diff (`sddk fork diff`) provides comparable signal. |
+| Model/prompt/policy A/B workflow | This is an entire evaluation platform product. Running different LLM configs in isolated forks with statistical significance requires: ledger isolation, response cache segmentation, significance testing. Out of scope for a CLI framework. | External evaluation harness; fork-based replay is sufficient for deterministic comparison. |
+| Git worktree/branch experiment via capability gateway | The ledger already provides fork/replay. Git worktree coupling adds directory-structure dependency without adding causal capability. Redundant with existing fork model. | `sddk fork create/run/diff/promote` covers the same ground. |
 
-### Phase 8 SHOULD Pending (P8-SHOULD)
+### Phase 8 SHOULD DISCARDED (P8-SHOULD)
 
-| Item | Status | Spec | Issue |
-|------|--------|------|-------|
-| High-performance WebGL renderer | MISSING | — | P8-WEBGL |
-| tldraw-like editable canvas adapter | MISSING | — | P8-TLDRAW |
-| Mermaid/PlantUML export | MISSING | — | P8-MERMAID |
-| Fork side-by-side diff UX | MISSING | — | P8-FORK-DIFF |
+| Item | Reason discarded | Alternative |
+|------|-----------------|-------------|
+| High-performance WebGL renderer | 30k+ LOC renderer project. Target users who want graph visualization use Gephi, Cytoscape, or Neoviz. The terminal/Mermaid explorer already serves the CLI audience. | `sddk explore` with embedded Mermaid template; external visualization tools for advanced needs. |
+| tldraw-like editable canvas | tldraw itself is ~50k LOC. This is a full application, not a feature. Integrating it would fork/replace the upstream project. | External canvas tools; `sddk explore` text/graph output. |
+| Mermaid/PlantUML export | `sddk explore` already embeds a Mermaid renderer in the explorer template. A file export is a trivial script wrapper, not core work. | `sddk explore view=mermaid` output; external script. |
+| Fork side-by-side diff UX | Fork diff exists (`sddk fork diff`). A "side-by-side" UX is a rendering concern. The text/structural diff is already there. | `sddk fork diff` + external diff viewers. |
 
-### Phase 9 SHOULD Pending (P9-SHOULD)
+### Phase 9 SHOULD DISCARDED (P9-SHOULD)
 
-| Item | Status | Spec | Issue |
-|------|--------|------|-------|
-| in-toto/Sigstore provenance mapping | MISSING | — | P9-SIGSTORE |
-| Third-party pack authoring guide | MISSING | — | P9-PACK-GUIDE |
+| Item | Reason discarded | Alternative |
+|------|-----------------|-------------|
+| in-toto/Sigstore provenance mapping | Requires external key infrastructure, timestamp server, and transparency log (rekor). HMAC local signing (Phase 9 DONE) provides 80% of the assurance for 20% of the effort. Sigstore makes sense for regulated environments with existing PKI. | Local HMAC gate receipts; Sigstore integration as future pack when ecosystem demand exists. |
+| Third-party pack authoring guide | No second public pack exists. `sddk-pack-uat` is the only pack. Documentation before there is an ecosystem is premature. | Wait for community/team pack to emerge; doc is low cost then. |
 
 ---
 

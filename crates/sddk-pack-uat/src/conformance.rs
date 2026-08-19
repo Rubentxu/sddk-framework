@@ -9,14 +9,18 @@
 //! - Commands are non-empty
 //! - Schema version is 2 (v2 semantics)
 
+#[allow(unused_imports)]
 use sddk_domain::pack::{
     PackCategory, PackConsequence, PackFixtures, PackIdentity, PackManifest, PackRisk,
 };
+#[allow(unused_imports)]
 use std::collections::BTreeMap;
 
+#[allow(unused_imports)]
 use crate::{parse_pack_manifest, validate_pack_manifest};
 
 /// Minimal valid pack manifest used as a base for conformance tests.
+#[allow(dead_code)]
 const VALID_MANIFEST: &str = r#"
 [pack]
 id = "sddk-uat"
@@ -98,7 +102,6 @@ fn empty_version_produces_diagnostic() {
 fn invalid_risk_produces_diagnostic() {
     // TOML parsing rejects unknown enum variants, so we construct a manifest
     // programmatically with an invalid risk to test the validation path.
-    use std::collections::BTreeMap;
 
     // PackIdentity requires id/version/schema_version/compatibility
     let manifest = PackManifest {
