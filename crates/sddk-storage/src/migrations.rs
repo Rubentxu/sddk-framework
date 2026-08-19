@@ -1,4 +1,4 @@
-pub(crate) const LATEST_SCHEMA_VERSION: i32 = 10;
+pub(crate) const LATEST_SCHEMA_VERSION: i32 = 11;
 
 /// Runs all pending migrations on an open SQLite connection.
 pub(crate) fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), super::StorageError> {
@@ -167,6 +167,16 @@ pub(crate) fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), supe
             }
         }
         tx.pragma_update(None, "user_version", 10)
+            .map_err(super::StorageError::Database)?;
+        tx.commit().map_err(super::StorageError::Database)?;
+    }
+    if version < 11 {
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(super::StorageError::Database)?;
+        tx.execute_batch(MIGRATION_11)
+            .map_err(super::StorageError::Database)?;
+        tx.pragma_update(None, "user_version", 11)
             .map_err(super::StorageError::Database)?;
         tx.commit().map_err(super::StorageError::Database)?;
     }
@@ -486,6 +496,7 @@ CREATE TABLE IF NOT EXISTS response_cache_v1 (
 );
 "#;
 
+#[allow(dead_code)]
 pub(crate) const MIGRATION_10: &str = r#"
 -- events_v1 chain_hash: stream hash chaining for cryptographic integrity (Phase 2 SHOULD).
 -- chain_hash[0] = SHA256(content_hash || "genesis")
@@ -493,4 +504,80 @@ pub(crate) const MIGRATION_10: &str = r#"
 -- Only applies if events_v1 exists (legacy databases created before MIGRATION_5
 -- never had events_v1, so this is a no-op for them).
 ALTER TABLE events_v1 ADD COLUMN chain_hash TEXT NOT NULL DEFAULT '';
+"#;
+
+pub(crate) const MIGRATION_11: &str = r#"
+-- workflow_runs_v1: runtime instance metadata (projection table).
+-- Source of truth is events_v1; this table is a materialized lookup index.
+CREATE TABLE IF NOT EXISTS workflow_runs_v1 (
+    run_id            TEXT NOT NULL PRIMARY KEY
+                      CHECK (run_id <> '' AND length(run_id) <= 64),
+    template_id       TEXT NOT NULL,
+    template_version  TEXT NOT NULL,
+    ir_hash           TEXT NOT NULL CHECK (ir_hash LIKE 'sha256:%'),
+    graph_revision_id TEXT NOT NULL,
+    state             TEXT NOT NULL
+                      CHECK (state IN ('pending','running','paused','completed','failed','cancelled')),
+    inputs_json       TEXT NOT NULL,
+    outputs_json      TEXT,
+    correlation_id    TEXT,
+    budget_json       TEXT NOT NULL,
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS workflow_runs_v1_template_idx ON workflow_runs_v1(template_id);
+CREATE INDEX IF NOT EXISTS workflow_runs_v1_state_idx    ON workflow_runs_v1(state);
+
+-- node_runs_v1: per-node state + last attempt pointer.
+CREATE TABLE IF NOT EXISTS node_runs_v1 (
+    run_id          TEXT NOT NULL REFERENCES workflow_runs_v1(run_id) ON DELETE CASCADE,
+    node_id         TEXT NOT NULL,
+    state           TEXT NOT NULL
+                    CHECK (state IN ('pending','ready','running','completed','failed','skipped')),
+    dependencies_json TEXT NOT NULL,
+    last_attempt_id TEXT,
+    PRIMARY KEY (run_id, node_id)
+);
+
+-- attempts_v1: append-only per execution.
+CREATE TABLE IF NOT EXISTS attempts_v1 (
+    attempt_id        TEXT NOT NULL PRIMARY KEY
+                      CHECK (attempt_id <> ''),
+    run_id            TEXT NOT NULL REFERENCES workflow_runs_v1(run_id) ON DELETE CASCADE,
+    node_id           TEXT NOT NULL,
+    route_json        TEXT NOT NULL,
+    started_at        TEXT NOT NULL,
+    ended_at          TEXT,
+    outcome_json      TEXT,
+    usage_json        TEXT NOT NULL,
+    context_capsule_json TEXT NOT NULL,
+    idempotency_key   TEXT NOT NULL UNIQUE,
+    schema_version    INTEGER NOT NULL CHECK (schema_version = 1)
+);
+CREATE INDEX IF NOT EXISTS attempts_v1_run_node_idx ON attempts_v1(run_id, node_id);
+CREATE TRIGGER IF NOT EXISTS attempts_v1_no_update BEFORE UPDATE ON attempts_v1
+    BEGIN SELECT RAISE(ABORT, 'attempts_v1 are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS attempts_v1_no_delete BEFORE DELETE ON attempts_v1
+    BEGIN SELECT RAISE(ABORT, 'attempts_v1 are append-only'); END;
+
+-- execution_graph_revisions_v1: parent-chain + digest per run.
+CREATE TABLE IF NOT EXISTS execution_graph_revisions_v1 (
+    revision_id         TEXT NOT NULL PRIMARY KEY,
+    run_id              TEXT NOT NULL REFERENCES workflow_runs_v1(run_id) ON DELETE CASCADE,
+    revision            INTEGER NOT NULL CHECK (revision >= 0),
+    parent_revision_id   TEXT REFERENCES execution_graph_revisions_v1(revision_id),
+    events_json         TEXT NOT NULL,
+    nodes_json          TEXT NOT NULL,
+    edges_json          TEXT NOT NULL,
+    digest              TEXT NOT NULL CHECK (digest LIKE 'sha256:%'),
+    schema_version      INTEGER NOT NULL CHECK (schema_version = 1),
+    UNIQUE (run_id, revision)
+);
+
+-- ir_digests_v1: dedup table for compiled IRs.
+CREATE TABLE IF NOT EXISTS ir_digests_v1 (
+    ir_hash     TEXT NOT NULL PRIMARY KEY CHECK (ir_hash LIKE 'sha256:%'),
+    ir_json     TEXT NOT NULL,
+    compiled_at TEXT NOT NULL
+);
 "#;

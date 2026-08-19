@@ -1205,3 +1205,204 @@ mod tests {
         assert!(behavior.evaluate(&view).is_empty());
     }
 }
+
+// ---------------------------------------------------------------------------
+// ExecutionGraphRevision — versioned runtime graph with parent chain + digest
+// ---------------------------------------------------------------------------
+
+/// A versioned snapshot of the runtime execution graph.
+///
+/// Each revision records the full graph state at a point in time, linked to its
+/// parent via a cryptographic digest chain. This enables detecting conflicting
+/// expansions and replaying from any revision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutionGraphRevision {
+    /// Monotonic revision number per run.
+    pub revision: u64,
+    /// Unique revision identifier (ULID).
+    pub revision_id: crate::workflow_ir::RevisionId,
+    /// Parent revision (None only for revision 0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<Box<ExecutionGraphRevision>>,
+    /// Graph events that produced this revision.
+    pub events: BTreeMap<crate::workflow_ir::EventId, GraphEvent>,
+    /// Node snapshots at this revision.
+    pub nodes: BTreeMap<crate::workflow_ir::NodeId, NodeSnapshot>,
+    /// Edge snapshots at this revision.
+    pub edges: BTreeMap<crate::workflow_ir::EdgeId, EdgeSnapshot>,
+    /// SHA-256 digest of this revision's content (excluding parent).
+    pub digest: [u8; 32],
+    /// Schema version (must be 1).
+    pub schema_version: u32,
+}
+
+impl ExecutionGraphRevision {
+    /// Schema version constant.
+    pub const SCHEMA_VERSION: u32 = 1;
+
+    /// Computes the digest for this revision.
+    ///
+    /// Recipe: `digest = sha256( canonical_json( {parent_digest, parent_revision,
+    /// events_sorted, nodes_sorted, edges_sorted} ) )`.
+    ///
+    /// Returns the same digest for identical parent + content.
+    /// Returns a different digest if the parent changes (chain divergence).
+    pub fn compute_digest(&self) -> [u8; 32] {
+        use sha2::{Digest, Sha256};
+
+        #[derive(Serialize)]
+        struct DigestInput<'a> {
+            parent_digest: Option<String>,
+            parent_revision: u64,
+            events_sorted: &'a BTreeMap<crate::workflow_ir::EventId, GraphEvent>,
+            nodes_sorted: &'a BTreeMap<crate::workflow_ir::NodeId, NodeSnapshot>,
+            edges_sorted: &'a BTreeMap<crate::workflow_ir::EdgeId, EdgeSnapshot>,
+        }
+
+        let parent_digest = self.parent.as_ref().map(|p| {
+            let hex: String = p.digest.iter().map(|b| format!("{:02x}", b)).collect();
+            format!("sha256:{}", hex)
+        });
+
+        let input = DigestInput {
+            parent_digest,
+            parent_revision: self.parent.as_ref().map(|p| p.revision).unwrap_or(0),
+            events_sorted: &self.events,
+            nodes_sorted: &self.nodes,
+            edges_sorted: &self.edges,
+        };
+
+        let bytes =
+            serde_json::to_vec(&input).expect("ExecutionGraphRevision is always serializable");
+        Sha256::digest(&bytes).into()
+    }
+
+    /// Returns true if this is revision 0 (has no parent).
+    pub fn is_initial(&self) -> bool {
+        self.revision == 0 && self.parent.is_none()
+    }
+}
+
+/// A frozen snapshot of a node at a particular revision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeSnapshot {
+    /// Node identifier.
+    pub node_id: crate::workflow_ir::NodeId,
+    /// State at snapshot time.
+    pub state: String,
+    /// Snapshot timestamp (RFC 3339).
+    pub snapshot_at: String,
+}
+
+/// A frozen snapshot of an edge at a particular revision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EdgeSnapshot {
+    /// Edge identifier.
+    pub edge_id: crate::workflow_ir::EdgeId,
+    /// Source node key.
+    pub from: String,
+    /// Relation name.
+    pub relation: String,
+    /// Target node key.
+    pub to: String,
+    /// Snapshot timestamp (RFC 3339).
+    pub snapshot_at: String,
+}
+
+/// A graph event recorded in a revision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GraphEvent {
+    /// Event identifier.
+    pub event_id: crate::workflow_ir::EventId,
+    /// Event type.
+    pub event_type: String,
+    /// Occurred at (RFC 3339).
+    pub occurred_at: String,
+}
+
+#[cfg(test)]
+mod execution_graph_revision_tests {
+    use super::*;
+
+    #[test]
+    fn compute_digest_is_deterministic() {
+        // Two revisions with identical content but built separately
+        let mut rev1 = ExecutionGraphRevision {
+            revision: 1,
+            revision_id: crate::workflow_ir::RevisionId("rev1".into()),
+            parent: None,
+            events: BTreeMap::new(),
+            nodes: BTreeMap::new(),
+            edges: BTreeMap::new(),
+            digest: [0u8; 32],
+            schema_version: 1,
+        };
+        rev1.digest = rev1.compute_digest();
+
+        let rev2 = ExecutionGraphRevision {
+            revision: 1,
+            revision_id: crate::workflow_ir::RevisionId("rev1".into()),
+            parent: None,
+            events: BTreeMap::new(),
+            nodes: BTreeMap::new(),
+            edges: BTreeMap::new(),
+            digest: [0u8; 32],
+            schema_version: 1,
+        };
+
+        // Identical content → identical digest
+        let digest2 = rev2.compute_digest();
+        assert_eq!(
+            rev1.digest, digest2,
+            "identical content must produce identical digest"
+        );
+    }
+
+    #[test]
+    fn parent_chain_affects_digest() {
+        let parent = ExecutionGraphRevision {
+            revision: 0,
+            revision_id: crate::workflow_ir::RevisionId("parent".into()),
+            parent: None,
+            events: BTreeMap::new(),
+            nodes: BTreeMap::new(),
+            edges: BTreeMap::new(),
+            digest: [0u8; 32],
+            schema_version: 1,
+        };
+        let parent_digest = parent.compute_digest();
+
+        let child = ExecutionGraphRevision {
+            revision: 1,
+            revision_id: crate::workflow_ir::RevisionId("child".into()),
+            parent: Some(Box::new(parent)),
+            events: BTreeMap::new(),
+            nodes: BTreeMap::new(),
+            edges: BTreeMap::new(),
+            digest: [0u8; 32],
+            schema_version: 1,
+        };
+        let child_digest = child.compute_digest();
+
+        // Different parent → different digest
+        assert_ne!(
+            parent_digest, child_digest,
+            "parent chain change must affect digest"
+        );
+    }
+
+    #[test]
+    fn revision_0_has_no_parent() {
+        let rev = ExecutionGraphRevision {
+            revision: 0,
+            revision_id: crate::workflow_ir::RevisionId("initial".into()),
+            parent: None,
+            events: BTreeMap::new(),
+            nodes: BTreeMap::new(),
+            edges: BTreeMap::new(),
+            digest: [0u8; 32],
+            schema_version: 1,
+        };
+        assert!(rev.is_initial(), "revision 0 must have no parent");
+    }
+}

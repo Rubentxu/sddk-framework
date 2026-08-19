@@ -4,22 +4,17 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
-use time::OffsetDateTime;
 
 // Re-export IR types needed by run types
 pub use super::workflow_ir::{
-    Budgets, CapabilityId, ContentHash, ExpansionPermission, OperatorId, RevisionId, RunId,
-    SCHEMA_VERSION,
+    Budgets, CapabilityId, ContentHash, ExpansionPermission, NodeId, OperatorId, RevisionId,
+    RunId, SCHEMA_VERSION,
 };
 
 /// Schema version constant for run types.
 pub const RUN_SCHEMA_VERSION: u32 = 1;
 
 // ── Newtypes ─────────────────────────────────────────────────────────────────
-
-/// Node identifier (stable within an IR).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
-pub struct NodeId(pub String);
 
 /// Attempt identifier (UUID v7).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,9 +58,17 @@ pub struct Usage {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ContextCapsuleRef {
     /// Pointer variant — CID reference.
-    Pointer { cid: String },
+    Pointer {
+        /// Context identifier.
+        cid: String,
+    },
     /// Inline variant — bounded content.
-    Inline { summary: String, sha256: String },
+    Inline {
+        /// Content summary.
+        summary: String,
+        /// SHA-256 content hash.
+        sha256: String,
+    },
 }
 
 // ── IdempotencyKey ────────────────────────────────────────────────────────
@@ -100,9 +103,15 @@ impl IdempotencyKey {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AttemptOutcome {
     /// Attempt succeeded with outputs.
-    Succeeded { outputs: BTreeMap<String, serde_json::Value> },
+    Succeeded {
+        /// Output values from the attempt.
+        outputs: BTreeMap<String, serde_json::Value>,
+    },
     /// Attempt failed with error.
-    Failed { error: String },
+    Failed {
+        /// Error message.
+        error: String,
+    },
     /// Attempt timed out.
     Timeout,
     /// Attempt was cancelled.
@@ -120,11 +129,11 @@ pub struct Attempt {
     pub node_id: NodeId,
     /// Resolved route at dispatch.
     pub route: Route,
-    /// When the attempt started (RFC 3339).
-    pub started_at: OffsetDateTime,
+    /// When the attempt started (RFC 3339 string).
+    pub started_at: String,
     /// When the attempt ended (None while in-flight).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ended_at: Option<OffsetDateTime>,
+    pub ended_at: Option<String>,
     /// Outcome (None while in-flight).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outcome: Option<AttemptOutcome>,
@@ -147,7 +156,7 @@ impl Attempt {
     /// Marks this attempt as complete with the given outcome.
     ///
     /// Returns an error if already terminal.
-    pub fn complete(&mut self, outcome: AttemptOutcome, ended_at: OffsetDateTime) -> Result<(), AttemptError> {
+    pub fn complete(&mut self, outcome: AttemptOutcome, ended_at: String) -> Result<(), AttemptError> {
         if self.outcome.is_some() {
             return Err(AttemptError::AlreadyTerminal);
         }
@@ -379,7 +388,12 @@ impl WorkflowRun {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkflowRunError {
     /// Invalid state transition attempted.
-    InvalidTransition { from: String, to: String },
+    InvalidTransition {
+        /// Source state.
+        from: String,
+        /// Target state.
+        to: String,
+    },
     /// Run is already in a terminal state.
     AlreadyTerminal,
     /// Budget has been exhausted.

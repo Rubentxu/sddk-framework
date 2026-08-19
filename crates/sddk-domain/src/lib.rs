@@ -31,6 +31,7 @@ pub mod uat;
 pub mod view;
 pub mod workflow;
 pub mod workflow_ir;
+pub mod workflow_run;
 
 pub use channel::*;
 pub use context_read::*;
@@ -59,3 +60,4 @@ pub use uat::*;
 pub use view::*;
 pub use workflow::*;
 pub use workflow_ir::*;
+pub use workflow_run::*;

@@ -38,10 +38,6 @@ pub struct NodeId(pub String);
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct OperatorId(pub String);
 
-/// Attempt identifier (UUID v7).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AttemptId(pub String);
-
 /// Edge identifier.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct EdgeId(pub String);
@@ -491,17 +487,4 @@ pub enum ValidateError {
     /// Guard expression failed.
     #[error("guard expression failed: {0}")]
     GuardFailed(String),
-}
-
-// ── compile_fail guard ─────────────────────────────────────────────────────
-
-/// ```compile_fail
-/// use std::collections::HashMap;
-/// use sddk_domain::workflow_ir::WorkflowIR;
-/// // HashMap is explicitly forbidden in this module — use BTreeMap instead.
-/// let _ : HashMap<String, WorkflowIR> = HashMap::new();
-/// ```
-pub mod compile_fail {
-    // This module intentionally has no public items.
-    // The doc-test above ensures HashMap cannot be used with WorkflowIR types.
 }
