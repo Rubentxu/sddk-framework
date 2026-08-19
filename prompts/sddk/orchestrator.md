@@ -245,6 +245,51 @@ This ensures:
 
 ---
 
+## Session Start — Rebuild State from CLI (MANDATORY)
+
+The orchestrator **must not** trust in-memory phase envelopes as the source
+of "where am I in the cycle?". They are push-based and can be lost on
+compaction, restart, or after a long pause. The CLI is pull-based and
+authoritative (XDG-backed, ADR-0011).
+
+Run this on **every** session start, and **after every compaction event**:
+
+```bash
+# Load the state-reconstruction skill inline (do NOT delegate)
+# Returns: state_token envelope with cycle_id, phase, branch, head_sha,
+# fencing_token, vault drift count, head drift flag.
+skill(name="sddk-cycle-resume")
+```
+
+If the skill returns `status: blocked` (lease desync, head drift, vault
+drift), follow its `next_recommended` action — typically `/sddk-cycle-cancel`
+or `/sddk-release`.
+
+If it returns `status: success` (or `partial`), cache the `state_token` for
+the session. Every subsequent phase delegation must pass through Gate 0
+(see `Pre-flight Gates` below) which re-validates the token.
+
+### After compaction
+
+If the AGENTS.md `FIRST ACTION REQUIRED` rule fires (session compaction or
+context reset), the **first** action is `mem_session_summary` to persist
+session narrative, then **immediately** `skill(name="sddk-cycle-resume")`
+to rebuild authoritative state. No triage, no MCW step, no delegation
+until both have run.
+
+### Why this is mandatory
+
+Without it:
+
+- A mid-cycle compaction loses the `state_token` and the next phase
+  delegation may run on stale phase + lease → silent corruption.
+- A second orchestrator (e.g. another terminal running `/sddk-cycle-cancel`)
+  can advance the cycle behind the orchestrator's back → dual-delegation race.
+- A `git pull` from a teammate can change HEAD between phases → apply targets
+  the wrong commit.
+
+---
+
 ## Execution Mode
 
 When the user invokes `/sddk-new`, `/sddk-ff`, or `/sddk-continue` for the first time in a session, ASK which execution mode:
@@ -744,6 +789,55 @@ Half-open: after timeout, allow one test delegation. Success → reset; failure 
 
 ## Pre-flight Gates (MANDATORY for A-full and A-lite)
 
+Before delegating to any phase agent, the orchestrator MUST rebuild its
+working state from the **authoritative CLI** (not from in-memory phase
+envelopes). This guards against:
+
+- Stale `state_token` after a session compaction or restart.
+- A lease that expired while the orchestrator was paused.
+- A cycle phase that advanced behind the orchestrator's back (e.g. another
+  terminal, a different agent on the same worktree).
+
+### Gate 0 — Rebuild state from CLI (always)
+
+```bash
+# 1. Resolve canonical project identity
+PROJECT_ROOT="$(sddk project --root . --scope .)"
+
+# 2. Vault path
+VAULT_PATH="$(sddk knowledge path --root . --scope .)"
+
+# 3. Active lease for this scope (may be absent if no cycle is open)
+LEASE_JSON="$(sddk cycle lock status --root . --scope . --format json 2>/dev/null || true)"
+
+# 4. Cycle snapshot — only when there is an active lease
+if [ -n "$LEASE_JSON" ] && [ "$(echo "$LEASE_JSON" | jq -r .fencing_token // empty)" != "" ]; then
+  CYCLE_ID="$(echo "$LEASE_JSON" | jq -r .cycle_id)"
+  CYCLE_JSON="$(sddk cycle status --root . --scope . --cycle "$CYCLE_ID" --format json)"
+  CYCLE_PHASE="$(echo "$CYCLE_JSON" | jq -r .phase // unknown)"
+  CYCLE_BRANCH="$(echo "$CYCLE_JSON" | jq -r .branch // main)"
+  CYCLE_HEAD="$(echo "$CYCLE_JSON" | jq -r .head_sha // $(git rev-parse HEAD))"
+fi
+
+# 5. Vault index coherence (advisory — emit `vault-drift-detected` if mismatched)
+sddk vault validate --root . --scope . --vault-path "$VAULT_PATH" 2>/dev/null || true
+```
+
+Hard rules:
+
+- If `LEASE_JSON` shows an **active** lease for a different `cycle_id` than
+  the in-memory `state_token` says → **BLOCK** with `next_recommended=/sddk-release`
+  or `/sddk-cycle-cancel` (orphaned lease).
+- If `LEASE_JSON` shows an **expired** lease and no in-flight work → silently
+  proceed; the next `sddk cycle start` will reacquire.
+- If `CYCLE_PHASE` says `archive.complete` or `release.complete` while the
+  orchestrator is mid-delegation → **BLOCK** (cycle already closed; another
+  orchestrator won).
+- All Gate 0 commands are advisory in **B-direct** (lightweight path skips
+  state reconstruction).
+
+### Gates 1–4 — Phase artifacts (A-full, A-lite)
+
 | Gate | Check | If fails |
 |------|-------|----------|
 | Artifact exists | Previous phase artifact registered | Block |
@@ -753,7 +847,7 @@ Half-open: after timeout, allow one test delegation. Success → reset; failure 
 
 Use `artifact_registry_list(change_name="{change}")` and `artifact_registry_get(id="{id}")`.
 
-For A-min and B-direct: these gates are relaxed — verify launches the relevant artifact presence inline.
+For A-min and B-direct: Gates 1–4 are relaxed — verify launches the relevant artifact presence inline.
 
 ---
 

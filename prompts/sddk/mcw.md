@@ -29,12 +29,19 @@ PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 # Vault resolved by stable project identity, never from a basename (ADR-0011)
 VAULT="$(sddk knowledge path --root "$PROJECT_ROOT" --scope .)"
 
-# Check serialization lock
+# Authoritative lock query via CLI — vault milestone file is the secondary view.
+# The CLI is the gatekeeper: a stale vault file cannot block a cycle.
+LEASE_JSON="$(sddk cycle lock status --root "$PROJECT_ROOT" --scope . --format json 2>/dev/null || echo '{}')"
+if echo "$LEASE_JSON" | grep -q '"fencing_token"'; then
+  CYCLE_ID="$(echo "$LEASE_JSON" | sed -n 's/.*"cycle_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  BLOCK "Active cycle lease — cycle_id=$CYCLE_ID — resume with sddk cycle status or release"
+fi
+
+# Secondary check — vault _active.md (informational; CLI is authoritative)
 if [ -f "$VAULT/milestones/_active.md" ]; then
   if grep -q "LOCKED" "$VAULT/milestones/_active.md" 2>/dev/null; then
-    # Cycle in progress — extract milestone name
     MILESTONE=$(grep "Milestone:" "$VAULT/milestones/_active.md" | head -1)
-    BLOCK "Cycle in progress — $MILESTONE"
+    warn "vault/_active.md shows LOCKED but CLI shows none — run sddk vault validate"
   fi
 fi
 
