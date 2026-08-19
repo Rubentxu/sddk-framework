@@ -41,3 +41,4 @@ sddk/
 
 # Editor framework dirs (never in repo)
 .zcode/
+dist/
