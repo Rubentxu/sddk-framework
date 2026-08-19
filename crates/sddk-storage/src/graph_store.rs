@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{OptionalExtension, params};
 use sddk_domain::{
-    Attempt, Checkpoint, EventStore, ExecutionGraphRevision, GraphProjection, GraphState, GraphStore,
-    NodeId, Projection, ProjectionError, RevisionId, RunId, StorageError,
+    Attempt, Checkpoint, EventStore, ExecutionGraphRevision, GraphProjection, GraphState,
+    GraphStore, NodeId, Projection, ProjectionError, RevisionId, RunId, StorageError,
 };
 
 use crate::event_store::SqliteEventStore;
@@ -240,11 +240,7 @@ impl GraphStore for SqliteGraphStore {
             .map(|(cp, _)| cp))
     }
 
-    fn record_ir_digest(
-        &mut self,
-        ir_hash: &str,
-        ir_json: &str,
-    ) -> Result<(), StorageError> {
+    fn record_ir_digest(&mut self, ir_hash: &str, ir_json: &str) -> Result<(), StorageError> {
         let conn = self.proj_store.conn_mut();
         conn.execute(
             "INSERT OR REPLACE INTO ir_digests_v1 (ir_hash, ir_json, compiled_at)
@@ -270,7 +266,13 @@ impl GraphStore for SqliteGraphStore {
             .map_err(|e| StorageError::Database(format!("nodes serialize: {e}")))?;
         let edges_json = serde_json::to_string(&rev.edges)
             .map_err(|e| StorageError::Database(format!("edges serialize: {e}")))?;
-        let digest = format!("sha256:{}", rev.digest.iter().map(|b| format!("{:02x}", b)).collect::<String>());
+        let digest = format!(
+            "sha256:{}",
+            rev.digest
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<String>()
+        );
 
         let conn = self.proj_store.conn_mut();
         conn.execute(
@@ -380,7 +382,10 @@ impl GraphStore for SqliteGraphStore {
         }
     }
 
-    fn latest_revision(&self, run_id: &RunId) -> Result<Option<ExecutionGraphRevision>, StorageError> {
+    fn latest_revision(
+        &self,
+        run_id: &RunId,
+    ) -> Result<Option<ExecutionGraphRevision>, StorageError> {
         let conn = self.proj_store.conn();
         let row = conn
             .query_row(
@@ -498,8 +503,9 @@ impl RawRevisionRow {
     fn into_revision(self) -> Result<ExecutionGraphRevision, StorageError> {
         use sddk_domain::{EdgeId, EdgeSnapshot, GraphEvent, NodeSnapshot};
         use std::collections::BTreeMap;
-        let events: BTreeMap<sddk_domain::EventId, GraphEvent> = serde_json::from_str(&self.events_json)
-            .map_err(|e| StorageError::Database(format!("events deserialize: {e}")))?;
+        let events: BTreeMap<sddk_domain::EventId, GraphEvent> =
+            serde_json::from_str(&self.events_json)
+                .map_err(|e| StorageError::Database(format!("events deserialize: {e}")))?;
         let nodes: BTreeMap<NodeId, NodeSnapshot> = serde_json::from_str(&self.nodes_json)
             .map_err(|e| StorageError::Database(format!("nodes deserialize: {e}")))?;
         let edges: BTreeMap<EdgeId, EdgeSnapshot> = serde_json::from_str(&self.edges_json)

@@ -22,6 +22,9 @@ Short, immutable decisions that are hard to reverse. Each ADR is a timestamped r
 | ADR-0040 | BTreeMap Mandate for IR Collections | accepted | 2026-08-19 |
 | ADR-0041 | Schema Version as `u32` Constant | accepted | 2026-08-19 |
 | ADR-0042 | ARCH008 SDD-Agnostic Kernel Runtime + WV-0026 | accepted | 2026-08-19 |
+| ADR-0043 | Compiler Determinista sin LLM | accepted | 2026-08-19 |
+| ADR-0044 | Validator con 7 Gates en Short-Circuit | accepted | 2026-08-19 |
+| ADR-0045 | GraphStore Port con 6 Métodos IR-Revision | accepted | 2026-08-19 |
 
 ## Adding an ADR
 

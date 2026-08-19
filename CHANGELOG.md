@@ -3,6 +3,21 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.30.0] - 2026-08-19
+
+### Features
+  - feat(domain): `WorkflowCompiler` (8-stage deterministic pipeline, no LLM) translates `WorkflowManifest` legacy → `WorkflowIR`. Phase → capability mapping for all 10 `Phase` variants. Closure: `validate(compile(m))` is either `Ok` or a single gate error.
+  - feat(domain): `WorkflowValidator` (7 gates: G1 schema, G2 operators, G3 cycle-free, G4 guards, G5 budgets, G6 expansion permissions, G7 context capsules). Short-circuit on first failure. `validate_with_template()` for full G6 allowlist check.
+  - feat(storage): 6 `GraphStore` methods implemented in `SqliteGraphStore` against `ir_digests_v1`, `execution_graph_revisions_v1`, `attempts_v1`: `record_ir_digest`, `record_graph_revision`, `load_node_attempts`, `attempt_count`, `load_revision`, `latest_revision`. Closes W-DV-1 (HIGH).
+  - feat(domain): `ExpansionPermission::is_allowed` split into `is_known_permission()` + `is_allowed_by(allowlist)`. Old `is_allowed` marked `#[deprecated(since = "1.30.0")]` for removal in cycle 3. Closes W-DV-3 (MED).
+  - feat(domain): `Budgets::consume(&sub) -> Result<Budgets, BudgetError>` semantics drives validator G5. Closes W-DV-4 (LOW bonus).
+  - feat(domain): `ContextCapsuleRef::validate()` for inline summaries (sha256 format + size bound + digest integrity). Closes W-DV-5 (LOW bonus).
+
+### Documentation
+  - docs(adr): ADR-0043 — Compiler determinista sin LLM (closure property + golden hashes)
+  - docs(adr): ADR-0044 — Validator con 7 gates en short-circuit (orden + rationale)
+  - docs(adr): ADR-0045 — GraphStore port con 6 métodos IR-revision (LSP closure)
+
 ## [1.29.0] - 2026-08-19
 
 ### Features
