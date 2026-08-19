@@ -187,22 +187,53 @@ fn evaluate_arch002(
 
 // ── ARCH003 ──────────────────────────────────────────────────────────────────
 
-/// cli_must_not_own_persistence_logic: Fail if any edge from sddk-cli to sddk-storage
-/// exists (import-level proxy for "no SQL/direct persistence in CLI").
+/// production_crates_must_not_depend_on_storage_directly: Fail if any production
+/// crate has a source-level `use` edge to `sddk-storage`, unless the edge is
+/// from `sddk-storage` itself (internal use is fine) or the crate provides
+/// `LedgerFactory` (P1-FIX-005).
+///
+/// This is the extended form of the original "cli must not own persistence logic"
+/// rule: it covers ALL crates, not just CLI.  The exception for `LedgerFactory`
+/// providers allows a crate to use `sddk-storage` when it has been explicitly
+/// composed through the factory port (P1-FIX-002 / ADR-0021).
 fn evaluate_arch003(
     rule: &sddk_domain::ArchitectureRule,
     baseline: &Baseline,
     evaluated_at: &str,
 ) -> RuleEvaluation {
+    use crate::rules::baseline::CrossCrateImportKind;
+
+    // Known crates that provide LedgerFactory (implement or re-export the trait).
+    // These may import from sddk-storage without triggering a violation.
+    const LEDGER_FACTORY_PROVIDERS: &[&str] = &["sddk-domain", "sddk-storage"];
+
     let violating: Vec<_> = baseline
         .cross_crate_imports
         .iter()
-        .filter(|e| e.from_crate == "sddk-cli" && e.to_crate == "sddk-storage")
+        .filter(|e| {
+            // Only source-level edges
+            if e.kind != CrossCrateImportKind::Use {
+                return false;
+            }
+            // Must be an edge to sddk-storage
+            if e.to_crate != "sddk-storage" {
+                return false;
+            }
+            // sddk-storage using itself is always fine
+            if e.from_crate == "sddk-storage" {
+                return false;
+            }
+            // Crates that provide LedgerFactory are allowed
+            if LEDGER_FACTORY_PROVIDERS.contains(&e.from_crate.as_str()) {
+                return false;
+            }
+            true
+        })
         .map(|e| {
             json!({
+                "from_crate": e.from_crate,
                 "from_file": e.from_file,
                 "line": e.line,
-                "kind": e.kind,
             })
         })
         .collect();
@@ -227,7 +258,8 @@ fn evaluate_arch003(
         evaluator_kind: EvaluatorKind::Schema,
         evaluator_version: EVALUATOR_VERSION.to_owned(),
         provenance: Some(
-            "ARCH003 live evaluator: import-level proxy for 'no persistence logic in CLI'"
+            "ARCH003 live evaluator: any production crate using sddk-storage directly \
+             is a violation unless the crate provides LedgerFactory (P1-FIX-005)"
                 .to_owned(),
         ),
     }
