@@ -113,11 +113,153 @@ impl Default for Budgets {
 }
 
 impl Budgets {
-    /// Validates that this budget fits within the template-level budget.
-    pub fn fits_within(&self, _template_budget: &Budgets) -> Result<(), CompileError> {
-        // For v1.29.0: budget comparison is stub-declared; full semantics in cycle 2
-        Ok(())
+    /// Returns the kernel hard-limit ceilings used by validator G5.
+    ///
+    /// These are the maximum values the kernel will ever accept:
+    /// - 24 h wall-clock
+    /// - 100 M tokens
+    /// - $1 000
+    /// - depth 64
+    /// - 10 000 nodes
+    pub fn hard_limits() -> Self {
+        Self {
+            max_wall_ms: 86_400_000,
+            max_tokens: 100_000_000,
+            max_cost_micros: 1_000_000_000,
+            max_depth: 64,
+            max_nodes: 10_000,
+            remaining_tokens: None,
+        }
     }
+
+    /// All-zero budget — the additive identity for `consume`.
+    pub fn zero() -> Self {
+        Self {
+            max_wall_ms: 0,
+            max_tokens: 0,
+            max_cost_micros: 0,
+            max_depth: 0,
+            max_nodes: 0,
+            remaining_tokens: Some(0),
+        }
+    }
+
+    /// Component-wise comparison: `self ≤ other` for every numeric ceiling field.
+    /// `remaining_tokens` is NOT compared (it is a runtime counter, not a ceiling).
+    pub fn fits_within(&self, other: &Budgets) -> bool {
+        self.max_wall_ms <= other.max_wall_ms
+            && self.max_tokens <= other.max_tokens
+            && self.max_cost_micros <= other.max_cost_micros
+            && self.max_depth <= other.max_depth
+            && self.max_nodes <= other.max_nodes
+    }
+
+    /// Subtracts `sub` from `self`, returning the remaining budget.
+    /// Returns an error if any field would underflow.
+    ///
+    /// `remaining_tokens` moves in lockstep with `max_tokens`:
+    /// - Seeded from `max_tokens` when `None`
+    /// - `sub.remaining_tokens` is ignored (sub is a cost vector, not state)
+    pub fn consume(&self, sub: &Budgets) -> Result<Budgets, BudgetError> {
+        let wall_ms =
+            self.max_wall_ms
+                .checked_sub(sub.max_wall_ms)
+                .ok_or(BudgetError::Underflow {
+                    field: BudgetField::WallMs,
+                    have: self.max_wall_ms,
+                    consume: sub.max_wall_ms,
+                })?;
+        let tokens = self
+            .max_tokens
+            .checked_sub(sub.max_tokens)
+            .ok_or(BudgetError::Underflow {
+                field: BudgetField::Tokens,
+                have: self.max_tokens,
+                consume: sub.max_tokens,
+            })?;
+        let cost_micros = self
+            .max_cost_micros
+            .checked_sub(sub.max_cost_micros)
+            .ok_or(BudgetError::Underflow {
+                field: BudgetField::CostMicros,
+                have: self.max_cost_micros,
+                consume: sub.max_cost_micros,
+            })?;
+        let depth = self
+            .max_depth
+            .checked_sub(sub.max_depth)
+            .ok_or(BudgetError::Underflow {
+                field: BudgetField::Depth,
+                have: self.max_depth,
+                consume: sub.max_depth,
+            })?;
+        let nodes = self
+            .max_nodes
+            .checked_sub(sub.max_nodes)
+            .ok_or(BudgetError::Underflow {
+                field: BudgetField::Nodes,
+                have: self.max_nodes,
+                consume: sub.max_nodes,
+            })?;
+
+        // remaining_tokens: seed from self.max_tokens when None, then subtract
+        let remaining = self
+            .remaining_tokens
+            .unwrap_or(self.max_tokens)
+            .checked_sub(sub.max_tokens)
+            .ok_or(BudgetError::Underflow {
+                field: BudgetField::Tokens,
+                have: self.remaining_tokens.unwrap_or(self.max_tokens),
+                consume: sub.max_tokens,
+            })?;
+
+        Ok(Budgets {
+            max_wall_ms: wall_ms,
+            max_tokens: tokens,
+            max_cost_micros: cost_micros,
+            max_depth: depth,
+            max_nodes: nodes,
+            remaining_tokens: Some(remaining),
+        })
+    }
+}
+
+/// Field identifier for [`BudgetError::Underflow`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BudgetField {
+    /// Wall-clock time in milliseconds.
+    WallMs,
+    /// Input tokens.
+    Tokens,
+    /// Cost in microdollars.
+    CostMicros,
+    /// Call depth.
+    Depth,
+    /// Node count.
+    Nodes,
+}
+
+/// Errors from [`Budgets::consume`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BudgetError {
+    /// A budget field would go negative on subtraction.
+    Underflow {
+        /// Which field underflowed.
+        field: BudgetField,
+        /// The current value.
+        have: u64,
+        /// The amount to consume.
+        consume: u64,
+    },
+    /// A budget field exceeds the hard limit.
+    ExceedsLimit {
+        /// Which field exceeded the limit.
+        field: BudgetField,
+        /// The value that was provided.
+        got: u64,
+        /// The hard limit.
+        limit: u64,
+    },
 }
 
 // ── Invariant ────────────────────────────────────────────────────────────────
@@ -349,7 +491,9 @@ impl WorkflowTemplate {
             }
         }
         // Budget must fit within hard limits
-        self.budgets.fits_within(&Budgets::default())?;
+        if !self.budgets.fits_within(&Budgets::hard_limits()) {
+            return Err(CompileError::BudgetExceedsLimit);
+        }
         Ok(())
     }
 }

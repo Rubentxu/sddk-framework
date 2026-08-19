@@ -8,6 +8,7 @@
 #![warn(missing_docs)]
 
 pub mod channel;
+pub mod compiler;
 pub mod context_read;
 pub mod cycle;
 pub mod error;
