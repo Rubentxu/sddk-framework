@@ -32,6 +32,19 @@ struct GoldenEvent {
 struct GoldenExpect {
     nodes: usize,
     edges: usize,
+    /// Verify these specific node keys exist in the graph (optional).
+    #[serde(default)]
+    node_keys: Vec<String>,
+    /// Verify these specific edges exist with exact from/relation/to (optional).
+    #[serde(default)]
+    edges_match: Vec<EdgeMatch>,
+}
+
+#[derive(Debug, Deserialize)]
+struct EdgeMatch {
+    from: String,
+    relation: String,
+    to: String,
 }
 
 fn golden_dir() -> PathBuf {
@@ -63,7 +76,7 @@ fn load_cases() -> Vec<GoldenCase> {
     cases
 }
 
-fn apply_case(case: &GoldenCase) -> (usize, usize) {
+fn apply_case(case: &GoldenCase) -> (usize, usize, sddk_domain::GraphState) {
     let mut projection = GraphProjection::new("project:golden");
     for (i, event) in case.events.iter().enumerate() {
         let envelope = EventEnvelopeV1 {
@@ -108,8 +121,8 @@ fn apply_case(case: &GoldenCase) -> (usize, usize) {
         };
         projection.apply(&envelope).unwrap();
     }
-    let state = projection.state_ref();
-    (state.nodes.len(), state.edges.len())
+    let state = projection.state_ref().clone();
+    (state.nodes.len(), state.edges.len(), state)
 }
 
 #[test]
@@ -121,7 +134,7 @@ fn golden_dataset_matches_expectations() {
         cases.len()
     );
     for case in &cases {
-        let (nodes, edges) = apply_case(case);
+        let (nodes, edges, state) = apply_case(case);
         assert_eq!(
             nodes, case.expect.nodes,
             "case '{}': expected {} nodes, got {}",
@@ -132,6 +145,32 @@ fn golden_dataset_matches_expectations() {
             "case '{}': expected {} edges, got {}",
             case.name, case.expect.edges, edges
         );
+
+        // Verify specific node keys exist
+        for key in &case.expect.node_keys {
+            assert!(
+                state.nodes.contains_key(key),
+                "case '{}': expected node '{}' not found. Available: {:?}",
+                case.name,
+                key,
+                state.nodes.keys().collect::<Vec<_>>()
+            );
+        }
+
+        // Verify specific edges exist with exact from/relation/to
+        for em in &case.expect.edges_match {
+            assert!(
+                state
+                    .edges
+                    .iter()
+                    .any(|e| e.from == em.from && e.relation == em.relation && e.to == em.to),
+                "case '{}': expected edge '{} -->[{}]--> {}' not found",
+                case.name,
+                em.from,
+                em.relation,
+                em.to
+            );
+        }
     }
 }
 
@@ -139,12 +178,17 @@ fn golden_dataset_matches_expectations() {
 fn golden_dataset_is_deterministic() {
     let cases = load_cases();
     for case in &cases {
-        let (a_nodes, a_edges) = apply_case(case);
-        let (b_nodes, b_edges) = apply_case(case);
+        let (a_nodes, a_edges, a_state) = apply_case(case);
+        let (b_nodes, b_edges, b_state) = apply_case(case);
         assert_eq!(
             (a_nodes, a_edges),
             (b_nodes, b_edges),
-            "case '{}' nondeterministic",
+            "case '{}' nondeterministic count",
+            case.name
+        );
+        assert_eq!(
+            a_state, b_state,
+            "case '{}' nondeterministic state",
             case.name
         );
     }
