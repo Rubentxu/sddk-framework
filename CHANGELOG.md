@@ -3,7 +3,7 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [1.28.1] - 2026-08-19
 
 ### Fixes
   - fix(editor-adapters): `sddk dev link` now refreshes stale agent paths in `opencode.json` / `zcode.json` when the framework bundle root changes (e.g. after a fresh install or upgrade). Existing entries with paths matching the new root are skipped byte-untouched; entries with paths matching a previous sddk install (`/sddk-framework/agents/` or `/sddk/framework/`) have only the `prompt` field refreshed — user customizations (`description`, `model`, `hidden`, `mode`) are preserved. User-customized paths that look unrelated to sddk (`/my/personal/prompts/...`) are left untouched. Telemetry: `AdapterReport.updated_stale` + `LinkReport.agents_updated_stale`, with a per-editor warning `"refreshed N stale agent paths (framework root changed)"`.
