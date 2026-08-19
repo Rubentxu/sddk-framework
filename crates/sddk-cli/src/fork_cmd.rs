@@ -227,9 +227,22 @@ impl sddk_domain::EventStore for KernelEventStore {
         Ok(events.last().map(|e| e.event_hash.clone()))
     }
 
+    fn head_chain_hash(
+        &self,
+        _stream_id: &str,
+    ) -> Result<Option<String>, sddk_domain::StorageError> {
+        // KernelEventStore is read-only; chain_hash is maintained by the primary EventStore.
+        Ok(None)
+    }
+
     fn verify_stream_chain(&self, _stream_id: &str) -> Result<(), sddk_domain::StorageError> {
         // The kernel ledger is verified by `sddk ledger verify`; replay reads
         // it as-is (fail-closed happens at promote via prefix hash).
+        Ok(())
+    }
+
+    fn verify_chain_integrity(&self, _stream_id: &str) -> Result<(), sddk_domain::StorageError> {
+        // KernelEventStore is read-only; chain integrity is maintained by the primary EventStore.
         Ok(())
     }
 

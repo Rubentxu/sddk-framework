@@ -171,6 +171,10 @@ pub struct EventAppended {
     pub content_hash: String,
     /// Wall-clock time when the event was recorded (RFC 3339).
     pub recorded_at: String,
+    /// SHA-256 chain hash linking this event to the previous one.
+    /// `chain_hash[0] = SHA256(content_hash || "genesis")`
+    /// `chain_hash[N] = SHA256(content_hash[N] || chain_hash[N-1])`
+    pub chain_hash: String,
 }
 
 /// Append-only event store for [`EventEnvelopeV1`] envelopes.
@@ -234,6 +238,10 @@ pub trait EventStore {
     /// or `None` when the stream is empty.
     fn head_hash(&self, stream_id: &str) -> Result<Option<String>, StorageError>;
 
+    /// Returns the `chain_hash` of the most-recently recorded event in a stream,
+    /// or `None` when the stream is empty.
+    fn head_chain_hash(&self, stream_id: &str) -> Result<Option<String>, StorageError>;
+
     /// Verifies the cryptographic chain integrity of a stream.
     ///
     /// Loads every event in the stream and recomputes each
@@ -241,6 +249,17 @@ pub trait EventStore {
     /// `content_hash` column. Returns `Ok(())` when all hashes match; returns
     /// `Err(StorageError::Other("event_store:hash_drift:<seq>"))` on first mismatch.
     fn verify_stream_chain(&self, stream_id: &str) -> Result<(), StorageError>;
+
+    /// Verifies the stream hash chain integrity.
+    ///
+    /// Loads every event in the stream in sequence order and recomputes each
+    /// `chain_hash`:
+    /// - `chain_hash[0] = SHA256(content_hash[0] || "genesis")`
+    /// - `chain_hash[N] = SHA256(content_hash[N] || chain_hash[N-1])`
+    ///
+    /// Returns `Ok(())` when all chain hashes match; returns
+    /// `Err(StorageError::Other("event_store:chain_drift:<seq>"))` on first mismatch.
+    fn verify_chain_integrity(&self, stream_id: &str) -> Result<(), StorageError>;
 
     /// Loads a single event by stream identifier and sequence number.
     fn load_by_sequence(

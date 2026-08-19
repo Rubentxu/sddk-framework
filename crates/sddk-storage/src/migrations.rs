@@ -1,4 +1,4 @@
-pub(crate) const LATEST_SCHEMA_VERSION: i32 = 9;
+pub(crate) const LATEST_SCHEMA_VERSION: i32 = 10;
 
 /// Runs all pending migrations on an open SQLite connection.
 pub(crate) fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), super::StorageError> {
@@ -136,11 +136,45 @@ pub(crate) fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), supe
             .map_err(super::StorageError::Database)?;
         tx.commit().map_err(super::StorageError::Database)?;
     }
+    if version < 10 {
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(super::StorageError::Database)?;
+        // Defensively check if events_v1 exists before ALTERing, since databases
+        // created before MIGRATION_5 (schema v6) never had the events_v1 table.
+        let table_exists: bool = tx
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='events_v1'",
+                [],
+                |_row| Ok(true),
+            )
+            .unwrap_or(false);
+        if table_exists {
+            // Only add column if it doesn't already exist (idempotent on re-run)
+            let col_exists: bool = tx
+                .query_row(
+                    "SELECT 1 FROM pragma_table_info('events_v1') WHERE name='chain_hash'",
+                    [],
+                    |_row| Ok(true),
+                )
+                .unwrap_or(false);
+            if !col_exists {
+                tx.execute(
+                    "ALTER TABLE events_v1 ADD COLUMN chain_hash TEXT NOT NULL DEFAULT ''",
+                    [],
+                )
+                .map_err(super::StorageError::Database)?;
+            }
+        }
+        tx.pragma_update(None, "user_version", 10)
+            .map_err(super::StorageError::Database)?;
+        tx.commit().map_err(super::StorageError::Database)?;
+    }
     Ok(())
 }
 
 pub(crate) const MIGRATION_1: &str = r#"
-CREATE TABLE projects (
+CREATE TABLE IF NOT EXISTS projects (
     project_id TEXT PRIMARY KEY,
     display_name TEXT NOT NULL CHECK (display_name <> ''),
     remote_url TEXT,
@@ -149,7 +183,7 @@ CREATE TABLE projects (
     UNIQUE (remote_url, scope)
 );
 
-CREATE TABLE workspaces (
+CREATE TABLE IF NOT EXISTS workspaces (
     workspace_id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE RESTRICT,
     canonical_path TEXT NOT NULL CHECK (canonical_path <> ''),
@@ -158,7 +192,7 @@ CREATE TABLE workspaces (
     UNIQUE (project_id, workspace_id)
 );
 
-CREATE TABLE cycles (
+CREATE TABLE IF NOT EXISTS cycles (
     cycle_id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL,
     workspace_id TEXT NOT NULL,
@@ -178,9 +212,9 @@ CREATE TABLE cycles (
     UNIQUE (project_id, cycle_id)
 );
 
-CREATE INDEX cycles_project_status_idx ON cycles(project_id, status);
+CREATE INDEX IF NOT EXISTS cycles_project_status_idx ON cycles(project_id, status);
 
-CREATE TABLE ledger_events (
+CREATE TABLE IF NOT EXISTS ledger_events (
     sequence INTEGER PRIMARY KEY CHECK (sequence > 0),
     event_id TEXT NOT NULL UNIQUE,
     project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE RESTRICT,
@@ -203,22 +237,22 @@ CREATE TABLE ledger_events (
         REFERENCES cycles(project_id, cycle_id) ON DELETE RESTRICT
 );
 
-CREATE INDEX ledger_events_cycle_sequence_idx
+CREATE INDEX IF NOT EXISTS ledger_events_cycle_sequence_idx
     ON ledger_events(cycle_id, sequence);
 
-CREATE TRIGGER ledger_events_no_update
+CREATE TRIGGER IF NOT EXISTS ledger_events_no_update
 BEFORE UPDATE ON ledger_events
 BEGIN
     SELECT RAISE(ABORT, 'ledger events are append-only');
 END;
 
-CREATE TRIGGER ledger_events_no_delete
+CREATE TRIGGER IF NOT EXISTS ledger_events_no_delete
 BEFORE DELETE ON ledger_events
 BEGIN
     SELECT RAISE(ABORT, 'ledger events are append-only');
 END;
 
-CREATE TABLE artifacts (
+CREATE TABLE IF NOT EXISTS artifacts (
     artifact_id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE RESTRICT,
     cycle_id TEXT,
@@ -232,10 +266,10 @@ CREATE TABLE artifacts (
         REFERENCES cycles(project_id, cycle_id) ON DELETE RESTRICT
 );
 
-CREATE INDEX artifacts_project_hash_idx ON artifacts(project_id, sha256);
-CREATE INDEX artifacts_cycle_idx ON artifacts(cycle_id);
+CREATE INDEX IF NOT EXISTS artifacts_project_hash_idx ON artifacts(project_id, sha256);
+CREATE INDEX IF NOT EXISTS artifacts_cycle_idx ON artifacts(cycle_id);
 
-CREATE TABLE capability_receipts (
+CREATE TABLE IF NOT EXISTS capability_receipts (
     receipt_id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE RESTRICT,
     cycle_id TEXT,
@@ -250,7 +284,7 @@ CREATE TABLE capability_receipts (
         REFERENCES cycles(project_id, cycle_id) ON DELETE RESTRICT
 );
 
-CREATE TABLE idempotency_records (
+CREATE TABLE IF NOT EXISTS idempotency_records (
     project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE RESTRICT,
     idempotency_key TEXT NOT NULL,
     request_hash TEXT NOT NULL,
@@ -260,7 +294,7 @@ CREATE TABLE idempotency_records (
     PRIMARY KEY (project_id, idempotency_key)
 );
 
-CREATE TABLE cycle_leases (
+CREATE TABLE IF NOT EXISTS cycle_leases (
     cycle_id TEXT PRIMARY KEY REFERENCES cycles(cycle_id) ON DELETE RESTRICT,
     owner TEXT NOT NULL CHECK (owner <> ''),
     acquired_at_ms INTEGER NOT NULL CHECK (acquired_at_ms >= 0),
@@ -349,7 +383,7 @@ CREATE TABLE IF NOT EXISTS projects (
     project_id  TEXT NOT NULL PRIMARY KEY
 );
 
-CREATE TABLE events_v1 (
+CREATE TABLE IF NOT EXISTS events_v1 (
     event_id           TEXT NOT NULL PRIMARY KEY
                        CHECK (event_id <> ''),
     stream_id          TEXT NOT NULL
@@ -382,17 +416,17 @@ CREATE TABLE events_v1 (
     UNIQUE (stream_id, sequence)
 );
 
-CREATE INDEX events_v1_project_idx      ON events_v1(project_id);
-CREATE INDEX events_v1_stream_seq_idx   ON events_v1(stream_id, sequence);
-CREATE INDEX events_v1_content_hash_idx ON events_v1(content_hash);
+CREATE INDEX IF NOT EXISTS events_v1_project_idx      ON events_v1(project_id);
+CREATE INDEX IF NOT EXISTS events_v1_stream_seq_idx   ON events_v1(stream_id, sequence);
+CREATE INDEX IF NOT EXISTS events_v1_content_hash_idx ON events_v1(content_hash);
 
-CREATE TRIGGER events_v1_no_update
+CREATE TRIGGER IF NOT EXISTS events_v1_no_update
 BEFORE UPDATE ON events_v1
 BEGIN
     SELECT RAISE(ABORT, 'events_v1 are append-only');
 END;
 
-CREATE TRIGGER events_v1_no_delete
+CREATE TRIGGER IF NOT EXISTS events_v1_no_delete
 BEFORE DELETE ON events_v1
 BEGIN
     SELECT RAISE(ABORT, 'events_v1 are append-only');
@@ -403,7 +437,7 @@ pub(crate) const MIGRATION_6: &str = r#"
 -- projection_checkpoints_v1: durable progress markers for read-model projections.
 -- The table is mutable (no append-only triggers) because checkpoints are
 -- regenerable from the event ledger via the rebuild() algorithm.
-CREATE TABLE projection_checkpoints_v1 (
+CREATE TABLE IF NOT EXISTS projection_checkpoints_v1 (
     projection_name      TEXT    NOT NULL,
     version              INTEGER NOT NULL,
     last_event_sequence  INTEGER NOT NULL
@@ -417,7 +451,7 @@ CREATE TABLE projection_checkpoints_v1 (
     PRIMARY KEY (projection_name, version)
 );
 
-CREATE INDEX projection_checkpoints_v1_name_idx
+CREATE INDEX IF NOT EXISTS projection_checkpoints_v1_name_idx
     ON projection_checkpoints_v1(projection_name);
 "#;
 
@@ -450,4 +484,13 @@ CREATE TABLE IF NOT EXISTS response_cache_v1 (
     model          TEXT,
     created_at     TEXT NOT NULL CHECK (created_at <> '')
 );
+"#;
+
+pub(crate) const MIGRATION_10: &str = r#"
+-- events_v1 chain_hash: stream hash chaining for cryptographic integrity (Phase 2 SHOULD).
+-- chain_hash[0] = SHA256(content_hash || "genesis")
+-- chain_hash[N] = SHA256(content_hash[N] || chain_hash[N-1])
+-- Only applies if events_v1 exists (legacy databases created before MIGRATION_5
+-- never had events_v1, so this is a no-op for them).
+ALTER TABLE events_v1 ADD COLUMN chain_hash TEXT NOT NULL DEFAULT '';
 "#;

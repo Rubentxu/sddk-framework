@@ -30,6 +30,7 @@ use std::time::Duration;
 
 use rusqlite::Connection;
 use sddk_domain::{EventAppended, EventEnvelopeV1, EventStore, StorageError as DomainStorageError};
+use sha2::{Digest, Sha256};
 
 /// SQLite-backed [`EventStore`] implementation.
 pub struct SqliteEventStore {
@@ -81,16 +82,19 @@ impl SqliteEventStore {
     }
 
     fn run_migrations(conn: &mut Connection) -> Result<(), DomainStorageError> {
+        // SqliteEventStore manages its own schema version via a private pragma,
+        // leaving user_version for Storage (full schema) to manage.
+        // This prevents version conflicts when both stores share the same file.
         let version: i32 = conn
-            .pragma_query_value(None, "user_version", |row| row.get(0))
-            .map_err(|e| DomainStorageError::Database(e.to_string()))?;
+            .pragma_query_value(None, "sddk_eventstore_version", |row| row.get(0))
+            .unwrap_or(0);
         if version < 5 {
             let tx = conn
                 .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
                 .map_err(|e| DomainStorageError::Database(e.to_string()))?;
             tx.execute_batch(crate::migrations::MIGRATION_5)
                 .map_err(|e| DomainStorageError::Database(e.to_string()))?;
-            tx.pragma_update(None, "user_version", 5)
+            tx.pragma_update(None, "sddk_eventstore_version", 5)
                 .map_err(|e| DomainStorageError::Database(e.to_string()))?;
             tx.commit()
                 .map_err(|e| DomainStorageError::Database(e.to_string()))?;
@@ -101,7 +105,41 @@ impl SqliteEventStore {
                 .map_err(|e| DomainStorageError::Database(e.to_string()))?;
             tx.execute_batch(crate::migrations::MIGRATION_6)
                 .map_err(|e| DomainStorageError::Database(e.to_string()))?;
-            tx.pragma_update(None, "user_version", 6)
+            tx.pragma_update(None, "sddk_eventstore_version", 6)
+                .map_err(|e| DomainStorageError::Database(e.to_string()))?;
+            tx.commit()
+                .map_err(|e| DomainStorageError::Database(e.to_string()))?;
+        }
+        if version < 10 {
+            let tx = conn
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                .map_err(|e| DomainStorageError::Database(e.to_string()))?;
+            // Defensively check if events_v1 exists before ALTERing, since databases
+            // created before MIGRATION_5 never had the events_v1 table.
+            let table_exists: bool = tx
+                .query_row(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='events_v1'",
+                    [],
+                    |_row| Ok(true),
+                )
+                .unwrap_or(false);
+            if table_exists {
+                let col_exists: bool = tx
+                    .query_row(
+                        "SELECT 1 FROM pragma_table_info('events_v1') WHERE name='chain_hash'",
+                        [],
+                        |_row| Ok(true),
+                    )
+                    .unwrap_or(false);
+                if !col_exists {
+                    tx.execute(
+                        "ALTER TABLE events_v1 ADD COLUMN chain_hash TEXT NOT NULL DEFAULT ''",
+                        [],
+                    )
+                    .map_err(|e| DomainStorageError::Database(e.to_string()))?;
+                }
+            }
+            tx.pragma_update(None, "sddk_eventstore_version", 10)
                 .map_err(|e| DomainStorageError::Database(e.to_string()))?;
             tx.commit()
                 .map_err(|e| DomainStorageError::Database(e.to_string()))?;
@@ -159,7 +197,44 @@ impl EventStore for SqliteEventStore {
             )
             .map_err(|e| DomainStorageError::Database(format!("seq: {e}")))?;
 
-        // 4. Serialize JSON fields.
+        // 4. Compute chain_hash: SHA256(content_hash || previous_chain_hash)
+        //    Genesis event (stream empty): SHA256(content_hash || "genesis")
+        //    Subsequent events: SHA256(content_hash || head_chain_hash)
+        let prev_chain_hash: Option<String> = tx
+            .query_row(
+                "SELECT chain_hash FROM events_v1
+                 WHERE stream_id = ?1
+                 ORDER BY sequence DESC
+                 LIMIT 1",
+                rusqlite::params![envelope.stream_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .ok()
+            .flatten();
+
+        let chain_input: Vec<u8> = if prev_chain_hash.as_deref().unwrap_or("").is_empty() {
+            // Genesis event
+            envelope
+                .content_hash
+                .as_bytes()
+                .iter()
+                .chain("genesis".as_bytes())
+                .cloned()
+                .collect()
+        } else {
+            // Chained event
+            envelope
+                .content_hash
+                .as_bytes()
+                .iter()
+                .chain(prev_chain_hash.unwrap().as_bytes())
+                .cloned()
+                .collect()
+        };
+        let chain_digest = Sha256::digest(&chain_input);
+        let chain_hash = format!("sha256:{:x}", chain_digest);
+
+        // 5. Serialize JSON fields.
         let actor_json = serde_json::to_string(&envelope.actor)
             .map_err(|e| DomainStorageError::Other(format!("actor: {e}")))?;
         let subjects_json = serde_json::to_string(&envelope.subjects)
@@ -175,7 +250,7 @@ impl EventStore for SqliteEventStore {
             .transpose()
             .map_err(|e| DomainStorageError::Other(format!("metadata: {e}")))?;
 
-        // 5. Insert the event.
+        // 6. Insert the event (chain_hash is now a real column).
         //
         // Use INSERT OR IGNORE on event_id for idempotency: re-append of the
         // same event_id returns the original row without allocating a new sequence.
@@ -185,10 +260,10 @@ impl EventStore for SqliteEventStore {
                     event_id, stream_id, sequence, event_type, schema_version, project_id,
                     occurred_at, recorded_at, actor_json, causation_id, correlation_id,
                     cycle_id, frame_id, fork_id, subjects_json, payload_json,
-                    evidence_refs_json, content_hash, metadata_json
+                    evidence_refs_json, content_hash, metadata_json, chain_hash
                 ) VALUES (
                     ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
-                    ?16, ?17, ?18, ?19
+                    ?16, ?17, ?18, ?19, ?20
                 )",
                 rusqlite::params![
                     envelope.event_id,
@@ -210,14 +285,15 @@ impl EventStore for SqliteEventStore {
                     evidence_refs_json,
                     envelope.content_hash,
                     metadata_json,
+                    chain_hash,
                 ],
             )
             .map_err(|e| DomainStorageError::Database(format!("insert: {e}")))?;
 
-        // 6. Read back the row (handles both first-insert and idempotent re-append).
+        // 7. Read back the row (handles both first-insert and idempotent re-append).
         let appended = tx
             .query_row(
-                "SELECT event_id, stream_id, sequence, content_hash, recorded_at
+                "SELECT event_id, stream_id, sequence, content_hash, recorded_at, chain_hash
                  FROM events_v1 WHERE event_id = ?1",
                 rusqlite::params![envelope.event_id],
                 |row| {
@@ -227,6 +303,7 @@ impl EventStore for SqliteEventStore {
                         sequence: row.get::<_, i64>(2)? as u64,
                         content_hash: row.get(3)?,
                         recorded_at: row.get(4)?,
+                        chain_hash: row.get(5)?,
                     })
                 },
             )
@@ -341,6 +418,31 @@ impl EventStore for SqliteEventStore {
         }
     }
 
+    fn head_chain_hash(&self, stream_id: &str) -> Result<Option<String>, DomainStorageError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT chain_hash FROM events_v1
+                 WHERE stream_id = ?1
+                 ORDER BY sequence DESC
+                 LIMIT 1",
+            )
+            .map_err(|e| DomainStorageError::Database(format!("prepare: {e}")))?;
+        let mut rows = stmt
+            .query(rusqlite::params![stream_id])
+            .map_err(|e| DomainStorageError::Database(format!("query: {e}")))?;
+        match rows.next() {
+            Ok(Some(row)) => row
+                .get(0)
+                .map(Some)
+                .map_err(|e| DomainStorageError::Database(format!("head_chain_hash: {e}"))),
+            Ok(None) => Ok(None),
+            Err(e) => Err(DomainStorageError::Database(format!(
+                "head_chain_hash: {e}"
+            ))),
+        }
+    }
+
     fn verify_stream_chain(&self, stream_id: &str) -> Result<(), DomainStorageError> {
         // Load full stream via load_stream (no limit = u32::MAX).
         let events = self.load_stream(stream_id, None, u32::MAX)?;
@@ -354,6 +456,59 @@ impl EventStore for SqliteEventStore {
                     ev.sequence
                 )));
             }
+        }
+        Ok(())
+    }
+
+    fn verify_chain_integrity(&self, stream_id: &str) -> Result<(), DomainStorageError> {
+        use sha2::{Digest, Sha256};
+
+        let events = self.load_stream(stream_id, None, u32::MAX)?;
+        if events.is_empty() {
+            return Ok(());
+        }
+
+        let genesis_prev = "genesis".as_bytes();
+        let mut prev_chain_hash: Option<String> = None;
+
+        for ev in &events {
+            // Determine the previous chain hash input.
+            let prev_input = match prev_chain_hash {
+                Some(ref prev) => prev.as_bytes().to_vec(),
+                None => genesis_prev.to_vec(),
+            };
+
+            // Compute: SHA256(content_hash || prev_input)
+            let mut hasher = Sha256::new();
+            hasher.update(ev.content_hash.as_bytes());
+            hasher.update(&prev_input);
+            let result = hasher.finalize();
+            let expected_chain = format!("sha256:{:x}", result);
+
+            // Read stored chain_hash (column may be empty for pre-migration events).
+            let stored_chain = self
+                .conn
+                .query_row(
+                    "SELECT chain_hash FROM events_v1 WHERE event_id = ?1",
+                    rusqlite::params![ev.event_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .map_err(|e| DomainStorageError::Database(format!("chain_hash read: {e}")))?;
+
+            // Empty chain_hash means pre-migration event — skip verification.
+            if stored_chain.is_empty() {
+                prev_chain_hash = None; // Reset for next event (treat as new genesis)
+                continue;
+            }
+
+            if stored_chain != expected_chain {
+                return Err(DomainStorageError::Other(format!(
+                    "event_store:chain_drift:{}",
+                    ev.sequence
+                )));
+            }
+
+            prev_chain_hash = Some(stored_chain);
         }
         Ok(())
     }

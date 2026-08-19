@@ -239,6 +239,9 @@ mod tests {
         fn head_hash(&self, _stream_id: &str) -> Result<Option<String>, crate::StorageError> {
             Ok(self.events.last().map(|e| e.content_hash.clone()))
         }
+        fn head_chain_hash(&self, _stream_id: &str) -> Result<Option<String>, crate::StorageError> {
+            Ok(None)
+        }
         fn verify_stream_chain(&self, _stream_id: &str) -> Result<(), crate::StorageError> {
             // Accept unless any event has the sentinel tampered hash.
             if self
@@ -250,6 +253,9 @@ mod tests {
                     "event_store:hash_drift:test".into(),
                 ));
             }
+            Ok(())
+        }
+        fn verify_chain_integrity(&self, _stream_id: &str) -> Result<(), crate::StorageError> {
             Ok(())
         }
         fn load_by_sequence(
