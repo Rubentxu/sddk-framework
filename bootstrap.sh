@@ -7,9 +7,13 @@
 #   ./bootstrap.sh --opencode         # only OpenCode
 #   ./bootstrap.sh --all              # all detected + force re-link
 #
-# This script symlinks agents/skills/prompts from the framework root
-# (default: the dir containing this script = the CWD repo) into each
-# editor's expected directory (~/.config/opencode, ~/.zcode, ...).
+# This script symlinks agents/skills/prompts/workflows from the framework root
+# (default: the dir containing this script = the CWD repo) into each editor's
+# expected directory (~/.config/opencode, ~/.zcode, ...).
+#
+# For the runtime binary itself, prefer `sddk dev install` (atomic install with
+# receipt) over hand-managed binaries. This script only handles content surfaces
+# so a fresh checkout becomes immediately usable in any supported editor.
 
 set -euo pipefail
 
@@ -56,6 +60,26 @@ link_zcode() {
         ln -sfn "$d" "$target"
     done
     info "Linked $(ls -d "$ZCODE_DIR/skills"/*/ | wc -l) skills"
+
+    info "Linking ZCode workflows..."
+    mkdir -p "$ZCODE_DIR/workflows"
+    if [ -d "$SDDK_FRAMEWORK_ROOT/workflows" ]; then
+        for f in "$SDDK_FRAMEWORK_ROOT"/workflows/*/; do
+            [ -d "$f" ] || continue
+            name=$(basename "$f")
+            target="$ZCODE_DIR/workflows/$name"
+            ln -sfn "$f" "$target"
+        done
+    fi
+    if [ -d "$SDDK_FRAMEWORK_ROOT/prompts/sddk/workflows" ]; then
+        for f in "$SDDK_FRAMEWORK_ROOT"/prompts/sddk/workflows/*.yaml; do
+            [ -f "$f" ] || continue
+            name=$(basename "$f")
+            target="$ZCODE_DIR/workflows/$name"
+            ln -sf "$f" "$target"
+        done
+    fi
+    info "Linked $(ls "$ZCODE_DIR/workflows" 2>/dev/null | wc -l) workflow files"
 }
 
 # --- OpenCode linking ---
@@ -111,7 +135,28 @@ link_opencode() {
             ln -sf "$f" "$target"
         done
     fi
-    info "Linked sddk prompts"
+    # Link workflows YAML registry (orchestrator reads these for path-specific sequences)
+    mkdir -p "$OPENCODE_DIR/prompts/sddk/workflows"
+    for f in "$SDDK_FRAMEWORK_ROOT"/prompts/sddk/workflows/*.yaml; do
+        [ -f "$f" ] || continue
+        name=$(basename "$f")
+        target="$OPENCODE_DIR/prompts/sddk/workflows/$name"
+        ln -sf "$f" "$target"
+    done
+    info "Linked sddk prompts + workflow registry"
+
+    # Workflow root (top-level workflows/ tree — used by `sddk dev link`)
+    info "Linking OpenCode workflows..."
+    mkdir -p "$OPENCODE_DIR/workflows"
+    if [ -d "$SDDK_FRAMEWORK_ROOT/workflows" ]; then
+        for f in "$SDDK_FRAMEWORK_ROOT"/workflows/*/; do
+            [ -d "$f" ] || continue
+            name=$(basename "$f")
+            target="$OPENCODE_DIR/workflows/$name"
+            ln -sfn "$f" "$target"
+        done
+    fi
+    info "Linked $(ls "$OPENCODE_DIR/workflows" 2>/dev/null | wc -l) workflow trees"
 
     info "OpenCode agents linked to: $OPENCODE_DIR/agents/"
     info "Register agents in opencode.json with: {file: \"$SDDK_FRAMEWORK_ROOT/agents/<name>.md\"}"
@@ -165,14 +210,22 @@ main() {
     info "Bootstrap complete!"
     echo ""
     echo "Next steps:"
-    echo "  1. Adopt a project: /sddk-adopt in your project directory"
-    echo "  2. Initialize: /sddk-init (after adoption)"
-    echo "  3. Start a cycle: /sddk-new <change-name>"
+    echo "  1. Install the runtime binary (recommended, atomic + receipt):"
+    echo "       sddk dev install --prefix ~/.local --source ."
+    echo "  2. Verify the install:"
+    echo "       sddk dev verify --prefix ~/.local"
+    echo "  3. Diagnose environment:"
+    echo "       sddk dev doctor"
+    echo "  4. Adopt a project (in that project's dir):"
+    echo "       sddk adopt"
+    echo "  5. Start a cycle:"
+    echo "       sddk cycle start --root . --scope . --change <change-name>"
     echo ""
     echo "To verify symlinks:"
     echo "  ls -la ~/.zcode/agents/"
     echo "  ls -la ~/.config/opencode/agents/"
     echo "  ls -la ~/.config/opencode/skills/knowledge-graph/"
+    echo "  ls -la ~/.config/opencode/workflows/"
 }
 
 main "$@"
