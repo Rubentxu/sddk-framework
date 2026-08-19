@@ -132,7 +132,7 @@ pub struct LedgerEventInput {
 }
 
 /// An immutable hash-linked ledger event.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct LedgerEvent {
     /// Monotonically increasing database sequence.
     pub sequence: i64,
