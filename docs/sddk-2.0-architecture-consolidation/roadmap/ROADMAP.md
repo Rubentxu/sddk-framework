@@ -245,7 +245,7 @@ During phases 0–4, do not add a new top-level product domain. New ideas are ca
 | Move persistence orchestration out of CLI | PARTIAL | — | needs audit |
 | Create `sddk-testkit` crate with in-memory fakes | DONE (P1-TK-001..004) | ADR-0022 | P1-TK-001..007 |
 | Composition root explicit (LedgerFactory port) | SPEC | ADR-0021 §2 | P1-FIX-002 |
-| `sddk dev entropy` advisory command | MISSING | — | P1-ENTROPY |
+| `sddk dev entropy` advisory command | DONE (0ca8360) | — | P1-ENTROPY |
 | Architecture lints ratcheted to fail (ARCH003) | DONE | ADR-0021 §3 | P1-FIX-005 |
 
 ### Phase 2 SHOULD Completion (P2-SHOULD)
