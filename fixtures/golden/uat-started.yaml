@@ -1,0 +1,8 @@
+name: uat-started
+events:
+  - event_type: uat.started
+    subjects: [[uat, u1], [cycle, c-1]]
+    cycle_id: c-1
+expect:
+  nodes: 2
+  edges: 1
