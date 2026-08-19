@@ -779,3 +779,6 @@ mod tests {
 // ── Test fixtures ───────────────────────────────────────────────────────────────
 
 pub mod fixtures;
+
+/// Golden IR fixtures for workflow IR contracts (v1.29.0).
+pub mod ir_fixtures;

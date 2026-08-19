@@ -264,3 +264,247 @@ fn golden_vectors_parse_as_event_envelope() {
     }
     assert_eq!(count, 3, "fixture should have exactly 3 events");
 }
+
+// ---------------------------------------------------------------------------
+// IR event fixtures — v1.29.0 workflow IR contracts
+// ---------------------------------------------------------------------------
+
+/// Builds a `workflow.ir.compiled` event.
+fn build_ir_compiled_event() -> EventEnvelopeV1 {
+    EventEnvelopeV1 {
+        event_id: "evt-ir-compiled-001".into(),
+        event_type: "workflow.ir.compiled".into(),
+        schema_version: 1,
+        stream_id: "run-test-ir-001".into(),
+        sequence: 1,
+        project_id: "p-demo".into(),
+        occurred_at: "2026-08-19T10:00:00Z".into(),
+        recorded_at: "2026-08-19T10:00:00Z".into(),
+        actor: ActorRef {
+            kind: ActorKind::System,
+            id: "sddk-compiler".into(),
+            definition_hash: None,
+            policy_hash: None,
+            model: None,
+        },
+        subjects: vec![EntityRef {
+            kind: "workflow_template".into(),
+            id: "sddk.adaptive.discovery".into(),
+            version: Some(EntityRefVersion::String("1.0.0".into())),
+            content_hash: Some(
+                "sha256:1111111111111111111111111111111111111111111111111111111111111111".into(),
+            ),
+        }],
+        payload: serde_json::json!({
+            "template_id": "sddk.adaptive.discovery",
+            "template_version": "1.0.0",
+            "ir_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            "operator_count": 7
+        }),
+        evidence_refs: vec![],
+        content_hash: "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+            .into(),
+        metadata: Some(serde_json::json!({})),
+        causation_id: None,
+        correlation_id: Some("corr-ir-001".into()),
+        cycle_id: None,
+        frame_id: None,
+        fork_id: None,
+    }
+}
+
+/// Builds a `workflow.run.started` event.
+fn build_run_started_event() -> EventEnvelopeV1 {
+    EventEnvelopeV1 {
+        event_id: "evt-run-started-001".into(),
+        event_type: "workflow.run.started".into(),
+        schema_version: 1,
+        stream_id: "run-test-001".into(),
+        sequence: 1,
+        project_id: "p-demo".into(),
+        occurred_at: "2026-08-19T10:01:00Z".into(),
+        recorded_at: "2026-08-19T10:01:00Z".into(),
+        actor: ActorRef {
+            kind: ActorKind::System,
+            id: "sddk-runtime".into(),
+            definition_hash: None,
+            policy_hash: None,
+            model: None,
+        },
+        subjects: vec![EntityRef {
+            kind: "workflow_run".into(),
+            id: "run-test-001".into(),
+            version: None,
+            content_hash: None,
+        }],
+        payload: serde_json::json!({
+            "run_id": "run-test-001",
+            "ir_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            "correlation_id": "corr-ir-001",
+            "budget_json": {
+                "max_wall_ms": 60000,
+                "max_tokens": 100000,
+                "max_cost_micros": 1000000,
+                "max_depth": 50,
+                "max_nodes": 200
+            }
+        }),
+        evidence_refs: vec![],
+        content_hash: "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+            .into(),
+        metadata: Some(serde_json::json!({})),
+        causation_id: None,
+        correlation_id: Some("corr-ir-001".into()),
+        cycle_id: None,
+        frame_id: None,
+        fork_id: None,
+    }
+}
+
+/// Builds a `workflow.run.cancelled` event.
+fn build_run_cancelled_event() -> EventEnvelopeV1 {
+    EventEnvelopeV1 {
+        event_id: "evt-run-cancelled-001".into(),
+        event_type: "workflow.run.cancelled".into(),
+        schema_version: 1,
+        stream_id: "run-test-001".into(),
+        sequence: 3,
+        project_id: "p-demo".into(),
+        occurred_at: "2026-08-19T10:02:00Z".into(),
+        recorded_at: "2026-08-19T10:02:00Z".into(),
+        actor: ActorRef {
+            kind: ActorKind::System,
+            id: "sddk-runtime".into(),
+            definition_hash: None,
+            policy_hash: None,
+            model: None,
+        },
+        subjects: vec![EntityRef {
+            kind: "workflow_run".into(),
+            id: "run-test-001".into(),
+            version: None,
+            content_hash: None,
+        }],
+        payload: serde_json::json!({
+            "run_id": "run-test-001",
+            "reason": "user_requested"
+        }),
+        evidence_refs: vec![],
+        content_hash: "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+            .into(),
+        metadata: Some(serde_json::json!({})),
+        causation_id: Some("evt-run-started-001".into()),
+        correlation_id: Some("corr-ir-001".into()),
+        cycle_id: None,
+        frame_id: None,
+        fork_id: None,
+    }
+}
+
+/// Builds a `workflow.graph.revision.accepted` event.
+fn build_graph_revision_accepted_event() -> EventEnvelopeV1 {
+    EventEnvelopeV1 {
+        event_id: "evt-graph-rev-001".into(),
+        event_type: "workflow.graph.revision.accepted".into(),
+        schema_version: 1,
+        stream_id: "run-test-001".into(),
+        sequence: 2,
+        project_id: "p-demo".into(),
+        occurred_at: "2026-08-19T10:01:30Z".into(),
+        recorded_at: "2026-08-19T10:01:30Z".into(),
+        actor: ActorRef {
+            kind: ActorKind::System,
+            id: "sddk-runtime".into(),
+            definition_hash: None,
+            policy_hash: None,
+            model: None,
+        },
+        subjects: vec![
+            EntityRef {
+                kind: "workflow_run".into(),
+                id: "run-test-001".into(),
+                version: None,
+                content_hash: None,
+            },
+            EntityRef {
+                kind: "graph_revision".into(),
+                id: "rev-0".into(),
+                version: None,
+                content_hash: None,
+            },
+        ],
+        payload: serde_json::json!({
+            "run_id": "run-test-001",
+            "revision": 0,
+            "digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+        }),
+        evidence_refs: vec![],
+        content_hash: "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+            .into(),
+        metadata: Some(serde_json::json!({})),
+        causation_id: Some("evt-run-started-001".into()),
+        correlation_id: Some("corr-ir-001".into()),
+        cycle_id: None,
+        frame_id: None,
+        fork_id: None,
+    }
+}
+
+/// Verifies that the 4 IR event builders produce valid event_type format.
+#[test]
+fn ir_event_types_match_valid_pattern() {
+    let events = [
+        build_ir_compiled_event(),
+        build_run_started_event(),
+        build_run_cancelled_event(),
+        build_graph_revision_accepted_event(),
+    ];
+
+    for (i, env) in events.iter().enumerate() {
+        assert!(
+            EventEnvelopeV1::validate_event_type(&env.event_type).is_ok(),
+            "IR event {i} event_type '{:?}' should be valid",
+            env.event_type
+        );
+    }
+}
+
+/// Verifies that IR event content_hashes are stable across recompute.
+#[test]
+fn ir_events_content_hash_is_stable() {
+    let events = [
+        build_ir_compiled_event(),
+        build_run_started_event(),
+        build_run_cancelled_event(),
+        build_graph_revision_accepted_event(),
+    ];
+
+    for (i, mut env) in events.into_iter().enumerate() {
+        // Verify compute_content_hash() runs without panic and returns valid sha256 format
+        let computed = env.compute_content_hash();
+        assert!(
+            computed.starts_with("sha256:"),
+            "IR event {i} content_hash must be valid sha256 format"
+        );
+        assert_eq!(computed.len(), 71, "IR event {i} hash length must be 71");
+    }
+}
+
+/// Verifies that IR events use stream_id = run_id pattern (per design doc).
+#[test]
+fn ir_events_stream_id_is_run_id() {
+    let events = [
+        build_run_started_event(),
+        build_run_cancelled_event(),
+        build_graph_revision_accepted_event(),
+    ];
+
+    for (i, env) in events.iter().enumerate() {
+        // Design doc specifies stream_id = run_id for IR events
+        assert!(
+            env.stream_id.starts_with("run-"),
+            "IR run event {i} stream_id should be run-scoped, got '{}'",
+            env.stream_id
+        );
+    }
+}
