@@ -686,11 +686,11 @@ fn governed_knowledge_pipeline_registers_and_verifies_rules_capability() {
     );
     write(
         fixture.root.join("docs/architecture-rules.yaml"),
-        "owner: architecture-team\nschema_version: \"1.0.0\"\nrules:\n  - id: ARCH001\n    severity: error\n    rule: domain_must_not_depend_on_adapters\n    target: dependency_graph\n",
+        "owner: architecture-team\nschema_version: \"1.1.0\"\nrules:\n  - id: ARCH001\n    severity: error\n    rule: domain_must_not_depend_on_adapters\n    target: dependency_graph\n",
     );
     write(
         fixture.root.join("docs/baseline-dependency-entropy.json"),
-        r#"{"owner":"architecture-team","schema_version":"1.0.0","head_anchor":"abc123","captured_at":"2026-08-14T08:00:00Z"}"#,
+        r#"{"owner":"architecture-team","schema_version":"1.1.0","head_anchor":"abc123","captured_at":"2026-08-14T08:00:00Z"}"#,
     );
     write(
         fixture.root.join("docs/ROADMAP.md"),
@@ -805,7 +805,7 @@ fn governed_knowledge_pipeline_registers_and_verifies_rules_capability() {
 
     write(
         fixture.root.join("docs/architecture-rules.yaml"),
-        "owner: architecture-team\nschema_version: \"1.0.0\"\nrules: []\n",
+        "owner: architecture-team\nschema_version: \"1.1.0\"\nrules: []\n",
     );
     let stale = fixture.run(&[
         "knowledge",

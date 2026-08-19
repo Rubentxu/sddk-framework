@@ -12,4 +12,4 @@ pub use types::{
 ///
 /// Bumped when the schema structure changes. The YAML parser in `RuleRegistry::from_yaml_str`
 /// rejects any file with a different `schema_version` value.
-pub const ARCHITECTURE_RULES_SCHEMA_VERSION: &str = "1.0.0";
+pub const ARCHITECTURE_RULES_SCHEMA_VERSION: &str = "1.1.0";

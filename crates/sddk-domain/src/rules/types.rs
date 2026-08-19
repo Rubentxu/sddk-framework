@@ -1,5 +1,7 @@
 //! Domain types for the architecture-rule registry.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 /// Greppable enforcement level for an architecture rule.
@@ -108,6 +110,9 @@ pub struct ArchitectureRule {
     /// Used in diff/review output to explain *why* this rule exists.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub desired_state: Option<String>,
+    /// File globs this rule applies to (used by source-scanning evaluators like ARCH008).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scope: Vec<String>,
 }
 
 /// A time-limited, human-granted exception to an architecture rule.
@@ -132,6 +137,9 @@ pub struct Waiver {
     pub granted_by: String,
     /// ISO-8601 timestamp recording when the waiver was issued.
     pub granted_at: String,
+    /// Optional per-rule file scope for this waiver.
+    #[serde(default)]
+    pub scope: BTreeMap<String, Vec<String>>,
 }
 
 /// Immutable reference to a captured baseline state used for rule evaluation.

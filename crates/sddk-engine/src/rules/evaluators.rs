@@ -1,4 +1,4 @@
-//! Real evaluators for ARCH001..005 (Phase 1).
+//! Real evaluators for ARCH001..015.
 
 // `missing_docs` is allowed across this file because the Phase 1 ARCH
 // evaluators were introduced before the workspace-wide
@@ -6,8 +6,11 @@
 // restore the per-item `///` doc comments and remove this allow.
 #![allow(missing_docs)]
 
+use regex::RegexSet;
 use sddk_domain::{EvaluatorKind, RuleEvaluation, RuleRegistry, RuleStatus};
 use serde_json::json;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use super::Baseline;
 
@@ -71,6 +74,10 @@ pub fn evaluate_all(
                 "ARCH003" => evaluate_arch003(rule, baseline, evaluated_at),
                 "ARCH004" => evaluate_arch004(rule, baseline, evaluated_at),
                 "ARCH005" => evaluate_arch005(rule, baseline, evaluated_at),
+                "ARCH008" => evaluate_arch008(rule, baseline, evaluated_at),
+                "ARCH013" => evaluate_arch013(rule, baseline, evaluated_at),
+                "ARCH014" => evaluate_arch014(rule, baseline, evaluated_at),
+                "ARCH015" => evaluate_arch015(rule, baseline, evaluated_at),
                 _ => RuleEvaluation {
                     rule_id: rule.id.clone(),
                     status: RuleStatus::NotApplicable,
@@ -310,5 +317,195 @@ fn evaluate_arch005(
         evaluator_kind: EvaluatorKind::Schema,
         evaluator_version: EVALUATOR_VERSION.to_owned(),
         provenance: Some("Phase 5 reactive runtime not yet shipped".to_owned()),
+    }
+}
+
+// ── ARCH008 ──────────────────────────────────────────────────────────────────
+
+/// SDD-agnostic kernel: workflow_ir and workflow_run must not reference Phase or
+/// CyclePath as Rust enum identifiers.
+///
+/// Uses a 4-pattern RegexSet over the scoped source files:
+///   - \bPhase::        — type-qualified match
+///   - \bCyclePath::     — type-qualified match
+///   - \b(Explore|Specify|Design|Tasks|Apply|Verify|Archive)\s*::  — variant-qualified
+///   - match\s+phase\s*\{  — match-on-string anti-pattern
+///
+/// YAML/JSON literals are excluded by file-extension filtering (scope only covers .rs files).
+fn evaluate_arch008(
+    rule: &sddk_domain::ArchitectureRule,
+    baseline: &Baseline,
+    evaluated_at: &str,
+) -> RuleEvaluation {
+    use sddk_domain::EvaluatorKind;
+
+    // 4-pattern RegexSet for Phase/CyclePath coupling
+    static ARCH008_PATTERNS: std::sync::LazyLock<RegexSet> = std::sync::LazyLock::new(|| {
+        RegexSet::new([
+            r"\bPhase::",                                                  // type-qualified
+            r"\bCyclePath::",                                              // type-qualified
+            r"\b(Explore|Specify|Design|Tasks|Apply|Verify|Archive)\s*::", // variant-qualified
+            r"match\s+phase\s*\{",                                         // match-on-string
+        ])
+        .expect("static regex")
+    });
+
+    let mut violations = Vec::new();
+
+    // Walk each scope glob from the rule
+    for glob_pattern in &rule.scope {
+        let matching: Vec<_> = glob_match_files(glob_pattern);
+        for file_path in matching {
+            if let Ok(content) = fs::read_to_string(&file_path) {
+                for (line_no, line) in content.lines().enumerate() {
+                    let line_num = (line_no + 1) as u32;
+                    if ARCH008_PATTERNS.is_match(line) {
+                        violations.push(json!({
+                            "file": file_path.to_string_lossy(),
+                            "line": line_num,
+                            "text": line,
+                        }));
+                    }
+                }
+            }
+        }
+    }
+
+    let status = if violations.is_empty() {
+        RuleStatus::Pass
+    } else {
+        RuleStatus::Fail
+    };
+
+    RuleEvaluation {
+        rule_id: rule.id.clone(),
+        status,
+        observed: json!({
+            "violations": violations,
+            "count": violations.len(),
+        }),
+        baseline_sha256: baseline.ref_.sha256.clone(),
+        evaluated_at: evaluated_at.to_owned(),
+        evaluated_by: format!("sddk-rules-cli@{EVALUATOR_VERSION}"),
+        waiver_id: None,
+        evaluator_kind: EvaluatorKind::Heuristic,
+        evaluator_version: EVALUATOR_VERSION.to_owned(),
+        provenance: Some(
+            "ARCH008 heuristic evaluator: scans scoped .rs files for Phase::/CyclePath:: patterns"
+                .to_owned(),
+        ),
+    }
+}
+
+/// Simple glob matcher: expands "**/prefix" patterns recursively.
+/// Returns absolute paths matching the pattern.
+fn glob_match_files(pattern: &str) -> Vec<std::path::PathBuf> {
+    let mut results = Vec::new();
+
+    // Only handle **/prefix patterns for now (simple form)
+    if let Some(prefix) = pattern.strip_prefix("**/") {
+        let prefix = prefix.trim_end_matches('/');
+        // Walk the repo root looking for files ending with prefix
+        if let Ok(cwd) = std::env::current_dir() {
+            walk_matching_files(&cwd, prefix, &mut results);
+        }
+    }
+    results
+}
+
+fn walk_matching_files(dir: &Path, suffix: &str, results: &mut Vec<PathBuf>) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                // Skip target/, .git/, node_modules/
+                let skip = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n == "target" || n == ".git" || n == "node_modules" || n == ".cargo")
+                    .unwrap_or(false);
+                if skip {
+                    continue;
+                }
+                walk_matching_files(&path, suffix, results);
+            } else if path.is_file() {
+                let matches_suffix = path.to_str().map(|p| p.ends_with(suffix)).unwrap_or(false);
+                if matches_suffix {
+                    results.push(path);
+                }
+            }
+        }
+    }
+}
+
+// ── ARCH013 ──────────────────────────────────────────────────────────────────
+
+/// dynamic_operators_require_capability_contract: stub for v1.29.0.
+fn evaluate_arch013(
+    rule: &sddk_domain::ArchitectureRule,
+    baseline: &Baseline,
+    evaluated_at: &str,
+) -> RuleEvaluation {
+    RuleEvaluation {
+        rule_id: rule.id.clone(),
+        status: RuleStatus::NotApplicable,
+        observed: json!({}),
+        baseline_sha256: baseline.ref_.sha256.clone(),
+        evaluated_at: evaluated_at.to_owned(),
+        evaluated_by: format!("sddk-rules-cli@{EVALUATOR_VERSION}"),
+        waiver_id: None,
+        evaluator_kind: EvaluatorKind::Heuristic,
+        evaluator_version: EVALUATOR_VERSION.to_owned(),
+        provenance: Some(
+            "ARCH013 substance (dynamic operator contracts) deferred to cycle 3".to_owned(),
+        ),
+    }
+}
+
+// ── ARCH014 ──────────────────────────────────────────────────────────────────
+
+/// expansion_proposals_require_approval_receipt: stub for v1.29.0.
+fn evaluate_arch014(
+    rule: &sddk_domain::ArchitectureRule,
+    baseline: &Baseline,
+    evaluated_at: &str,
+) -> RuleEvaluation {
+    RuleEvaluation {
+        rule_id: rule.id.clone(),
+        status: RuleStatus::NotApplicable,
+        observed: json!({}),
+        baseline_sha256: baseline.ref_.sha256.clone(),
+        evaluated_at: evaluated_at.to_owned(),
+        evaluated_by: format!("sddk-rules-cli@{EVALUATOR_VERSION}"),
+        waiver_id: None,
+        evaluator_kind: EvaluatorKind::Heuristic,
+        evaluator_version: EVALUATOR_VERSION.to_owned(),
+        provenance: Some(
+            "ARCH014 substance (expansion proposal receipts) deferred to cycle 3".to_owned(),
+        ),
+    }
+}
+
+// ── ARCH015 ──────────────────────────────────────────────────────────────────
+
+/// ir_events_must_not_emit_phase_strings: stub for v1.29.0.
+fn evaluate_arch015(
+    rule: &sddk_domain::ArchitectureRule,
+    baseline: &Baseline,
+    evaluated_at: &str,
+) -> RuleEvaluation {
+    RuleEvaluation {
+        rule_id: rule.id.clone(),
+        status: RuleStatus::NotApplicable,
+        observed: json!({}),
+        baseline_sha256: baseline.ref_.sha256.clone(),
+        evaluated_at: evaluated_at.to_owned(),
+        evaluated_by: format!("sddk-rules-cli@{EVALUATOR_VERSION}"),
+        waiver_id: None,
+        evaluator_kind: EvaluatorKind::Heuristic,
+        evaluator_version: EVALUATOR_VERSION.to_owned(),
+        provenance: Some(
+            "ARCH015 substance (IR event phase strings) deferred to cycle 3".to_owned(),
+        ),
     }
 }

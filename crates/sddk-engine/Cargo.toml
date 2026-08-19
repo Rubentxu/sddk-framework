@@ -19,6 +19,7 @@ sha2 = { workspace = true }
 hmac = { workspace = true }
 getrandom = { workspace = true }
 dirs = { workspace = true }
+regex = { workspace = true }
 sddk-domain = { path = "../sddk-domain" }
 
 [dev-dependencies]

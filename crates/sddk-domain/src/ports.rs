@@ -324,11 +324,7 @@ pub trait GraphStore {
     /// Records a compiled IR digest for deduplication.
     ///
     /// Default implementation returns `unimplemented!()`.
-    fn record_ir_digest(
-        &mut self,
-        _ir_hash: &str,
-        _ir_json: &str,
-    ) -> Result<(), StorageError> {
+    fn record_ir_digest(&mut self, _ir_hash: &str, _ir_json: &str) -> Result<(), StorageError> {
         unimplemented!("GraphStore::record_ir_digest must be implemented by the storage adapter")
     }
 
@@ -339,7 +335,9 @@ pub trait GraphStore {
         &mut self,
         _rev: &crate::graph::ExecutionGraphRevision,
     ) -> Result<(), StorageError> {
-        unimplemented!("GraphStore::record_graph_revision must be implemented by the storage adapter")
+        unimplemented!(
+            "GraphStore::record_graph_revision must be implemented by the storage adapter"
+        )
     }
 
     /// Loads all attempts for a given node run.

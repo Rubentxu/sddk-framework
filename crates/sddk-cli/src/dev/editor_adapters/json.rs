@@ -195,8 +195,7 @@ fn looks_like_framework_prompt(prompt: &str, expected_name: &str) -> bool {
     if !inner.ends_with(&expected_suffix) {
         return false;
     }
-    inner.contains("/sddk-framework/agents/")
-        || inner.contains("/sddk/framework/")
+    inner.contains("/sddk-framework/agents/") || inner.contains("/sddk/framework/")
 }
 
 #[cfg(test)]

@@ -170,7 +170,10 @@ fn json_refreshes_stale_framework_prompt_path() {
         &context,
     );
     assert_eq!(report.updated_stale, 2, "both stale paths should refresh");
-    assert_eq!(report.skipped_existing, 0, "stale paths must not be skipped");
+    assert_eq!(
+        report.skipped_existing, 0,
+        "stale paths must not be skipped"
+    );
     assert_eq!(
         report.registered, 1,
         "the third fixture agent (gentle-bar) was missing from the seed and must be registered"
@@ -180,7 +183,10 @@ fn json_refreshes_stale_framework_prompt_path() {
     let orchestrator = &config["agent"]["orchestrator"];
     assert_eq!(
         orchestrator["prompt"],
-        format!("{{file:{}}}", new_root.join("agents/orchestrator.md").display()),
+        format!(
+            "{{file:{}}}",
+            new_root.join("agents/orchestrator.md").display()
+        ),
         "prompt must point at the new bundle root"
     );
     assert_eq!(

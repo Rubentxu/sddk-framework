@@ -73,7 +73,7 @@ fn baseline_consumer_parses_and_normalizes_crates() {
 
 #[test]
 fn evaluate_all_returns_not_applicable_for_all_rules() {
-    let yaml = r#"schema_version: 1.0.0
+    let yaml = r#"schema_version: 1.1.0
 rules:
   - id: ARCH001
     severity: error
@@ -106,7 +106,7 @@ rules:
 
 #[test]
 fn evaluate_all_applies_waiver_when_head_anchor_within_granted_sha() {
-    let yaml = r#"schema_version: 1.0.0
+    let yaml = r#"schema_version: 1.1.0
 rules:
   - id: ARCH001
     severity: error
@@ -131,7 +131,7 @@ waivers:
 
 #[test]
 fn evaluate_all_returns_not_applicable_when_waiver_expired() {
-    let yaml = r#"schema_version: 1.0.0
+    let yaml = r#"schema_version: 1.1.0
 rules:
   - id: ARCH001
     severity: error
@@ -156,25 +156,28 @@ waivers:
 }
 
 #[test]
-fn shipped_catalog_parses_with_five_rules() {
-    // Regression: shipped architecture-rules.yaml must parse with ARCH001..ARCH005 only.
+fn shipped_catalog_parses_with_fifteen_rules() {
+    // Phase 2: shipped architecture-rules.yaml now includes ARCH001..ARCH015 (10 rules).
     let yaml_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../docs/sddk-2.0-architecture-consolidation/data/architecture-rules.yaml");
     let yaml = std::fs::read_to_string(&yaml_path).expect("shipped YAML must be readable");
-    let registry = sddk_domain::RuleRegistry::from_yaml_str(&yaml)
-        .expect("shipped YAML must parse with 5 rules");
+    let registry =
+        sddk_domain::RuleRegistry::from_yaml_str(&yaml).expect("shipped YAML must parse");
     let ids: Vec<&str> = registry.iter().map(|r| r.id.as_str()).collect();
     assert_eq!(
         ids,
-        vec!["ARCH001", "ARCH002", "ARCH003", "ARCH004", "ARCH005"]
+        vec![
+            "ARCH001", "ARCH002", "ARCH003", "ARCH004", "ARCH005", "ARCH006", "ARCH007", "ARCH008",
+            "ARCH009", "ARCH010", "ARCH011", "ARCH012", "ARCH013", "ARCH014", "ARCH015",
+        ]
     );
 }
 
 #[test]
-fn shipped_catalog_against_baseline_produces_five_evaluations() {
-    // Phase 1: shipped YAML + Phase 0 baseline produces 5 evaluations with real statuses:
+fn shipped_catalog_against_baseline_produces_fifteen_evaluations() {
+    // Phase 2: shipped YAML + Phase 0 baseline produces 15 evaluations:
     // ARCH001 Fail (engine→storage edges exist), ARCH002 Pass (domain clean),
-    // ARCH003 Fail (cli→storage edges exist), ARCH004/005 NotApplicable.
+    // ARCH003 Waived (WV-0015), ARCH004/005 NotApplicable, ARCH008 Pass (WV-0026 waiver).
     let yaml_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../docs/sddk-2.0-architecture-consolidation/data/architecture-rules.yaml");
     let yaml = std::fs::read_to_string(&yaml_path).expect("shipped YAML must be readable");
@@ -184,15 +187,15 @@ fn shipped_catalog_against_baseline_produces_five_evaluations() {
     let baseline_path = dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("~/.local/share"))
         .join("sddk/projects/p-52b95ef55999f9de/cycle-artifacts/p-52b95ef55999f9de/sddk-2-0-phase0-baseline/baseline-dependency-entropy.json");
-    let consumer = BaselineConsumer::new(&baseline_path, &["1.0.0"])
+    let consumer = BaselineConsumer::new(&baseline_path, &["1.0.0", "1.1.0"])
         .expect("baseline consumer must be created");
     let baseline = consumer.load().expect("baseline must load");
 
     let results = evaluate_all(&registry, &baseline, "2026-08-13T12:00:00Z");
     assert_eq!(
         results.len(),
-        5,
-        "shipped catalog must produce 5 evaluations"
+        15,
+        "shipped catalog must produce 15 evaluations"
     );
 
     let arch001 = results.iter().find(|r| r.rule_id == "ARCH001").unwrap();
@@ -240,7 +243,7 @@ fn shipped_catalog_against_baseline_produces_five_evaluations() {
 /// ARCH001 fails when a baseline contains an engine→storage edge.
 #[test]
 fn arch001_fails_when_engine_depends_on_storage() {
-    let yaml = r#"schema_version: 1.0.0
+    let yaml = r#"schema_version: 1.1.0
 rules:
   - id: ARCH001
     severity: error
@@ -260,7 +263,7 @@ rules:
 /// ARCH002 passes when the baseline shows no domain→adapters edges.
 #[test]
 fn arch002_passes_when_domain_isolated() {
-    let yaml = r#"schema_version: 1.0.0
+    let yaml = r#"schema_version: 1.1.0
 rules:
   - id: ARCH002
     severity: error
@@ -277,7 +280,7 @@ rules:
 /// ARCH003 reports Fail when a cli→storage edge exists; Pass otherwise.
 #[test]
 fn arch003_reports_imports_from_cli() {
-    let yaml = r#"schema_version: 1.0.0
+    let yaml = r#"schema_version: 1.1.0
 rules:
   - id: ARCH003
     severity: error
@@ -300,7 +303,7 @@ rules:
 /// ARCH004 and ARCH005 always return NotApplicable with a non-empty provenance.
 #[test]
 fn arch004_and_arch005_return_not_applicable() {
-    let yaml = r#"schema_version: 1.0.0
+    let yaml = r#"schema_version: 1.1.0
 rules:
   - id: ARCH004
     severity: error
@@ -329,7 +332,7 @@ rules:
 /// A valid waiver (head_anchor <= granted_until_sha) supersedes a Fail.
 #[test]
 fn waiver_with_valid_until_supersedes_fail() {
-    let yaml = r#"schema_version: 1.0.0
+    let yaml = r#"schema_version: 1.1.0
 rules:
   - id: ARCH001
     severity: error

@@ -145,7 +145,7 @@ fn run_rules_check(args: RulesCheckArgs, environment: &CliEnvironment) -> Comman
         Ok(r) => r,
         Err(e) => return failure(e.to_string()),
     };
-    let consumer = match BaselineConsumer::new(&baseline_path, &["1.0.0"]) {
+    let consumer = match BaselineConsumer::new(&baseline_path, &["1.0.0", "1.1.0"]) {
         Ok(c) => c,
         Err(e) => return failure(e.to_string()),
     };

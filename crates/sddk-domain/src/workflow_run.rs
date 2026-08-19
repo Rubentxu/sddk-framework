@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 
 // Re-export IR types needed by run types
 pub use super::workflow_ir::{
-    Budgets, CapabilityId, ContentHash, ExpansionPermission, NodeId, OperatorId, RevisionId,
-    RunId, SCHEMA_VERSION,
+    Budgets, CapabilityId, ContentHash, ExpansionPermission, NodeId, OperatorId, RevisionId, RunId,
+    SCHEMA_VERSION,
 };
 
 /// Schema version constant for run types.
@@ -156,7 +156,11 @@ impl Attempt {
     /// Marks this attempt as complete with the given outcome.
     ///
     /// Returns an error if already terminal.
-    pub fn complete(&mut self, outcome: AttemptOutcome, ended_at: String) -> Result<(), AttemptError> {
+    pub fn complete(
+        &mut self,
+        outcome: AttemptOutcome,
+        ended_at: String,
+    ) -> Result<(), AttemptError> {
         if self.outcome.is_some() {
             return Err(AttemptError::AlreadyTerminal);
         }
@@ -353,7 +357,10 @@ impl WorkflowRun {
     }
 
     /// Completes a running run.
-    pub fn complete(&mut self, outputs: BTreeMap<String, serde_json::Value>) -> Result<(), WorkflowRunError> {
+    pub fn complete(
+        &mut self,
+        outputs: BTreeMap<String, serde_json::Value>,
+    ) -> Result<(), WorkflowRunError> {
         if self.state.is_terminal() {
             return Err(WorkflowRunError::AlreadyTerminal);
         }

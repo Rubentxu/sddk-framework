@@ -1,4 +1,4 @@
-schema_version: "1.0.0"
+schema_version: "1.1.0"
 rules:
   - id: ARCH001
     severity: error
@@ -21,6 +21,52 @@ rules:
     severity: error
     rule: reactive_behaviors_must_not_execute_governed_effects_directly
     target: capability_imports
+  - id: ARCH006
+    severity: error
+    rule: graph_projection_must_not_depend_on_engine
+    target: dependency_graph
+    desired_state: sddk-domain/graph module depends only on inward ports
+  - id: ARCH007
+    severity: error
+    rule: domain_types_must_not_import_storage
+    target: source_imports_and_calls
+  - id: ARCH008
+    severity: error
+    rule: sdd_agnostic_kernel_runtime
+    target: source_imports_and_calls
+    desired_state: Workflow runtime modules cannot depend on SDD phase taxonomy
+    scope:
+      - "**/sddk-domain/src/workflow_ir.rs"
+      - "**/sddk-domain/src/workflow_run.rs"
+      - "**/sddk-engine/src/lib.rs"
+  - id: ARCH009
+    severity: error
+    rule: storage_must_not_import_engine
+    target: dependency_graph
+  - id: ARCH010
+    severity: error
+    rule: cli_must_not_import_storage_directly
+    target: source_imports_and_calls
+  - id: ARCH011
+    severity: error
+    rule: vault_must_not_import_storage
+    target: dependency_graph
+  - id: ARCH012
+    severity: error
+    rule: testkit_must_not_import_storage
+    target: dependency_graph
+  - id: ARCH013
+    severity: error
+    rule: dynamic_operators_require_capability_contract
+    target: source_imports_and_calls
+  - id: ARCH014
+    severity: error
+    rule: expansion_proposals_require_approval_receipt
+    target: source_imports_and_calls
+  - id: ARCH015
+    severity: error
+    rule: ir_events_must_not_emit_phase_strings
+    target: source_imports_and_calls
 waivers:
   - id: WV-0015-ARCH003-composition-root
     rule_id: ARCH003
@@ -28,3 +74,18 @@ waivers:
     granted_until_sha: f0db2bd08dbd5401d8785e9997dd45bbd82d4f64
     granted_by: orchestrator + sddk-apply
     granted_at: '2026-08-17T11:05:00Z'
+  - id: WV-0026-ARCH008-legacy-compat-seam
+    rule_id: ARCH008
+    reason: >-
+      Legacy compat seam: crates/sddk-domain/src/workflow.rs and
+      crates/sddk-engine/src/event_bus.rs:96-117 (emit_phase_event) intentionally
+      reference Phase/CyclePath enums and emit workflow.phase.entered/exited
+      strings. Removal scheduled for v1.31.0 (cycle 3 — kernel-dynamic-operators)
+      when sddk-packs-sdd owns its compilation and IR events fully replace legacy emitters.
+    scope:
+      ARCH008:
+        - "**/sddk-domain/src/workflow.rs"
+        - "**/sddk-engine/src/event_bus.rs"
+    granted_until_sha: "9999999999999999999999999999999999999999"
+    granted_by: orchestrator + sddk-apply
+    granted_at: '2026-08-19T00:00:00Z'

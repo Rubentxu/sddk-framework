@@ -5,7 +5,7 @@ use sddk_domain::{
     RuleTarget,
 };
 
-const SAMPLE_YAML: &str = r#"schema_version: 1.0.0
+const SAMPLE_YAML: &str = r#"schema_version: 1.1.0
 rules:
   - id: ARCH001
     severity: error
@@ -31,7 +31,7 @@ rules:
 
 #[test]
 fn parse_minimal_yaml() {
-    let yaml = r#"schema_version: 1.0.0
+    let yaml = r#"schema_version: 1.1.0
 rules:
   - id: ARCH001
     severity: error
@@ -66,7 +66,7 @@ rules: []
 
 #[test]
 fn parse_rejects_duplicate_rule_id() {
-    let yaml = r#"schema_version: 1.0.0
+    let yaml = r#"schema_version: 1.1.0
 rules:
   - id: ARCH001
     severity: error
@@ -83,7 +83,7 @@ rules:
 
 #[test]
 fn parse_rejects_missing_rule_id() {
-    let yaml = r#"schema_version: 1.0.0
+    let yaml = r#"schema_version: 1.1.0
 rules:
   - id: ""
     severity: error
@@ -96,7 +96,7 @@ rules:
 
 #[test]
 fn waiver_lookup_returns_waiver() {
-    let yaml = r#"schema_version: 1.0.0
+    let yaml = r#"schema_version: 1.1.0
 rules:
   - id: ARCH001
     severity: error
@@ -146,5 +146,5 @@ fn evaluation_serializes_without_cep_fields() {
 
 #[test]
 fn schema_version_constant_is_stable() {
-    assert_eq!(ARCHITECTURE_RULES_SCHEMA_VERSION, "1.0.0");
+    assert_eq!(ARCHITECTURE_RULES_SCHEMA_VERSION, "1.1.0");
 }
