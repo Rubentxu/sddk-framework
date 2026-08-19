@@ -14,12 +14,12 @@
 use std::collections::{BTreeSet, HashMap};
 
 use proptest::prelude::*;
+use sddk_domain::compiler::WorkflowCompiler;
 use sddk_domain::workflow::{PathDef, Policies, WorkflowDef, WorkflowManifest};
 use sddk_domain::workflow_ir::{
-    Budgets, CapabilityId, ConvergenceSpec, ExpansionPermission, Operator, WorkflowTemplate,
-    SCHEMA_VERSION,
+    Budgets, CapabilityId, ConvergenceSpec, ExpansionPermission, Operator, SCHEMA_VERSION,
+    WorkflowTemplate,
 };
-use sddk_domain::compiler::WorkflowCompiler;
 
 const PHASE_NAMES: &[&str] = &[
     "explore", "specify", "design", "plan", "build", "verify", "uat", "review", "release",

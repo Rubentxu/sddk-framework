@@ -19,6 +19,7 @@ pub mod rebuild;
 pub use control_plane::{ProjectStatusRow, SCHEMA_V1, SqliteControlPlane};
 pub use event_store::SqliteEventStore;
 pub use fork_store::SqliteForkStore;
+pub use graph_store::SqliteGraphStore;
 pub use projection_store::SqliteProjectionStore;
 pub use rebuild::rebuild;
 

@@ -14,12 +14,12 @@
 use std::collections::{BTreeSet, HashMap};
 
 use proptest::prelude::*;
-use sddk_domain::workflow::{PathDef, Policies, WorkflowDef, WorkflowManifest};
-use sddk_domain::workflow_ir::{
-    Budgets, CapabilityId, ConvergenceSpec, ExpansionPermission, WorkflowTemplate, SCHEMA_VERSION,
-};
 use sddk_domain::compiler::WorkflowCompiler;
 use sddk_domain::validator::WorkflowValidator;
+use sddk_domain::workflow::{PathDef, Policies, WorkflowDef, WorkflowManifest};
+use sddk_domain::workflow_ir::{
+    Budgets, CapabilityId, ConvergenceSpec, ExpansionPermission, SCHEMA_VERSION, WorkflowTemplate,
+};
 
 const PHASE_NAMES: &[&str] = &[
     "explore", "specify", "design", "plan", "build", "verify", "uat", "review", "release",
@@ -184,7 +184,11 @@ fn under_budget_fails_at_g5() {
         name: "a_min".into(),
         version: "1.0.0".into(),
         intent: "A-min".into(),
-        capability_allowlist: [CapabilityId("discover.intent".into()), CapabilityId("spec.draft".into())].into(),
+        capability_allowlist: [
+            CapabilityId("discover.intent".into()),
+            CapabilityId("spec.draft".into()),
+        ]
+        .into(),
         expansion_permissions: [ExpansionPermission::Discover].into(),
         invariants: BTreeSet::new(),
         budgets: Budgets {

@@ -27,16 +27,14 @@ fn arb_budgets() -> impl Strategy<Value = Budgets> {
         0u64..=Budgets::hard_limits().max_nodes,
         proptest::option::of(0u64..=Budgets::hard_limits().max_tokens),
     )
-        .prop_map(
-            |(wall, tokens, cost, depth, nodes, remaining)| Budgets {
-                max_wall_ms: wall,
-                max_tokens: tokens,
-                max_cost_micros: cost,
-                max_depth: depth,
-                max_nodes: nodes,
-                remaining_tokens: remaining,
-            },
-        )
+        .prop_map(|(wall, tokens, cost, depth, nodes, remaining)| Budgets {
+            max_wall_ms: wall,
+            max_tokens: tokens,
+            max_cost_micros: cost,
+            max_depth: depth,
+            max_nodes: nodes,
+            remaining_tokens: remaining,
+        })
 }
 
 proptest! {

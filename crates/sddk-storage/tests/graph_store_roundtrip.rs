@@ -12,9 +12,9 @@
 use std::collections::BTreeMap;
 
 use proptest::prelude::*;
+use sddk_domain::GraphStore;
 use sddk_domain::graph::{EdgeSnapshot, ExecutionGraphRevision, NodeSnapshot};
 use sddk_domain::workflow_ir::{EdgeId, EventId, NodeId, RevisionId, RunId};
-use sddk_domain::GraphStore;
 
 use sddk_storage::SqliteGraphStore;
 
