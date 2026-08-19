@@ -3,6 +3,30 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.29.0] - 2026-08-19
+
+### Features
+  - feat(domain): Workflow IR types — `WorkflowTemplate`, `WorkflowIR`, `Operator` (12 variants), `Budgets`, `ExpansionPermission` — landed in `crates/sddk-domain/src/workflow_ir.rs` with deterministic `compute_content_hash()` using `sha256:<64-hex>` format. All collections use `BTreeMap`/`BTreeSet` exclusively.
+  - feat(domain): WorkflowRun types — `WorkflowRun`, `NodeRun`, `Attempt`, `AttemptOutcome`, `WorkflowRunState`, `NodeRunState` — state machine with sticky terminal states. `Attempt::complete()` transitions in_flight → terminal.
+  - feat(domain): `ExecutionGraphRevision` added to `crates/sddk-domain/src/graph.rs` with parent-chain digest (`sha256(parent_digest || events || nodes || edges)`). Schema version `u32 = 1`.
+  - feat(storage): Migration 011 adds 5 new tables: `workflow_runs_v1`, `node_runs_v1`, `attempts_v1`, `execution_graph_revisions_v1`, `ir_digests_v1`. Append-only triggers on `attempts_v1`.
+  - feat(kernel): `GraphStore` trait gains 7 default-implemented methods: `record_ir_digest`, `record_graph_revision`, `load_node_attempts`, `attempt_count`, `save_revision`, `load_revision`, `latest_revision`.
+  - feat(arch): ARCH008 heuristic evaluator with 4-pattern `RegexSet` (`\bPhase::`, `\bCyclePath::`, variant-qualified SDD names, `match\s+phase\s*\{`). Scope: `workflow_ir.rs`, `workflow_run.rs`, `sddk-engine/lib.rs`. ARCH013–015 stubbed as `NotApplicable`.
+  - feat(arch): `architecture-rules.yaml` schema bumped `1.0.0 → 1.1.0`. WV-0026 waiver covers `workflow.rs` and `event_bus.rs:96-117` until v1.31.0.
+
+### Tests
+  - test(domain): Property tests for `WorkflowIR` — hash determinism, BTreeMap insertion-order independence, JSON roundtrip, `sha256:<64-hex>` format, 12-operator nesting to depth 10.
+  - test(domain): State machine tests for `WorkflowRun` — `pending → running → completed`, `cancelled`, `pause/resume` budget preservation, terminal idempotency.
+  - test(domain): `ExecutionGraphRevision` tests — chain divergence, parent digest embedding, `revision 0` root validation, JSON roundtrip.
+  - test(domain): `architecture-rules.yaml` parse tests — 1.1.0 structure, ARCH008 scope globs, WV-0026 waiver coverage (legacy files only, not new IR modules).
+  - test(domain): 4 IR event golden fixtures added to `event_envelope_golden.rs` — `workflow.ir.compiled`, `workflow.run.started`, `workflow.run.cancelled`, `workflow.graph.revision.accepted`.
+  - test(testkit): `ir_fixtures.rs` module with `sample_template()`, `sample_ir()`, `sample_workflow_run()` golden fixtures.
+
+### Documentation
+  - docs(adr): ADR-0040 — BTreeMap mandate for IR collections (deterministic hashing requirement)
+  - docs(adr): ADR-0041 — `SCHEMA_VERSION: u32` constant per IR type (monotonic integer vs semver)
+  - docs(adr): ADR-0042 — ARCH008 SDD-agnostic kernel runtime + WV-0026 legacy compat seam waiver
+
 ## [1.28.1] - 2026-08-19
 
 ### Fixes
