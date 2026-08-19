@@ -1,14 +1,533 @@
 //! Shared testing utilities for SDDK crates.
+//!
+//! Provides in-memory fakes for `Ledger` and related ports, plus test builders
+//! and fixtures. All production code dependencies are isolated here so that
+//! `sddk-engine` tests can run without compiling `sddk-storage`.
 
 #![forbid(unsafe_code)]
 #![deny(clippy::all)]
 #![warn(missing_docs)]
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
+use std::sync::RwLock;
 
+use sddk_domain::StorageError;
 use tempfile::TempDir;
+
+// Shorthand for storage result type
+type Sr<T> = Result<T, StorageError>;
+
+// ── In-memory Ledger fake ────────────────────────────────────────────────────
+
+/// Thread-safe in-memory fake of the [`sddk_domain::Ledger`] port.
+///
+/// Stores all data in `RwLock`-protected `BTreeMap` collections.
+/// Used by `sddk-engine` tests to avoid compiling `sddk-storage`.
+#[derive(Debug, Default)]
+pub struct InMemoryLedger {
+    cycles: RwLock<BTreeMap<String, sddk_domain::CycleRecord>>,
+    events: RwLock<Vec<sddk_domain::LedgerEvent>>,
+    leases: RwLock<BTreeMap<String, sddk_domain::CycleLease>>,
+    gate_receipts: RwLock<BTreeMap<String, sddk_domain::GateReceipt>>,
+    projects: RwLock<BTreeMap<String, sddk_domain::ProjectRecord>>,
+    workspaces: RwLock<BTreeMap<String, sddk_domain::WorkspaceRecord>>,
+    sequence: RwLock<i64>,
+}
+
+impl InMemoryLedger {
+    /// Creates a fresh empty fake ledger.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns the current event sequence counter.
+    pub fn sequence(&self) -> i64 {
+        *self.sequence.read().unwrap()
+    }
+
+    /// Returns a read-only snapshot of all events.
+    pub fn events(&self) -> Vec<sddk_domain::LedgerEvent> {
+        self.events.read().unwrap().clone()
+    }
+
+    /// Advance the sequence counter and return the next value.
+    fn next_sequence(&self) -> i64 {
+        let mut seq = self.sequence.write().unwrap();
+        *seq += 1;
+        *seq
+    }
+}
+
+impl sddk_domain::Ledger for InMemoryLedger {
+    fn get_cycle(&self, cycle_id: &str) -> Sr<sddk_domain::CycleRecord> {
+        self.cycles
+            .read()
+            .unwrap()
+            .get(cycle_id)
+            .cloned()
+            .ok_or_else(|| sddk_domain::StorageError::NotFound {
+                entity: "cycle",
+                id: cycle_id.to_string(),
+            })
+    }
+
+    fn list_cycle_events(
+        &self,
+        cycle_id: &str,
+    ) -> Sr<Vec<sddk_domain::LedgerEvent>> {
+        let events = self.events.read().unwrap();
+        let mut result: Vec<_> = events
+            .iter()
+            .filter(|ev| ev.cycle_id.as_deref() == Some(cycle_id))
+            .cloned()
+            .collect();
+        result.sort_by_key(|ev| ev.sequence);
+        Ok(result)
+    }
+
+    fn insert_cycle_with_event(
+        &mut self,
+        cycle: &sddk_domain::CycleRecord,
+        event: &sddk_domain::LedgerEventInput,
+    ) -> Sr<sddk_domain::LedgerEvent> {
+        let seq = self.next_sequence();
+        let event_hash = format!("sha256:{:032x}", (seq as u64).wrapping_mul(13));
+        let previous_hash = self.events.read().unwrap().last().map(|e| e.event_hash.clone());
+        let ledger_event = sddk_domain::LedgerEvent {
+            sequence: seq,
+            event_id: event.event_id.clone(),
+            project_id: event.project_id.clone(),
+            cycle_id: event.cycle_id.clone(),
+            frame_id: event.frame_id.clone(),
+            command_id: event.command_id.clone(),
+            actor: event.actor.clone(),
+            event_type: event.event_type.clone(),
+            occurred_at: event.occurred_at.clone(),
+            state_before: event.state_before.clone(),
+            state_after: event.state_after.clone(),
+            payload: event.payload.clone(),
+            previous_hash,
+            event_hash,
+        };
+        self.cycles
+            .write()
+            .unwrap()
+            .insert(cycle.manifest.cycle_id.clone(), cycle.clone());
+        self.events.write().unwrap().push(ledger_event.clone());
+        Ok(ledger_event)
+    }
+
+    fn update_cycle_with_event(
+        &mut self,
+        manifest: &sddk_domain::CycleManifest,
+        updated_at: &str,
+        event: &sddk_domain::LedgerEventInput,
+        _release_lease_on_phase_change: bool,
+    ) -> Sr<sddk_domain::LedgerEvent> {
+        let seq = self.next_sequence();
+        let event_hash = format!("sha256:{:032x}", (seq as u64).wrapping_mul(17));
+        let previous_hash = self.events.read().unwrap().last().map(|e| e.event_hash.clone());
+        let ledger_event = sddk_domain::LedgerEvent {
+            sequence: seq,
+            event_id: event.event_id.clone(),
+            project_id: event.project_id.clone(),
+            cycle_id: event.cycle_id.clone(),
+            frame_id: event.frame_id.clone(),
+            command_id: event.command_id.clone(),
+            actor: event.actor.clone(),
+            event_type: event.event_type.clone(),
+            occurred_at: event.occurred_at.clone(),
+            state_before: event.state_before.clone(),
+            state_after: event.state_after.clone(),
+            payload: event.payload.clone(),
+            previous_hash,
+            event_hash,
+        };
+        // Update cycle snapshot
+        let mut cycles = self.cycles.write().unwrap();
+        let record = cycles
+            .entry(manifest.cycle_id.clone())
+            .or_insert_with(|| sddk_domain::CycleRecord {
+                manifest: manifest.clone(),
+                created_at: updated_at.to_string(),
+                updated_at: updated_at.to_string(),
+            });
+        record.manifest = manifest.clone();
+        record.updated_at = updated_at.to_string();
+        drop(cycles);
+        self.events.write().unwrap().push(ledger_event.clone());
+        Ok(ledger_event)
+    }
+
+    fn acquire_cycle_lease(
+        &mut self,
+        cycle_id: &str,
+        owner: &str,
+        now_ms: i64,
+        expires_at_ms: i64,
+    ) -> Sr<sddk_domain::CycleLease> {
+        let lease = sddk_domain::CycleLease {
+            cycle_id: cycle_id.to_string(),
+            owner: owner.to_string(),
+            fencing_token: 1,
+            acquired_at_ms: now_ms,
+            expires_at_ms,
+        };
+        self.leases
+            .write()
+            .unwrap()
+            .insert(cycle_id.to_string(), lease.clone());
+        Ok(lease)
+    }
+
+    fn release_cycle_lease(
+        &mut self,
+        _project_id: &str,
+        cycle_id: &str,
+        owner: &str,
+        fencing_token: i64,
+        _actor: &str,
+        _command_id: &str,
+        _occurred_at: &str,
+    ) -> Sr<bool> {
+        let mut leases = self.leases.write().unwrap();
+        let released = leases
+            .get(cycle_id)
+            .filter(|l| l.owner == owner && l.fencing_token == fencing_token)
+            .is_some();
+        if released {
+            leases.remove(cycle_id);
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    fn renew_cycle_lease(
+        &mut self,
+        cycle_id: &str,
+        owner: &str,
+        fencing_token: i64,
+        _now_ms: i64,
+        new_expires_at_ms: i64,
+    ) -> Sr<sddk_domain::CycleLease> {
+        let mut leases = self.leases.write().unwrap();
+        if let Some(lease) = leases
+            .get_mut(cycle_id)
+            .filter(|l| l.owner == owner && l.fencing_token == fencing_token)
+        {
+            lease.expires_at_ms = new_expires_at_ms;
+            return Ok(lease.clone());
+        }
+        Err(sddk_domain::StorageError::NotFound {
+            entity: "lease",
+            id: cycle_id.to_string(),
+        })
+    }
+
+    fn get_cycle_lease(&self, cycle_id: &str) -> Sr<sddk_domain::CycleLease> {
+        self.leases
+            .read()
+            .unwrap()
+            .get(cycle_id)
+            .cloned()
+            .ok_or_else(|| sddk_domain::StorageError::NotFound {
+                entity: "lease",
+                id: cycle_id.to_string(),
+            })
+    }
+
+    fn verify_cycle_lease(
+        &self,
+        cycle_id: &str,
+        owner: &str,
+        fencing_token: i64,
+        now_ms: i64,
+    ) -> Sr<sddk_domain::CycleLease> {
+        let leases = self.leases.read().unwrap();
+        if let Some(lease) = leases.get(cycle_id).filter(|l| {
+            l.owner == owner && l.fencing_token == fencing_token && l.expires_at_ms > now_ms
+        }) {
+            return Ok(lease.clone());
+        }
+        Err(sddk_domain::StorageError::NotFound {
+            entity: "lease",
+            id: cycle_id.to_string(),
+        })
+    }
+
+    fn get_gate_receipt(
+        &self,
+        receipt_id: &str,
+    ) -> Sr<sddk_domain::GateReceipt> {
+        self.gate_receipts
+            .read()
+            .unwrap()
+            .get(receipt_id)
+            .cloned()
+            .ok_or_else(|| sddk_domain::StorageError::NotFound {
+                entity: "gate_receipt",
+                id: receipt_id.to_string(),
+            })
+    }
+
+    fn insert_gate_receipt_next_seq(
+        &mut self,
+        input: &sddk_domain::GateReceiptNextSeqInput,
+    ) -> Sr<sddk_domain::GateReceipt> {
+        let seq = self.next_sequence();
+        let receipt = sddk_domain::GateReceipt {
+            receipt_id: format!("gate-{:032x}", seq as u64),
+            project_id: input.project_id.clone(),
+            cycle_id: input.cycle_id.clone(),
+            gate: input.gate.clone(),
+            evaluator: input.evaluator.clone(),
+            transition_id: input.transition_id.clone(),
+            plan_hash: input.plan_hash.clone(),
+            outcome: input.outcome,
+            evidence: input.evidence.clone(),
+            actor: input.actor.clone(),
+            evaluated_at: input.evaluated_at.clone(),
+            command_id: input.command_id.clone(),
+            frame_id: format!("frame-{:032x}", seq as u64),
+            seq,
+        };
+        self.gate_receipts
+            .write()
+            .unwrap()
+            .insert(receipt.receipt_id.clone(), receipt.clone());
+        Ok(receipt)
+    }
+
+    fn get_project_optional(
+        &self,
+        project_id: &str,
+    ) -> Sr<Option<sddk_domain::ProjectRecord>> {
+        Ok(self.projects.read().unwrap().get(project_id).cloned())
+    }
+
+    fn get_workspace_optional(
+        &self,
+        workspace_id: &str,
+    ) -> Sr<Option<sddk_domain::WorkspaceRecord>> {
+        Ok(self
+            .workspaces
+            .read()
+            .unwrap()
+            .get(workspace_id)
+            .cloned())
+    }
+
+    fn has_projects(&self) -> Sr<bool> {
+        Ok(!self.projects.read().unwrap().is_empty())
+    }
+
+    fn register_project_workspace(
+        &mut self,
+        project: &sddk_domain::ProjectRecord,
+        workspace: &sddk_domain::WorkspaceRecord,
+    ) -> Sr<()> {
+        self.projects
+            .write()
+            .unwrap()
+            .insert(project.project_id.clone(), project.clone());
+        self.workspaces
+            .write()
+            .unwrap()
+            .insert(workspace.workspace_id.clone(), workspace.clone());
+        Ok(())
+    }
+
+    fn load_all_ledger_events(&self) -> Sr<Vec<sddk_domain::LedgerEvent>> {
+        let mut events = self.events.read().unwrap().clone();
+        events.sort_by_key(|ev| ev.sequence);
+        Ok(events)
+    }
+}
+
+// ── Test builders ─────────────────────────────────────────────────────────────
+
+/// Convenient builder for [`sddk_domain::LedgerEventInput`] values.
+#[derive(Debug, Clone)]
+pub struct EventBuilder {
+    event_id: String,
+    project_id: String,
+    cycle_id: Option<String>,
+    frame_id: String,
+    command_id: String,
+    actor: String,
+    event_type: String,
+    occurred_at: String,
+    state_before: Option<serde_json::Value>,
+    state_after: Option<serde_json::Value>,
+    payload: serde_json::Value,
+}
+
+impl EventBuilder {
+    /// Starts a builder for the given event type.
+    pub fn new(event_type: &str) -> Self {
+        Self {
+            event_id: format!("evt-{}", uuid::Uuid::new_v4()),
+            project_id: "p-test".to_string(),
+            cycle_id: None,
+            frame_id: format!("frame-{}", uuid::Uuid::new_v4()),
+            command_id: format!("cmd-{}", uuid::Uuid::new_v4()),
+            actor: "sddk-testkit".to_string(),
+            event_type: event_type.to_string(),
+            occurred_at: "2026-08-19T00:00:00Z".to_string(),
+            state_before: None,
+            state_after: None,
+            payload: serde_json::json!({}),
+        }
+    }
+
+    /// Sets the cycle ID.
+    pub fn with_cycle(mut self, cycle_id: &str) -> Self {
+        self.cycle_id = Some(cycle_id.to_string());
+        self
+    }
+
+    /// Sets the project ID.
+    pub fn with_project(mut self, project_id: &str) -> Self {
+        self.project_id = project_id.to_string();
+        self
+    }
+
+    /// Sets the event ID explicitly (default: random UUID).
+    pub fn with_event_id(mut self, event_id: &str) -> Self {
+        self.event_id = event_id.to_string();
+        self
+    }
+
+    /// Sets the occurred_at timestamp (default: 2026-08-19T00:00:00Z).
+    pub fn occurred_at(mut self, ts: &str) -> Self {
+        self.occurred_at = ts.to_string();
+        self
+    }
+
+    /// Sets the payload (default: `{}`).
+    pub fn with_payload(mut self, payload: serde_json::Value) -> Self {
+        self.payload = payload;
+        self
+    }
+
+    /// Sets `state_before` snapshot.
+    pub fn state_before(mut self, state: serde_json::Value) -> Self {
+        self.state_before = Some(state);
+        self
+    }
+
+    /// Sets `state_after` snapshot.
+    pub fn state_after(mut self, state: serde_json::Value) -> Self {
+        self.state_after = Some(state);
+        self
+    }
+
+    /// Builds the [`LedgerEventInput`].
+    pub fn build(self) -> sddk_domain::LedgerEventInput {
+        sddk_domain::LedgerEventInput {
+            event_id: self.event_id,
+            project_id: self.project_id,
+            cycle_id: self.cycle_id,
+            frame_id: self.frame_id,
+            command_id: self.command_id,
+            actor: self.actor,
+            event_type: self.event_type,
+            occurred_at: self.occurred_at,
+            state_before: self.state_before,
+            state_after: self.state_after,
+            payload: self.payload,
+        }
+    }
+}
+
+/// Convenient builder for [`sddk_domain::CycleRecord`] values.
+#[derive(Debug, Clone)]
+pub struct CycleBuilder {
+    cycle_id: String,
+    project_id: String,
+    workspace_id: String,
+    status: sddk_domain::CycleStatus,
+    phase: sddk_domain::Phase,
+    path: sddk_domain::CyclePath,
+    branch: String,
+    base: String,
+    created_at: String,
+    updated_at: String,
+}
+
+impl CycleBuilder {
+    /// Starts a builder for a cycle in the given path.
+    pub fn new(path: sddk_domain::CyclePath) -> Self {
+        Self {
+            cycle_id: format!("c-{}", uuid::Uuid::new_v4()),
+            project_id: "p-test".to_string(),
+            workspace_id: "ws-test".to_string(),
+            status: sddk_domain::CycleStatus::Open,
+            phase: sddk_domain::Phase::Explore,
+            path,
+            branch: "main".to_string(),
+            base: "0".repeat(40),
+            created_at: "2026-08-19T00:00:00Z".to_string(),
+            updated_at: "2026-08-19T00:00:00Z".to_string(),
+        }
+    }
+
+    /// Sets the cycle ID (default: random UUID).
+    pub fn with_id(mut self, id: &str) -> Self {
+        self.cycle_id = id.to_string();
+        self
+    }
+
+    /// Sets the project ID (default: "p-test").
+    pub fn with_project(mut self, project_id: &str) -> Self {
+        self.project_id = project_id.to_string();
+        self
+    }
+
+    /// Sets the cycle status (default: Open).
+    pub fn with_status(mut self, status: sddk_domain::CycleStatus) -> Self {
+        self.status = status;
+        self
+    }
+
+    /// Sets the phase (default: Explore).
+    pub fn with_phase(mut self, phase: sddk_domain::Phase) -> Self {
+        self.phase = phase;
+        self
+    }
+
+    /// Builds the [`CycleRecord`].
+    pub fn build(self) -> sddk_domain::CycleRecord {
+        let manifest = sddk_domain::CycleManifest {
+            schema_version: 1,
+            project_id: self.project_id.clone(),
+            workspace_id: self.workspace_id.clone(),
+            cycle_id: self.cycle_id.clone(),
+            display_name: self.cycle_id.clone(),
+            status: self.status,
+            phase: self.phase,
+            path: self.path,
+            branch: self.branch,
+            base: self.base,
+            head: None,
+            artifacts: Default::default(),
+            release: None,
+            remediation_round: 0,
+            remote_url: None,
+            scope: None,
+        };
+        sddk_domain::CycleRecord {
+            manifest,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        }
+    }
+}
+
+// ── Existing test utilities ────────────────────────────────────────────────────
 
 /// RAII guard that kills and reaps a child process on drop.
 ///
@@ -60,9 +579,6 @@ impl TestRepository {
 
     /// Runs a git command inside the repository with hermetic config
     /// (`GIT_CONFIG_GLOBAL`/`GIT_CONFIG_SYSTEM` pointed at /dev/null).
-    ///
-    /// Returns the command output; use it for read-only queries
-    /// (`log`, `status`, `tag`, …).
     pub fn git(&self, args: &[&str]) -> io::Result<std::process::Output> {
         std::process::Command::new("git")
             .args(args)
@@ -72,8 +588,6 @@ impl TestRepository {
             .output()
     }
 
-    /// Runs a git command and fails when it exits non-zero, embedding stderr
-    /// in the error for context.
     fn git_expect(&self, args: &[&str]) -> io::Result<()> {
         let output = self.git(args)?;
         if !output.status.success() {
@@ -110,19 +624,15 @@ impl TestRepository {
     pub fn write(&self, relative: impl AsRef<Path>, content: &str) -> io::Result<PathBuf> {
         let relative = relative.as_ref();
         if relative.is_absolute()
-            || relative.components().any(|component| {
-                matches!(
-                    component,
-                    Component::ParentDir | Component::RootDir | Component::Prefix(_)
-                )
-            })
+            || relative
+                .components()
+                .any(|c| matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_)))
         {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 format!("fixture path must stay inside the repository: {relative:?}"),
             ));
         }
-
         let destination = self.path().join(relative);
         if let Some(parent) = destination.parent() {
             fs::create_dir_all(parent)?;
@@ -134,23 +644,73 @@ impl TestRepository {
 
 #[cfg(test)]
 mod tests {
-    use super::TestRepository;
+    use super::{ChildGuard, CycleBuilder, EventBuilder, InMemoryLedger, TestRepository};
+    use std::path::PathBuf;
+    use sddk_domain::{CyclePath, Ledger};
+
+    #[test]
+    fn in_memory_ledger_insert_and_get_cycle() {
+        let mut ledger = InMemoryLedger::new();
+        let cycle = CycleBuilder::new(CyclePath::AFull).build();
+        let event_input = EventBuilder::new("cycle.created")
+            .with_cycle(&cycle.manifest.cycle_id)
+            .with_project(&cycle.manifest.project_id)
+            .build();
+
+        let inserted = ledger
+            .insert_cycle_with_event(&cycle, &event_input)
+            .unwrap();
+        assert_eq!(inserted.sequence, 1);
+
+        let loaded = ledger.get_cycle(&cycle.manifest.cycle_id).unwrap();
+        assert_eq!(loaded.manifest.cycle_id, cycle.manifest.cycle_id);
+    }
+
+    #[test]
+    fn in_memory_ledger_sequence_increments() {
+        let mut ledger = InMemoryLedger::new();
+        let cycle = CycleBuilder::new(CyclePath::BDirect).build();
+        let event_input = EventBuilder::new("cycle.created")
+            .with_cycle(&cycle.manifest.cycle_id)
+            .with_project(&cycle.manifest.project_id)
+            .build();
+
+        let first = ledger.insert_cycle_with_event(&cycle, &event_input).unwrap();
+        let second = ledger
+            .insert_cycle_with_event(&cycle, &event_input)
+            .unwrap();
+        assert_eq!(first.sequence, 1);
+        assert_eq!(second.sequence, 2);
+    }
+
+    #[test]
+    fn event_builder_defaults() {
+        let input = EventBuilder::new("test.event").build();
+        assert_eq!(input.event_type, "test.event");
+        assert_eq!(input.project_id, "p-test");
+        assert!(input.cycle_id.is_none());
+        assert_eq!(input.payload, serde_json::json!({}));
+    }
+
+    #[test]
+    fn cycle_builder_defaults() {
+        let record = CycleBuilder::new(CyclePath::ALite).build();
+        assert_eq!(record.manifest.status, sddk_domain::CycleStatus::Open);
+        assert_eq!(record.manifest.phase, sddk_domain::Phase::Explore);
+        assert_eq!(record.manifest.path, CyclePath::ALite);
+    }
 
     #[test]
     fn writes_nested_files_inside_repository() {
         let repository = TestRepository::new().unwrap();
-
         let path = repository.write("nested/file.txt", "fixture\n").unwrap();
-
         assert_eq!(std::fs::read_to_string(path).unwrap(), "fixture\n");
     }
 
     #[test]
     fn rejects_paths_outside_repository() {
         let repository = TestRepository::new().unwrap();
-
         let error = repository.write("../outside.txt", "nope").unwrap_err();
-
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
     }
 
@@ -178,15 +738,11 @@ mod tests {
             .stderr(std::process::Stdio::null())
             .spawn()
             .expect("POSIX sleep available in test env");
-        let mut guard = super::ChildGuard::new(child);
-        // First take() returns Some.
+        let mut guard = ChildGuard::new(child);
         let taken = guard.take();
         assert!(taken.is_some());
-        // Second take() returns None — guard is now empty.
         assert!(guard.take().is_none());
-        // Dropping the empty guard must not panic.
         drop(guard);
-        // Drop the child we took out so it doesn't leak.
         if let Some(mut c) = taken {
             let _ = c.kill();
             let _ = c.wait();
@@ -203,10 +759,9 @@ mod tests {
             .spawn()
             .expect("POSIX sleep available in test env");
         let pid = child.id();
-        let guard = super::ChildGuard::new(child);
+        let guard = ChildGuard::new(child);
         drop(guard);
-        // Poll /proc/{pid} until it disappears (child was killed+reaped).
-        let proc_path = std::path::PathBuf::from(format!("/proc/{pid}"));
+        let proc_path = PathBuf::from(format!("/proc/{pid}"));
         let mut attempts = 0;
         while proc_path.exists() && attempts < 20 {
             std::thread::sleep(std::time::Duration::from_millis(100));

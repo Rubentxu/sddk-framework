@@ -1473,7 +1473,10 @@ dependencies = [
 name = "sddk-testkit"
 version = "1.26.0"
 dependencies = [
+ "sddk-domain",
+ "serde_json",
  "tempfile",
+ "uuid",
 ]
 
 [[package]]
