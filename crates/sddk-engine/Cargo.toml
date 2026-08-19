@@ -20,8 +20,8 @@ hmac = { workspace = true }
 getrandom = { workspace = true }
 dirs = { workspace = true }
 sddk-domain = { path = "../sddk-domain" }
-sddk-storage = { path = "../sddk-storage" }
 
 [dev-dependencies]
 regex = { workspace = true }
 tempfile = { workspace = true }
+sddk-storage = { path = "../sddk-storage" }
