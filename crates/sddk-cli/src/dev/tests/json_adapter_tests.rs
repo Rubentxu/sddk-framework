@@ -130,6 +130,117 @@ fn json_first_time_creates() {
     assert!(orchestrator.get("hidden").is_none());
 }
 
+// I3.5 — when an existing entry's prompt path looks like a previous sddk
+// install (stale dogfooding repo path), refresh it to the new bundle root
+// while preserving user customizations (model, description, hidden).
+#[test]
+fn json_refreshes_stale_framework_prompt_path() {
+    let fixture = test_fixtures::build();
+    let dir = temp_config_dir();
+    let path = dir.path().join("opencode.json");
+    let new_root = fixture.root.path();
+    // Use a path that the heuristic recognises as a previous sddk install
+    // (contains `/sddk-framework/agents/`).
+    let stale_root = new_root.parent().unwrap().join("sddk-framework");
+    let seeded = serde_json::json!({
+        "$schema": "https://opencode.ai/config.json",
+        "agent": {
+            "orchestrator": {
+                "description": "user tweaked the description",
+                "mode": "primary",
+                "model": "deepseek/deepseek-chat",
+                "prompt": format!("{{file:{}}}", stale_root.join("agents/orchestrator.md").display())
+            },
+            "sddk-foo": {
+                "description": "Foo explorer",
+                "mode": "subagent",
+                "hidden": true,
+                "model": "deepseek/deepseek-reasoner",
+                "prompt": format!("{{file:{}}}", stale_root.join("agents/sddk-foo.md").display())
+            }
+        },
+        "mcp": {}
+    });
+    std::fs::write(&path, serde_json::to_string_pretty(&seeded).unwrap()).unwrap();
+    let context = ctx(&fixture, Some(&fixture.models));
+    let report = upsert_json_agents(
+        &path,
+        IdeKey::Opencode,
+        &super::super::PRIMARY_AGENTS,
+        &context,
+    );
+    assert_eq!(report.updated_stale, 2, "both stale paths should refresh");
+    assert_eq!(report.skipped_existing, 0, "stale paths must not be skipped");
+    assert_eq!(
+        report.registered, 1,
+        "the third fixture agent (gentle-bar) was missing from the seed and must be registered"
+    );
+    let config: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let orchestrator = &config["agent"]["orchestrator"];
+    assert_eq!(
+        orchestrator["prompt"],
+        format!("{{file:{}}}", new_root.join("agents/orchestrator.md").display()),
+        "prompt must point at the new bundle root"
+    );
+    assert_eq!(
+        orchestrator["description"], "user tweaked the description",
+        "user-customized description must survive the refresh"
+    );
+    assert_eq!(orchestrator["model"], "deepseek/deepseek-chat");
+    let foo = &config["agent"]["sddk-foo"];
+    assert_eq!(
+        foo["prompt"],
+        format!("{{file:{}}}", new_root.join("agents/sddk-foo.md").display())
+    );
+    assert_eq!(foo["model"], "deepseek/deepseek-reasoner");
+    assert_eq!(foo["hidden"], true);
+}
+
+// I3.6 — when an existing entry's prompt path looks USER-customized
+// (not a previous sddk install), do NOT touch it: preserve byte-untouched.
+#[test]
+fn json_preserves_user_customized_prompt_path() {
+    let fixture = test_fixtures::build();
+    let dir = temp_config_dir();
+    let path = dir.path().join("opencode.json");
+    let seeded = serde_json::json!({
+        "$schema": "https://opencode.ai/config.json",
+        "agent": {
+            "orchestrator": {
+                "description": "my custom orchestrator",
+                "mode": "primary",
+                "model": "deepseek/deepseek-chat",
+                "prompt": "{file:/my/personal/prompts/orchestrator.md}"
+            }
+        },
+        "mcp": {}
+    });
+    let seeded_bytes = serde_json::to_string_pretty(&seeded).unwrap();
+    std::fs::write(&path, &seeded_bytes).unwrap();
+    let context = ctx(&fixture, Some(&fixture.models));
+    let report = upsert_json_agents(
+        &path,
+        IdeKey::Opencode,
+        &super::super::PRIMARY_AGENTS,
+        &context,
+    );
+    assert_eq!(report.skipped_existing, 1, "user path must be preserved");
+    assert_eq!(report.updated_stale, 0, "user path must not be touched");
+    assert_eq!(
+        report.registered, 2,
+        "fixture agents missing from the seed (sddk-foo, gentle-bar) must be registered"
+    );
+    // The user-customized orchestrator entry is preserved byte-untouched:
+    // its description, mode, model and prompt all match the seeded values.
+    let config: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(
+        config["agent"]["orchestrator"], seeded["agent"]["orchestrator"],
+        "user-customized orchestrator entry must remain byte-untouched"
+    );
+}
+
 // I4 — prune removes only framework-namespaced orphans; user entries kept.
 #[test]
 fn json_prunes_framework_orphan_only() {

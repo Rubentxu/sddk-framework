@@ -39,6 +39,7 @@ pub(super) struct RegistrationContext<'a> {
 pub(super) struct AdapterReport {
     pub editor: String,
     pub registered: usize,
+    pub updated_stale: usize,
     pub skipped_existing: usize,
     pub skipped_unresolved: usize,
     pub pruned: usize,

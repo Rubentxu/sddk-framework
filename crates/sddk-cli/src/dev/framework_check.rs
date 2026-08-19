@@ -17,6 +17,7 @@ pub(super) struct LinkReport {
     pub stale_replaced: usize,
     pub pruned: usize,
     pub agents_registered: usize,
+    pub agents_updated_stale: usize,
     pub agents_skipped_existing: usize,
     pub agents_skipped_unresolved: usize,
     pub errors: Vec<String>,
@@ -24,7 +25,7 @@ pub(super) struct LinkReport {
 
 pub(super) fn link_report_text(report: &LinkReport) -> String {
     format!(
-        "editor: {}\nagents: {}\nskills: {}\nprompts: {}\nworkflows: {}\nstale_replaced: {}\npruned: {}\nregistered: {}\nskipped_existing: {}\nskipped_unresolved: {}\nerrors: {}\n",
+        "editor: {}\nagents: {}\nskills: {}\nprompts: {}\nworkflows: {}\nstale_replaced: {}\npruned: {}\nregistered: {}\nupdated_stale: {}\nskipped_existing: {}\nskipped_unresolved: {}\nerrors: {}\n",
         report.editor,
         report.agents_linked,
         report.skills_linked,
@@ -33,6 +34,7 @@ pub(super) fn link_report_text(report: &LinkReport) -> String {
         report.stale_replaced,
         report.pruned,
         report.agents_registered,
+        report.agents_updated_stale,
         report.agents_skipped_existing,
         report.agents_skipped_unresolved,
         report.errors.len()

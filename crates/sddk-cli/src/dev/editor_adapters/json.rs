@@ -93,8 +93,32 @@ pub(super) fn upsert_json_agents(
     };
     let mut changed = false;
     for agent in ctx.agents {
-        if agents.contains_key(&agent.name) {
-            report.skipped_existing += 1;
+        // The expected prompt path for this agent under the new framework root.
+        let new_prompt = format!(
+            "{{file:{}}}",
+            ctx.root
+                .join("agents")
+                .join(format!("{}.md", agent.name))
+                .to_string_lossy()
+        );
+        if let Some(existing) = agents.get_mut(&agent.name).and_then(|v| v.as_object_mut()) {
+            // Entry already exists. Refresh the prompt path ONLY if the existing
+            // path looks like a previous sddk install (stale), preserving any
+            // user customization (model, hidden, mode, custom prompt path).
+            let existing_prompt = existing
+                .get("prompt")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if existing_prompt == new_prompt {
+                report.skipped_existing += 1;
+            } else if looks_like_framework_prompt(existing_prompt, &agent.name) {
+                existing.insert("prompt".to_owned(), serde_json::Value::String(new_prompt));
+                report.updated_stale += 1;
+                changed = true;
+            } else {
+                // Path is a user-customized prompt — leave it alone.
+                report.skipped_existing += 1;
+            }
             continue;
         }
         match resolve_for_models(ctx.models, &agent.name, ide) {
@@ -103,13 +127,7 @@ pub(super) fn upsert_json_agents(
                 let mut entry = serde_json::json!({
                     "description": agent.description,
                     "mode": if primary { "primary" } else { "subagent" },
-                    "prompt": format!(
-                        "{{file:{}}}",
-                        ctx.root
-                            .join("agents")
-                            .join(format!("{}.md", agent.name))
-                            .to_string_lossy()
-                    ),
+                    "prompt": new_prompt,
                 });
                 if let Some(model) = model {
                     entry["model"] = serde_json::Value::String(model);
@@ -153,6 +171,32 @@ pub(super) fn upsert_json_agents(
         )),
     }
     report
+}
+
+/// Heuristic: detect whether an existing `{file:...}` prompt path looks like it
+/// came from a previous sddk install (and is therefore stale-eligible) rather
+/// than a user-customized path.
+///
+/// Recognised framework path shapes:
+///   - `<somewhere>/sddk-framework/agents/<name>.md`   (dogfooding / bind-mount)
+///   - `<somewhere>/.local/share/sddk/framework/<version-or-current>/agents/<name>.md`
+///
+/// Anything else (`/custom/path.md`, etc.) is treated as a user customization
+/// and is preserved byte-untouched.
+fn looks_like_framework_prompt(prompt: &str, expected_name: &str) -> bool {
+    // Strip the `{file:...}` wrapper if present.
+    let inner = prompt
+        .strip_prefix("{file:")
+        .and_then(|s| s.strip_suffix('}'))
+        .unwrap_or(prompt);
+    // Must point to an `<name>.md` file (otherwise it's clearly not the agent
+    // we registered).
+    let expected_suffix = format!("/agents/{expected_name}.md");
+    if !inner.ends_with(&expected_suffix) {
+        return false;
+    }
+    inner.contains("/sddk-framework/agents/")
+        || inner.contains("/sddk/framework/")
 }
 
 #[cfg(test)]

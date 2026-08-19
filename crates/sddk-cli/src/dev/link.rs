@@ -147,6 +147,7 @@ fn link_editor(root: &Path, editor_dir: &Path, profile: LinkProfile) -> LinkRepo
         stale_replaced: 0,
         pruned: 0,
         agents_registered: 0,
+        agents_updated_stale: 0,
         agents_skipped_existing: 0,
         agents_skipped_unresolved: 0,
         errors: Vec::new(),
@@ -392,6 +393,7 @@ fn register_into_report(
     for adapter in crate::dev::editor_adapters::adapters_for(editor, dirs) {
         let adapter_report = adapter.register(ctx);
         report.agents_registered = adapter_report.registered;
+        report.agents_updated_stale = adapter_report.updated_stale;
         report.agents_skipped_existing = adapter_report.skipped_existing;
         report.agents_skipped_unresolved = adapter_report.skipped_unresolved;
         report.errors.extend(adapter_report.errors);
@@ -400,6 +402,13 @@ fn register_into_report(
                 "{}: registered {} framework agents",
                 adapter.editor_name(),
                 adapter_report.registered
+            ));
+        }
+        if adapter_report.updated_stale > 0 {
+            warnings.push(format!(
+                "{}: refreshed {} stale agent paths (framework root changed)",
+                adapter.editor_name(),
+                adapter_report.updated_stale
             ));
         }
         if report.agents_skipped_unresolved > 0 {
