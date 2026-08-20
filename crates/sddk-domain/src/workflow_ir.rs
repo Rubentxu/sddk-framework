@@ -622,6 +622,22 @@ pub enum CompileError {
     HashCollision,
 }
 
+// Compile-time guard: 8 variants (post-cycle-3 trim). Drift fails the build.
+crate::assert_variant_count_eq!(
+    CompileError,
+    8,
+    [
+        CompileError::EmptyCapabilityAllowlist,
+        CompileError::ExpansionNotAllowed,
+        CompileError::UnsupportedSchemaVersion { .. },
+        CompileError::BudgetExceedsLimit,
+        CompileError::OperatorNotAllowed(_),
+        CompileError::CapabilityNotInAllowlist(_),
+        CompileError::CycleDetected,
+        CompileError::HashCollision,
+    ]
+);
+
 /// Runtime validation errors for WorkflowIR.
 #[derive(Debug, Error)]
 pub enum ValidateError {

@@ -30,6 +30,17 @@ pub enum WorkflowError {
     TransitionNotFound(String),
 }
 
+// Compile-time guard: 3 variants (post-cycle-3 trim).
+crate::assert_variant_count_eq!(
+    WorkflowError,
+    3,
+    [
+        WorkflowError::MissingArtifact(_),
+        WorkflowError::MissingGate(_),
+        WorkflowError::TransitionNotFound(_),
+    ]
+);
+
 /// Schema version for workflow manifests.
 pub const WORKFLOW_SCHEMA_VERSION: i32 = 1;
 

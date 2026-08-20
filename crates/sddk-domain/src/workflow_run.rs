@@ -253,6 +253,9 @@ pub enum AttemptError {
     AlreadyTerminal,
 }
 
+// Compile-time guard: 1 variant (post-cycle-3 trim).
+crate::assert_variant_count_eq!(AttemptError, 1, [AttemptError::AlreadyTerminal,]);
+
 // ── NodeRunState ─────────────────────────────────────────────────────────
 
 /// State of a node run.
@@ -329,6 +332,9 @@ pub enum NodeRunError {
     /// Invalid state transition.
     InvalidStateTransition,
 }
+
+// Compile-time guard: 1 variant (post-cycle-3 trim).
+crate::assert_variant_count_eq!(NodeRunError, 1, [NodeRunError::InvalidStateTransition,]);
 
 // ── WorkflowRunState ─────────────────────────────────────────────────────
 
@@ -479,3 +485,13 @@ pub enum WorkflowRunError {
     /// Run is already in a terminal state.
     AlreadyTerminal,
 }
+
+// Compile-time guard: 2 variants (post-cycle-3 trim).
+crate::assert_variant_count_eq!(
+    WorkflowRunError,
+    2,
+    [
+        WorkflowRunError::InvalidTransition { .. },
+        WorkflowRunError::AlreadyTerminal,
+    ]
+);

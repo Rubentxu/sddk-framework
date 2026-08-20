@@ -19,6 +19,7 @@ pub mod format;
 pub mod graph;
 pub mod identity;
 pub mod legacy;
+pub mod macros;
 pub mod metrics;
 pub mod models;
 pub mod pack;
