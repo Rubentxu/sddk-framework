@@ -46,3 +46,14 @@ dist/
 # proptest deterministic replay cache (generated when a counter-example is
 # found). Safe to delete; proptest will rebuild on next run.
 *.proptest-regressions
+
+# Release staging artifacts (produced by `sddk release dist`, uploaded to
+# GitHub Releases via `gh release create`). NEVER committed; recreated
+# from scratch on every `sddk release dist --prefix ...` invocation.
+sddk-linux-*-musl
+sddk-linux-*-musl.sha256
+sddk-linux-*-musl.CHECKSUMS
+sddk-linux-*-musl.sbom.json
+sddk-linux-*-musl.attestation.json
+sddk-framework.tar.gz
+sddk-framework.tar.gz.sha256
