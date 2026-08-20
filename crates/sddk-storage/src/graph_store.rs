@@ -41,9 +41,17 @@ impl SqliteGraphStore {
     }
 
     /// Mutable access to the underlying projection store connection.
-    /// Exposed for tests that need to set up foreign-key parents before
-    /// calling `record_graph_revision` (which requires a `workflow_runs_v1`
-    /// row to exist).
+    ///
+    /// **Test-only surface.** The only known caller is the integration test
+    /// `tests/graph_store_roundtrip.rs`, which seeds a parent row in
+    /// `workflow_runs_v1` before invoking `record_graph_revision` (whose FK
+    /// requirement the test setup must satisfy).
+    ///
+    /// Kept `pub` because Rust integration tests compile the library target
+    /// *without* `cfg(test)`, so `#[cfg(test)]` on this method would hide it
+    /// from the very consumer it serves. Documented as test-only via this
+    /// rustdoc and `#[doc(hidden)]` so production callers do not reach for it.
+    #[doc(hidden)]
     pub fn proj_store_conn_mut(&mut self) -> &mut rusqlite::Connection {
         self.proj_store.conn_mut()
     }
