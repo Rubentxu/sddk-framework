@@ -42,3 +42,7 @@ sddk/
 # Editor framework dirs (never in repo)
 .zcode/
 dist/
+
+# proptest deterministic replay cache (generated when a counter-example is
+# found). Safe to delete; proptest will rebuild on next run.
+*.proptest-regressions
