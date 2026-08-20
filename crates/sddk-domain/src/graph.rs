@@ -248,7 +248,7 @@ impl Projection for GraphProjection {
             version: self.version(),
             last_event_sequence: self.state.last_event_sequence,
             last_event_hash: self.state.last_event_hash.clone(),
-            updated_at: crate::projections::now_rfc3339(),
+            updated_at: crate::format::now_rfc3339_utc(),
         }
     }
 

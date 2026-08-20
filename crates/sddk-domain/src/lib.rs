@@ -43,6 +43,7 @@ pub use error::*;
 pub use event_envelope::*;
 pub use evidence::*;
 pub use fork::*;
+pub use format::now_rfc3339_utc;
 pub use graph::*;
 pub use identity::*;
 pub use legacy::*;

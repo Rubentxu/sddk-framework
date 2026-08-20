@@ -203,7 +203,7 @@ impl Projection for CycleStateProjection {
             version: self.version(),
             last_event_sequence: self.state.last_event_sequence,
             last_event_hash: self.state.last_event_hash.clone(),
-            updated_at: now_rfc3339(),
+            updated_at: crate::format::now_rfc3339_utc(),
         }
     }
 
@@ -392,53 +392,13 @@ impl Projection for ApprovalProjection {
             version: self.version(),
             last_event_sequence: self.last_event_sequence,
             last_event_hash: self.last_event_hash.clone(),
-            updated_at: now_rfc3339(),
+            updated_at: crate::format::now_rfc3339_utc(),
         }
     }
 
     fn state_ref(&self) -> &Self::State {
         &self.state
     }
-}
-
-/// Returns the current wall-clock time as an RFC 3339 string with second precision.
-pub(crate) fn now_rfc3339() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let dur = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let total_secs = dur.as_secs();
-    let days_since_epoch = total_secs / 86_400;
-    let secs_in_day = total_secs % 86_400;
-    let hours = secs_in_day / 3600;
-    let minutes = (secs_in_day % 3600) / 60;
-    let seconds = secs_in_day % 60;
-    let (year, month, day) = civil_from_days(days_since_epoch as i64);
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        year, month, day, hours, minutes, seconds
-    )
-}
-
-/// Converts a number of days since the Unix epoch (1970-01-01) to a calendar date.
-/// Uses Howard Hinnant's civil_from_days algorithm.
-fn civil_from_days(z: i64) -> (i32, u32, u32) {
-    // Adapted from Howard Hinnant's public-domain C++ algorithm.
-    let z = z + 719_468;
-    let era = if z >= 0 {
-        z / 146_097
-    } else {
-        (z - 146_096) / 146_097
-    };
-    let doe = (z - era * 146_097) as u32;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = (yoe as i64) + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d: u32 = doy - (153 * mp + 2) / 5 + 1;
-    let m: u32 = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    (y as i32, m, d)
 }
 
 #[cfg(test)]
