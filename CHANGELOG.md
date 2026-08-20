@@ -3,6 +3,19 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.32.0] - 2026-08-20
+
+### Refactor
+  - refactor(domain): `now_rfc3339_utc()` wrapper en `sddk_domain::format` (delegates to `format_rfc3339_utc(epoch_secs)`). Los 3 call sites (`projections.rs:206`, `projections.rs:395`, `graph.rs:251`) ahora usan el wrapper. Cierra S-001 (orphan Hinnant cleanup).
+  - refactor(storage): `proj_store_conn_mut()` marcado como test-only surface via `#[doc(hidden)]` + rustdoc explicativo. El escape hatch `&mut rusqlite::Connection` permanece público solo porque los integration tests no ven `#[cfg(test)]` (compile la lib sin `cfg(test)`). Cierra S-002.
+
+### Features
+  - feat(domain): macro `assert_variant_count_eq!` (`crates/sddk-domain/src/macros.rs`) — compile-time guard contra variant drift. Combinación de counter literal + exhaustive `match` sin wildcard. Estable en rustc ≥ 1.75 (usa solo `stringify!`, const fn aritmética, `assert!`). Aplicado a los 5 enums trimmed del cycle 3: `CompileError` (8), `WorkflowError` (3), `AttemptError` (1), `NodeRunError` (1), `WorkflowRunError` (2). Negatively-tested: edición literal 8→9 rompe el build con E0080. Cierra S-003.
+
+### Housekeeping
+  - chore(repo): `*.proptest-regressions` añadido a `.gitignore` (proptest deterministic-replay cache; safe to delete, regenerable).
+  - chore(repo): staging residuals del release resync del cycle 3 (`sddk-linux-x86_64-gnu*`, `sddk-framework.tar.gz*`) cleared del CWD antes de este commit. `docs/old/*` (712K) intacto pendiente decisión humana cycle 5. Cierra S-004 (parcial).
+
 ## [1.31.0] - 2026-08-20
 
 ### Features
