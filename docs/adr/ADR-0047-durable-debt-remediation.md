@@ -213,5 +213,5 @@ Revisar esta decision cuando exista una de estas condiciones:
 
 ## Implementation trace
 
-- **cycle-7a** (this commit, ratifies status): adds severity taxonomy (`docs/debt/SEVERITY.md`), priority taxonomy (`docs/debt/PRIORITY.md`), debt directory index (`docs/debt/README.md`), AGENTS.md §4 reference. Implements REQ-K7-001..003.
+- **cycle-7a** (this commit, ratifies status): adds severity taxonomy (`docs/debt/SEVERITY.md`), priority taxonomy (`docs/debt/PRIORITY.md`), debt directory index (`docs/debt/README.md`), AGENTS.md §4 reference. Implements REQ-K7-001..003 + REQ-K7-009 (AGENTS.md §4 reference, partial).
 - **cycle-7b** (next cycle): JSON Schema draft-07 for `debt-report.json` (`docs/debt/debt-report.schema.json`), INC template (`docs/debt/INCIDENCE-TEMPLATE.md`), agent updates (`sddk-debt-verify`, `sddk-archive`), workflow gates (`debt-severity-assigned`, `debt-priority-assigned`), orchestrator + phase-contracts + arsenal prompt updates. Implements REQ-K7-004..009.
