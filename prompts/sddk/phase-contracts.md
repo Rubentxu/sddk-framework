@@ -141,3 +141,11 @@ Debt-verify is the mandatory A-* handoff between passing functional verification
 and release; B-direct disables it. Its path/depth mapping, worker fan-out,
 finding contract, aggregation, remediation, and report schemas are defined only
 in `prompts/sddk/phases/debt-verify.md`.
+
+### `debt-report.json` (per-cycle artifact)
+
+Producer: `sddk-debt-verify`. Schema: `docs/debt/debt-report.schema.json` (draft-07). Required: schema_version, cycle_id, generated_at, findings. Each finding: id, title, severity, priority, status, fingerprint, fingerprint_aliases, cluster_id, category, description.
+
+### `INC-NNN-{slug}.md` (cross-cycle artifact)
+
+Producer: `sddk-archive` (cycle-8+). Template: `docs/debt/INCIDENCE-TEMPLATE.md`. Location: `~/.sddk-knowledge/<project>/incs/` (zero-intrusion). Lifecycle append-only; ADR-0047 §3.2.
