@@ -76,7 +76,8 @@ mod tests {
         let fp = fingerprint("src/lib.rs", 10, "RUST-001", "x");
         assert_eq!(fp.len(), 16, "default Sha256_64 must produce 16 hex chars");
         assert!(
-            fp.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+            fp.chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
             "must be lowercase hex"
         );
     }
@@ -92,7 +93,8 @@ mod tests {
         );
         assert_eq!(fp.len(), 32, "Sha256_128 must produce 32 hex chars");
         assert!(
-            fp.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+            fp.chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
             "must be lowercase hex"
         );
     }
@@ -102,7 +104,8 @@ mod tests {
         let fp = fingerprint("src/lib.rs", 10, "RUST-001", "");
         assert_eq!(fp.len(), 16, "empty code_block is valid");
         assert!(
-            fp.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+            fp.chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
             "must be lowercase hex"
         );
     }

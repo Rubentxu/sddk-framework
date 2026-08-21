@@ -3,10 +3,10 @@
 //! Renders `INC-NNN-{slug}.md` files using the template at
 //! `docs/debt/INCIDENCE-TEMPLATE.md` embedded via `include_str!`.
 
-use std::collections::HashSet;
 use sddk_domain::{DebtReport, Finding, IncRecord, IncStatus, Priority, Severity};
-use time::format_description::well_known::Rfc3339;
+use std::collections::HashSet;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
 /// Derives the INC slug from a finding: first 8 chars of its fingerprint.
 pub fn derive_inc_slug(finding: &Finding) -> String {
@@ -35,9 +35,7 @@ pub fn derive_inc_id(finding: &Finding, existing_ids: &HashSet<String>) -> Strin
         // New slug: compute max NNN across all existing + 1
         let max_nnn = existing_ids
             .iter()
-            .filter_map(|id| {
-                id.split('-').nth(1).and_then(|n| n.parse::<u32>().ok())
-            })
+            .filter_map(|id| id.split('-').nth(1).and_then(|n| n.parse::<u32>().ok()))
             .max()
             .unwrap_or(0);
         max_nnn + 1
@@ -66,7 +64,12 @@ pub fn render_inc_template(finding: &Finding, project_id: &str, cycle_id: &str) 
     } else {
         format!(
             "[{}]",
-            finding.fingerprint_aliases.iter().map(|s| format!("\"{}\"", s)).collect::<Vec<_>>().join(", ")
+            finding
+                .fingerprint_aliases
+                .iter()
+                .map(|s| format!("\"{}\"", s))
+                .collect::<Vec<_>>()
+                .join(", ")
         )
     };
 
@@ -84,10 +87,29 @@ pub fn render_inc_template(finding: &Finding, project_id: &str, cycle_id: &str) 
         .replace("{created}", &created)
         .replace("actor-name", "sddk")
         // Body section replacements
-        .replace("<problem statement: what's wrong, where, why it matters>", &finding.description)
-        .replace("<why this severity + priority + cluster_id; cite evidence>", &format!("Severity={}, Priority={}, Cluster={}", severity_str, priority_str, &finding.cluster_id))
+        .replace(
+            "<problem statement: what's wrong, where, why it matters>",
+            &finding.description,
+        )
+        .replace(
+            "<why this severity + priority + cluster_id; cite evidence>",
+            &format!(
+                "Severity={}, Priority={}, Cluster={}",
+                severity_str, priority_str, &finding.cluster_id
+            ),
+        )
         .replace("{finding-id}", &finding.id)
-        .replace("cycle-{N}", &format!("cycle-{}", cycle_id.rsplit('/').next().unwrap_or("8").trim_start_matches("kernel-cycle-")))
+        .replace(
+            "cycle-{N}",
+            &format!(
+                "cycle-{}",
+                cycle_id
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or("8")
+                    .trim_start_matches("kernel-cycle-")
+            ),
+        )
         // H1 heading replacements
         .replace("{slug}", &derive_inc_slug(finding))
         .replace("{title}", &finding.title)
@@ -191,7 +213,10 @@ mod tests {
         assert!(rendered.contains("status: open"), "missing status");
         assert!(rendered.contains("severity: medium"), "missing severity");
         assert!(rendered.contains("priority: P2"), "missing priority");
-        assert!(rendered.contains(r#""3ef321c4efe1d87e""#), "missing fingerprint");
+        assert!(
+            rendered.contains(r#""3ef321c4efe1d87e""#),
+            "missing fingerprint"
+        );
         assert!(rendered.contains("cluster_id: CL-01"), "missing cluster_id");
         // Body sections
         assert!(rendered.contains("## Context"), "missing Context");

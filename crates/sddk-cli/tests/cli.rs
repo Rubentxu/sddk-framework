@@ -2174,10 +2174,31 @@ fn cli_closing_cycle_auto_captures_metrics_record() {
     assert!(receipt_policy.status.success());
     let gate_json: serde_json::Value = serde_json::from_slice(&receipt_policy.stdout).unwrap();
     let receipt_policy_id = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let receipt_severity = evaluate(
+        "phase.verify.complete.a-lite",
+        "debt-severity-assigned",
+        r#"{"ok":true}"#,
+    );
+    assert!(receipt_severity.status.success());
+    let gate_json: serde_json::Value = serde_json::from_slice(&receipt_severity.stdout).unwrap();
+    let receipt_severity_id = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let receipt_priority = evaluate(
+        "phase.verify.complete.a-lite",
+        "debt-priority-assigned",
+        r#"{"ok":true}"#,
+    );
+    assert!(receipt_priority.status.success());
+    let gate_json: serde_json::Value = serde_json::from_slice(&receipt_priority.stdout).unwrap();
+    let receipt_priority_id = gate_json["receipt_id"].as_str().unwrap().to_owned();
     let step = transition(
         "phase.verify.complete.a-lite",
         &["verification-report=artifacts/verify.md"],
-        &[receipt_pass_id.as_str(), receipt_policy_id.as_str()],
+        &[
+            receipt_pass_id.as_str(),
+            receipt_policy_id.as_str(),
+            receipt_severity_id.as_str(),
+            receipt_priority_id.as_str(),
+        ],
     );
     assert!(
         step.status.success(),
@@ -4123,10 +4144,39 @@ fn walk_a_min_cycle_to_release_pending(fixture: &CliFixture, remote: &str, cycle
     );
     let gate_json: serde_json::Value = serde_json::from_slice(&receipt_policy.stdout).unwrap();
     let r_policy = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let receipt_severity = evaluate(
+        "phase.verify.complete.a-min",
+        "debt-severity-assigned",
+        r#"{"ok":true}"#,
+    );
+    assert!(
+        receipt_severity.status.success(),
+        "verify debt-severity-assigned gate failed: {}",
+        String::from_utf8_lossy(&receipt_severity.stderr)
+    );
+    let gate_json: serde_json::Value = serde_json::from_slice(&receipt_severity.stdout).unwrap();
+    let r_severity = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let receipt_priority = evaluate(
+        "phase.verify.complete.a-min",
+        "debt-priority-assigned",
+        r#"{"ok":true}"#,
+    );
+    assert!(
+        receipt_priority.status.success(),
+        "verify debt-priority-assigned gate failed: {}",
+        String::from_utf8_lossy(&receipt_priority.stderr)
+    );
+    let gate_json: serde_json::Value = serde_json::from_slice(&receipt_priority.stdout).unwrap();
+    let r_priority = gate_json["receipt_id"].as_str().unwrap().to_owned();
     let step = transition(
         "phase.verify.complete.a-min",
         &["verification-report=artifacts/verify.md"],
-        &[r_pass.as_str(), r_policy.as_str()],
+        &[
+            r_pass.as_str(),
+            r_policy.as_str(),
+            r_severity.as_str(),
+            r_priority.as_str(),
+        ],
     );
     assert!(
         step.status.success(),
@@ -4326,10 +4376,39 @@ fn walk_a_full_cycle_to_release_pending(fixture: &CliFixture, remote: &str, cycl
     );
     let gate_json: serde_json::Value = serde_json::from_slice(&receipt_policy.stdout).unwrap();
     let r_policy = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let receipt_severity = evaluate(
+        "phase.verify.complete",
+        "debt-severity-assigned",
+        r#"{"ok":true}"#,
+    );
+    assert!(
+        receipt_severity.status.success(),
+        "verify/debt-severity-assigned failed: {}",
+        String::from_utf8_lossy(&receipt_severity.stderr)
+    );
+    let gate_json: serde_json::Value = serde_json::from_slice(&receipt_severity.stdout).unwrap();
+    let r_severity = gate_json["receipt_id"].as_str().unwrap().to_owned();
+    let receipt_priority = evaluate(
+        "phase.verify.complete",
+        "debt-priority-assigned",
+        r#"{"ok":true}"#,
+    );
+    assert!(
+        receipt_priority.status.success(),
+        "verify/debt-priority-assigned failed: {}",
+        String::from_utf8_lossy(&receipt_priority.stderr)
+    );
+    let gate_json: serde_json::Value = serde_json::from_slice(&receipt_priority.stdout).unwrap();
+    let r_priority = gate_json["receipt_id"].as_str().unwrap().to_owned();
     let step = transition(
         "phase.verify.complete",
         &["verification-report=artifacts/verify.md"],
-        &[r_pass.as_str(), r_policy.as_str()],
+        &[
+            r_pass.as_str(),
+            r_policy.as_str(),
+            r_severity.as_str(),
+            r_priority.as_str(),
+        ],
     );
     assert!(
         step.status.success(),

@@ -292,6 +292,28 @@ fn failed_verification_uses_declared_remediation_target() {
             ),
         },
     );
+    evidence.gates.insert(
+        "debt-severity-assigned".into(),
+        GateReceiptRef {
+            receipt_id: pass_gate(
+                &mut engine,
+                &cycle_id,
+                "phase.verify.complete",
+                "debt-severity-assigned",
+            ),
+        },
+    );
+    evidence.gates.insert(
+        "debt-priority-assigned".into(),
+        GateReceiptRef {
+            receipt_id: pass_gate(
+                &mut engine,
+                &cycle_id,
+                "phase.verify.complete",
+                "debt-priority-assigned",
+            ),
+        },
+    );
 
     let plan = engine
         .plan_transition(&cycle_id, "phase.verify.complete", evidence)

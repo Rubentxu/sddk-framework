@@ -5,12 +5,11 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand};
 use sddk_domain::{
-    DebtReport, Finding, FindingStatus, GateOutcomeStatus, IncRecord, IncStatus,
-    Priority, Severity,
+    DebtReport, Finding, FindingStatus, GateOutcomeStatus, IncRecord, IncStatus, Priority, Severity,
 };
-use sddk_engine::{self, fingerprint, evaluate_named_gate, render_inc_template, GateOutcome};
-use time::format_description::well_known::Rfc3339;
+use sddk_engine::{self, GateOutcome, evaluate_named_gate, fingerprint, render_inc_template};
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
 use crate::{CliEnvironment, CommandOutput, compose};
 
@@ -46,7 +45,7 @@ pub enum DebtCommand {
 pub fn run_debt(args: DebtArgs, env: &CliEnvironment) -> CommandOutput {
     match args.command {
         DebtCommand::Report { output } => run_report(&output),
-        DebtCommand::Incs {} => run_incs(env),
+        DebtCommand::Incs => run_incs(env),
         DebtCommand::Backfill { cycle_id } => run_backfill(&cycle_id, env),
         DebtCommand::Gates { name } => run_gates(&name, env),
     }
@@ -63,7 +62,9 @@ fn run_report(output: &PathBuf) -> CommandOutput {
             .unwrap_or_else(|_| "2026-08-21T00:00:00Z".into()),
         findings: vec![],
     };
-    let json = serde_json::to_string_pretty(&report).map_err(|e| format!("JSON error: {e}")).unwrap_or_default();
+    let json = serde_json::to_string_pretty(&report)
+        .map_err(|e| format!("JSON error: {e}"))
+        .unwrap_or_default();
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent).ok();
     }
@@ -105,10 +106,10 @@ fn run_incs(env: &CliEnvironment) -> CommandOutput {
     match std::fs::read_dir(&incs_dir) {
         Ok(entries) => {
             for entry in entries.filter_map(Result::ok) {
-                if entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
-                    if let Some(name) = entry.file_name().to_str() {
-                        files.push(name.to_string());
-                    }
+                if let Some(name) = entry.file_name().to_str()
+                    && entry.file_type().is_ok_and(|ft| ft.is_file())
+                {
+                    files.push(name.to_string());
                 }
             }
         }
@@ -176,14 +177,12 @@ fn run_backfill(cycle_id: &str, env: &CliEnvironment) -> CommandOutput {
     // Collect existing INC IDs
     let incs_dir = vault.join("incs");
     let mut existing_ids: HashSet<String> = HashSet::new();
-    if incs_dir.exists() {
-        if let Ok(entries) = std::fs::read_dir(&incs_dir) {
-            for entry in entries.filter_map(Result::ok) {
-                if let Some(name) = entry.file_name().to_str() {
-                    if name.ends_with(".md") {
-                        existing_ids.insert(name.trim_end_matches(".md").to_string());
-                    }
-                }
+    if let Ok(entries) = std::fs::read_dir(&incs_dir) {
+        for entry in entries.filter_map(Result::ok) {
+            if let Some(name) = entry.file_name().to_str()
+                && name.ends_with(".md")
+            {
+                existing_ids.insert(name.trim_end_matches(".md").to_string());
             }
         }
     }
@@ -192,7 +191,10 @@ fn run_backfill(cycle_id: &str, env: &CliEnvironment) -> CommandOutput {
     let mut errors = vec![];
     std::fs::create_dir_all(&incs_dir).ok();
     for finding in report.findings.iter().filter(|f| {
-        !matches!(f.status, FindingStatus::Resolved | FindingStatus::Superseded)
+        !matches!(
+            f.status,
+            FindingStatus::Resolved | FindingStatus::Superseded
+        )
     }) {
         let inc_content = render_inc_template(finding, &project_id, &report.cycle_id);
         let inc_slug = sddk_engine::derive_inc_slug(finding);
@@ -217,7 +219,11 @@ fn run_backfill(cycle_id: &str, env: &CliEnvironment) -> CommandOutput {
     } else {
         CommandOutput {
             status: 1,
-            stdout: format!("emitted {} INC files with {} errors\n", emitted, errors.len()),
+            stdout: format!(
+                "emitted {} INC files with {} errors\n",
+                emitted,
+                errors.len()
+            ),
             stderr: errors.join("\n") + "\n",
         }
     }
@@ -240,10 +246,17 @@ fn run_gates(gate_name: &str, env: &CliEnvironment) -> CommandOutput {
             stdout: format!("PASS: {}\n", notes),
             stderr: String::new(),
         },
-        GateOutcome::Failed { offending_ids, notes } => CommandOutput {
+        GateOutcome::Failed {
+            offending_ids,
+            notes,
+        } => CommandOutput {
             status: 1,
             stdout: String::new(),
-            stderr: format!("FAIL: {} (offending: {})\n", notes, offending_ids.join(", ")),
+            stderr: format!(
+                "FAIL: {} (offending: {})\n",
+                notes,
+                offending_ids.join(", ")
+            ),
         },
     }
 }
@@ -281,8 +294,16 @@ mod tests {
         let vault = resolve_vault_path(&env).unwrap();
         let path = vault.to_string_lossy();
         // Path should be: /tmp/sddk-test-data/sddk/knowledge/sddk-framework
-        assert!(path.contains("sddk"), "vault path should contain sddk: {}", path);
-        assert!(path.contains("knowledge"), "vault path should contain knowledge: {}", path);
+        assert!(
+            path.contains("sddk"),
+            "vault path should contain sddk: {}",
+            path
+        );
+        assert!(
+            path.contains("knowledge"),
+            "vault path should contain knowledge: {}",
+            path
+        );
     }
 
     #[test]
