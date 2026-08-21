@@ -32,6 +32,17 @@ publication.
 Persist the archive report and manifest even when blocked where possible. Return
 the phase prompt's exact envelope as final text.
 
+## INC generation
+
+For each finding in `debt-report.json` with status ∈ {open, in-progress, deferred}:
+
+1. Compute `inc_id` from fingerprint + title slug.
+2. Check `INC-NNN-{slug}.md` exists at `~/.sddk-knowledge/<project>/incs/`.
+3. If not, render template `docs/debt/INCIDENCE-TEMPLATE.md`.
+4. Append lifecycle event row.
+
+Status `resolved`/`superseded` only update existing INC via `inc_id`. Runtime emission is cycle-8+; docs only. ADR-0047 §3.2.
+
 ## References
 
 - `prompts/sddk/phases/archive.md`
