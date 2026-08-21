@@ -29,7 +29,7 @@ impl ApprovalDecision {
             verdict,
             id,
             display,
-            at: super::time::now_rfc3339(),
+            at: sddk_domain::format::now_rfc3339_utc(),
         }
     }
 }

@@ -348,7 +348,7 @@ fn run_fork_create(args: ForkCreateArgs, environment: &CliEnvironment) -> Comman
             .user
             .clone()
             .unwrap_or_else(|| "sddk-cli".into());
-        let now = crate::uat_common::time::now_rfc3339();
+        let now = sddk_domain::format::now_rfc3339_utc();
         let record = fork_store.create_fork(input, &actor, &now, &event.content_hash)?;
         Ok(ForkCreateOutput {
             fork_id: record.fork_id,

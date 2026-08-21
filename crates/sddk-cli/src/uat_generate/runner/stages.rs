@@ -14,7 +14,7 @@ pub fn run_quality_stage(
             schema_version: 1,
             analyzer: "pipeline-test-injection".to_string(),
             model: "test-v1".to_string(),
-            analyzed_at: crate::uat_common::time::now_rfc3339(),
+            analyzed_at: sddk_domain::format::now_rfc3339_utc(),
             plan_ref: String::new(),
             smells: vec![crate::uat_quality::report::QualitySmell {
                 id: "TEST-001".to_string(),

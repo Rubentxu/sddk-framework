@@ -109,8 +109,8 @@ fn build_features_from_criteria(
         let plain_steps = vec![step_from_text(&format!("Verify: {}", criterion))];
         let provenance = sddk_domain::UatProvenance {
             author: "uat-planner".to_string(),
-            created_at: crate::uat_common::time::now_rfc3339(),
-            last_modified_at: crate::uat_common::time::now_rfc3339(),
+            created_at: sddk_domain::format::now_rfc3339_utc(),
+            last_modified_at: sddk_domain::format::now_rfc3339_utc(),
             origin: sddk_domain::UatOrigin::Spec,
             origin_ref: req_id.clone(),
         };
@@ -249,8 +249,8 @@ pub fn build_plan(
                 .provenance
                 .created_at
                 .clone()
-                .unwrap_or_else(crate::uat_common::time::now_rfc3339),
-            last_modified_at: crate::uat_common::time::now_rfc3339(),
+                .unwrap_or_else(sddk_domain::format::now_rfc3339_utc),
+            last_modified_at: sddk_domain::format::now_rfc3339_utc(),
             origin: sddk_domain::UatOrigin::Regression,
             origin_ref: candidate.flow_ref.clone(),
         };
@@ -311,7 +311,7 @@ pub fn build_plan(
     // Build last_uat_release from previous plan
     let last_uat_release = last_plan_ref.as_ref().map(|p| p.release.candidate.clone());
 
-    let now = crate::uat_common::time::now_rfc3339();
+    let now = sddk_domain::format::now_rfc3339_utc();
     let plan = UatPlan {
         schema_version: sddk_domain::LATEST_PLAN_SCHEMA_VERSION,
         release: UatPlanRelease {

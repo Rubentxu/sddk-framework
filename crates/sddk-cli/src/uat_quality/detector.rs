@@ -21,9 +21,8 @@ use sddk_domain::UatFormInputKind as FIK;
 use sddk_domain::UatFormVisibility as FVIS;
 use sddk_domain::{UatPlan, UatScenario};
 
-use super::report::{
-    QualityReport, QualitySmell, QualitySummary, QualityThreshold, SmellLocation, now_rfc3339,
-};
+use super::report::{QualityReport, QualitySmell, QualitySummary, QualityThreshold, SmellLocation};
+use sddk_domain::format::now_rfc3339_utc;
 
 /// Detect all 13 smell categories in a UAT plan.
 pub fn detect_13_smells(plan: &UatPlan, threshold: QualityThreshold) -> QualityReport {
@@ -50,7 +49,7 @@ pub fn detect_13_smells(plan: &UatPlan, threshold: QualityThreshold) -> QualityR
         schema_version: 1,
         analyzer: "uat-form-quality".into(),
         model: "heuristic-v1".into(),
-        analyzed_at: now_rfc3339(),
+        analyzed_at: now_rfc3339_utc(),
         plan_ref: String::new(),
         smells,
         summary: QualitySummary {

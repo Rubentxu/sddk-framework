@@ -186,7 +186,7 @@ pub fn discover(args: &crate::uat::DiscoverArgs) -> anyhow::Result<DiscoveryOutc
     // Validate non-empty artifacts
     validate_successful_artifacts(&merged)?;
 
-    let now = crate::uat_common::time::now_rfc3339();
+    let now = sddk_domain::format::now_rfc3339_utc();
     let scenario_candidates = if !merged.flows.is_empty() {
         merged
             .flows

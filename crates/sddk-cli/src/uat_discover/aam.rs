@@ -32,7 +32,7 @@ impl AamModel {
     /// Creates a fallback AAM when Fara is unreachable.
     /// Sets fara_version=unreachable and provenance.fallback=no-fara.
     pub fn fallback(app_url: &str, entry: &str) -> Self {
-        let now = crate::uat_common::time::now_rfc3339();
+        let now = sddk_domain::format::now_rfc3339_utc();
         Self {
             schema_version: 1,
             model: "uat-discovery".into(),
@@ -199,7 +199,7 @@ impl AamScenarioCandidate {
             provenance: AamProvenance {
                 generated_by: Some("uat-discovery".into()),
                 author: None,
-                created_at: Some(crate::uat_common::time::now_rfc3339()),
+                created_at: Some(sddk_domain::format::now_rfc3339_utc()),
                 last_modified_at: None,
                 origin: Some("discovered".into()),
                 origin_ref: None,

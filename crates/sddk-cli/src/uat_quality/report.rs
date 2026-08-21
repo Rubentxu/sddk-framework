@@ -54,6 +54,3 @@ pub struct QualitySummary {
     pub suggestions: u32,
     pub pass: bool,
 }
-
-/// Re-export RFC3339 timestamp utility from common module.
-pub use crate::uat_common::time::now_rfc3339;

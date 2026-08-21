@@ -3,7 +3,6 @@
 
 pub mod io;
 pub mod plan_io;
-pub mod time;
 
 // Used by uat_quality::run
 pub use plan_io::read_plan;
