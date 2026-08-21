@@ -42,6 +42,7 @@ fn stale_test_setup() -> (StaleTestEnv, impl Fn(&[&str]) -> std::process::Output
     std::fs::create_dir_all(&ledger_dir).unwrap();
     {
         let mut store = sddk_storage::event_store::SqliteEventStore::open(&ledger_dir).unwrap();
+        #[allow(clippy::type_complexity)]
         let events: Vec<(String, u64, Vec<(&str, &str)>, serde_json::Value)> = vec![
             (
                 "uat.acceptance.verified".into(),
@@ -127,6 +128,7 @@ fn stale_test_setup() -> (StaleTestEnv, impl Fn(&[&str]) -> std::process::Output
     (StaleTestEnv { _dir: tmp }, run)
 }
 
+#[allow(dead_code)]
 const ROOT_ARGS: &[&str] = &[
     "--root",
     ".",

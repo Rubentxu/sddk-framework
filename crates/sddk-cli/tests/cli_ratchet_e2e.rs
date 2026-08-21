@@ -5,6 +5,7 @@ use tempfile::TempDir;
 
 struct RatchetTestEnv {
     _dir: TempDir,
+    #[allow(dead_code)]
     root: std::path::PathBuf,
 }
 

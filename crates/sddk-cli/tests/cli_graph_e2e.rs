@@ -17,7 +17,9 @@ fn fallback_project_id(seed: &str, scope: &str) -> String {
 }
 
 struct GraphTestEnv {
+    #[allow(dead_code)]
     root: std::path::PathBuf,
+    #[allow(dead_code)]
     stream: String,
     _dir: TempDir,
 }
@@ -138,7 +140,7 @@ fn graph_test_setup() -> (GraphTestEnv, impl Fn(&[&str]) -> std::process::Output
 
 #[test]
 fn graph_rebuild_then_query_then_why() {
-    let (env, run) = graph_test_setup();
+    let (_env, run) = graph_test_setup();
 
     // rebuild
     let out = run(&[
@@ -212,7 +214,7 @@ fn graph_rebuild_then_query_then_why() {
 
 #[test]
 fn graph_why_unknown_entity_reports_not_found() {
-    let (env, run) = graph_test_setup();
+    let (_env, run) = graph_test_setup();
     let out = run(&[
         "graph",
         "rebuild",

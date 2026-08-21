@@ -9,7 +9,7 @@
 
 use std::collections::BTreeMap;
 
-use sddk_domain::graph::{EdgeSnapshot, ExecutionGraphRevision, GraphEvent, NodeSnapshot};
+use sddk_domain::graph::{ExecutionGraphRevision, GraphEvent, NodeSnapshot};
 use sddk_domain::workflow_ir::{EventId, NodeId, RevisionId};
 
 fn empty_revision(revision: u64, revision_id: &str) -> ExecutionGraphRevision {
@@ -172,7 +172,7 @@ fn nodes_btreemap_order_does_not_affect_digest() {
 #[test]
 fn child_parent_chain_is_valid() {
     let root = empty_revision(0, "root");
-    let mut root_digest = root.compute_digest();
+    let root_digest = root.compute_digest();
     let root_computed = root_digest;
 
     let mut child = revision_with_parent(1, "child", root);
@@ -204,7 +204,7 @@ fn deeply_nested_chain_digest_changes() {
     let mut prev_digest = prev.compute_digest();
 
     for i in 1..=5 {
-        let mut next = revision_with_parent(i, &format!("r{}", i), prev);
+        let next = revision_with_parent(i, &format!("r{}", i), prev);
         let next_digest = next.compute_digest();
         assert_ne!(
             prev_digest, next_digest,

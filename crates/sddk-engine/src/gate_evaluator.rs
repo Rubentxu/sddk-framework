@@ -4,11 +4,12 @@
 //! - `debt-severity-assigned`: every finding has severity ∈ {critical, high, medium, low}
 //! - `debt-priority-assigned`: every finding have priority ∈ {P0, P1, P2, P3}
 
-use sddk_domain::{DebtReport, Finding, GateOutcomeStatus, Ledger, Severity};
+use sddk_domain::{DebtReport, GateOutcomeStatus, Ledger, Severity};
 use serde_json::Value;
 
 /// Outcome of a gate evaluation (without persistence).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(missing_docs)]
 pub enum GateOutcome {
     /// The gate passed.
     Passed { notes: String },
@@ -99,6 +100,7 @@ fn evaluate_priority_gate(report: &DebtReport) -> GateOutcome {
 }
 
 /// Converts a `GateOutcome` to the corresponding `GateOutcomeStatus`.
+#[allow(dead_code)]
 fn to_status(outcome: &GateOutcome) -> GateOutcomeStatus {
     match outcome {
         GateOutcome::Passed { .. } => GateOutcomeStatus::Passed,
@@ -107,6 +109,7 @@ fn to_status(outcome: &GateOutcome) -> GateOutcomeStatus {
 }
 
 /// Builds the evidence JSON for a gate evaluation.
+#[allow(dead_code)]
 fn build_evidence(outcome: &GateOutcome) -> Value {
     match outcome {
         GateOutcome::Passed { notes } => serde_json::json!({ "notes": notes }),
@@ -124,7 +127,7 @@ fn build_evidence(outcome: &GateOutcome) -> Value {
 /// This is the wiring entry point used by the CLI and orchestrator:
 /// it calls `evaluate_named_gate` and then emits a `GateReceipt` through
 /// `Engine::evaluate_gate` for durable storage.
-#[allow(clippy::too_many_arguments)]
+#[allow(dead_code, clippy::too_many_arguments)]
 fn evaluate_and_record<L: Ledger>(
     engine: &mut crate::Engine<L>,
     cycle_id: &str,

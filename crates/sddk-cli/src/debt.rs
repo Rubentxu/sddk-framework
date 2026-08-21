@@ -4,14 +4,12 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand};
-use sddk_domain::{
-    DebtReport, Finding, FindingStatus, GateOutcomeStatus, IncRecord, IncStatus, Priority, Severity,
-};
-use sddk_engine::{self, GateOutcome, evaluate_named_gate, fingerprint, render_inc_template};
+use sddk_domain::{DebtReport, FindingStatus};
+use sddk_engine::{self, GateOutcome, evaluate_named_gate, render_inc_template};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-use crate::{CliEnvironment, CommandOutput, compose};
+use crate::{CliEnvironment, CommandOutput};
 
 /// Debt management subcommands.
 #[derive(Debug, Clone, Args)]
@@ -243,7 +241,6 @@ fn run_backfill(cycle_id: &str, env: &CliEnvironment) -> CommandOutput {
         )
     }) {
         let inc_content = render_inc_template(finding, &project_id, &report.cycle_id);
-        let inc_slug = sddk_engine::derive_inc_slug(finding);
         let inc_id = sddk_engine::derive_inc_id(finding, &existing_ids);
         let inc_path = incs_dir.join(format!("{}.md", inc_id));
         match std::fs::write(&inc_path, &inc_content) {
@@ -275,7 +272,7 @@ fn run_backfill(cycle_id: &str, env: &CliEnvironment) -> CommandOutput {
     }
 }
 
-fn run_gates(gate_name: &str, env: &CliEnvironment) -> CommandOutput {
+fn run_gates(gate_name: &str, _env: &CliEnvironment) -> CommandOutput {
     // Build a minimal debt report and evaluate the gate
     let report = DebtReport {
         schema_version: "1.1.0".into(),

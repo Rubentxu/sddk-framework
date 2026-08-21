@@ -378,6 +378,7 @@ fn ledger_events_text(events: &Vec<LedgerEventOutput>) -> String {
 mod tests {
     use super::*;
 
+    #[allow(dead_code)]
     fn env() -> CliEnvironment {
         CliEnvironment::default()
     }

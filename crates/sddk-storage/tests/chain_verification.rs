@@ -9,7 +9,6 @@
 use rusqlite::params;
 use sddk_domain::{ActorKind, ActorRef, EntityRef, EventEnvelopeV1, EventStore};
 use sha2::{Digest, Sha256};
-use std::time::Duration;
 
 /// Compute genesis chain_hash: SHA256(content_hash || "genesis")
 fn genesis_chain_hash(content_hash: &str) -> String {
@@ -29,6 +28,7 @@ fn chain_hash(content_hash: &str, prev_chain_hash: &str) -> String {
 
 /// Insert an event directly into the DB with pre-computed chain_hash.
 /// Bypasses append() content_hash validation by using the raw SQLite API.
+#[allow(clippy::too_many_arguments)]
 fn insert_event_with_chain(
     conn: &rusqlite::Connection,
     event_id: &str,
@@ -124,7 +124,7 @@ fn verify_chain_integrity_empty_stream_succeeds() {
 
 #[test]
 fn verify_chain_integrity_single_genesis_event_succeeds() {
-    let mut store = sddk_storage::event_store::SqliteEventStore::open_in_memory()
+    let store = sddk_storage::event_store::SqliteEventStore::open_in_memory()
         .expect("open in-memory store");
 
     let ch = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
@@ -158,7 +158,7 @@ fn verify_chain_integrity_single_genesis_event_succeeds() {
 
 #[test]
 fn verify_chain_integrity_two_event_chain_succeeds() {
-    let mut store = sddk_storage::event_store::SqliteEventStore::open_in_memory()
+    let store = sddk_storage::event_store::SqliteEventStore::open_in_memory()
         .expect("open in-memory store");
 
     // Event 1: genesis
@@ -207,7 +207,7 @@ fn verify_chain_integrity_two_event_chain_succeeds() {
 
 #[test]
 fn verify_chain_integrity_detects_tampered_content() {
-    let mut store = sddk_storage::event_store::SqliteEventStore::open_in_memory()
+    let store = sddk_storage::event_store::SqliteEventStore::open_in_memory()
         .expect("open in-memory store");
 
     // Event 1: genesis
@@ -290,7 +290,7 @@ fn verify_chain_integrity_detects_tampered_content() {
 
 #[test]
 fn verify_chain_integrity_detects_broken_chain() {
-    let mut store = sddk_storage::event_store::SqliteEventStore::open_in_memory()
+    let store = sddk_storage::event_store::SqliteEventStore::open_in_memory()
         .expect("open in-memory store");
 
     // Event 1: genesis

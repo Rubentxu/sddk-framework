@@ -39,6 +39,7 @@ fn explore_test_setup() -> (ExploreTestEnv, impl Fn(&[&str]) -> std::process::Ou
     std::fs::create_dir_all(&ledger_dir).unwrap();
     {
         let mut store = sddk_storage::event_store::SqliteEventStore::open(&ledger_dir).unwrap();
+        #[allow(clippy::type_complexity)]
         let events: Vec<(String, u64, Vec<(&str, &str)>, serde_json::Value)> = vec![
             (
                 "approval.capability.requested".into(),

@@ -3,7 +3,7 @@
 //! Renders `INC-NNN-{slug}.md` files using the template at
 //! `docs/debt/INCIDENCE-TEMPLATE.md` embedded via `include_str!`.
 
-use sddk_domain::{DebtReport, Finding, IncRecord, IncStatus, Priority, Severity};
+use sddk_domain::{Finding, Priority, Severity};
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -50,15 +50,15 @@ pub fn derive_inc_id(finding: &Finding, existing_ids: &HashSet<String>) -> Strin
 ///
 /// Template is embedded at compile time via `include_str!` and rendered
 /// with the finding's metadata.
-pub fn render_inc_template(finding: &Finding, project_id: &str, cycle_id: &str) -> String {
+pub fn render_inc_template(finding: &Finding, _project_id: &str, cycle_id: &str) -> String {
     let inc_id = derive_inc_id_string(finding);
-    let slug = derive_inc_slug(finding);
+    let _slug = derive_inc_slug(finding);
     let created = OffsetDateTime::now_utc()
         .format(&Rfc3339)
         .unwrap_or_else(|_| "2026-08-21T00:00:00Z".into());
     let severity_str = severity_to_str(&finding.severity);
     let priority_str = priority_to_str(&finding.priority);
-    let status_str = finding_status_to_str(&finding.status);
+    let _status_str = finding_status_to_str(&finding.status);
     let fingerprint_aliases_str = if finding.fingerprint_aliases.is_empty() {
         "[]".to_string()
     } else {

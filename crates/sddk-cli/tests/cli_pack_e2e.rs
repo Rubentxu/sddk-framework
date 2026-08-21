@@ -12,6 +12,7 @@ use std::process::Command;
 use tempfile::TempDir;
 
 /// Computes the stable project ID for a fallback seed + scope.
+#[allow(dead_code)]
 fn fallback_project_id(seed: &str, scope: &str) -> String {
     let hex = {
         let mut hasher = Sha256::new();
@@ -191,7 +192,7 @@ fn pack_list_shows_discovered_packs() {
 
 #[test]
 fn pack_list_empty_when_no_packs() {
-    let (env, run) = pack_test_setup();
+    let (_env, run) = pack_test_setup();
     let out = run(&["pack", "list"]);
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert_eq!(
@@ -356,7 +357,7 @@ fn pack_conformance_fixtures() {
     let fixtures = env.root.join("fixtures/packs");
     std::fs::create_dir_all(&fixtures).unwrap();
     // Copy fixture manifests from the repo into the test root.
-    for (name, expected_code) in [
+    for (name, _expected_code) in [
         ("valid-v2.toml", None),
         ("valid-v1.toml", None),
         ("invalid-conflict.toml", Some("PACK009")),

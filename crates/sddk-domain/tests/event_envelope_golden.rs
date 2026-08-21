@@ -479,7 +479,7 @@ fn ir_events_content_hash_is_stable() {
         build_graph_revision_accepted_event(),
     ];
 
-    for (i, mut env) in events.into_iter().enumerate() {
+    for (i, env) in events.into_iter().enumerate() {
         // Verify compute_content_hash() runs without panic and returns valid sha256 format
         let computed = env.compute_content_hash();
         assert!(

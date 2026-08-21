@@ -41,6 +41,7 @@ fn fork_test_setup() -> (ForkTestEnv, impl Fn(&[&str]) -> std::process::Output) 
     std::fs::create_dir_all(&ledger_dir).unwrap();
     {
         let mut store = sddk_storage::event_store::SqliteEventStore::open(&ledger_dir).unwrap();
+        #[allow(clippy::type_complexity)]
         let events: Vec<(String, u64, Vec<(&str, &str)>, serde_json::Value)> = vec![
             (
                 "approval.capability.requested".into(),
@@ -136,6 +137,7 @@ fn fork_test_setup() -> (ForkTestEnv, impl Fn(&[&str]) -> std::process::Output) 
     (ForkTestEnv { _dir: tmp }, run)
 }
 
+#[allow(dead_code)]
 const SEED_ARGS: &[&str] = &[
     "--root",
     ".",
