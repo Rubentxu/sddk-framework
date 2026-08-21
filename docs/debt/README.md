@@ -6,8 +6,8 @@ This directory contains the canonical contracts for the durable debt remediation
 
 - **[SEVERITY.md](./SEVERITY.md)** — Severity taxonomy (`critical | high | medium | low`). Intrinsic technical impact, independent of scheduling.
 - **[PRIORITY.md](./PRIORITY.md)** — Priority taxonomy (`P0 | P1 | P2 | P3`). Remediation scheduling, distinct from UAT priority namespace.
-- **debt-report.schema.json** — JSON Schema draft-07 for the per-cycle debt report (cycle-7b).
-- **INCIDENCE-TEMPLATE.md** — Template for `INC-NNN-{slug}.md` cross-cycle records (cycle-7b).
+- **debt-report.schema.json** *(planned for cycle-7b)* — JSON Schema draft-07 for the per-cycle debt report.
+- **INCIDENCE-TEMPLATE.md** *(planned for cycle-7b)* — Template for `INC-NNN-{slug}.md` cross-cycle records.
 
 ## Source of truth
 
