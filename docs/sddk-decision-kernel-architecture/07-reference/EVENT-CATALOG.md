@@ -96,3 +96,17 @@ This is an initial semantic catalog; payload schemas should live as versioned ma
 - `artifact.promoted`
 - `artifact.deployed`
 - `artifact.lifecycle.changed`
+
+## Technical debt (`debt.*` SDD-pack family)
+- `debt.report.accepted`
+- `debt.incidence.created`
+- `debt.incidence.observed`
+- `debt.incidence.reprioritized`
+- `debt.incidence.deferred`
+- `debt.risk.accepted`
+- `debt.risk.expired`
+- `debt.incidence.resolved`
+- `debt.incidence.reopened`
+- `debt.fingerprint.aliased`
+- `debt.plan.created`
+- `debt.plan.overridden`

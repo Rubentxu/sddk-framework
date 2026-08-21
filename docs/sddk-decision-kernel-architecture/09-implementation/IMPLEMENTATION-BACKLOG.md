@@ -108,6 +108,23 @@
 - [ ] artifact lifecycle projection.
 - [ ] release gate policies.
 
+## M13b — Durable debt remediation
+
+Depends on M2, M3/M3b, M8, M11b and the M13 artifact primitives.
+
+- [ ] Add SDD-pack `DebtReportV2`, tagged proposals and canonical serialization fixtures.
+- [ ] Implement `sdd.debt.validate/evaluate` in Rust; callers cannot provide verdicts.
+- [ ] Store `debt-report` in CAS and sign report/subject/baseline/policy/evaluator bindings in gate evidence.
+- [ ] Register versioned `debt.*` event payloads and idempotent operation IDs.
+- [ ] Build replayable incidence, queue, Active Graph and optional Markdown projections.
+- [ ] Implement governed risk acceptance, expiry, early resolution and emergency override receipts.
+- [ ] Implement deterministic P0-P3 policy with reason codes and deferral budgets.
+- [ ] Add `sddk debt validate/evaluate/queue/plan/accept-risk/why` host commands.
+- [ ] Bind immutable debt-plan input in Workflow Runtime v2; add an optional legacy cycle-start bridge.
+- [ ] Enforce selected debt through ChangeContract and bounded CONVERGE remediation.
+- [ ] Add three-run, reopen, alias, expiry, P0, stale-plan and projection-replay acceptance fixtures.
+- [ ] Add read-only `sddk artifact inventory`; do not add deletion or compaction.
+
 ## M3b — Dynamic workflow core (insert immediately after Workflow v2)
 
 - [ ] WorkflowTemplate vs WorkflowIR contracts.

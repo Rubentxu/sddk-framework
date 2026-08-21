@@ -81,6 +81,7 @@ flowchart TD
 | UAT | `04-specs/SPEC-030-UAT-PACK.md` |
 | Gobernanza | `04-specs/SPEC-031-GOVERNED-CAPABILITIES.md` |
 | Evaluación | `04-specs/SPEC-024-AGENT-EVALUATION.md` |
+| Deuda técnica durable | `03-adrs/ADR-040-DURABLE-DEBT-REMEDIATION.md`, `04-specs/SPEC-041-DURABLE-DEBT-REMEDIATION.md` |
 
 ## Resultado arquitectónico deseado
 

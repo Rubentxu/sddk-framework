@@ -222,9 +222,11 @@ sddk system          # system installation
 - `agents/`, `skills/`, `prompts/` are **copies**, not symlinks. `bootstrap.sh`
   symlinks them to each editor's directories.
 
-### 5.4. Design decisions live in `docs/adr/` or `~/.sddk-knowledge/`
+### 5.4. Design decisions have one canonical surface per scope
 
 - `docs/adr/` (this repo) — public-project ADRs.
+- `docs/sddk-decision-kernel-architecture/03-adrs/` — active target-architecture
+  ADRs; its roadmap lives in `02-roadmap/`.
 - `~/.sddk-knowledge/<project>/adrs/` — adopted-project ADRs.
 - Plan specs live in `~/.sddk-knowledge/<project>/specs/`.
 
@@ -261,8 +263,9 @@ Before modifying any of them:
    `prompts/sddk/orchestrator.md` (orchestrator).
 2. **Open an issue** describing the change with motivation, alternatives
    considered, and impact on existing cycles.
-3. **Write or update the relevant ADR** in `docs/adr/`. Use the
-   template in `docs/adr/ADR-NNNN-template.md` (or create one if missing).
+3. **Write or update the relevant ADR** in `docs/adr/` for current-runtime
+   behavior, or in `docs/sddk-decision-kernel-architecture/03-adrs/` for the
+   target architecture.
 4. **Test locally** with at least one full A-lite cycle end-to-end
    (sddk new → verify → debt-verify → release → archive).
 5. **Tag a release** (`chore(release): vX.Y.Z`) only after the change has
@@ -301,7 +304,7 @@ Releases follow `prompts/sddk/phases/release.md` and `MCW Phase 3`.
 - Regression history: `docs/history/AGENTS-history.md`
 - Current handoff: `docs/handoff/HANDOFF-2026-08-13-sddk-framework.md`
 - Architecture roadmap:
-  `docs/sddk-2.0-architecture-consolidation/roadmap/ROADMAP.md`
+  `docs/sddk-decision-kernel-architecture/02-roadmap/ROADMAP.md`
 - Conventional Commits:
   <https://www.conventionalcommits.org/en/v1.0.0/>
 - Keep a Changelog: <https://keepachangelog.com/en/1.1.0/>

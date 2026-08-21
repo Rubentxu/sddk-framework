@@ -85,9 +85,11 @@ y se actualiza con `sddk dev install`.
 - `agents/`, `skills/`, `prompts/` son **copias**, no symlinks. `bootstrap.sh`
   los symlinkea a los directorios de cada editor.
 
-### 4.4. Las decisiones de diseño viven en `docs/adr/` o `~/.sddk-knowledge/`
+### 4.4. Las decisiones de diseño tienen una superficie canónica por alcance
 
 - `docs/adr/` (este repo) — ADRs del proyecto público.
+- `docs/sddk-decision-kernel-architecture/03-adrs/` — ADRs de la arquitectura
+  objetivo activa; su roadmap vive en `02-roadmap/`.
 - `~/.sddk-knowledge/<project>/adrs/` — ADRs de proyectos adoptados.
 - Specs del plan en `~/.sddk-knowledge/<project>/specs/`.
 
@@ -125,4 +127,4 @@ y se actualiza con `sddk dev install`.
 - **Architecture model:** `docs/ARCHITECTURE-MODEL.md`
 - **Historial de regresiones resueltas:** `docs/history/AGENTS-history.md`
 - **Estado actual del proyecto (handoff):** `docs/handoff/HANDOFF-2026-08-13-sddk-framework.md`
-- ** Roadmap de arquitectura:** `docs/sddk-2.0-architecture-consolidation/roadmap/ROADMAP.md`
+- **Roadmap de arquitectura:** `docs/sddk-decision-kernel-architecture/02-roadmap/ROADMAP.md`

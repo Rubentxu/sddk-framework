@@ -90,3 +90,5 @@ fn main() {
 - adapters no contienen transición de workflow;
 - hosts no contienen business policy;
 - ninguna nueva API recibe `dyn Ledger` si puede recibir un puerto más estrecho.
+- los crates genéricos de kernel/domain no exportan tipos `Debt*`; schemas,
+  evaluadores y políticas de deuda pertenecen al pack SDD.

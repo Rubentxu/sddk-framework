@@ -20,3 +20,4 @@
 - [ADR-037-DYNAMIC-WORKFLOW-COMPILATION](ADR-037-DYNAMIC-WORKFLOW-COMPILATION.md) — ADR-037 — Dynamic Workflow Compilation and Evented Graph Expansion
 - [ADR-038-INVARIANT-DRIVEN-SDD](ADR-038-INVARIANT-DRIVEN-SDD.md) — ADR-038 — Make SDD Invariant-Driven Rather Than Phase-Driven
 - [ADR-039-ADAPTIVE-VERIFICATION](ADR-039-ADAPTIVE-VERIFICATION.md) — ADR-039 — Risk- and Evidence-Driven Adaptive Verification
+- [ADR-040-DURABLE-DEBT-REMEDIATION](ADR-040-DURABLE-DEBT-REMEDIATION.md) — ADR-040 — Durable and prioritized technical-debt remediation

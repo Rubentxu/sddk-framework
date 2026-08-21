@@ -72,6 +72,15 @@ Approval/rejection/waiver/acceptance/signoff.
 ### WorkflowExperiment
 Comparison unit for baseline/adaptive/forked workflows with common goal/evaluation contract.
 
+## Pack-owned domain extensions
+
+Packs may add domain entities without placing their semantics in the generic
+kernel. The SDD pack defines the logical `DebtReport`, `DebtIncidence`,
+`DebtPlan` and `DebtPriorityPolicy` entities (ADR-040/SPEC-041); version suffixes
+such as `DebtReportV2` belong to their wire schemas. Their lifecycle is
+represented by canonical events; Active Graph and Markdown nodes are rebuildable
+projections.
+
 ## Relationships
 
 ```mermaid

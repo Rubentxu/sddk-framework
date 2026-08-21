@@ -1,6 +1,6 @@
 # Complete Document Index
 
-Total Markdown documents: **95**
+Total Markdown documents: **97**
 
 - [`00-vision/NAMING.md`](00-vision/NAMING.md) — Naming — SDDK
 - [`00-vision/PRD.md`](00-vision/PRD.md) — PRD — SDDK Software Development Decision Kernel
@@ -38,6 +38,7 @@ Total Markdown documents: **95**
 - [`03-adrs/ADR-037-DYNAMIC-WORKFLOW-COMPILATION.md`](03-adrs/ADR-037-DYNAMIC-WORKFLOW-COMPILATION.md) — ADR-037 — Dynamic Workflow Compilation and Evented Graph Expansion
 - [`03-adrs/ADR-038-INVARIANT-DRIVEN-SDD.md`](03-adrs/ADR-038-INVARIANT-DRIVEN-SDD.md) — ADR-038 — Make SDD Invariant-Driven Rather Than Phase-Driven
 - [`03-adrs/ADR-039-ADAPTIVE-VERIFICATION.md`](03-adrs/ADR-039-ADAPTIVE-VERIFICATION.md) — ADR-039 — Risk- and Evidence-Driven Adaptive Verification
+- [`03-adrs/ADR-040-DURABLE-DEBT-REMEDIATION.md`](03-adrs/ADR-040-DURABLE-DEBT-REMEDIATION.md) — ADR-040 — Durable and prioritized technical-debt remediation
 - [`03-adrs/README.md`](03-adrs/README.md) — Architecture Decision Records
 - [`04-specs/README.md`](04-specs/README.md) — Specifications
 - [`04-specs/SPEC-019-SUPERVISOR-RUNTIME.md`](04-specs/SPEC-019-SUPERVISOR-RUNTIME.md) — SPEC-019 — Supervisor Runtime
@@ -62,6 +63,7 @@ Total Markdown documents: **95**
 - [`04-specs/SPEC-038-SDD-ADAPTIVE.md`](04-specs/SPEC-038-SDD-ADAPTIVE.md) — SPEC-038 — SDD Adaptive
 - [`04-specs/SPEC-039-WORKFLOW-PATTERN-ALGEBRA.md`](04-specs/SPEC-039-WORKFLOW-PATTERN-ALGEBRA.md) — SPEC-039 — Workflow Pattern Algebra
 - [`04-specs/SPEC-040-WORKFLOW-LABORATORY.md`](04-specs/SPEC-040-WORKFLOW-LABORATORY.md) — SPEC-040 — Workflow Laboratory
+- [`04-specs/SPEC-041-DURABLE-DEBT-REMEDIATION.md`](04-specs/SPEC-041-DURABLE-DEBT-REMEDIATION.md) — SPEC-041 — Durable technical-debt remediation
 - [`05-workflows/INCIDENT-WORKFLOW.md`](05-workflows/INCIDENT-WORKFLOW.md) — `sddk-incident` Workflow
 - [`05-workflows/README.md`](05-workflows/README.md) — Workflows
 - [`05-workflows/SDD-ADAPTIVE-WORKFLOW.md`](05-workflows/SDD-ADAPTIVE-WORKFLOW.md) — `sdd-adaptive` Workflow

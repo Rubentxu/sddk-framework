@@ -41,5 +41,21 @@
 - UAT extraction.
 - Supply-chain provenance.
 
+## Epic DEBT — Durable remediation
+- `DebtReportV2` SDD-pack schema and canonical Rust validator.
+- CAS-bound report plus evaluator-derived `DebtVerdict` and signed gate evidence.
+- canonical `debt.*` events with idempotent operation IDs.
+- rebuildable incidence, Active Graph and optional `INC-NNN` Markdown projections.
+- tagged lifecycle operations for create/observe/reopen/reprioritize/resolve/fingerprint alias.
+- governed accepted-risk, expiry, early resolution and emergency-plan override.
+- deterministic P0-P3 queue with reason codes and versioned policy.
+- immutable debt-plan input bound at workflow start.
+- selected-debt ChangeContract invariant and bounded same-run convergence.
+- read-only artifact inventory before any compaction proposal.
+
+**Dependencies:** ADR-021/022/031/032/034/039, SPEC-023/027/031/034/035/038,
+ADR-040 and SPEC-041. SDD-specific types remain pack-owned; no debt special case
+enters the generic workflow kernel.
+
 ## Important sequencing
 Dynamic graph execution belongs **before** trying to make the Supervisor smarter. The runtime must be able to validate and durably execute proposed strategies first.

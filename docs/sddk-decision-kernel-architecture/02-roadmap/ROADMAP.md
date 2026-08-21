@@ -53,6 +53,7 @@ Capsules, deltas, actual reads, staleness, negative knowledge, recovery context.
 - SHAPE/BUILD/CONVERGE/INTEGRATE;
 - adaptive specialist activation;
 - adaptive verification;
+- typed debt-report validation and deterministic debt verdict;
 - legacy document projections.
 
 **Exit:** `sdd-adaptive` completes representative simple and high-risk changes with all invariants/evidence.
@@ -65,7 +66,8 @@ Capsules, deltas, actual reads, staleness, negative knowledge, recovery context.
 - promotion policy/shadow rollout.
 
 ## Phase 10 — Active Graph + `sddk why`
-Typed graph, dynamic graph revisions, causal queries, evidence/requirement edges, moldable views.
+Typed graph, dynamic graph revisions, causal queries, evidence/requirement edges,
+debt-incidence projection/queue, `sddk debt why`, moldable views.
 
 ## Phase 11 — Static Cockpit
 Overview, Journal, timeline, execution graph, provider health, usage, experiments, `build/open/watch`.
@@ -77,7 +79,25 @@ Extract lifecycle, defects/retests/signoff/change impact; integrate UAT as conve
 SDD, UAT, Incident all on the same dynamic-capable runtime with no kernel domain special cases.
 
 ## Phase 14 — Supply chain, policy ratchets, production hardening
-SBOM/provenance, artifact lifecycle, signed gates, performance/retention, migration cleanup.
+SBOM/provenance, artifact lifecycle, signed gates, debt-plan start policy,
+read-only retention inventory, performance/retention, migration cleanup.
+
+## Cross-phase slice — durable technical-debt remediation
+
+ADR-040 and SPEC-041 define one vertical capability delivered on top of the
+generic runtime rather than a debt-specific kernel subsystem:
+
+| Dependency | Debt capability unlocked |
+|---|---|
+| Phase 2 Event Ledger | canonical `debt.*` lifecycle events and idempotent replay |
+| Phases 3–4 Workflow Runtime | CAS-bound report, computed gate and bounded same-run remediation |
+| Phase 8 SDD Adaptive | selected debt as ChangeContract invariant and convergence obligation |
+| Phase 10 Active Graph | incidence/queue projection, scope links and `sddk debt why` |
+| Phase 14 Hardening | P0-P3 start policy, signed override receipts and artifact inventory |
+
+Agents supply observations. Rust pack capabilities validate reports, calculate
+verdict/priority and emit proposals. The Event Ledger remains authority; graph
+and `INC-NNN` Markdown are rebuildable projections.
 
 ## Promotion rule for `sdd-adaptive`
 Do not make adaptive the default merely because it is cheaper. Require non-inferior quality/invariant coverage and bounded rollout evidence from Workflow Laboratory.
