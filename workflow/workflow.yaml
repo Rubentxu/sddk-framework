@@ -266,6 +266,10 @@ transitions:
         name: tests-pass
       - kind: gate
         name: policy-compliant
+      - kind: gate
+        name: debt-severity-assigned
+      - kind: gate
+        name: debt-priority-assigned
     paths:
       - A-full
     on_failure:
@@ -288,6 +292,10 @@ transitions:
         name: tests-pass
       - kind: gate
         name: policy-compliant
+      - kind: gate
+        name: debt-severity-assigned
+      - kind: gate
+        name: debt-priority-assigned
     paths:
       - A-min
     on_failure:
@@ -310,6 +318,10 @@ transitions:
         name: tests-pass
       - kind: gate
         name: policy-compliant
+      - kind: gate
+        name: debt-severity-assigned
+      - kind: gate
+        name: debt-priority-assigned
     paths:
       - A-lite
     on_failure:
@@ -788,6 +800,14 @@ gates:
     gate_type:
       binary: {}
     description: Human approved or denied a governed capability request
+  debt-severity-assigned:
+    gate_type:
+      binary: {}
+    description: Every open finding in debt-report.json has severity ∈ {critical, high, medium, low}
+  debt-priority-assigned:
+    gate_type:
+      binary: {}
+    description: Every open finding in debt-report.json has priority ∈ {P0, P1, P2, P3}
 
 forge:
   provider: auto
