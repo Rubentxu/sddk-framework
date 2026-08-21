@@ -32,6 +32,10 @@ not a new runtime `Phase` value.
 
 Return exactly the envelope defined by the phase prompt as final text.
 
+## Vocabulary
+
+Each emitted finding has 10 required fields: id, title, severity, priority, status, fingerprint, fingerprint_aliases, cluster_id, category, description. Schema: `docs/debt/debt-report.schema.json` (draft-07). Severity/priority taxonomies: `docs/debt/SEVERITY.md`, `docs/debt/PRIORITY.md`. Fingerprint = stable hex hash of (file, line, rule, code-block). ADR-0047 §3.
+
 ## References
 
 - `skills/sddk-debt-verify/SKILL.md`
