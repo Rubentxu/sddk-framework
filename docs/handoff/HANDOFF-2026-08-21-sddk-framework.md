@@ -94,6 +94,17 @@ cargo clippy --workspace ✓ 0 errors (pre-existing event_envelope_golden.rs::un
 **Artifacts**: explore-report.md (305 lines) + spec.md (4 REQs)
 **Next**: cycle-8 (gate evaluator runtime + INC generator + fingerprint generator)
 
+## Cycle-8 (kernel-cycle-8-debt-runtime-implementation) — DONE
+
+- Released: **v1.35.0** (`1ed973d`), GitHub Release published.
+- 14 commits (a8f3f21..1ed973d), 1,066 tests pass, 0 fail.
+- 60/65 ACs PASS, 3 PASS_WITH_NOTE (LOC budget exception, forward remediation, etc.), 1 DEFERRED, 0 FAIL.
+- 10 debt findings (6 medium, 4 low); 1 forward entry for cycle-9.
+- Recovery loops: 6 of 14 commits were recovery/lint/manifest regen. Lesson: apply phase should run `-D warnings` clippy itself.
+- Forward: DEBT-CYCLE-8-LOC-OVERAGE → cycle-9 hardening.
+- Bundle: ~/.local/share/sddk/framework/1.35.0/
+- Archive: ~/.sddk-knowledge/sddk-framework/archive/2026-08-21-kernel-cycle-8-debt-runtime-implementation/
+
 ## Next candidates
 
 | # | Candidate | Status | Notes |
