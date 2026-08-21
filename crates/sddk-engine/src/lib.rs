@@ -9,12 +9,15 @@
 
 mod adoption;
 pub mod event_bus;
+pub mod fingerprint;
 pub mod gate_signing;
 pub mod pack_registry;
 mod paths;
 pub mod rules;
 
 pub use adoption::*;
+pub use event_bus::*;
+pub use fingerprint::*;
 pub use gate_signing::*;
 pub use pack_registry::*;
 pub use paths::*;
