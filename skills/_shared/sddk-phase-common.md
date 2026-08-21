@@ -81,6 +81,7 @@ Every phase MUST return a structured envelope to the orchestrator:
 - `next_recommended`: the next SDDK phase to run, or "none"
 - `risks`: risks discovered, or "None"
 - `skill_resolution`: how skills were loaded — `paths-injected` (received exact skill paths from orchestrator), `fallback-registry` (self-loaded paths from registry), `fallback-path` (loaded via SKILL: Load path), or `none` (no skills loaded)
+- `human_summary`: (cycle-close phases only — archive, release, blocked returns during later phases) novice-friendly 2-3 sentence prose rendering for the developer reading the chat. See `prompts/sddk/orchestrator.md` § "Cycle Close: Human-Facing Output". Phase executors do not need to populate this; the orchestrator renders it from `executive_summary` + `risks` + `next_recommended` at cycle close.
 
 Example:
 

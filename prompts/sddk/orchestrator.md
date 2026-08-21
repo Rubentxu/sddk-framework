@@ -191,6 +191,7 @@ Otherwise return `blocked` or `partial` with one exact `next_recommended` action
 ```yaml
 status: success | partial | blocked
 executive_summary: 1-3 sentences
+human_summary: novice-friendly 2-3 sentence prose; see "Cycle Close: Human-Facing Output"
 path: B-direct | A-min | A-lite | A-full
 runtime_status: string
 artifacts: [{kind: string, path: string, sha256: string|null}]
@@ -201,6 +202,70 @@ risks: []
 context_quality: C0 | C1 | C2 | C3
 capabilities_deployed: []
 ```
+
+## Cycle Close: Human-Facing Output
+
+After every cycle archive (or `blocked` / interrupted cycle), the orchestrator
+returns **two layers** to the chat:
+
+1. **Machine envelope** (the YAML Result Contract above) — for downstream
+   automation, ledger, CLI integration, machine consumers.
+2. **Human prose summary** (`human_summary` field + chat message body) — for the
+   developer reading the chat. Use the template below.
+
+### Human template
+
+```text
+## What we did
+
+<2-3 sentences in plain language: what cycle was completed, what was produced,
+what state the project is in now. Avoid jargon.>
+
+## Why it matters
+
+<1-2 sentences: the user-visible benefit, the problem solved, what becomes
+possible now.>
+
+## Key numbers (skip if cycle has no metrics)
+
+- <bullet 1: most relevant metric in plain terms>
+- <bullet 2: second metric>
+- <bullet 3: third metric>
+
+## What comes next
+
+<1-2 sentences: the next reasonable cycle or pause point. Pick one or two
+candidates max — don't list 5+ options.>
+
+## Heads up (only if applicable)
+
+- <bullet 1: blocker, deferred warning, or constraint the user must know>
+```
+
+### Style rules
+
+- **Plain language first.** Prefer "we built X" over "we provisioned X".
+  Prefer "completed" over "executed". Prefer "the cycle closed with status Y"
+  over "the runtime transitioned to state Y".
+- **Drop technical metadata** (commit SHAs, JSON paths, ENO constraints,
+  ledger event IDs, schema validation errors) from the human prose unless
+  they ARE the headline (e.g. a release failed and the SHA is the cause).
+- **Lead with outcome, not process.** If something failed, the headline IS
+  the failure — don't bury it in a success header.
+- **Acronyms after first use.** ADR-0047, INC, SHA, YAML are OK after first
+  mention in the session. Otherwise spell them out.
+- **Under 250 words total.** No bullet walls. Three short sentences beat a
+  table when the table has nothing important to say.
+- **Match the user's language.** Spanish reply in Spanish, English reply in
+  English (mirror the active conversation language).
+- **No emojis unless the user used them first.**
+- **Avoid filler.** "In this cycle we..." → just describe what happened.
+
+### When to skip the human summary
+
+For `blocked` returns during early phases (explore, spec) that the user
+already saw the rejection for, the human summary can collapse to one line:
+"<phase> rejected: <reason>. Awaiting decision."
 
 ## References
 
