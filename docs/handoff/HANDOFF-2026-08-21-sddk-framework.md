@@ -24,6 +24,7 @@ cargo clippy --workspace ✓ 0 errors (pre-existing event_envelope_golden.rs::un
 
 | # | Candidate | Location | Notes |
 |---|-----------|----------|-------|
+| — | **now_rfc3339_utc wrapper consolidation** | `format.rs`, 10 files | **DONE in cycle-6**: 19 sites migrated to Stack A, wrapper deleted, v1.34.0 |
 | 1 | Local `now_rfc3339` style consolidation | `telemetry.rs:843`, `rules_cmd.rs:56`, `uat.rs:2323` | 4+3+12 sites; different impls (`OffsetDateTime::now_utc()`); not Hinnant drift; style goal |
 | 2 | `ExpansionPermission::is_allowed` `#[deprecated]` removal | cycle-3 deprecation seam | Never used in cycle-4 or cycle-5 |
 | 3 | WV-0027 `expires_at` clarification | `proposal.schema.json:91` (not `architecture-rules.yaml:92-107`) | Needs user intent on field vs waiver body |

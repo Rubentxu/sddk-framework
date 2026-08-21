@@ -3,6 +3,13 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Refactor
+  - refactor(ucl): migrate sddk-cli Stack-B call sites to `time::OffsetDateTime::now_utc()` (16 sites, 9 files). REQ-K6-001.
+  - refactor(domain): migrate sddk-domain Stack-B call sites to `time::OffsetDateTime::now_utc()` (3 sites). REQ-K6-002.
+  - refactor(domain): delete `sddk_domain::format::now_rfc3339_utc` wrapper and its test. Preserve `format_rfc3339_utc(epoch_secs)` + 5 pinned-value tests. REQ-K6-003.
+
 ## [1.33.0] - 2026-08-20
 
 ### Refactor
