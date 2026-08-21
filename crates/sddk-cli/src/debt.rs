@@ -1,7 +1,7 @@
 //! Debt management subcommands: report, incs, backfill, gates.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand};
 use sddk_domain::{
@@ -137,7 +137,7 @@ fn run_incs(env: &CliEnvironment) -> CommandOutput {
 /// Locates the most recent archived debt-report.json whose cycle_id matches the given cycle_id.
 /// Walks ~/.sddk-knowledge/<project>/archive/ subdirectories (each named YYYY-MM-DD-{slug})
 /// and returns the PathBuf of the matching debt-report.json, or None if not found.
-fn locate_archived_report(vault: &PathBuf, cycle_id: &str) -> Option<PathBuf> {
+fn locate_archived_report(vault: &Path, cycle_id: &str) -> Option<PathBuf> {
     let archive_dir = vault.join("archive");
     let Ok(entries) = std::fs::read_dir(&archive_dir) else {
         return None;
@@ -190,10 +190,7 @@ fn run_backfill(cycle_id: &str, env: &CliEnvironment) -> CommandOutput {
             return CommandOutput {
                 status: 1,
                 stdout: String::new(),
-                stderr: format!(
-                    "no archived debt-report found for cycle {}\n",
-                    cycle_id
-                ),
+                stderr: format!("no archived debt-report found for cycle {}\n", cycle_id),
             };
         }
     };
@@ -315,7 +312,7 @@ fn resolve_vault_path(env: &CliEnvironment) -> Result<PathBuf, String> {
     let home = env
         .home
         .clone()
-        .or_else(|| dirs::home_dir())
+        .or_else(dirs::home_dir)
         .ok_or_else(|| "no home directory".to_string())?;
     let vault = home.join(".sddk-knowledge/sddk-framework");
     if !vault.exists() {
@@ -367,12 +364,15 @@ mod tests {
         let json = serde_json::to_string(&report).unwrap();
         std::fs::write(subdir.join("debt-report.json"), json).unwrap();
         let vault = temp.path().to_path_buf();
-        let found = locate_archived_report(&vault, "p-52b95ef55999f9de/kernel-cycle-7b-durable-debt-runtime");
-        assert!(
-            found.is_some(),
-            "should find archived report by cycle_id"
+        let found = locate_archived_report(
+            &vault,
+            "p-52b95ef55999f9de/kernel-cycle-7b-durable-debt-runtime",
         );
-        assert_eq!(found.unwrap().file_name().unwrap().to_str().unwrap(), "debt-report.json");
+        assert!(found.is_some(), "should find archived report by cycle_id");
+        assert_eq!(
+            found.unwrap().file_name().unwrap().to_str().unwrap(),
+            "debt-report.json"
+        );
     }
 
     #[test]
