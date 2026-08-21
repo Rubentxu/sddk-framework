@@ -30,4 +30,8 @@ owner: actor-name
 |------|-------|--------|----------|
 | YYYY-MM-DD | creator | created | {finding-id} from cycle-{N} |
 
+## References
+
+<finding.evidence_refs: links to commits, docs, or run artifacts>
+
 > Filled by `sddk-archive` (cycle-8+); consumed by `sddk-debt-verify` for cross-cycle correlation via fingerprint.

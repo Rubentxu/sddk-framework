@@ -12,6 +12,7 @@ pub mod event_bus;
 pub mod fingerprint;
 pub mod gate_evaluator;
 pub mod gate_signing;
+pub mod inc_generator;
 pub mod pack_registry;
 mod paths;
 pub mod rules;
@@ -21,6 +22,7 @@ pub use event_bus::*;
 pub use fingerprint::*;
 pub use gate_evaluator::*;
 pub use gate_signing::*;
+pub use inc_generator::*;
 pub use pack_registry::*;
 pub use paths::*;
 

@@ -21,6 +21,7 @@ getrandom = { workspace = true }
 dirs = { workspace = true }
 regex = { workspace = true }
 sddk-domain = { path = "../sddk-domain" }
+time = { workspace = true }
 
 [dev-dependencies]
 regex = { workspace = true }
