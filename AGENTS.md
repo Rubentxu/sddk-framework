@@ -92,6 +92,7 @@ y se actualiza con `sddk dev install`.
   objetivo activa; su roadmap vive en `02-roadmap/`.
 - `~/.sddk-knowledge/<project>/adrs/` — ADRs de proyectos adoptados.
 - Specs del plan en `~/.sddk-knowledge/<project>/specs/`.
+- **Debt lifecycle** (ADR-0047): severity taxonomy in [`docs/debt/SEVERITY.md`](docs/debt/SEVERITY.md), priority taxonomy in [`docs/debt/PRIORITY.md`](docs/debt/PRIORITY.md), index in [`docs/debt/README.md`](docs/debt/README.md). Cycle-7b will add JSON Schema + INC template + agent/workflow integrations.
 
 ---
 
