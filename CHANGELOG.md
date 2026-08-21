@@ -3,7 +3,7 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## [1.34.0] - 2026-08-21
 
 ### Refactor
   - refactor(ucl): migrate sddk-cli Stack-B call sites to `time::OffsetDateTime::now_utc()` (16 sites, 9 files). REQ-K6-001.
