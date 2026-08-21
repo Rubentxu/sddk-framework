@@ -1,9 +1,41 @@
 # HANDOFF — sddk-framework — 2026-08-21
 
-> **Cycle:** `kernel-cycle-7-durable-debt-spec` (kernel)
-> **Released as:** v1.35.0
-> **HEAD:** `8eb6eab` (ADR-0047 ratified; docs/debt/ taxonomies)
-> **Tag:** v1.35.0
+> **Cycle:** `kernel-cycle-7b-durable-debt-runtime` (kernel)
+> **Released as:** v1.36.0
+> **HEAD:** `0c256e0` (ADR-0047 runtime surface; JSON Schema + INC template + gates)
+> **Tag:** v1.36.0
+
+## Done (cycle-7b, 2026-08-21)
+
+**kernel-cycle-7b-durable-debt-runtime** — Runtime contract surface for ADR-0047 shipped (JSON Schema + INC template + agent vocabulary + workflow gates + prompt updates). Gate wiring deferred to cycle-8+. Released as v1.36.0.
+
+Archive: `~/.sddk-knowledge/sddk-framework/archive/2026-08-21-kernel-cycle-7b-durable-debt-runtime/`
+
+| Metric | Value |
+|--------|-------|
+| LOC | 119 (≤150 budget) |
+| Commits | 10 (9 + 1 fixup) |
+| Verdict | PASS_WITH_WARNINGS (41 ACs; 1 deferred to cycle-8+) |
+| Debt verdict | PASS_WITH_WARNINGS (8 findings; 4 medium-P2, 4 low-P3) |
+| Rust changes | 0 |
+| Tests | 1045 pass / 0 fail |
+
+**Artifacts:**
+- docs/debt/debt-report.schema.json (NEW)
+- docs/debt/INCIDENCE-TEMPLATE.md (NEW)
+- docs/debt/README.md (touch-up)
+- agents/sddk-debt-verify.md (Vocabulary)
+- agents/sddk-archive.md (INC generation)
+- workflow/workflow.yaml (2 gate definitions)
+- prompts/sddk/orchestrator.md (Debt lifecycle)
+- prompts/sddk/phase-contracts.md (file contracts)
+- prompts/sddk/arsenal.md (gate references)
+
+**Warnings:**
+- W1: AC-K7-008-2 (gate wiring) deferred to cycle-8+
+- W2: Gate evaluator runtime (cycle-8+)
+- W3: INC file generator runtime (cycle-8+)
+- W4: Fingerprint generator runtime (cycle-8+)
 
 ## Cycle-7a completed (v1.35.0)
 
@@ -38,25 +70,28 @@ cargo test --workspace  ✓ green (all crates)
 cargo clippy --workspace ✓ 0 errors (pre-existing event_envelope_golden.rs::unused_mut warning is lint-level, not blocking)
 ```
 
-## What changed (5 commits)
+## What changed (10 commits)
 
-1. `refactor(cli): consolidate uat_common::time::now_rfc3339 → sddk_domain::format (REQ-K5-001)` — 11 files, −64/+16 LOC
-2. `feat(domain): extend assert_variant_count_eq! to 7 trimmed enums (REQ-K5-002)` — 5 files, +89 LOC
-3. `docs(agents): trim AGENTS.md 229→≤100 LOC + extract docs/RELEASING.md + ARCHITECTURE-MODEL.md (REQ-K5-003)` — 3 files, −31/+107 LOC
-4. `fix(domain): improve assert_variant_count_eq! diagnostic + close clippy drift + add variant_counts tests (REQ-K5-004)` — 4 files, +95/−9 LOC
-5. `chore(release): bump to v1.33.0 (kernel-cycle-5-cross-cutting-debt) (REQ-K5-005)` — 4 files, +30 LOC
+1. `feat(docs): add debt-report.schema.json (REQ-K7-004)` — +45 LOC
+2. `feat(docs): add INCIDENCE-TEMPLATE.md (REQ-K7-005)` — +35 LOC
+3. `docs(debt): touch-up README markers (REQ-K7-004/005)` — +2/-2 LOC
+4. `docs(agents): add Vocabulary section (REQ-K7-006)` — +8 LOC
+5. `docs(agents): add INC generation section (REQ-K7-007)` — +8 LOC
+6. `feat(workflow): add 2 gate definitions (REQ-K7-008)` — +18 LOC
+7. `feat(prompts): add Debt lifecycle to orchestrator (REQ-K7-009)` — +8 LOC
+8. `feat(prompts): add 2 file contracts to phase-contracts (REQ-K7-009)` — +10 LOC
+9. `feat(prompts): add gate refs to arsenal (REQ-K7-009)` — +4 LOC
+10. `fix(workflow): desacoplar gates debt de requires hasta cycle-8+` — -12 LOC
 
-## Cycle-7 candidates
+## Next candidates
 
-| # | Candidate | Location | Notes |
-|---|-----------|----------|-------|
-| 1 | cycle-7b: JSON Schema + INC template + agent/prompt/gate updates | `docs/debt/`, `agents/`, `workflow/` | ~145 LOC; wires ADR-0047 foundation from cycle-7a |
-| 2 | Fix CLI gate receipt persistence bug | infra | `evaluate-gate` returns receipt_id but `transition` reports STORAGE_NOT_FOUND; blocks all future cycle transitions |
-| 3 | Unify local `now_rfc3339()` private fns | `telemetry.rs:843`, `rules_cmd.rs:56`, `uat.rs:2323`, `dev/check_arch.rs:46` | 4 fns in 4 files; different impls; style goal |
-| 4 | Implement ADR-0047 runtime emission | `crates/` | Deferred from cycle-7a; CLI + Rust changes |
-| 5 | `ExpansionPermission::is_allowed` `#[deprecated]` removal | cycle-3 deprecation seam | Never used in cycle-4, 5, 6, or 7 |
-| 6 | WV-0027 `expires_at` clarification | `proposal.schema.json:91` | Needs user intent on field vs waiver body |
-| 7 | macOS / Windows musl targets | `scripts/install.sh` + `sddk-cli/Cargo.toml` | Toolchain proven; release-engineering scope |
+| # | Candidate | Status | Notes |
+|---|-----------|--------|-------|
+| 1 | **cycle-7c: CLI gate receipt persistence fix** | **HIGH** | `evaluate-gate` returns receipt_id but `transition` reports STORAGE_NOT_FOUND; blocks ledger transitions since cycle-3. ~80 LOC Rust. |
+| 2 | cycle-8: Gate evaluator runtime + INC generator + fingerprint generator | P2 | ADR-0047 §3 implementation. ~400 LOC Rust + schema. |
+| 3 | cycle-8+: INC backfill for cycle-3..7a + schema migration tooling | P3 | ADR-0047 §Compatibility. ~150 LOC data. |
+
+**Deferred from cycle-7b (W1-W4):** Gate wiring, gate evaluator runtime, INC generator runtime, fingerprint generator runtime — all cycle-8+.
 
 ## Recovery cheat sheet
 
@@ -72,7 +107,7 @@ rg "crate::uat_common::time::now_rfc3339" crates/  # expect 0
 # Edit Phase count 10→11 in cycle.rs → cargo check must fail
 
 # Rollback this cycle
-git revert <merge-sha> && git tag -d v1.33.0
+git revert <merge-sha> && git tag -d v1.36.0
 ```
 
 ## Anchors (apply-phase verified)
