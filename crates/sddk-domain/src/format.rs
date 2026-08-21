@@ -57,16 +57,6 @@ pub fn format_rfc3339_utc(epoch_secs: u64) -> String {
     )
 }
 
-/// Returns the current wall-clock time formatted as RFC 3339 UTC.
-pub fn now_rfc3339_utc() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    format_rfc3339_utc(secs)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,21 +91,5 @@ mod tests {
     fn day_boundary() {
         // 1970-01-02T00:00:00Z = 86_400 seconds
         assert_eq!(format_rfc3339_utc(86_400), "1970-01-02T00:00:00Z");
-    }
-
-    #[test]
-    fn now_rfc3339_utc_matches_rfc3339_format() {
-        let output = now_rfc3339_utc();
-        // RFC 3339: YYYY-MM-DDTHH:MM:SSZ = 4+1+2+1+2+1+2+1+2+1+2+1 = 20 bytes
-        assert_eq!(output.len(), 20, "RFC 3339 must be 20 bytes");
-        assert!(output.ends_with('Z'), "RFC 3339 must end with Z");
-        assert!(output.contains('T'), "RFC 3339 must contain T separator");
-        // Check separators are in right positions
-        assert_eq!(&output[4..5], "-", "year-month separator");
-        assert_eq!(&output[7..8], "-", "month-day separator");
-        assert_eq!(&output[10..11], "T", "date-time separator");
-        assert_eq!(&output[13..14], ":", "hour-minute separator");
-        assert_eq!(&output[16..17], ":", "minute-second separator");
-        assert_eq!(&output[19..20], "Z", "UTC marker");
     }
 }
