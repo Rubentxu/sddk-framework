@@ -68,17 +68,45 @@ y se actualiza con `sddk dev install`.
 
 ## 4. Reglas de oro
 
-- **CWD es el repo** (`~/Proyectos/agentesIA/sddk-framework/`). Nunca `~/.sddk-shared/`.
-- **Bundle runtime** (`~/.local/share/sddk/framework/<v>/`) es un snapshot publicado,
-  no un checkout git — no editarlo directamente.
-- **`agents/`, `skills/`, `prompts/` son copias** (no symlinks). `bootstrap.sh` los
-  symlinkea a los directorios de cada editor.
-- **Decisiones de diseño** en `docs/adr/` (repo) o `~/.sddk-knowledge/<project>/adrs/`.
+### 4.1. Trabajar SIEMPRE desde el CWD (`sddk-framework/`)
+
+- ✅ `cd ~/Proyectos/agentesIA/sddk-framework && git … && cargo …`
+- ❌ `cd ~/.sddk-shared/ && …` — viola la regla "single source of truth en el CWD".
+  **No crear nuevos checkouts en `~/.sddk-shared/`.**
+
+### 4.2. El bundle runtime vive en `~/.local/share/sddk/framework/<v>/`
+
+- Se actualiza con `sddk dev install` (o `sddk dev update`).
+- **No es un checkout de git.** Es un snapshot publicado.
+- **No edites directamente `~/.local/share/sddk/...`** — se sobrescribe en el próximo install.
+
+### 4.3. El bundle runtime NO es un checkout del repo
+
+- `agents/`, `skills/`, `prompts/` son **copias**, no symlinks. `bootstrap.sh`
+  los symlinkea a los directorios de cada editor.
+
+### 4.4. Las decisiones de diseño viven en `docs/adr/` o `~/.sddk-knowledge/`
+
+- `docs/adr/` (este repo) — ADRs del proyecto público.
+- `~/.sddk-knowledge/<project>/adrs/` — ADRs de proyectos adoptados.
+- Specs del plan en `~/.sddk-knowledge/<project>/specs/`.
 
 ---
 
 ## 5. Checklist antes de commitear
-`cargo build --release -p sddk-cli && cargo test --workspace && cargo clippy --workspace && cargo fmt --all -- --check && git commit -m "…" && git push origin main`
+
+```text
+[ ] cargo build --release -p sddk-cli            # compila
+[ ] cargo test --workspace                       # verde
+[ ] cargo clippy --workspace                    # 0 errores
+[ ] Si tocaste assets/: sddk dev install        # bundle runtime actualizado
+[ ] Tras release: sddk dev doctor | grep bundle_coherence (binario == bundle)
+[ ] Si tocaste el TUI de modelos: bash tests-e2e/tui/run.sh
+[ ] git status                                  # clean
+[ ] git diff                                    # revisas lo que vas a commitear
+[ ] commit mensaje: feat(uat): … o fix(uat): …
+[ ] git push origin main                        # pusheas
+```
 
 ---
 
