@@ -483,6 +483,100 @@ pub struct ApprovalReceiptInput {
     pub decided_at: String,
 }
 
+// Debt domain types ─────────────────────────────────────────────────────────────────
+
+/// Severity level for a debt finding.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Severity {
+    Critical,
+    High,
+    Medium,
+    Low,
+}
+
+/// Priority level for a debt finding.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Priority {
+    P0,
+    P1,
+    P2,
+    P3,
+}
+
+/// Lifecycle status of a debt finding.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FindingStatus {
+    Open,
+    InProgress,
+    Deferred,
+    Resolved,
+    Superseded,
+}
+
+/// Status of an INC record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum IncStatus {
+    Open,
+    AcceptedRisk,
+    Resolved,
+}
+
+/// A single debt finding within a [`DebtReport`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Finding {
+    pub id: String,
+    pub title: String,
+    pub severity: Severity,
+    pub priority: Priority,
+    pub status: FindingStatus,
+    pub fingerprint: String,
+    #[serde(default)]
+    pub fingerprint_aliases: Vec<String>,
+    pub cluster_id: String,
+    pub category: String,
+    pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remediation_cycle: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remediation_pr: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_refs: Option<Vec<serde_json::Value>>,
+}
+
+/// Per-cycle debt report emitted by sddk-debt-verify.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DebtReport {
+    pub schema_version: String,
+    pub cycle_id: String,
+    pub generated_at: String,
+    pub findings: Vec<Finding>,
+}
+
+/// Durable cross-cycle incidence record (INC).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IncRecord {
+    pub inc_id: String,
+    pub finding_id: String,
+    pub cycle_id: String,
+    pub status: IncStatus,
+    pub severity: Severity,
+    pub priority: Priority,
+    pub fingerprint: String,
+    pub fingerprint_aliases: Vec<String>,
+    pub cluster_id: String,
+    pub created_at: String,
+    pub created_by: String,
+    pub owner: String,
+    pub inc_path: String,
+    #[serde(default)]
+    pub lifecycle_events: Vec<String>,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+}
+
 /// A persisted human approval receipt.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -573,5 +667,60 @@ mod tests {
         let json = serde_json::to_string(&receipt).unwrap();
         let roundtrip: ApprovalReceipt = serde_json::from_str(&json).unwrap();
         assert_eq!(roundtrip, receipt);
+    }
+
+    #[test]
+    fn test_debt_report_roundtrip_with_optional_fields() {
+        let report = DebtReport {
+            schema_version: "1.1.0".into(),
+            cycle_id: "p-test/kernel-cycle-8".into(),
+            generated_at: "2026-08-21T00:00:00Z".into(),
+            findings: vec![Finding {
+                id: "FIND-0001".into(),
+                title: "Test finding".into(),
+                severity: Severity::Medium,
+                priority: Priority::P2,
+                status: FindingStatus::Open,
+                fingerprint: "3ef321c4efe1d87e".into(),
+                fingerprint_aliases: vec!["alias1".into()],
+                cluster_id: "CL-01".into(),
+                category: "architecture".into(),
+                description: "Test".into(),
+                remediation_cycle: Some("p-next".into()),
+                remediation_pr: Some("https://github.com/org/repo/pull/123".into()),
+                evidence_refs: Some(vec![serde_json::json!({"kind": "commit", "ref": "abc123"})]),
+            }],
+        };
+        let json = serde_json::to_string(&report).unwrap();
+        let roundtrip: DebtReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip, report);
+        // v1.0 compat: optional fields absent
+        let report_v1: DebtReport = serde_json::from_str(r#"{"schema_version":"1.0.0","cycle_id":"p-test/kernel-cycle-7b","generated_at":"2026-08-21T00:00:00Z","findings":[]}"#).unwrap();
+        assert_eq!(report_v1.schema_version, "1.0.0");
+        assert!(report_v1.findings.is_empty());
+    }
+
+    #[test]
+    fn test_inc_record_roundtrip() {
+        let inc = IncRecord {
+            inc_id: "INC-001-3ef321c4".into(),
+            finding_id: "FIND-0001".into(),
+            cycle_id: "p-test/kernel-cycle-8".into(),
+            status: IncStatus::Open,
+            severity: Severity::Medium,
+            priority: Priority::P2,
+            fingerprint: "3ef321c4efe1d87e".into(),
+            fingerprint_aliases: vec![],
+            cluster_id: "CL-01".into(),
+            created_at: "2026-08-21T00:00:00Z".into(),
+            created_by: "sddk".into(),
+            owner: "team".into(),
+            inc_path: "~/.sddk-knowledge/sddk-framework/incs/INC-001-3ef321c4.md".into(),
+            lifecycle_events: vec!["created:2026-08-21T00:00:00Z".into()],
+            evidence_refs: vec![],
+        };
+        let json = serde_json::to_string(&inc).unwrap();
+        let roundtrip: IncRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip, inc);
     }
 }
