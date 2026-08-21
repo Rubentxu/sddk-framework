@@ -719,7 +719,7 @@ impl SourcePatterns {
             markdown_link: Regex::new(r"\[[^\]]*\]\(([^)]+)\)")
                 .expect("valid Markdown link regex"),
             yaml_reference: Regex::new(
-                r#"(?m)^\s*(agent|skill|plugin|agent_(?:path|ref)|skill_(?:path|ref)|plugin_(?:path|ref)|prompt_(?:path|ref)|path|file):\s*["']?([^\s"'#]+)"#,
+                r#"(?m)^[ \t]*(agent|skill|plugin|agent_(?:path|ref)|skill_(?:path|ref)|plugin_(?:path|ref)|prompt_(?:path|ref)|path|file):[ \t]*["']?([^\s"'#]+)"#,
             )
             .expect("valid YAML reference regex"),
             // Legacy prose uses shell fences as templates. Requiring an execution marker keeps
@@ -1249,5 +1249,30 @@ fn lint_pack_manifest(root: &Path, diagnostics: &mut Vec<Diagnostic>) {
             format!("{}: {}", pack_diagnostic.code, pack_diagnostic.message),
             pack_diagnostic.hint,
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SourcePatterns;
+
+    #[test]
+    fn yaml_reference_does_not_cross_line_after_agent_mapping_key() {
+        let patterns = SourcePatterns::new();
+        let source = "agent:\n  - agent.execution.started\n";
+
+        assert!(patterns.yaml_reference.captures(source).is_none());
+    }
+
+    #[test]
+    fn yaml_reference_still_matches_scalar_agent_reference() {
+        let patterns = SourcePatterns::new();
+        let captures = patterns
+            .yaml_reference
+            .captures("agent: sddk-apply\n")
+            .expect("scalar agent reference must match");
+
+        assert_eq!(&captures[1], "agent");
+        assert_eq!(&captures[2], "sddk-apply");
     }
 }
