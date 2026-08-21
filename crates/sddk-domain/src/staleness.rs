@@ -28,6 +28,18 @@ pub enum StalenessState {
     Unknown,
 }
 
+crate::assert_variant_count_eq!(
+    StalenessState,
+    5,
+    [
+        StalenessState::Fresh,
+        StalenessState::PossiblyStale,
+        StalenessState::Stale,
+        StalenessState::Invalidated,
+        StalenessState::Unknown,
+    ]
+);
+
 /// Result of staleness derivation for one entity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StalenessResult {

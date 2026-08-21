@@ -19,6 +19,17 @@ pub enum ReleaseChannel {
     Dev,
 }
 
+crate::assert_variant_count_eq!(
+    ReleaseChannel,
+    4,
+    [
+        ReleaseChannel::Stable,
+        ReleaseChannel::Candidate,
+        ReleaseChannel::Edge,
+        ReleaseChannel::Dev,
+    ]
+);
+
 impl ReleaseChannel {
     /// Parses a channel from its lowercase name.
     pub fn parse(name: &str) -> Option<Self> {

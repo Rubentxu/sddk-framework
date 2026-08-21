@@ -24,6 +24,16 @@ pub enum RuleSeverity {
     WarningThenRatchet,
 }
 
+crate::assert_variant_count_eq!(
+    RuleSeverity,
+    3,
+    [
+        RuleSeverity::Error,
+        RuleSeverity::Warning,
+        RuleSeverity::WarningThenRatchet,
+    ]
+);
+
 /// Surface analysed by the rule evaluator.
 ///
 /// Each variant identifies the artifact and analysis method used to detect violations.

@@ -34,6 +34,23 @@ pub enum CycleStatus {
     ApprovalPending,
 }
 
+crate::assert_variant_count_eq!(
+    CycleStatus,
+    10,
+    [
+        CycleStatus::Open,
+        CycleStatus::Blocked,
+        CycleStatus::Remediating,
+        CycleStatus::ReleasePending,
+        CycleStatus::Released,
+        CycleStatus::Closed,
+        CycleStatus::Abandoned,
+        CycleStatus::Recovering,
+        CycleStatus::UatWaiting,
+        CycleStatus::ApprovalPending,
+    ]
+);
+
 /// Workflow phases.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -60,6 +77,23 @@ pub enum Phase {
     /// Archive phase.
     Archive,
 }
+
+crate::assert_variant_count_eq!(
+    Phase,
+    10,
+    [
+        Phase::Explore,
+        Phase::Specify,
+        Phase::Design,
+        Phase::Plan,
+        Phase::Build,
+        Phase::Verify,
+        Phase::Uat,
+        Phase::Review,
+        Phase::Release,
+        Phase::Archive,
+    ]
+);
 
 /// Cycle path types (A-min, A-lite, A-full, B-direct).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -356,6 +390,17 @@ pub enum RiskLevel {
     /// Critical risk.
     Critical,
 }
+
+crate::assert_variant_count_eq!(
+    RiskLevel,
+    4,
+    [
+        RiskLevel::Low,
+        RiskLevel::Medium,
+        RiskLevel::High,
+        RiskLevel::Critical,
+    ]
+);
 
 /// Risk categories.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

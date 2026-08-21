@@ -20,6 +20,17 @@ pub enum PackRisk {
     Critical,
 }
 
+crate::assert_variant_count_eq!(
+    PackRisk,
+    4,
+    [
+        PackRisk::Low,
+        PackRisk::Medium,
+        PackRisk::High,
+        PackRisk::Critical,
+    ]
+);
+
 /// Declared consequence class of a pack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
