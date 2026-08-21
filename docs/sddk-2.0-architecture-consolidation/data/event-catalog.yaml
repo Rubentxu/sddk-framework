@@ -31,7 +31,7 @@ categories:
     - graph.observation.derived
     - graph.pattern.matched
     - graph.staleness.detected
-  agent:
+  "agent":
     - agent.execution.started
     - agent.execution.completed
     - agent.execution.failed
