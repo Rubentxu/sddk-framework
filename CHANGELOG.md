@@ -3,6 +3,18 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.33.0] - 2026-08-20
+
+### Refactor
+  - refactor(cli): consolidate `uat_common::time::now_rfc3339` → `sddk_domain::format::now_rfc3339_utc` (13 call sites in 9 files). Delete 43 LOC Hinnant orphan. REQ-K5-001.
+
+### Features
+  - feat(domain): extend `assert_variant_count_eq!` macro to 7 more enums (Phase=10, CycleStatus=10, RiskLevel=4, RuleSeverity=3, StalenessState=5, PackRisk=4, ReleaseChannel=4). Negative-tested: literal 10→11 breaks build. REQ-K5-002.
+  - fix(domain): macro diagnostic now embeds `stringify!($enum)` + concat-based panic msg; PM-3 clippy fixes (`for_kv_map`, `expect_fun_call`, `collapsible_if`, `const_is_empty`); 12 runtime shape tests (`variant_counts.rs`). REQ-K5-004.
+
+### Housekeeping
+  - docs(agents): trim AGENTS.md 229→≤100 LOC; extract §2.6 Distribución → `docs/RELEASING.md`; extract §3 Layout → `docs/ARCHITECTURE-MODEL.md`. REQ-K5-003.
+
 ## [1.32.0] - 2026-08-20
 
 ### Refactor
