@@ -203,7 +203,9 @@ impl Projection for CycleStateProjection {
             version: self.version(),
             last_event_sequence: self.state.last_event_sequence,
             last_event_hash: self.state.last_event_hash.clone(),
-            updated_at: crate::format::now_rfc3339_utc(),
+            updated_at: time::OffsetDateTime::now_utc()
+                .format(&time::format_description::well_known::Rfc3339)
+                .expect("RFC 3339 formatting cannot fail"),
         }
     }
 
@@ -392,7 +394,9 @@ impl Projection for ApprovalProjection {
             version: self.version(),
             last_event_sequence: self.last_event_sequence,
             last_event_hash: self.last_event_hash.clone(),
-            updated_at: crate::format::now_rfc3339_utc(),
+            updated_at: time::OffsetDateTime::now_utc()
+                .format(&time::format_description::well_known::Rfc3339)
+                .expect("RFC 3339 formatting cannot fail"),
         }
     }
 
