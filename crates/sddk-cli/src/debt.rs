@@ -134,8 +134,46 @@ fn run_incs(env: &CliEnvironment) -> CommandOutput {
     }
 }
 
+/// Locates the most recent archived debt-report.json whose cycle_id matches the given cycle_id.
+/// Walks ~/.sddk-knowledge/<project>/archive/ subdirectories (each named YYYY-MM-DD-{slug})
+/// and returns the PathBuf of the matching debt-report.json, or None if not found.
+fn locate_archived_report(vault: &PathBuf, cycle_id: &str) -> Option<PathBuf> {
+    let archive_dir = vault.join("archive");
+    let Ok(entries) = std::fs::read_dir(&archive_dir) else {
+        return None;
+    };
+    let mut candidates: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
+    for entry in entries.filter_map(Result::ok) {
+        let subdir = entry.path();
+        if !subdir.is_dir() {
+            continue;
+        }
+        let report_path = subdir.join("debt-report.json");
+        if !report_path.is_file() {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(&report_path) else {
+            continue;
+        };
+        let Ok(report): Result<DebtReport, _> = serde_json::from_str(&content) else {
+            continue;
+        };
+        if report.cycle_id == cycle_id {
+            let modified = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            candidates.push((modified, report_path));
+        }
+    }
+    // Return the most recently modified match
+    candidates
+        .into_iter()
+        .max_by_key(|(t, _)| *t)
+        .map(|(_, p)| p)
+}
+
 fn run_backfill(cycle_id: &str, env: &CliEnvironment) -> CommandOutput {
-    // Build archive path: ~/.sddk-knowledge/<project>/archive/<cycle_id>/debt-report.json
     let vault = match resolve_vault_path(env) {
         Ok(p) => p,
         Err(e) => {
@@ -146,8 +184,19 @@ fn run_backfill(cycle_id: &str, env: &CliEnvironment) -> CommandOutput {
             };
         }
     };
-    let archive_dir = vault.join("archive").join(cycle_id);
-    let report_path = archive_dir.join("debt-report.json");
+    let report_path = match locate_archived_report(&vault, cycle_id) {
+        Some(p) => p,
+        None => {
+            return CommandOutput {
+                status: 1,
+                stdout: String::new(),
+                stderr: format!(
+                    "no archived debt-report found for cycle {}\n",
+                    cycle_id
+                ),
+            };
+        }
+    };
     let report_json = match std::fs::read_to_string(&report_path) {
         Ok(c) => c,
         Err(e) => {
@@ -263,13 +312,12 @@ fn run_gates(gate_name: &str, env: &CliEnvironment) -> CommandOutput {
 
 /// Resolves the project vault path: ~/.sddk-knowledge/<project>/
 fn resolve_vault_path(env: &CliEnvironment) -> Result<PathBuf, String> {
-    let data_home = match (&env.sddk_data_dir, &env.data_home, &env.home) {
-        (Some(d), _, _) => d.clone(),
-        (None, Some(d), _) => d.clone(),
-        (None, None, Some(h)) => h.join(".local/share"),
-        _ => return Err("no data root".into()),
-    };
-    let vault = data_home.join("sddk/knowledge/sddk-framework");
+    let home = env
+        .home
+        .clone()
+        .or_else(|| dirs::home_dir())
+        .ok_or_else(|| "no home directory".to_string())?;
+    let vault = home.join(".sddk-knowledge/sddk-framework");
     if !vault.exists() {
         std::fs::create_dir_all(&vault).map_err(|e| e.to_string())?;
     }
@@ -282,8 +330,9 @@ mod tests {
 
     #[test]
     fn test_resolve_vault_path() {
+        let temp = tempfile::tempdir().unwrap();
         let env = CliEnvironment {
-            home: Some(PathBuf::from("/home/test")),
+            home: Some(temp.path().to_path_buf()),
             data_home: Some(PathBuf::from("/tmp/sddk-test-data")),
             sddk_data_dir: None,
             state_home: None,
@@ -293,17 +342,37 @@ mod tests {
         };
         let vault = resolve_vault_path(&env).unwrap();
         let path = vault.to_string_lossy();
-        // Path should be: /tmp/sddk-test-data/sddk/knowledge/sddk-framework
+        // Path should be: <temp>/.sddk-knowledge/sddk-framework
         assert!(
-            path.contains("sddk"),
-            "vault path should contain sddk: {}",
+            path.contains(".sddk-knowledge"),
+            "vault path should be ~/.sddk-knowledge/sddk-framework: {}",
             path
         );
+    }
+
+    #[test]
+    fn test_locate_archived_report_finds_cycle() {
+        let temp = tempfile::tempdir().unwrap();
+        let archive = temp.path().join("archive");
+        std::fs::create_dir_all(&archive).unwrap();
+        // Create a dated subdir
+        let subdir = archive.join("2026-08-13-cycle-7b-durable-debt-runtime");
+        std::fs::create_dir_all(&subdir).unwrap();
+        let report: DebtReport = DebtReport {
+            schema_version: "1.1.0".into(),
+            cycle_id: "p-52b95ef55999f9de/kernel-cycle-7b-durable-debt-runtime".into(),
+            generated_at: "2026-08-13T00:00:00Z".into(),
+            findings: vec![],
+        };
+        let json = serde_json::to_string(&report).unwrap();
+        std::fs::write(subdir.join("debt-report.json"), json).unwrap();
+        let vault = temp.path().to_path_buf();
+        let found = locate_archived_report(&vault, "p-52b95ef55999f9de/kernel-cycle-7b-durable-debt-runtime");
         assert!(
-            path.contains("knowledge"),
-            "vault path should contain knowledge: {}",
-            path
+            found.is_some(),
+            "should find archived report by cycle_id"
         );
+        assert_eq!(found.unwrap().file_name().unwrap().to_str().unwrap(), "debt-report.json");
     }
 
     #[test]
