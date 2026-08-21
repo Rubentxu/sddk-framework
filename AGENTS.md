@@ -11,7 +11,6 @@
 `sddk-framework` es el **repo de desarrollo** (NO adoptado) del framework SDDK.
 Contiene crates, docs, CI, releases, agents/skills/prompts **fuente**. Todo cambio,
 commit, push y release se hace desde `~/Proyectos/agentesIA/sddk-framework/` (CWD).
-
 El proyecto **nunca escribe dentro de otros repos de proyectos** (regla "cero
 intrusión", ver `docs/responsibility-separation/SPEC.md`). El bundle runtime
 vive en `$SDDK_DATA_DIR/framework/<version>/` (`~/.local/share/sddk/framework/<v>/`)
@@ -48,7 +47,6 @@ y se actualiza con `sddk dev install`.
 - `cargo test --workspace` verde + `cargo clippy --workspace` sin errores antes de commitear.
 
 ### 2.4. Memory + Engram
-
 - Sesiones largas DEBEN cerrar con `engram_mem_session_summary` (goal, discoveries,
   accomplished, next steps, relevant files). Sobrevive compactaciones. Reglas en
   `~/.config/opencode/skills/...`.
@@ -66,150 +64,21 @@ y se actualiza con `sddk dev install`.
 - Los minutos del plan free de GitHub están agotados — el cloud puede ni
   ejecutar; confía en el gate local.
 
-### 2.6. Distribución (GitHub Releases + install.sh)
-
-Desde v1.28.0 SDDK distribuye **binarios pre-compilados** vía GitHub Releases,
-no requiere clonar el repo ni compilar. El usuario instala con un one-liner
-(modelo `rustup` / `mise`):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Rubentxu/sddk-framework/main/scripts/install.sh | bash
-```
-
-El script `scripts/install.sh` (244 líneas):
-- Detecta plataforma (`uname -s/m`) → asset `sddk-linux-{x86_64,aarch64}-musl`
-  (Linux: **musl static**, corre en cualquier distro sin importar glibc)
-- Descarga binario + `sha256` desde GitHub Releases
-- Verifica SHA256 antes de instalar (falla si no coincide)
-- Si `cosign` está disponible, verifica firma keyless (opcional)
-- Pregunta qué editor configurar (opencode/zcode/claude/codex o todos)
-- Descarga `sddk-framework.tar.gz` (bundle: `agents/`, `skills/`,
-  `prompts/sddk/`, `assets/`, `MANIFEST.sha256`) y lo extrae en
-  `$SDDK_DATA_DIR/framework/<v>/`
-- Ejecuta `sddk dev link --editor <X>` (symlink del bundle al dir del editor)
-- Imprime `sddk dev doctor` (verificación final)
-
-**Plataformas soportadas en v1.28.0:**
-- ✅ Linux x86_64 (musl static)
-- ✅ Linux aarch64 (musl static)
-- ⏳ macOS x86_64 + arm64 (pendiente: toolchain `cargo-zigbuild` ya instalado;
-  falta generar binarios y subirlos al release)
-- ⏳ Windows x86_64 (pendiente: requiere `#[cfg(unix)]` en código que usa
-  `std::os::unix::*` — ver `crates/sddk-cli/src/dev_cmd.rs`)
-
-**Release local-first (manual):** el tag se empuja primero (`git tag vX.Y.Z &&
-git push origin vX.Y.Z`), después se sube el binario a GitHub Releases.
-Workflow `.github/workflows/release.yml` queda en modo `workflow_dispatch`
-manual desde 2026-08-10 (CI agotado); el camino operativo hoy es:
-
-```bash
-# 1. Tag + push (local)
-cargo build --release --target x86_64-unknown-linux-musl -p sddk-cli --locked
-git tag vX.Y.Z && git push origin vX.Y.Z
-
-# 2. Stage assets (Linux x86_64 + aarch64)
-./target/x86_64-unknown-linux-musl/release/sddk release dist \
-  --prefix dist-amd64 --channel release --commit "$(git rev-parse HEAD)"
-cp dist-amd64/dist/sddk sddk-linux-x86_64-musl
-cp dist-amd64/dist/{checksums.txt,sbom.json,attestation.json} sddk-linux-x86_64-musl.{CHECKSUMS,sbom.json,attestation.json}
-sha256sum sddk-linux-x86_64-musl > sddk-linux-x86_64-musl.sha256
-# (repetir para aarch64)
-
-# 3. Framework bundle
-tar czf sddk-framework.tar.gz agents skills prompts/sddk assets MANIFEST.sha256
-sha256sum sddk-framework.tar.gz > sddk-framework.tar.gz.sha256
-
-# 4. gh release create
-gh release create vX.Y.Z --repo Rubentxu/sddk-framework \
-  --target <commit> --title "vX.Y.Z" --notes "..." \
-  sddk-linux-x86_64-musl sddk-linux-x86_64-musl.{sha256,CHECKSUMS,sbom.json,attestation.json} \
-  sddk-linux-aarch64-musl sddk-linux-aarch64-musl.{sha256,CHECKSUMS,sbom.json,attestation.json} \
-  sddk-framework.tar.gz sddk-framework.tar.gz.sha256
-```
-
-El smoke-test E2E vive en `.github/workflows/release.yml:170-217` y se ejecuta
-automáticamente cuando CI está disponible.
-
----
-
-## 3. Layout de directorios (modelo asdf-vm)
-
-Inspirado en `asdf-vm` (tool versions, shims por versión, `path:` override).
-El spec canónico: `docs/responsibility-separation/SPEC.md`.
-
-### 3.1. Tres roles separados
-
-| Rol | Ubicación | Contenido | Adoptado | Linkado |
-|-----|-----------|-----------|----------|---------|
-| **Repo de desarrollo** | `~/Proyectos/agentesIA/sddk-framework/` (CWD) | `crates/`, `docs/`, `agents/`, `skills/`, `prompts/`, CI, releases | NO | NO |
-| **Bundle runtime** | `~/.local/share/sddk/framework/<v>/` | Snapshot: `agents/`, `skills/`, `prompts/`, `workflows/`, `assets/` | — | SÍ → `$HOME/.config/{opencode,claude,kilo,codex}/` |
-| **Workspace de uso** | Repos del usuario | Proyecto + opcional `.sddk-versions` | SÍ | NO |
-
-### 3.2. Resolución de versión (lookup en orden)
-
-1. `$PWD/.sddk-versions`
-2. `.sddk-versions` en directorios padre hasta raíz
-3. `$SDDK_DATA_DIR/framework/current` (symlink global)
-
-Formato (gestionado por el desarrollador, NUNCA por el framework):
-```text
-sddk 1.5.3
-sddk current         # sigue el symlink global
-sddk path:../..      # dogfooding (CWD = sddk-framework)
-sddk system          # instalación del sistema
-```
-### 3.3. Cero intrusión
-
-| Operación | Antes (mal) | Ahora (bien) |
-|-----------|------------|--------------|
-| Adopción | `workflow/workflow.yaml` plantado en repo | receipt en `~/.local/share/sddk/projects/<id>/` |
-| Artefactos de ciclo | `sddk/{change}/...` en repo | `~/.local/share/sddk/projects/<id>/cycle-artifacts/{cycle_id}/` |
-| Docs generados | `docs/generated/` en repo | `~/.local/share/sddk/projects/<id>/generated/` (o `--in-repo` para dogfooding) |
-| Telemetry | `~/.local/share/sddk/uat-results.sqlite` | siempre XDG, nunca en repo |
-
 ---
 
 ## 4. Reglas de oro
 
-### 4.1. Trabajar SIEMPRE desde el CWD (`sddk-framework/`)
-
-- ✅ `cd ~/Proyectos/agentesIA/sddk-framework && git … && cargo …`
-- ❌ `cd ~/.sddk-shared/ && …` — viola la regla "single source of truth en el CWD".
-  **No crear nuevos checkouts en `~/.sddk-shared/`.**
-
-### 4.2. El bundle runtime vive en `~/.local/share/sddk/framework/<v>/`
-
-- Se actualiza con `sddk dev install` (o `sddk dev update`).
-- **No es un checkout de git.** Es un snapshot publicado.
-- **No edites directamente `~/.local/share/sddk/...`** — se sobrescribe en el próximo install.
-
-### 4.3. El bundle runtime NO es un checkout del repo
-
-- `agents/`, `skills/`, `prompts/` son **copias**, no symlinks. `bootstrap.sh`
-  los symlinkea a los directorios de cada editor.
-
-### 4.4. Las decisiones de diseño viven en `docs/adr/` o `~/.sddk-knowledge/`
-
-- `docs/adr/` (este repo) — ADRs del proyecto público.
-- `~/.sddk-knowledge/<project>/adrs/` — ADRs de proyectos adoptados.
-- Specs del plan en `~/.sddk-knowledge/<project>/specs/`.
+- **CWD es el repo** (`~/Proyectos/agentesIA/sddk-framework/`). Nunca `~/.sddk-shared/`.
+- **Bundle runtime** (`~/.local/share/sddk/framework/<v>/`) es un snapshot publicado,
+  no un checkout git — no editarlo directamente.
+- **`agents/`, `skills/`, `prompts/` son copias** (no symlinks). `bootstrap.sh` los
+  symlinkea a los directorios de cada editor.
+- **Decisiones de diseño** en `docs/adr/` (repo) o `~/.sddk-knowledge/<project>/adrs/`.
 
 ---
 
 ## 5. Checklist antes de commitear
-
-```text
-[ ] cargo build --release -p sddk-cli            # compila
-[ ] cargo test --workspace                       # verde
-[ ] cargo clippy --workspace                    # 0 errores
-[ ] Si tocaste assets/: sddk dev install        # bundle runtime actualizado
-[ ] Tras release: sddk dev doctor | grep bundle_coherence (binario == bundle)
-[ ] Si tocaste el TUI de modelos: bash tests-e2e/tui/run.sh
-[ ] git status                                  # clean
-[ ] git diff                                    # revisas lo que vas a commitear
-[ ] commit mensaje: feat(uat): … o fix(uat): …
-[ ] git push origin main                        # pusheas
-```
+`cargo build --release -p sddk-cli && cargo test --workspace && cargo clippy --workspace && cargo fmt --all -- --check && git commit -m "…" && git push origin main`
 
 ---
 
@@ -224,6 +93,8 @@ sddk system          # instalación del sistema
 
 ## 7. See also
 
+- **Release & distribution:** `docs/RELEASING.md`
+- **Architecture model:** `docs/ARCHITECTURE-MODEL.md`
 - **Historial de regresiones resueltas:** `docs/history/AGENTS-history.md`
 - **Estado actual del proyecto (handoff):** `docs/handoff/HANDOFF-2026-08-13-sddk-framework.md`
 - ** Roadmap de arquitectura:** `docs/sddk-2.0-architecture-consolidation/roadmap/ROADMAP.md`
