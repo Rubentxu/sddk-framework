@@ -9,6 +9,7 @@ mod approval;
 mod artifact;
 mod capability;
 mod cycle;
+mod debt;
 mod dev;
 
 mod docs;
@@ -283,6 +284,11 @@ enum Command {
     Completion {
         #[command(subcommand)]
         command: CompletionCommand,
+    },
+    /// Debt management: report generation, INC listing, INC backfill, gate evaluation.
+    Debt {
+        #[command(flatten)]
+        command: debt::DebtArgs,
     },
 }
 
@@ -586,6 +592,7 @@ pub fn run_with_environment(cli: Cli, environment: &CliEnvironment) -> CommandOu
         Command::Fork { command } => fork_cmd::run_fork(command, environment),
         Command::Explore { command } => explore_cmd::run_explore(command, environment),
         Command::Completion { command } => run_completion(command),
+        Command::Debt { command } => debt::run_debt(command, environment),
     }
 }
 
