@@ -57,3 +57,9 @@ sddk-linux-*-musl.sbom.json
 sddk-linux-*-musl.attestation.json
 sddk-framework.tar.gz
 sddk-framework.tar.gz.sha256
+dist-amd64/
+dist-arm64/
+dist-x86_64/
+dist-aarch64/
+# Defensive: anything matching dist-{arch}/* staging tree
+/dist-*/
