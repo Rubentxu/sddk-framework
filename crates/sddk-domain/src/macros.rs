@@ -42,7 +42,12 @@ macro_rules! assert_variant_count_eq {
                 $( let _ = stringify!($variant); n += 1; )*
                 n
             };
-            assert!(ACTUAL == EXPECTED);
+            const PANIC_MSG: &str = concat!(
+                "variant count of `", stringify!($enum),
+                "` drifted from expected (got ", stringify!(ACTUAL),
+                ", want ", stringify!(EXPECTED), ")"
+            );
+            assert!(ACTUAL == EXPECTED, "{}", PANIC_MSG);
 
             // Exhaustiveness check: a `match` with no wildcard arm across
             // every listed pattern. Add / rename / reshape any variant and

@@ -23,8 +23,7 @@ fn load_rules_yaml() -> String {
 
     let path = workspace_root
         .join("docs/sddk-2.0-architecture-consolidation/data/architecture-rules.yaml");
-    std::fs::read_to_string(&path)
-        .expect(&format!("architecture-rules.yaml must exist at {:?}", path))
+    std::fs::read_to_string(&path).expect("architecture-rules.yaml must exist")
 }
 
 // ── Schema 1.2.0 parsing ─────────────────────────────────────────────────────
@@ -223,10 +222,10 @@ fn all_rule_ids_are_unique() {
     let mut ids = Vec::new();
     for line in content.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("id: ARCH") {
-            if let Some(id) = trimmed.strip_prefix("id: ") {
-                ids.push(id.to_string());
-            }
+        if trimmed.starts_with("id: ARCH")
+            && let Some(id) = trimmed.strip_prefix("id: ")
+        {
+            ids.push(id.to_string());
         }
     }
     let mut sorted = ids.clone();
@@ -252,7 +251,6 @@ rules:
     rule: engine_must_not_depend_on_storage
     target: dependency_graph
 "#;
-    assert!(!yaml_1_0_0.is_empty());
     // Must be valid UTF-8
     let _v: &str = yaml_1_0_0;
     // Must contain expected fields

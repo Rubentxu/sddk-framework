@@ -189,7 +189,7 @@ fn command_surface_is_non_empty() {
 fn capability_names_use_dot_separated_namespace() {
     // Capability names must use the `domain.action` naming convention.
     let manifest = parse_pack_manifest(VALID_MANIFEST).unwrap();
-    for (name, _) in &manifest.capabilities {
+    for (name, _) in manifest.capabilities {
         assert!(
             name.contains('.'),
             "capability name '{name}' should use dot-separated namespace"
