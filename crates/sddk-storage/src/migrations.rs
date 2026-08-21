@@ -1,4 +1,4 @@
-pub(crate) const LATEST_SCHEMA_VERSION: i32 = 11;
+pub(crate) const LATEST_SCHEMA_VERSION: i32 = 12;
 
 /// Runs all pending migrations on an open SQLite connection.
 pub(crate) fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), super::StorageError> {
@@ -177,6 +177,16 @@ pub(crate) fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), supe
         tx.execute_batch(MIGRATION_11)
             .map_err(super::StorageError::Database)?;
         tx.pragma_update(None, "user_version", 11)
+            .map_err(super::StorageError::Database)?;
+        tx.commit().map_err(super::StorageError::Database)?;
+    }
+    if version < 12 {
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(super::StorageError::Database)?;
+        tx.execute_batch(MIGRATION_12)
+            .map_err(super::StorageError::Database)?;
+        tx.pragma_update(None, "user_version", 12)
             .map_err(super::StorageError::Database)?;
         tx.commit().map_err(super::StorageError::Database)?;
     }
@@ -580,4 +590,26 @@ CREATE TABLE IF NOT EXISTS ir_digests_v1 (
     ir_json     TEXT NOT NULL,
     compiled_at TEXT NOT NULL
 );
+"#;
+
+pub(crate) const MIGRATION_12: &str = r#"
+CREATE TABLE IF NOT EXISTS incs_v1 (
+    inc_id              TEXT NOT NULL PRIMARY KEY,
+    finding_id          TEXT NOT NULL,
+    cycle_id            TEXT NOT NULL,
+    status              TEXT NOT NULL,
+    severity            TEXT NOT NULL,
+    priority            TEXT NOT NULL,
+    fingerprint        TEXT NOT NULL,
+    fingerprint_aliases TEXT NOT NULL DEFAULT '[]',
+    cluster_id          TEXT NOT NULL,
+    created_at          TEXT NOT NULL,
+    created_by          TEXT NOT NULL,
+    owner               TEXT NOT NULL,
+    inc_path            TEXT NOT NULL,
+    lifecycle_events    TEXT NOT NULL DEFAULT '[]',
+    evidence_refs       TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS idx_incs_v1_fingerprint ON incs_v1(fingerprint);
+CREATE INDEX IF NOT EXISTS idx_incs_v1_cycle ON incs_v1(cycle_id);
 "#;
