@@ -61,3 +61,13 @@ gh release create vX.Y.Z --repo Rubentxu/sddk-framework \
 
 The E2E smoke test lives in `.github/workflows/release.yml:170-217` and runs
 automatically when CI is available.
+
+## MANIFEST regeneration
+
+When `prompts/sddk/`, `skills/_shared/`, `agents/`, or `docs/` change, regenerate `MANIFEST.sha256` in the same commit:
+
+```bash
+tools/manifest.sh
+```
+
+This prevents the "forced hygiene commit" pattern where manifest refresh becomes a separate release commit (cycle-9 had this: `ab54b8e chore(release): refresh MANIFEST.sha256`).
