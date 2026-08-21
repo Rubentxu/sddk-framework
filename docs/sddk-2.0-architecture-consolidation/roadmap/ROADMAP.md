@@ -373,6 +373,14 @@ No blocking items remain. The framework ships with a complete hexagonal architec
 CEP ledger, evidence model, pack system, reactive graph, staleness, fork/replay,
 moldable explorer, and quality ratchets.
 
+### Deferred runtime follow-up
+
+`SDDK2-906` tracks typed runtime enforcement of the debt gate described in
+`prompts/sddk/phases/debt-verify.md`. The current change is deliberately
+declarative: this avoids inventing a CLI phase or receipt today, at the cost of
+leaving enforcement to orchestrator policy until the evidence, capability, and
+quality-ratchet dependencies are available.
+
 **Verification artifacts:**
 - `sddk dev entropy` — entropy score 1.00, 33 large-file candidates
 - `sddk dev check-architecture` — ARCH001 PASS, ARCH002 PASS, ARCH003 WAIVED

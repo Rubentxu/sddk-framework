@@ -27,11 +27,13 @@ Every phase writes beneath the CLI-resolved `{cycle-artifacts-dir}`:
 | `design.md` | `sddk-design` | tasks, apply, verify |
 | `tasks.md` | `sddk-tasks` | apply, verify |
 | `apply-progress.yaml` | `sddk-apply` | verify, orchestrator |
-| `verify-report.md` | `sddk-verify` | debt-verify, archive |
-| `debt-report.md` | `sddk-debt-verify` | archive, release |
-| `archive-report.md` | `sddk-archive` | release, HTML report |
-| `release-report.md` | `sddk-release` | cycle audit |
-| `reports/cierre.html` | `sddk-release` | human reviewer |
+| `coherence/{trigger}.md` | `sddk-coherence` | orchestrator, archive report |
+| `verify-report.md` | `sddk-verify` | debt-verify, release, archive |
+| `debt-report.json` | `sddk-debt-verify` | release, archive; machine authority |
+| `debt-report.md` | `sddk-debt-verify` | human review; derived from JSON |
+| `release-report.md` | `sddk-release` | archive, cycle audit |
+| `archive-report.md` | `sddk-archive` | cycle audit |
+| `reports/cierre.html` | `sddk-archive` | human reviewer |
 
 Optional Engram mirrors use `sddk/{change-name}/{artifact-type}` only when
 `sddk knowledge status` reports `engram_enabled: true`.
@@ -40,11 +42,11 @@ Optional Engram mirrors use `sddk/{change-name}/{artifact-type}` only when
 
 | Node | Vault location | Owner |
 |---|---|---|
-| Milestone and serialization lock | `{vault}/milestones/` | orchestrator, release |
+| Milestone and serialization lock | `{vault}/milestones/` | orchestrator acquires; release transition releases; archive finalizes milestone |
 | ADR | `{vault}/adrs/` | spec/design proposal; orchestrator-approved write |
 | Requirement | `{vault}/specs/{domain}/` | spec, archive |
-| Cycle | `{vault}/cycles/` | archive, release |
-| Incidence | `{vault}/incidences/` | verify, debt-verify, release |
+| Cycle | `{vault}/cycles/` | archive |
+| Incidence | `{vault}/incidences/` | verify/debt evidence; archive finalization |
 | Term | `{vault}/terms/` | explore, spec |
 
 All vault writes follow `skills/knowledge-graph/SKILL.md`, preserve provenance,
@@ -105,13 +107,14 @@ $VAULT_PATH (via `sddk knowledge path`, e.g. ~/.sddk-knowledge/<project_id>/)
 
 | Node type | Owner | When |
 |-----------|-------|------|
-| `milestone` (M-NNN) | Orchestrator | Step 0.2 (create as `in_progress`), Release (update to `completed`) |
-| `active_lock` (_active) | Orchestrator (acquire) / Release (release) | Step 0.2 / Step 3 |
-| `adr` (ADR-NNN) | sddk-spec / sddk-design (create) → Release (status update + implementation log) | Step 1.4 / Step 3 |
-| `requirement` (REQ-Slug) | sddk-spec (create) → Release (update last_cycle/version) | Step 1.4 / Step 3 |
-| `cycle` (CYC-date-slug) | sddk-archive | Step 2.5 |
-| `incidence` (INC-NNN) | sddk-release (if issues found) | Step 3 |
+| `milestone` (M-NNN) | Orchestrator (open) → Archive (finalize) | Step 0.2 / Step 3.4 |
+| `active_lock` (_active) | Orchestrator (acquire) / `release.complete` (runtime auto-release) | Step 0.2 / Step 3.3 |
+| `adr` (ADR-NNN) | sddk-spec / sddk-design (create) → Archive (implementation status) | Step 1.4 / Step 3.4 |
+| `requirement` (REQ-Slug) | sddk-spec (create) → Archive (sync/version) | Step 1.4 / Step 3.4 |
+| `cycle` (CYC-date-slug) | sddk-archive | Step 3.4 |
+| `incidence` (INC-NNN) | verify/debt-verify (evidence) → Archive (persist/finalize) | Phase 2 / Step 3.4 |
 | `term` (TERM-Slug) | sddk-explore / sddk-spec | Phase 1 |
 | proposal, spec delta, design, tasks | phase agents (working state in `{cycle-artifacts-dir}/`) | Phase 1 |
-| verify-report, debt-report | verify/debt agents (working state) | Phase 2 |
+| verify-report, debt-report JSON/Markdown | verify/debt agents (working state) | Phase 2 |
 | release-report | sddk-release | Phase 3 |
+| archive-report | sddk-archive | Phase 3.4 |

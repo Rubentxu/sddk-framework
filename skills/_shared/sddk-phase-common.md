@@ -1,8 +1,13 @@
 # SDDK Phase — Common Protocol
 
-Boilerplate identical across all SDDK phase skills. Sub-agents MUST load this alongside their phase-specific SKILL.md.
+Shared protocol for every SDDK phase executor. Load it alongside the phase skill
+and phase prompt.
 
-Executor boundary: every SDDK phase agent is an EXECUTOR, not an orchestrator. Do the phase work yourself. Do NOT launch sub-agents, do NOT call `delegate`/`task`, and do NOT bounce work back unless the phase skill explicitly says to stop and report a blocker.
+Executor boundary: perform the assigned phase and return its envelope. Leaf
+executors do the work directly. A coordinator may dispatch workers only when
+its canonical phase prompt declares the worker set, fan-out inputs, join
+condition, and synthesis owner. `sddk-verify` and `sddk-debt-verify` are the
+current coordinator exceptions; their workers remain leaf executors.
 
 ## A. Skill Loading
 

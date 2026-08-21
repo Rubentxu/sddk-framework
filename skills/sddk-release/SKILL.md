@@ -1,103 +1,49 @@
 ---
 name: sddk-release
-description: "Trigger: sddk-release. Release an SDDK change through local Git before archive: verify, push main, verify SHA, tag, and record local receipts. CI/CD distribution is optional post-tag work."
+description: "Trigger: sddk-release. Delegate local Git publication and receipt capture before archive."
 disable-model-invocation: true
 user-invocable: false
 license: MIT
 metadata:
-  author: gentleman-programming
+  author: SDDK Team
   version: "1.0"
   delegate_only: true
-  source_of_truth: prompts/sddk/git-contract.md
 ---
 
-> **ORCHESTRATOR GATE**: If you loaded this skill, STOP. Delegate to `sddk-release`. Do NOT execute inline.
+## Activation Contract
 
-## Executor Override
+Route the mandatory publication step before archive. A-* paths arrive with
+passing verify and debt evidence; B-direct follows its declared gate.
 
-If you ARE the `sddk-release` sub-agent, continue. Run the **SDDK Release Checklist** end-to-end. Do NOT delegate further. Do NOT loop back to other SDDK phases.
+## Hard Rules
 
-## Mandatory Pre-Archive
+- Delegate once to `sddk-release`; never execute Git effects inline.
+- Preserve candidate SHA, path, evidence paths/hashes, cycle state, and tag plan.
+- Treat `prompts/sddk/phases/release.md` as the phase authority and
+  `prompts/sddk/git-contract.md` as Git authority.
+- Do not add forge, CI/CD, or distribution state to release success.
 
-`sddk-release` is **mandatory** before `sddk-archive`. There is no opt-out. The release phase runs after successful verify (A-min/lite) or review (A-full), and BEFORE archive. It creates the annotated tag and release receipts that archive later references. Without release, semver tags are missed and the ROADMAP drifts from reality.
+## Decision Gates
 
-`prompts/sddk/git-contract.md` is the **single source of truth** for git invariants. This skill references it; do not duplicate its rules.
+| Context | Action |
+|---|---|
+| Caller is the orchestrator | Delegate to `sddk-release` and stop |
+| Caller is `sddk-release` | Execute the canonical phase prompt |
 
-## Local Release Contract
+## Execution Steps
 
-The mandatory authority is local Git:
+1. Load shared phase context, release phase prompt, and Git contract.
+2. Delegator: pass the unchanged launch packet to `sddk-release`.
+3. Executor: execute the phase prompt and return its exact envelope.
 
-```
-local verify -> push main -> verify HEAD == origin/main -> annotated tag -> verify remote tag -> receipts
-```
+## Output Contract
 
-Never require a PR, `gh`, CI/CD check, GitHub Action, hosted asset, signature,
-or external release to close an SDDK cycle. They are optional post-tag
-distribution only.
-CI/CD and optional post-tag distribution are explicitly excluded from the
-`no-pending-effects` gate.
-
-1. Confirm the verification report (A-min/lite) or review report (A-full),
-   local verification, UAT gate, clean worktree, and trunk checkout.
-2. Fast-forward `main`, push it directly, and verify full `HEAD == origin/main`.
-3. Create or verify an annotated semver tag that peels to that SHA; push it and
-   verify the remote peeled SHA.
-4. Store `merge-receipt` from the verified `git.push` postcondition and
-   `release-receipt` from the verified `git.tag` postcondition.
-5. Complete the HTML report, knowledge graph update, serialization lock release,
-   and ledger verification.
-
-Use `sddk release apply --route local --branch main --base main --cycle <cycle-id>
---tag <tag> --title <message> --approve` when the typed CLI is available. The
-`--cycle <cycle-id>` argument is **mandatory** for the local route: the CLI
-links the release to the release-pending cycle, verifies the manifest commit
-is an ancestor of HEAD, and requires a clean trunk checkout. A retry is safe:
-an existing remote tag succeeds only if it is annotated and points to `HEAD`.
-
-`--route forge --repo owner/repo` is optional integration after local success.
-It does not read provider checks and its failure cannot block the cycle.
-
-If `release-lock` fails, BLOCK and retain the lock. Never report success while
-the local release bookkeeping remains incomplete.
-
-## Result Contract
-
-```yaml
-status: success | blocked
-route: local
-change: <name>
-main_sha: <full-sha>
-tag: v<major>.<minor>.<patch>
-merge_receipt: <path-or-receipt-id>
-release_receipt: <path-or-receipt-id>
-knowledge_graph_updated: bool
-lock_released: bool
-optional_distribution: not_requested | pending | completed | failed
-blockers: []
-```
-
-The `release-report` is mandatory even on block. The `merge-receipt` and
-`release-receipt` are the artifacts that `sddk-archive` later references
-when creating the `archive-manifest` to close the cycle.
-
-## CLI Contract (sddk ledger)
-
-When the project is adopted (`sddk cycle status --root . --scope .` exits 0), record the release in the cycle ledger BEFORE returning:
-
-1. Evaluate `release-receipt` with the annotated tag and SHA evidence, and
-   `no-pending-effects` with evidence that required local Git effects settled.
-   Do not include CI/CD or optional distribution in that evidence.
-2. Transition with both local artifacts:
-    `sddk cycle transition --root . --scope . --cycle {cycle_id} --transition release.complete --artifact merge-receipt={main-sha-receipt} --artifact release-receipt={tag-receipt} --gate-receipt {receipt_id_1} --gate-receipt {receipt_id_2} --lease-owner {lease_owner} --fencing-token {fencing_token}`
-3. Close the loop with telemetry: `sddk metrics record --root . --scope . --cycle {cycle_id} --verdict {PASS|PW|FAIL}`
-4. Verify ledger integrity: `sddk ledger verify --root . --scope .`
-
-A failed evaluate-gate or transition is a BLOCKER: report it in the envelope and do not proceed. `{cycle_id}`, `{lease_owner}`, `{fencing_token}` come from the orchestrator launch prompt (the cycle is opened with `sddk cycle start`). Full protocol: `skills/_shared/persistence-contract.md` → CLI Ledger Channel.
+Return the release report envelope from the phase prompt. Archive artifacts and
+cycle-closure claims are not release outputs.
 
 ## References
 
-- `prompts/sddk/git-contract.md` — git invariants (source of truth)
-- `prompts/sddk/HTML-REPORT.md` — HTML report format
-- `prompts/sddk/roadmap-template.md` — ROADMAP update format
-- `skills/sddk-archive/SKILL.md` — runs after release, closes the cycle by linking archive-manifest to release-receipt
-- `prompts/sddk/phases/release.md` — full agent prompt
+- `prompts/sddk/phases/release.md` — phase authority
+- `prompts/sddk/git-contract.md` — Git authority
+- `skills/_shared/sddk-phase-common.md` — shared executor protocol
+- `skills/sddk-archive/SKILL.md` — successor adapter

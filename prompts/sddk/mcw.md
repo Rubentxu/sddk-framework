@@ -196,70 +196,36 @@ Hard gate: PASS or PW. If FAIL → return to Step 2.1 (correction cycle).
 
 ### Step 2.4 — Debt-Verify (v3.3 — MANDATORY on A-*, n/a on B-direct)
 
-> **Mandatory step on A-*.** Triggers unconditionally after `sddk-verify` returns PASS or PW. Depth is **derived from path** — the orchestrator NEVER asks the user, and there is no skip option inside A-* paths. B-direct (hotfix) does NOT invoke debt-verify.
-
-**Path-derived depth (locked, no user choice):**
+Run `sddk-debt-verify` unconditionally after verify returns PASS or PW on an
+A-* path. B-direct disables this gate. Depth is fixed by the selected path:
 
 | Path | Depth | Clusters |
 |------|-------|----------|
-| A-full | **deep** | architecture + smells + duplication + coupling + overeng (5 clusters) |
-| A-lite | **standard** | smells + duplication + coupling + overeng (4) |
-| A-min | **smoke** | coupling + overeng (2) |
-| B-direct | n/a — debt-verify not invoked | — |
+| A-full | deep | architecture, smells, duplication, coupling, overeng |
+| A-lite | standard | smells, duplication, coupling, overeng |
+| A-min | smoke | coupling, overeng |
+| B-direct | disabled | none |
 
-Delegate to `sddk-debt-verify`. Output: `debt-report.md` with cluster verdicts, severity aggregation, pre-existing-main-debt detection, verdict (PASS / PW / FAIL), and `re_iterate_from` recommendation.
+`prompts/sddk/phases/debt-verify.md` is the sole authority for audit input,
+finding normalization, baseline attribution, deterministic aggregation,
+decision rules, and output schemas. Persist `debt-report.json` as machine
+authority and derive `debt-report.md` from it.
 
-The phase orchestrator launches cluster agents in parallel based on the chosen depth:
+Hard gate: `PASS` or `PASS_WITH_WARNINGS`. `FAIL` returns to the declared
+remediation target on the same cycle branch, then reruns verify and debt-verify
+(maximum three remediation rounds). `INCONCLUSIVE` retries the failed coverage
+or requires human review; it never proceeds to release.
 
-| Depth | Clusters launched (parallel) |
-|---|---|
-| smoke | 2: `debt-overeng-cluster` + `debt-coupling-cluster` |
-| standard | 4: + `debt-smells-cluster` + `debt-duplication-cluster` |
-| deep | **5: ALL clusters in parallel** (`debt-architecture-cluster`, `debt-smells-cluster`, `debt-duplication-cluster`, `debt-coupling-cluster`, `debt-overeng-cluster`) |
+### Step 2.5 — Coherence Check (debt-verify → release) (A-full only)
 
-Each cluster agent emits its dimension verdict. The phase orchestrator merges them and applies Decision Gates:
-
-| Condition | Verdict |
-|-----------|---------|
-| Any CRITICAL from any cluster, OR ≥3 HIGH, OR ≥3 SOLID CRIT, OR DQS < 0.3, OR connascence > 5 bits, OR cycles, OR god-class CRIT, OR ≥10 ponytail | **FAIL** |
-| 1–2 HIGH, no CRITICAL, OR ≥3 SOLID MEDIUM, OR deepening candidates | **PASS_WITH_WARNINGS** |
-| All clean | **PASS** |
-
-**Re-iteration decision matrix** (drives next action):
-
-| Severity | re_iterate_from | Action |
-|----------|-----------------|--------|
-| DQS < 0.3 OR connascence > 5 bits OR new cycles OR god-class CRIT OR ≥3 SOLID CRIT | `beginning` | Re-iterate from Step 0.4 (triage → re-explore → re-propose) — problem framing is wrong |
-| Multiple HIGH OR ≥1 accidental-bloat OR ≥10 ponytail | `apply` | **Remediate on SAME feature branch** — increment `remediation_round`, apply fixes, re-verify, re-debt-verify (max 3 rounds) |
-| 1–2 HIGH, mostly LOW/MEDIUM | `none` | Proceed to Step 2.5 (archive) with debt report attached to PR |
-| All clean | `none` | Proceed to Step 2.5 (archive) |
-
-**Remediation discipline (trunk-based — same branch, same cycle_id)**:
-- Remediation happens on the **SAME feature branch** — increment `remediation_round` (starts at 1, max 3).
-- Orchestrator applies fixes via `sddk-apply` on the same branch.
-- Re-run `sddk-verify` then `sddk-debt-verify` with incremented `remediation_round`.
-- **NO auxiliary branch, NO separate PR, NO separate release**.
-- **Max 3 remediation rounds**. After round 3 fails → escalate to user with full debt report and STOP. No auto-merge.
-
-**Pre-existing main debt detection**: if any CRITICAL finding traces to a commit on `main` BEFORE the feature branch was created, flag `pre_existing_main_debt: true` and create a follow-up incidence. It does not create a second cycle inside the active cycle.
-
-**Hard gate**: PASS or PW. FAIL → enter remediation on the same branch and `cycle_id`. There is no skip path; depth is path-derived.
-
-### Step 2.5 — Coherence Check (verify → archive) (A-full only)
-
-Score ≥ 60. Runs AFTER debt-verify so the coherence score reflects both functional and debt dimensions.
-
-### Step 2.6 — Archive
-
-Delegate to `sddk-archive`. Output: `archive-report.md` with knowledge impact, entropy trend, and debt-report attachment.
-
-The archive report embeds the debt summary so it travels with the PR description.
+Score ≥ 60. Runs after debt-verify so the release handoff includes functional
+and debt evidence.
 
 ---
 
 ---
 
-## Phase 3 — Consolidate (after archive)
+## Phase 3 — Release And Archive
 
 ### Step 3.1 — Local Verify And Push Main (MANDATORY)
 
@@ -278,7 +244,7 @@ postcondition, not a PR or CI/CD result, is the merge receipt authority.
 
 ### Step 3.2 — Create Or Verify Semver Tag (MANDATORY)
 
-Compute the bump from local cycle commits and verified archive metadata:
+Compute the bump from local cycle commits and verified cycle metadata:
 
 | Change type | Bump |
 |-------------|------|
@@ -297,13 +263,24 @@ to the verified main SHA.
 ### Step 3.3 — Local Receipts And Bookkeeping (MANDATORY)
 
 Persist `merge-receipt` from the direct-main SHA postcondition and
-`release-receipt` from the annotated remote tag. Generate the required HTML
-report, update the external knowledge graph, and release the serialization
-lock only after those writes succeed.
+`release-receipt` from the annotated remote tag, then persist
+`release-report.md` and apply `release.complete`.
 
 `no-pending-effects` means no required local Git action remains. It explicitly
 excludes CI/CD, Actions, hosted releases, assets, signing, and distribution.
 Those optional consumers may run after the tag and are never awaited.
+
+### Step 3.4 — Archive (MANDATORY after release)
+
+Delegate to `sddk-archive` only after `release-report.md` reports success.
+Archive syncs delta specs, finalizes the external knowledge graph, generates the
+closing HTML, persists `archive-report.md`, and creates an `archive-manifest`
+that references the `release-receipt`. A successful `release.complete` normally
+auto-releases the phase lease, so archive rebuilds CLI state and omits lease
+flags when no live lease exists.
+
+Hard gate: archive report and manifest persisted, vault and ledger valid, and
+`archive.complete` returns runtime status `CLOSED`.
 
 ---
 
@@ -326,7 +303,9 @@ Hard gate: HEAD == origin/main.
 5. Mirror as Engram observation with `topic_key: cycle-metrics/{cycle_id}`.
 6. Update `metrics/aggregate` rolling 7d/30d.
 
-This replaces the old `.sddk-last-cycle-complete` marker file. Tag presence on main commit = cycle closed; F3 metrics aggregation = jurisprudence updated.
+This replaces the old `.sddk-last-cycle-complete` marker file. Runtime status
+`CLOSED` plus an archive manifest linked to the release receipt proves cycle
+closure; a tag alone proves release, not archive.
 
 ### Step 4.3 — Save Jurisprudence (conditional)
 
@@ -375,6 +354,7 @@ Ready for next cycle.
 | artifact registry unreachable | Block. Use last-known state, mark `unverified`. |
 | Local main SHA differs from origin/main | BLOCK. Investigate the remote state. |
 | Tag push fails | BLOCK. Investigate permissions. |
+| Debt-verify is INCONCLUSIVE | BLOCK. Retry failed coverage or request human review. |
 | HTML report fails (when required) | BLOCK. Re-generate via sddk-archive. |
 | Per-task attempts > CIRCUIT_PER_TASK_MAX_ATTEMPTS | BLOCK. Escalate to user (loop engineering freno duro). |
 
@@ -397,7 +377,7 @@ Last checkpoint: <task-id>
 | Rebasing feature branches | Loses review history | Checklist blocks |
 | Starting new cycle without closing previous | Two cycles open | Step 0.2 gate |
 | Waiting for CI/CD or Actions | External distribution can stall the cycle | Explicitly excluded from release gates |
-| Skipping semver tag | Lost milestone | Step 3.5 gate |
+| Skipping semver tag | Lost milestone | Step 3.2 gate |
 | Skipping trunk sync | Working on stale main | Step 0.1 + 4.1 gates |
 | Co-Authored-By in commit | AI attribution leaked | Checklist blocks |
 | Running full SDDK for C3 fix | Waste | Use B-direct via triage |
@@ -425,12 +405,12 @@ Last checkpoint: <task-id>
 | 2 | 2.1 | Apply | Commits pass declarative git checklist |
 | 2 | 2.2 | Coherence apply→verify (A-full, A-lite) | ≥ 60 |
 | 2 | 2.3 | Verify | PASS or PW |
-| 2 | 2.4 | **Debt-verify (MANDATORY on A-*; n/a on B-direct; depth derived from path)** | PASS or PW |
-| 2 | 2.5 | Coherence verify→archive (A-full) | ≥ 60 |
-| 2 | 2.6 | Archive | archive-report registered |
+| 2 | 2.4 | **Debt-verify (MANDATORY on A-*; disabled on B-direct; depth derived from path)** | PASS or PW; INCONCLUSIVE blocks |
+| 2 | 2.5 | Coherence debt-verify→release (A-full) | ≥ 60 |
 | 3 | 3.1 | Local verify + direct main push | HEAD == origin/main |
 | 3 | 3.2 | Annotated semver tag | Remote tag peels to main SHA |
-| 3 | 3.3 | Local receipts + bookkeeping | Receipts persisted and lock released |
+| 3 | 3.3 | Local receipts + release transition | Receipts persisted; runtime enters RELEASED/archive |
+| 3 | 3.4 | Durable archive closure | Archive manifest references release receipt; runtime CLOSED |
 | 4 | 4.1 | Sync main | HEAD == origin/main |
 | 4 | 4.2 | F3 tuning + metrics | Tuning written |
 | 4 | 4.3 | Jurisprudence (conditional) | Observation saved |

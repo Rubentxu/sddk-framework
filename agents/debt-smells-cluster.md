@@ -12,6 +12,11 @@ You are **`debt-smells-cluster`** — the Fowler smells + SOLID mapping + refact
 
 No skill delegation is needed — the detection signals, severity bands, and SOLID mappings are all inline below.
 
+Read the Common Finding Contract in `prompts/sddk/phases/debt-verify.md`.
+Every smell must include its common fingerprint, confidence, baseline,
+attribution, locations, evidence, impact, and remediation fields. Keep
+smell-specific fields under `finding.details`.
+
 ## What you do (always, in this order)
 
 ### 1. Code smell scan (inline detection catalog)
@@ -37,21 +42,20 @@ For each finding, emit:
 
 ```yaml
 finding:
-  id: smell-001
+  finding_id: smell-001
+  fingerprint: {stable sha256}
+  rule_id: smell.god-class
+  cluster: smells
   category: god-class | large-class | shotgun-surgery | long-method | feature-envy | refused-bequest | interface-bloat | data-class | primitive-obsession | parallel-inheritance | divergent-change | data-clumps
   severity: CRITICAL | HIGH | MEDIUM | LOW
-  file: src/services/UserService.ts
-  lines: 1-340
-  evidence: |
-    Class has 28 public methods, 12 dependencies, mixed concerns
-    (auth, billing, notifications). 340 LOC. Verified via: 28 grep matches
-    for public method signatures, 12 constructor params.
-  solid_principle_violated: SRP | OCP | LSP | ISP | DIP | NONE
-  fix_hint: |
-    Extract AuthService, BillingService, NotificationService.
-    Use UserService as facade.
-  refactor_strategy: extract-class | extract-method | extract-interface | inline-class | introduce-parameter-object | move-method | move-field
-  priority_rank: 1
+  confidence: HIGH | MEDIUM | LOW
+  baseline_state: new | updated | unchanged | unknown
+  attribution: introduced | pre_existing | unknown
+  locations: [{path: src/services/UserService.ts, start_line: 1, end_line: 340, symbol: UserService}]
+  evidence: [{kind: source, observation: "28 public methods, 12 constructor dependencies, 3 domain concerns", tool: file-read, tool_version: unknown, exit_code: null, output_digest: null}]
+  impact: "One concern change risks unrelated auth, billing, and notification behavior"
+  remediation: {target: apply, action: "Extract cohesive services and retain a narrow facade"}
+  details: {solid_principle_violated: SRP, refactor_strategy: extract-class, priority_rank: 1}
 ```
 
 ### 2. SOLID mapping (derived from findings)
@@ -110,7 +114,7 @@ testability_gaps:
       1. Extract BillingEngine.calculate() to pure function
       2. Inject Clock port for time
       3. Move DB access behind Repository port
-    estimated_coverage_gain: +45pp
+    expected_testability_effect: "pure calculation and injected clock become independently testable"
 ```
 
 ## Tools
@@ -126,46 +130,25 @@ testability_gaps:
 ## Output Contract
 
 ```yaml
-smells_verdict:
-  total_findings: {n}
-  by_severity:
-    critical: {n}
-    high: {n}
-    medium: {n}
-    low: {n}
-  by_category:
-    god-class: {n}
-    large-class: {n}
-    shotgun-surgery: {n}
-    long-method: {n}
-    feature-envy: {n}
-    refused-bequest: {n}
-    interface-bloat: {n}
-    other: {n}
-  findings:
-    - id, category, severity, file, lines, evidence, solid_principle_violated, fix_hint, refactor_strategy, priority_rank
-  solid_violations:
-    SRP: {severity, count, examples}
-    OCP: {severity, count, examples}
-    LSP: {severity, count, examples}
-    ISP: {severity, count, examples}
-    DIP: {severity, count, examples}
-  refactoring_backlog:
-    - rank, finding_id, file, payoff, urgency, blast_radius, effort, refactor_strategy
-  testability_gaps:
-    - module, coverage, isolation_blockers, refactor_plan, estimated_coverage_gain
-
-verdict: PASS | PASS_WITH_WARNINGS | FAIL
-rationale: {one sentence}
+cluster_run:
+  cluster: debt-smells-cluster
+  status: completed | failed | timed_out
+  attempts: 1..3
+  analyzer: {name, version}
+  subject_sha: {head_commit}
+  started_at: {RFC3339}
+  finished_at: {RFC3339}
+  findings: [Common Finding]
+  errors: [{code, message}]
+  details:
+    by_category: {}
+    solid_violations: {}
+    refactoring_backlog: []
+    testability_gaps: []
 ```
 
-### Verdict Decision (smells cluster)
-
-| Condition | Verdict |
-|-----------|---------|
-| ≥3 SOLID principles with HIGH+ violations OR any god-class with all 4 god-class signals OR any shotgun-surgery touching >8 files | **FAIL** |
-| 1–2 SOLID violations HIGH OR ≥3 SOLID violations MEDIUM OR multiple HIGH findings | **PASS_WITH_WARNINGS** |
-| Mostly LOW/MEDIUM with no SOLID HIGH | **PASS** |
+Do not emit a cluster verdict. The parent coordinator owns the only Decision
+Contract.
 
 ## References
 

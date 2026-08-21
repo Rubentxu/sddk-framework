@@ -40,14 +40,14 @@ If you can match a canonical path, **always prefer it** — generated workflows 
    | Unstable dependency | circuit-breaker |
    | Long-running distributed | saga |
    | Shared mutable state | blackboard |
-   | **SDD-specific** | spec-driven-decomposition, multi-lens-verification, trunk-sync-gate |
+   | **SDDK code-change path** | spec-driven-decomposition, multi-lens-verification, trunk-sync-gate |
 
 4. **Phase design**: compose phases[] with these defaults:
    - Always start with `trunk-sync-start` (preflight)
    - Always end with `trunk-sync-end` + `result-contract`
    - Include `branch-creation` if any agent produces commits
    - Include `verify` if agents produce code/output
-   - Include `debt-verify` (depth derived from path; mandatory — NOT opt-in) for SDD-style changes; skip ONLY when path is B-direct (hotfix)
+   - Include `debt-verify` for A-* code-change paths using `prompts/sddk/phases/debt-verify.md`; its depth is path-derived and B-direct disables it
    - Include `update-knowledge-graph` if milestone tracking is enabled
    - Include `release` (mandatory before archive, NOT opt-in) if git workflow applies
    - Knowledge pipeline preflight (`with_knowledge: true`): run scan then verify; import only when `knowledge_approved true AND reviewed plan`; quarantine candidates are NEVER auto-imported or auto-approved.

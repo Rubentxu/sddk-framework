@@ -1,6 +1,6 @@
 # SDDK Framework
 
-> **Spec-Driven Development Kernel** — an agentic software engineering workflow with a built-in knowledge graph, trunk-based git discipline, and multi-lens verification.
+> **Software Development Decision Kernel** — an agentic decision and workflow kernel with a built-in knowledge graph, governed Git effects, and evidence-based verification.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![OKF Compatible](https://img.shields.io/badge/OKF-v0.2-blue.svg)](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
@@ -18,7 +18,7 @@ SDDK is a complete agent orchestration framework for AI-assisted software develo
 
 | Feature | What it does |
 |---------|-------------|
-| **Spec-Driven** | Every change starts with a spec (Given/When/Then scenarios). Implementation is verified against the spec, not just "does it compile." |
+| **Decision-governed** | Context and risk select the workflow path; explicit evidence and receipts govern every handoff. Specifications remain one acceptance artifact, not the product identity. |
 | **Multi-lens verification** | 6 parallel verification lenses (spec compliance, architecture, test quality, design coherence, 2 adversarial judges) + synthesis. |
 | **Technical debt audit** | 5 cluster agents (architecture, smells, duplication, coupling, over-engineering) audit debt before merge to main. |
 | **Knowledge graph** | Every milestone, ADR, requirement, cycle, and incidence is a node in an Obsidian-compatible wikilink graph. Full bidirectional traceability. |
@@ -139,8 +139,8 @@ The `~/.sddk-knowledge/{project}/` directory is the adoption marker — its exis
 
 The orchestrator will:
 1. **Plan** — explore → propose → spec → design → tasks (interactive checkpoints)
-2. **Build** — apply (with Strict TDD if enabled) → verify (multi-lens) → debt-verify (5 clusters)
-3. **Release** — push → PR → merge to main → semver tag → update knowledge graph → sync trunk
+2. **Build** — apply (with Strict TDD if enabled) → verify (multi-lens) → path-derived debt-verify
+3. **Release and archive** — publish main → semver tag → receipts → archive manifest → sync trunk
 
 No cycle closes until your code is on `main`.
 
@@ -148,14 +148,15 @@ No cycle closes until your code is on `main`.
 
 | Path | When | Depth |
 |------|------|-------|
-| **B-direct** | Hotfix, bounded task | Load skill → execute → light verify → release |
-| **A-min** | Simple change, C2 context | spec → apply → verify → debt-verify (smoke, 2 clusters) → release |
-| **A-lite** | Bounded work, C1 context | propose → spec → apply → verify → debt-verify (standard, 4 clusters) → release |
-| **A-full** | Architectural, new domain, C0 | explore → propose → spec ∥ design → tasks → apply → verify (6 lenses) → debt-verify (deep, 5 clusters) → release |
+| **B-direct** | Hotfix, bounded task | Load skill → execute → light verify → release → archive |
+| **A-min** | Simple change, C2 context | spec → apply → verify → debt-verify (smoke, 2 clusters) → release → archive |
+| **A-lite** | Bounded work, C1 context | propose → spec → apply → verify → debt-verify (standard, 4 clusters) → release → archive |
+| **A-full** | Architectural, new domain, C0 | explore → propose → spec ∥ design → tasks → apply → verify (6 lenses) → debt-verify (deep, 5 clusters) → release → archive |
 
-Reversibility axis (v3.4) modulates debt-verify depth independently:
-- **High reversibility** (pure code, feature-flagged) → skip debt-verify
-- **Low reversibility** (schema, security) → force deep + judgment-day
+Debt-verify depth is fixed when triage selects the path. Reversibility affects
+that initial path decision, not whether the gate runs after implementation.
+This trades some analyzer cost for a predictable, non-bypassable local gate;
+incomplete required coverage returns `INCONCLUSIVE` and blocks release.
 
 ## Knowledge graph
 
@@ -198,7 +199,9 @@ The **Behavioral Compliance Matrix** maps every spec scenario to a test that pas
 
 ### Technical debt audit (`sddk-debt-verify`)
 
-5 cluster agents run in parallel (read-only on codebase):
+Up to 5 cluster agents run in parallel, depending on the selected path. They
+write machine-authoritative `debt-report.json` plus a derived
+`debt-report.md`; the current CLI handoff remains specification-only.
 
 | Cluster | Dimension |
 |---------|-----------|

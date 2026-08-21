@@ -1,6 +1,9 @@
 # SDDK Phase Contracts
 
-These contracts describe the canonical `sddk-*` phase agents.
+This document owns cross-phase interfaces: router context, artifact handoff,
+and Git interleaving. Each `prompts/sddk/phases/{phase}.md` file owns that
+phase's operational semantics. Agent wrappers and skills reference those
+contracts instead of restating them.
 
 ## Router Context Contract
 
@@ -32,15 +35,22 @@ The orchestrator owns git operations, but phases must respect the interleaving:
 | `sddk-tasks` | Branch NOT yet created | Produce tasks. Orchestrator creates branch after this phase. |
 | `sddk-apply` | Branch exists, pushed to remote | Produce atomic conventional commits per task slice. Never commit broken code. |
 | `sddk-verify` | Commits exist on branch | Fix commits follow conventional format. |
-| **`sddk-debt-verify`** (MANDATORY on A-*, n/a on B-direct) | Commits exist on feature branch, pre-PR — runs unconditionally after verify PASS/PW on A-* paths | **Read-only audit.** Launches cluster orchestrators in parallel with depth derived from path. Emits `debt-report.md` and verdict. On FAIL with `re_iterate_from: apply`, triggers remediation on the SAME feature branch (increment `remediation_round`; max 3 rounds). Never commits; never pushes. |
-| `sddk-archive` | Local verification evidence + debt-report PASS/PW (mandatory on A-*) | Orchestrator hands off to `sddk-release`, which owns direct main push, SHA verification, annotated tag, local receipts, HTML, knowledge graph, lock release, and trunk sync. |
-| **`sddk-release`** (NEW v3.3 — MANDATORY post-archive) | All commits pushed + archive-report success | Single owner of Phase 3 end-to-end. See `prompts/sddk/phases/release.md` and `skills/sddk-release/SKILL.md`. |
+| **`sddk-debt-verify`** (mandatory on A-*, disabled on B-direct) | Commits exist on the cycle branch; verify passed | **Read-only audit.** Apply `prompts/sddk/phases/debt-verify.md`, emit authoritative JSON plus Markdown, and remediate failures on the same cycle branch. `INCONCLUSIVE` blocks release. |
+| **`sddk-release`** | Verify and required debt evidence passed | Own direct main push, SHA verification, annotated tag, local receipts, and release report. Its successful transition moves the runtime to `RELEASED/archive` and auto-releases the phase lease. |
+| `sddk-archive` | Release report succeeded and release receipt exists | Sync delta specs, finalize durable knowledge and the closing report, then close the cycle with an archive manifest linked to the release receipt. It must not assume a live lease after `release.complete`. |
 
-Phases must NOT perform git operations directly. The orchestrator owns local integration to trunk. From Phase 3 onward, `sddk-release` owns direct main push, SHA verification, annotated tagging, local receipts, HTML report generation, knowledge graph updates, lock release, and trunk synchronization. It does not depend on a PR or CI/CD system.
+Phases must not perform Git operations unless their canonical phase prompt owns
+them. The orchestrator owns branch setup and dispatch; `sddk-release` owns the
+Phase 3 publication effects: direct main push, SHA verification, annotated tag,
+and local receipts. `sddk-archive` owns durable closure after publication. No
+phase depends on a PR or CI/CD system.
 
 The ROADMAP, ADRs, archive folders, and HTML reports live in user space (XDG + knowledge vault, ADR-0011): `$SDDK_DATA_DIR/projects/<project_id>/` and `<vault>` from `sddk knowledge path`. They are never written into the project repo and never committed.
 
-The `sddk-debt-verify` phase agent (mandatory on A-*) is the only phase that runs BEFORE PR creation. It runs on the same feature branch as `sddk-apply` and `sddk-verify`. The orchestrator verifies the debt-report verdict is PASS or PW before handing off to `sddk-release`.
+The `sddk-debt-verify` capability runs on the same cycle branch as apply and
+verify. The orchestrator accepts only `PASS` or `PASS_WITH_WARNINGS` before
+handing off to release. This declarative contract does not claim a dedicated
+runtime phase or CLI transition.
 
 ## Explore
 
@@ -85,22 +95,22 @@ If C0/C1 gaps affect boundaries, invariants, or contracts, design returns partia
 
 ## Verify
 
-Verify remains multi-lens in the kernel flow.
+Verify is a coordinator/worker phase. The coordinator runs deterministic gates
+once, dispatches only the path-selected lenses, and owns the verdict. Lens
+selection, evidence requirements, and output schemas are defined only in
+`prompts/sddk/phases/verify.md`.
 
-Required behavior:
-- Knowledge traceability lens.
-- Architecture/connascence lens.
-- Test quality lens.
-- Design coherence lens.
-- Two adversarial judge lenses when risk is high enough.
-- Synthesis agent merges findings into one verdict.
-- Knowledge Impact: confirmed claims, contradicted claims, stale artifacts, promotion candidates.
+## Coherence
 
-The kernel decides lens count based on context quality and risk; it must not spawn lenses just because they exist.
+Coherence is a path-selected MCW handoff check, not a runtime phase. The
+`sddk-coherence` leaf evaluator reads declared XDG artifacts, writes
+`coherence/{trigger}.md`, and never applies a cycle transition. Triggers,
+thresholds, hard blocks, and output are defined only in
+`prompts/sddk/phases/coherence.md`.
 
 ## Apply
 
-Apply implements approved kernel tasks safely, preserving progress and verifying each slice.
+Apply implements approved SDDK tasks safely, preserving progress and verifying each slice.
 
 Required behavior:
 - Follow `prompts/sddk/git-contract.md` for commit format and atomicity.
@@ -111,33 +121,23 @@ Required behavior:
 
 ## Archive
 
-Archive closes a completed kernel change. Syncs delta specs and updates durable knowledge.
+Archive closes a released SDDK cycle. It syncs delta specs and updates durable knowledge.
 
 Required behavior:
-- Verify all commits are pushed to the remote feature branch.
-- Confirm merge target is main via merge commit (--no-ff).
-- **MANDATORY on A-* paths (v3.3)**: confirm `debt-report.md` exists with verdict PASS or PW. Block archive if debt-report is missing or FAIL. Debt-verify is NOT optional on A-* paths; only B-direct skips it.
-- If debt-report exists, embed its summary in PR body so debt travels with the merge.
-- Orchestrator creates semver tag after this phase completes.
-- Never delete the feature branch after merge.
+- Confirm `release-report.md` succeeded and `release-receipt` exists.
+- On A-* paths, confirm `debt-report.json` exists, its outer-envelope hash
+  matches, its subject SHA equals the released SHA, and its verdict is `PASS`
+  or `PASS_WITH_WARNINGS`.
+- Block when debt evidence is missing, FAIL, or INCONCLUSIVE.
+- Link the archive manifest to the release receipt.
+- Do not delete a development branch as part of archive.
 - Generate self-contained HTML closing report using `prompts/sddk/HTML-REPORT.md`.
 - Open the HTML report in the browser automatically.
 - Report path: `/tmp/sddk-{change-name}-{YYYYMMDD}.html` + `$SDDK_DATA_DIR/projects/{project_id}/changes/{change_name}/reports/cierre.html`.
 
-## Debt-Verify (v3.3 — MANDATORY on A-*, n/a on B-direct)
+## Debt-Verify
 
-Debt-verify is a **mandatory** post-verify phase on A-* paths that runs on the feature branch BEFORE PR creation. It is the gate that prevents CRITICAL technical debt from reaching `main`. The user is NEVER asked and NEVER allowed to skip — the only legitimate way to avoid it is to triage into B-direct (hotfix).
-
-Required behavior:
-- **Trigger**: unconditional after `sddk-verify` returns PASS or PW on A-full / A-lite / A-min.
-- **Depth**: derived from path and locked. `smoke | standard | deep` is selected automatically: A-full=deep, A-lite=standard, A-min=smoke. The user is not prompted.
-- **Read-only on the codebase.** Cluster agents audit and emit findings; never modify code, never commit.
-- **Cluster fan-out**: A-full=5 clusters, A-lite=4 clusters, A-min=2 clusters, B-direct=0.
-- **Trunk-based discipline**: runs on the feature branch, NOT on main. Branch must be pushed. Working tree clean.
-- **Pre-existing main debt detection**: for each CRITICAL finding, `git blame` and flag if last touched on main BEFORE the feature branch was created.
-- **Re-iteration decision**: emit `re_iterate_from: beginning | apply | none` per the Re-Iteration Decision Matrix.
-- **Remediation discipline**: on FAIL with `re_iterate_from: apply`, remediate on the SAME feature branch — increment `remediation_round`, apply fixes, re-verify, re-debt-verify (max 3 rounds).
-- Persist `debt-report` under `{cycle-artifacts-dir}`.
-- Return envelope with verdict, re_iterate_from, clusters_run, depth, findings_by_severity, pre_existing_main_debt, next_recommended.
-
-When skipped, `sddk-archive` proceeds normally and no debt-report is required.
+Debt-verify is the mandatory A-* handoff between passing functional verification
+and release; B-direct disables it. Its path/depth mapping, worker fan-out,
+finding contract, aggregation, remediation, and report schemas are defined only
+in `prompts/sddk/phases/debt-verify.md`.

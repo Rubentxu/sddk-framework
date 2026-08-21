@@ -1,6 +1,6 @@
 # SDDK Framework
 
-> **Spec-Driven Development Kernel** — un workflow agéntico para ingeniería de software con grafo de conocimiento integrado, disciplina git trunk-based y verificación multi-lente.
+> **Software Development Decision Kernel** — un kernel agéntico de decisiones y workflows con grafo de conocimiento, efectos Git gobernados y verificación basada en evidencia.
 
 [![Licencia: MIT](https://img.shields.io/badge/Licencia-MIT-yellow.svg)](LICENSE)
 [![OKF Compatible](https://img.shields.io/badge/OKF-v0.2-blue.svg)](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
@@ -18,7 +18,7 @@ SDDK es un framework completo de orquestación de agentes para desarrollo de sof
 
 | Característica | Qué hace |
 |----------------|----------|
-| **Spec-Driven** | Cada cambio empieza con una spec (escenarios Given/When/Then). La implementación se verifica contra la spec, no solo "¿compila?" |
+| **Gobernado por decisiones** | El contexto y el riesgo seleccionan el workflow; evidencia y recibos explícitos gobiernan cada handoff. Las specs son un artefacto de aceptación, no la identidad del producto. |
 | **Verificación multi-lente** | 6 lentes paralelos (compliance de spec, arquitectura, calidad de tests, coherencia de diseño, 2 jueces adversariales) + síntesis |
 | **Auditoría de deuda técnica** | 5 agentes cluster (arquitectura, smells, duplicación, coupling, over-engineering) auditan deuda antes del merge a main |
 | **Grafo de conocimiento** | Cada milestone, ADR, requisito, ciclo e incidencia es un nodo en un grafo de wikilinks compatible con Obsidian. Trazabilidad bidireccional completa |
@@ -95,8 +95,8 @@ El directorio `~/.sddk-knowledge/{project}/` es el marcador de adopción — su 
 
 El orchestrator ejecutará:
 1. **Planificación** — explore → propose → spec → design → tasks (con checkpoints interactivos)
-2. **Construcción** — apply (con Strict TDD si activado) → verify (multi-lente) → debt-verify (5 clusters)
-3. **Release** — push → PR → merge a main → tag semver → actualizar grafo de conocimiento → sincronizar trunk
+2. **Construcción** — apply (con Strict TDD si está activado) → verify (multi-lente) → debt-verify según el path
+3. **Release y archive** — publicar main → tag semver → receipts → archive manifest → sincronizar trunk
 
 Ningún ciclo se cierra hasta que tu código está en `main`.
 
@@ -104,18 +104,19 @@ Ningún ciclo se cierra hasta que tu código está en `main`.
 
 | Path | Cuándo | Profundidad |
 |------|--------|-------------|
-| **B-direct** | Hotfix, tarea acotada | Cargar skill → ejecutar → verify ligero → release |
-| **A-min** | Cambio simple, contexto C2 | spec → apply → verify → debt-verify (smoke, 2 clusters) → release |
-| **A-lite** | Trabajo acotado, contexto C1 | propose → spec → apply → verify → debt-verify (standard, 4 clusters) → release |
-| **A-full** | Arquitectura, dominio nuevo, C0 | explore → propose → spec ∥ design → tasks → apply → verify (6 lentes) → debt-verify (deep, 5 clusters) → release |
+| **B-direct** | Hotfix, tarea acotada | Cargar skill → ejecutar → verify ligero → release → archive |
+| **A-min** | Cambio simple, contexto C2 | spec → apply → verify → debt-verify (smoke, 2 clusters) → release → archive |
+| **A-lite** | Trabajo acotado, contexto C1 | propose → spec → apply → verify → debt-verify (standard, 4 clusters) → release → archive |
+| **A-full** | Arquitectura, dominio nuevo, C0 | explore → propose → spec ∥ design → tasks → apply → verify (6 lentes) → debt-verify (deep, 5 clusters) → release → archive |
 
-El eje de reversibilidad (v3.4) modula la profundidad del debt-verify independientemente:
-- **Alta reversibilidad** (código puro, feature flag) → saltar debt-verify
-- **Baja reversibilidad** (schema, seguridad) → forzar deep + judgment-day
+La profundidad de debt-verify queda fijada cuando el triage selecciona el path.
+La reversibilidad influye en esa decisión inicial, pero no permite saltar el
+gate después. Se acepta el coste de análisis para obtener un gate predecible;
+si falta cobertura requerida, el resultado es `INCONCLUSIVE` y release se bloquea.
 
 ## Grafo de conocimiento
 
-Cada ciclo puebla un vault de conocimiento en `~/.sddk-knowledge/{project}/` (dentro del repo, commited):
+Cada ciclo puebla un vault de conocimiento en `~/.sddk-knowledge/{project}/` (fuera del repo):
 
 ```
 mi-app/~/.sddk-knowledge/{project}/
@@ -154,7 +155,10 @@ La **Behavioral Compliance Matrix** mapea cada escenario de spec a un test que p
 
 ### Auditoría de deuda técnica (`sddk-debt-verify`)
 
-5 agentes cluster ejecutan en paralelo (read-only sobre el código):
+Hasta 5 agentes cluster ejecutan en paralelo, según el path, en modo read-only.
+Generan `debt-report.json` como autoridad machine-readable y
+`debt-report.md` como proyección humana; el handoff al CLI actual sigue siendo
+solo especificación.
 
 | Cluster | Dimensión |
 |---------|-----------|

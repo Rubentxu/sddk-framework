@@ -208,6 +208,34 @@ skill_resolution: paths-injected | fallback-registry | fallback-path | none
 
 On A-* `PASS` or `PASS_WITH_WARNINGS`, next is `sddk-debt-verify`. On B-direct, follow its workflow transition. On `FAIL`, return to correction; never fix inside verify. The coordinator still records failed gate receipts and applies the path-specific verify transition so the CLI moves the cycle to `REMEDIATING/verify`; reporting failure without that ledger mutation is incomplete.
 
+## Ledger Contract (Coordinator Only)
+
+Inspect `sddk cycle status --root . --scope . --cycle {cycle_id} --format
+json`. Require matching cycle/path, `status=OPEN`, and `phase=verify`, then select
+the path transition:
+
+| Path | Transition |
+|---|---|
+| A-full | `phase.verify.complete` |
+| A-min | `phase.verify.complete.a-min` |
+| A-lite | `phase.verify.complete.a-lite` |
+| B-direct | `phase.verify.complete.b-direct` |
+
+1. Require `git rev-parse HEAD == head_commit`; recompute report/log hashes.
+2. Evaluate `tests-pass` and `policy-compliant` with evidence containing subject
+   SHA, result, commands, report path, and report SHA-256. Boolean-only evidence
+   is invalid.
+3. Transition with `verification-report` and both returned receipt IDs. Append
+   lease owner/token only when current cycle status contains a lease; otherwise
+   omit both flags.
+4. A passing verdict requires transition `outcome=succeeded`. A failure or
+   blocked verification requires `outcome=failed`, `status=REMEDIATING`, and
+   `phase=verify`.
+5. Run `sddk ledger verify --root . --scope .` before returning.
+
+Gate evaluation and transition are required for both pass and fail outcomes. A
+CLI error blocks the phase. Renew an expiring live lease before gate evaluation.
+
 ## References
 
 - `skills/sddk-verify/SKILL.md`

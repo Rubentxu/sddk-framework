@@ -28,21 +28,17 @@ The phase prompt is the operational source of truth. Do not reconstruct its rule
 
 ## Boundary
 
-Verify proves that the cycle's implementation satisfies its specifications and is real, executable, production-ready code. It checks only the changed scope and the execution paths needed by the cycle.
-
-`sddk-debt-verify` is a later, separate whole-change debt audit. Do not run its clusters or move verify findings into a debt report.
-
-## Non-Negotiable Behavior
-
-- Inspect source and runtime wiring; task checkboxes and green tests are insufficient.
-- Execute fresh build and test evidence against the exact commit or dirty diff under review.
-- Fail stubs, placeholders, hard-coded test satisfiers, unreachable implementations, and test doubles wired into production paths.
-- Apply the production-readiness and evidence-based SOLID gates on every workflow path.
-- Remain read-only. Report defects to the correction cycle; never implement fixes.
-- As coordinator, launch only the verify lenses defined by the phase prompt, then synthesize their evidence yourself.
-- As lens, never recurse into another `sddk-verify` or repeat deterministic commands already supplied by the coordinator.
+- Execute only `prompts/sddk/phases/verify.md`; it owns gates, lens selection,
+  verdicts, reports, and ledger behavior.
+- Remain read-only. `sddk-debt-verify` is a separate successor gate.
+- As coordinator, run deterministic work once, dispatch only the declared
+  lenses, validate their envelopes, and own synthesis.
+- As lens, evaluate exactly one `lens_id`; never dispatch, persist, mutate the
+  ledger, or repeat deterministic commands supplied by the coordinator.
 
 ## Return
 
-- Coordinator: persist `{cycle-artifacts-dir}/verify-report.md`, complete the path-specific ledger contract in the skill for every verdict, and return the standard envelope as final text.
+- Coordinator: persist `{cycle-artifacts-dir}/verify-report.md`, complete the
+  phase prompt's path-specific ledger contract for every verdict, and return the
+  standard envelope as final text.
 - Lens: return only the lens envelope from the phase prompt. Do not persist or touch the ledger.

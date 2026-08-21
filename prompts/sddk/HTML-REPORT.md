@@ -1,4 +1,4 @@
-# HTML Report Format — SDD Kernel Cierre
+# SDDK HTML Closing Report Format
 
 **IDIOMA: El reporte debe ser siempre en español.** Todos los textos, etiquetas, títulos y contenido deben estar en español.
 
@@ -41,13 +41,13 @@ The report is organised in **4 narrative blocks**. Each block answers one questi
 | **D. Cierre** | ¿Qué riesgos quedan y qué sigue? | 14. Verification · 15. Git & Release · 16. Knowledge Impact · 17. Deuda técnica · 18. Operational characteristics · 19. Métricas & coste · 20. Next Steps |
 
 Every section is conditional — if data is missing the section is omitted (not blank). The archive agent must look for data in this priority order:
-1. `sdd-kernel/{change}/proposal` — problem, scope, glossary
-2. `sdd-kernel/{change}/spec` — scenarios, capabilities, Given/When/Then
-3. `sdd-kernel/{change}/design` — components, contracts, invariants, patterns
-4. `sdd-kernel/{change}/tasks` — file lists, commit messages, scope boundaries
-5. `sdd-kernel/{change}/apply-progress` — actual files changed
-6. `sdd-kernel/{change}/verify-report` — lens verdicts, test results
-7. `sdd-kernel/{change}/archive-report` — final stats, knowledge impact
+1. `{cycle-artifacts-dir}/proposal.md` — problem, scope, glossary
+2. `{cycle-artifacts-dir}/spec.md` or `specs/` — scenarios and capabilities
+3. `{cycle-artifacts-dir}/design.md` — components, contracts, invariants, patterns
+4. `{cycle-artifacts-dir}/tasks.md` — file lists, commit messages, scope boundaries
+5. `{cycle-artifacts-dir}/apply-progress.yaml` — actual files changed
+6. `{cycle-artifacts-dir}/verify-report.md` and debt reports — quality evidence
+7. `{cycle-artifacts-dir}/release-report.md` and `archive-report.md` — release and closure evidence
 8. `git log` — commits, diff stats
 9. `~/.local/share/opencode/telemetry/events.log` — phase durations, costs
 10. Project `CONTEXT.md`, `CONTEXT-MAP.md`, `docs/adr/` — bounded contexts, ADRs
@@ -276,7 +276,7 @@ One dark hero card with change name, project, date, verdict, and key stats. Incl
 </section>
 ```
 
-**Data sources**: archive-report (stats), apply-progress (file counts), telemetry events.log (duration, cost), coherence-report.md (score), entropy-sdd output (connascence, DQS).
+**Data sources**: archive-report (stats), apply-progress (file counts), telemetry events.log (duration, cost), `coherence/*.md` (scores), entropy-sdd output (connascence, DQS).
 
 ---
 
@@ -1259,41 +1259,44 @@ Tech debt created or discovered, with plan to address it. This is critical for a
 <section id="tech-debt">
   <div class="card p-8">
     <h2 class="text-2xl font-bold text-slate-800 mb-2">17 · Deuda técnica (sddk-debt-verify)</h2>
-    <p class="text-sm text-slate-500 mb-6">Auditoría post-verify sobre la feature branch (pre-PR). Veredicto: <strong class="text-{verdict-color}">{debt-verdict}</strong> · Re-iterate: <strong>{re-iterate-from}</strong></p>
+    <p class="text-sm text-slate-500 mb-6">Auditoría post-verify sobre <code>{base-commit}...{head-commit}</code>. Veredicto: <strong class="text-{verdict-color}">{debt-verdict}</strong> · Cobertura: <strong>{clusters-completed}/{clusters-required}</strong> · JSON: <code>{debt-json-sha256}</code></p>
 
     {if no debt:}
     <div class="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700">
-      ✓ No se introdujo deuda técnica significativa en este cambio. DQS: {dqs} · Clusters corridos: {clusters-run}/5.
+      No se introdujo deuda técnica bloqueante. Clusters completos: {clusters-completed}/{clusters-required}.
     </div>
     {else:}
     <div class="mb-6 overflow-x-auto">
       <table class="w-full text-sm">
         <thead><tr class="border-b-2 border-slate-200">
           <th class="text-left py-2">Cluster</th>
-          <th class="text-left py-2">Veredicto</th>
-          <th class="text-right py-2">CRIT</th>
-          <th class="text-right py-2">WARN</th>
-          <th class="text-right py-2">SUGG</th>
-          <th class="text-left py-2">Notas</th>
+          <th class="text-left py-2">Estado</th>
+          <th class="text-right py-2">Critical</th>
+          <th class="text-right py-2">High</th>
+          <th class="text-right py-2">Medium</th>
+          <th class="text-right py-2">Low</th>
+          <th class="text-left py-2">Errores</th>
         </tr></thead>
         <tbody>
           {for each cluster verdict:}
           <tr class="border-b border-slate-100">
             <td class="py-2 font-semibold">{cluster-name}</td>
-            <td class="py-2"><span class="risk-{cluster-verdict}">{cluster-verdict}</span></td>
-            <td class="py-2 text-right">{cluster-crit}</td>
-            <td class="py-2 text-right">{cluster-warn}</td>
-            <td class="py-2 text-right">{cluster-sugg}</td>
-            <td class="py-2 text-xs text-slate-600">{cluster-notes}</td>
+            <td class="py-2"><span class="risk-{cluster-status}">{cluster-status}</span></td>
+            <td class="py-2 text-right">{cluster-critical}</td>
+            <td class="py-2 text-right">{cluster-high}</td>
+            <td class="py-2 text-right">{cluster-medium}</td>
+            <td class="py-2 text-right">{cluster-low}</td>
+            <td class="py-2 text-xs text-slate-600">{cluster-errors}</td>
           </tr>
           {endfor}
           <tr class="bg-slate-50 font-bold">
             <td class="py-2">TOTAL</td>
             <td class="py-2"><span class="risk-{debt-verdict}">{debt-verdict}</span></td>
-            <td class="py-2 text-right">{total-crit}</td>
-            <td class="py-2 text-right">{total-warn}</td>
-            <td class="py-2 text-right">{total-sugg}</td>
-            <td class="py-2 text-xs">DQS: {dqs} · {connascence-pairs-count} pairs · {cycles-count} cycles</td>
+            <td class="py-2 text-right">{total-critical}</td>
+            <td class="py-2 text-right">{total-high}</td>
+            <td class="py-2 text-right">{total-medium}</td>
+            <td class="py-2 text-right">{total-low}</td>
+            <td class="py-2 text-xs">Introduced: {total-introduced} · Pre-existing: {total-pre-existing} · Unknown: {total-unknown}</td>
           </tr>
         </tbody>
       </table>
@@ -1301,13 +1304,19 @@ Tech debt created or discovered, with plan to address it. This is critical for a
 
     {if re-iterate-from=apply:}
     <div class="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 mb-4">
-      <strong>Remediación en curso:</strong> misma feature branch, <code class="font-mono">remediation_round={remediation_round}</code> (max 3). Aplica fixes, re-verifica, re-debt-verify.
+      <strong>Remediación en curso:</strong> misma rama del ciclo, <code class="font-mono">remediation_round={remediation_round}</code> (máximo 3). Aplica fixes, re-verifica y vuelve a ejecutar debt-verify.
     </div>
     {endif}
 
-    {if pre-existing-main-debt:}
+    {if debt-verdict=INCONCLUSIVE:}
+    <div class="p-4 bg-red-50 border border-red-200 rounded-xl text-red-800 mb-4">
+      <strong>Auditoría inconclusa.</strong> Hay clusters requeridos incompletos o evidencia inválida. Release permanece bloqueado hasta reintento o revisión humana.
+    </div>
+    {endif}
+
+    {if pre-existing-debt:}
     <div class="p-4 bg-orange-50 border border-orange-200 rounded-xl text-orange-800 mb-4">
-      <strong>⚠ Deuda pre-existente en main detectada.</strong> Estos hallazgos vienen de commits en main anteriores a esta feature branch. Deben abordarse en main, no en la feature branch.
+      <strong>Deuda preexistente detectada.</strong> Permanece visible y requiere incidencias con owner y prioridad, pero no cuenta como deuda introducida por este cambio.
     </div>
     {endif}
 
@@ -1318,7 +1327,8 @@ Tech debt created or discovered, with plan to address it. This is critical for a
         <div>
           <strong class="text-slate-800">{debt-title}</strong>
           <p class="text-xs text-slate-600 mt-1">{debt-description}</p>
-          <p class="text-xs text-slate-500 mt-1 font-mono">{location}</p>
+          <p class="text-xs text-slate-500 mt-1 font-mono">{location} · {fingerprint}</p>
+          <p class="text-xs text-slate-600 mt-1">Confianza: {confidence} · Atribución: {attribution}</p>
           {if solid-violation:}
           <p class="text-xs text-purple-700 mt-1">SOLID: <strong>{solid-principle}</strong> · cluster: {cluster-name}</p>
           {endif}
@@ -1508,10 +1518,10 @@ The archive agent must collect this data before rendering. Order matters:
 
 ```
 1. Read artifact-registry for change metadata
-   → artifact_registry_list(change_name)
-   → artifact_registry_get(id) for each artifact
+   → resolve `{cycle-artifacts-dir}` from the launch context
+   → read each required XDG artifact by its declared path
 
-2. Read sdd-kernel/{change}/* for full artifacts
+2. Read `{cycle-artifacts-dir}` for full artifacts
    → explore-report, proposal, spec, design, tasks
    → apply-progress (file lists, commit mapping)
    → verify-report (lens verdicts)

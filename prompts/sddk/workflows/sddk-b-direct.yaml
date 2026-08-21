@@ -117,12 +117,12 @@ phases:
     output: verify-report.md
     failure_mode: FAIL → return to implementation owner; verify remains read-only
 
-  # SKIP 2.4 — debt-verify NOT ASKED for B-direct (per MCW + orchestrator.md)
+  # SKIP 2.4 — debt-verify is disabled for B-direct by path policy
 
-  # ─── PHASE 3 — CONSOLIDATE (single agent: sddk-release) ─────
+  # ─── PHASE 3 — RELEASE THEN ARCHIVE ─────────────────────────
   # NOTE (v3.3): see sddk-a-full.yaml § Phase 3 for the consolidation rationale.
-  # B-direct hotfixes usually produce patch tags. close-tracking-issue is a
-  # no-op when no tracking issue exists, so the agent still owns it.
+  # B-direct disables debt-verify but retains the same publication/closure
+  # ownership boundaries as A-* paths.
   - phase: release
     step: 3
     pattern: orchestrator-worker
@@ -131,17 +131,14 @@ phases:
     depends_on: verify
     mandatory: true
     sub_steps_owned_by_agent:
+      - validate-verify-subject
       - local-verify
       - push-main
       - verify-main-sha
       - annotated-semver-tag
       - verify-remote-tag
       - local-receipts
-      - html-closing-report   # conditional: only on major tags
-      - close-tracking-issue  # no-op when no tracking issue
-      - update-knowledge-graph  # v3.5: vault nodes (conditional: only if cycle created/touched knowledge)
-      - release-lock            # v3.5: serialization lock
-    html_conditional: "only when tag bump is major"
+      - transition-release-complete
     roadmap_conditional: "only when change is milestone-related"
     bump_default: patch     # hotfixes = patch
     gate: "release-report persisted with status=success and main HEAD == origin/main"
@@ -155,10 +152,12 @@ phases:
 
   - phase: archive
     step: 3.5
-    pattern: prompt-chain
-    agent: orchestrator
+    pattern: orchestrator-worker
+    agent: sddk-archive
     depends_on: release
-    notes: "Light archive after the canonical release transition — minimal report"
+    gate: "release-report success and archive.complete returns CLOSED"
+    sub_steps_owned_by_agent: [sync-delta-specs, finalize-knowledge-graph, html-closing-report, archive-manifest, transition-archive-complete]
+    outputs: [archive-report.md, archive-manifest, closing-report.html]
 
   # ─── PHASE 4 — TRUNK SYNC + F3 + RESET (minimal) ────────────────────
   - phase: trunk-sync-end
@@ -182,6 +181,8 @@ phases:
       - "release phase returned status=success"
       - "main HEAD == origin/main (bash-verified)"
       - "semver tag exists on remote (minimum: patch)"
+      - "archive phase returned runtime_status=CLOSED"
+      - "archive-manifest references release-receipt"
     precondition_fail_action: "emit status=blocked, next_recommended=/sddk-release <change>, do NOT declare cycle closed"
 
 success_criteria:
@@ -191,6 +192,7 @@ success_criteria:
   - "semver tag pushed and confirmed on remote (minimum: patch bump)"
   - "main HEAD == origin/main (trunk-sync-end PASS)"
   - "release-report status=success persisted"
+  - "archive-manifest links the release receipt and runtime status is CLOSED"
   - "minimal metrics saved"
 
 failure_modes:
@@ -209,7 +211,7 @@ provenance:
   catalog_ref: "docs/sddk-evolution/agentic-workflow-patterns-catalog.md"
   integration_design: "docs/sddk-evolution/dynamic-workflows-integration.md"
   notes: |
-    B-direct does NOT bypass the orchestrator or git — it bypasses the SDD phases (spec/propose/design/tasks).
+    B-direct does NOT bypass the orchestrator or Git; it bypasses the planning phases (spec/propose/design/tasks).
     Local Git flow (trunk sync, direct main push, SHA verification, annotated tag) is mandatory per git-contract.md.
-    Debt-verify is NOT invoked for B-direct (per orchestrator.md § Debt-Verify Opt-In Question).
+    Debt-verify is NOT invoked for B-direct (per orchestrator.md debt-verification policy).
     C3 + jurisprudence hit is the most common trigger — past solution covers the change.

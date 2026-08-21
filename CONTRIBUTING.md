@@ -88,10 +88,10 @@ SDDK classifies work into 4 paths. The orchestrator picks one during triage.
 
 | Path | When | Phases |
 |------|------|--------|
-| **B-direct** | Hotfix, bounded task, C3 | Load skill → execute → light verify → release |
-| **A-min** | Simple change, C2 context | spec → apply → verify → debt-verify (smoke) → release |
-| **A-lite** | Bounded work, C1 context | propose → spec → apply → verify → debt-verify (standard) → release |
-| **A-full** | Architectural, new domain, C0 | explore → propose → spec ∥ design → tasks → apply → verify → debt-verify (deep) → release |
+| **B-direct** | Hotfix, bounded task, C3 | Load skill → execute → light verify → release → archive |
+| **A-min** | Simple change, C2 context | spec → apply → verify → debt-verify (smoke) → release → archive |
+| **A-lite** | Bounded work, C1 context | propose → spec → apply → verify → debt-verify (standard) → release → archive |
+| **A-full** | Architectural, new domain, C0 | explore → propose → spec ∥ design → tasks → apply → verify → debt-verify (deep) → release → archive |
 
 Read `prompts/sddk/mcw.md` (Mandatory Complete Workflow) before modifying
 any phase agent or the orchestrator.

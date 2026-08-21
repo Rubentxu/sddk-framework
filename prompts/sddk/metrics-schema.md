@@ -1,4 +1,4 @@
-# SDD Kernel Metrics Schema v1
+# SDDK Metrics Schema v1
 
 Per-cycle metrics stored as `sddk/{cycle_id}/metrics.json` (filesystem) and mirrored as Engram observation with `topic_key: cycle-metrics/{cycle_id}`. Aggregates stored as `metrics/aggregate` (rolling 7d/30d).
 

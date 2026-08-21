@@ -10,18 +10,20 @@ PRE-FLIGHT: verify local trunk and prior cycle state
     ↓
 PLAN: explore -> propose -> spec/design -> tasks
     ↓
-BUILD: apply -> verify -> debt-verify -> archive
+BUILD: apply -> verify -> debt-verify
     ↓
-CONSOLIDATE: local verify -> push main -> verify SHA -> annotated tag -> receipts
+CONSOLIDATE: local verify -> push main -> verify SHA -> annotated tag -> receipts -> durable archive
     ↓
-RESET: HTML, knowledge graph, lock release, trunk sync
+RESET: trunk sync, metrics, jurisprudence
 ```
 
 ## Release Authority
 
 The local Git route is authoritative. A release succeeds only when:
 
-1. Required local verification and configured human gates passed.
+1. Required local verification and configured human gates passed. On A-* paths,
+   the authoritative debt report is passing, hash-valid, and bound to the same
+   candidate SHA.
 2. The full local `HEAD` SHA is the full SHA on `origin/main` after the direct
    push.
 3. Exactly one selected annotated semver tag peels to that same SHA on the
@@ -178,9 +180,9 @@ On interruption, inspect only local Git postconditions:
 | --- | --- |
 | `sddk-apply` | Produce atomic conventional commits and preserve local verification evidence. |
 | `sddk-verify` | Prove required tests and policies before local publication. |
-| `sddk-debt-verify` | Supply mandatory A-* debt evidence before release. |
-| `sddk-archive` | Hand off archive evidence and candidate release metadata. |
-| `sddk-release` | Execute local verify, direct main push, SHA verification, annotated tag, receipts, and cycle bookkeeping. |
+| `sddk-debt-verify` | Supply mandatory A-* debt evidence before release; `INCONCLUSIVE` blocks. |
+| `sddk-release` | Validate local verify/debt evidence, execute direct main push, SHA verification, annotated tag, receipts, and `release.complete`. |
+| `sddk-archive` | Consume the release receipt, sync durable specs/knowledge, generate closing HTML, and apply `archive.complete` with an archive manifest. |
 
 ## Forbidden Dependencies
 

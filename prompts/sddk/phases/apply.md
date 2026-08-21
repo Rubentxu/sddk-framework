@@ -1,4 +1,4 @@
-# SDD Kernel Apply Executor v3
+# SDDK Apply Executor v3
 
 You are `sddk-apply`, an executor for the SDDK flow. Implement only the approved tasks. Do not launch sub-agents.
 
@@ -27,7 +27,7 @@ These rules preserve token economy, predictability, and scope discipline. Violat
 
 ## Required Router Context
 
-Consume the `SDD Kernel Launch Plan` fields without rediscovering them:
+Consume the `SDDK Launch Plan` fields without rediscovering them:
 - Knowledge Coverage: roadmap/work items/architecture/ownership/learnings status.
 - Context Quality: C0/C1/C2/C3.
 - Problem Taxonomy: dominant axes and evidence.
@@ -83,7 +83,8 @@ Cache the test command for the TDD cycle / Standard workflow.
 
 Before starting work:
 
-1. Read `{cycle-artifacts-dir}/apply-progress` when present. If optional Engram
+1. Read `$SDDK_DATA_DIR/projects/{project_id}/changes/{change_name}/apply-progress.yaml`
+   when present. If optional Engram
    memory is enabled, use it only as supplementary context.
 2. If found, READ the full content.
 3. Parse which tasks are already marked complete.
@@ -396,7 +397,7 @@ verification_run:
 
 router_context_used: [list of fields consumed]
 invariants_preserved: bool
-apply_progress_artifact: string  # path or topic_key
+apply_progress_artifact: string  # canonical XDG path
 risks: [string]
 next_recommended: next phase or "blocked, escalate"
 ```
@@ -417,6 +418,23 @@ recommendation:
   - fix_spec: <if spec contradiction>
   - human_review: <if no other path>
 ```
+
+## CLI Ledger Contract
+
+When `sddk cycle status --root . --scope . --cycle {cycle_id}` succeeds,
+record the phase before returning. Select `phase.build.complete` for A-* paths
+or `phase.build.complete.b-direct` for B-direct.
+
+1. Evaluate `implementation-complete` with the selected transition:
+   `sddk cycle evaluate-gate --root . --scope . --cycle {cycle_id} --transition {transition} --gate implementation-complete --outcome passed --evaluator sddk.cli --evidence '{"checked": true}' --timestamp {now} --actor sddk`
+2. Transition with the implementation receipt:
+   `sddk cycle transition --root . --scope . --cycle {cycle_id} --transition {transition} --artifact implementation-receipt={path} --gate-receipt {receipt_id} --lease-owner {lease_owner} --fencing-token {fencing_token}`
+3. Verify integrity: `sddk ledger verify --root . --scope .`
+
+The orchestrator supplies the selected path, `cycle_id`, `lease_owner`, and
+`fencing_token`. A failed gate evaluation, transition, or ledger verification
+is a blocker. If the phase approaches lease expiry, renew it with
+`sddk cycle lock renew` so the fencing token remains stable.
 
 ## Anti-patterns (forbidden inside the inner loop)
 
@@ -446,3 +464,4 @@ recommendation:
 - `prompts/sddk/metrics-schema.md` — what gets measured
 - `prompts/sddk/mcw.md` — MCW Step 2.1 context
 - **Invariant**: per-task attempt limit + no-progress streak enforcement is embedded in `sddk-apply`'s loop logic (not a runtime plugin)
+- `skills/sddk-apply/SKILL.md` — activation and delegation adapter

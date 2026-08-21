@@ -545,3 +545,18 @@ tasks:
   spec: SPEC-018
   acceptance_criteria:
   - Drift is lint-detectable
+- id: SDDK2-906
+  phase: 11
+  priority: DEFERRED
+  title: Enforce typed debt gate reports in the runtime
+  depends_on:
+  - SDDK2-301
+  - SDDK2-303
+  - SDDK2-901
+  - SDDK2-902
+  spec: SPEC-014
+  acceptance_criteria:
+  - Typed debt reports bind cycle, base/head commits, diff digest, verify hash, and analyzer provenance
+  - Missing, failed, timed-out, or malformed required cluster coverage produces INCONCLUSIVE and blocks release
+  - Runtime stores debt evidence under a dedicated artifact kind without overloading verification-report
+  - A-min, A-lite, and A-full enforce their declared depths while B-direct remains disabled

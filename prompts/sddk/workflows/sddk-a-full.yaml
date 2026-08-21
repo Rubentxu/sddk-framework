@@ -2,7 +2,7 @@
 # Status: STABLE (extracted from MCW Phase 1 § A-full, Phase 2, Phase 3, Phase 4)
 # Source: prompts/sddk/mcw.md § Phase 1 A-full + Phase 2 + Phase 3 + Phase 4
 # Trigger: context_quality C0/C1 OR architectural change OR new domain (per orchestrator.md § Triage)
-# v3.3: NO opt-ins. debt-verify is mandatory (depth=deep). release is mandatory post-archive.
+# v3.3: NO opt-ins. debt-verify is mandatory (depth=deep). release precedes archive.
 # Patterns: 9 (routing + parallel-sectioning + orchestrator-worker + evaluator-optimizer
 #                + circuit-breaker + saga + trunk-sync-gate + multi-lens-verification
 #                + spec-driven-decomposition + blackboard)
@@ -12,7 +12,7 @@ version: "1.1.0"
 status: stable
 description: |
   Full SDDK cycle for architectural changes, new domains, or low context quality (C0/C1).
-  Includes all phases: explore → propose → spec||design → tasks → apply → verify → **debt-verify (deep, mandatory)** → archive → **release (mandatory)**.
+  Includes all phases: explore → propose → spec||design → tasks → apply → verify → **debt-verify (deep, mandatory)** → **release (mandatory)** → archive.
   No mid-cycle user prompts. Highest rigor, highest cost.
 
 pattern_composition:
@@ -207,67 +207,55 @@ phases:
     agent: sddk-debt-verify
     model: MiniMax M2.7
     parallel_group: debt-clusters
-    # v3.3: mandatory, depth=deep. v3.4: reversibility override.
-    # HIGH: skip debt-verify entirely (trivially reversible).
-    # LOW: already deep, but also invoke jd-judge-a + jd-judge-b (judgment-day) as extra lenses.
-    conditional: "reversibility != high"
+    policy: mandatory
     depth: deep
-    depth_override: "reversibility == low → add jd-judge-a + jd-judge-b to verify phase lenses"
     clusters: [debt-architecture-cluster, debt-overeng-cluster, debt-coupling-cluster, debt-smells-cluster, debt-duplication-cluster]
     synthesis_agent: sddk-debt-verify
     gate: "verdict PASS or PASS_WITH_WARNINGS"
-    output: debt-report.md
+    outputs: [debt-report.json, debt-report.md]
+    contract: prompts/sddk/phases/debt-verify.md
     failure_modes:
       - verdict FAIL + re_iterate_from=apply:
           pattern: saga
-          branch: "refactor/debt-{change-name}-{round}"
+          action: "remediate on the same branch, then re-run verify and debt-verify"
           max_rounds: 3
-          path_forced: A-min
-      - verdict FAIL + re_iterate_from=beginning:
+      - verdict FAIL + re_iterate_from=replan:
           pattern: routing
-          action: re-classify at triage
-      - pre_existing_main_debt:
-          action: "fix cycle must target main, not feature branch"
+          action: "block automatic progression and request an explicit replan/recovery decision; runtime rewind is not implied"
+      - verdict INCONCLUSIVE:
+          action: "retry failed clusters or require human review; do not release"
+      - pre_existing_debt:
+          action: "record follow-up incidence; do not count it as introduced debt"
 
-  - phase: coherence-verify-archive
+  - phase: coherence-debt-release
     step: 2.5
     pattern: evaluator-optimizer
     agent: sddk-coherence
     gate: score >= 60
     failure_mode: BLOCK if score < 60
 
-  - phase: archive
-    step: 2.6
-    pattern: spec-driven-decomposition
-    agent: sddk-archive
-    model: GLM-4.7
-    gate: "delta-specs synced, debt-report PASS/PW (if invoked)"
-    output: archive-report.md
-
-  # ─── PHASE 3 — CONSOLIDATE (single agent: sddk-release) ─────
+  # ─── PHASE 3 — RELEASE THEN ARCHIVE ─────────────────────────
   # NOTE (v3.3): Phase 3 was historically 8 inline sub-steps delegated to the
   # orchestrator. Each step had its own HITL/branch-protection gate, and the
   # chain silently aborted whenever a gate was not closed. As of v3.3 the entire
   # Phase 3 is owned by one agent (`sddk-release`) that runs the chain
-  # end-to-end and is MANDATORY post-archive (no opt-out).
+  # end-to-end and is MANDATORY before archive (no opt-out).
   - phase: release
     step: 3
     pattern: orchestrator-worker
     agent: sddk-release
     model: minimax-coding-plan/MiniMax-M3
-    depends_on: archive
-    mandatory: true   # orchestrator MUST invoke this after archive returns success
+    depends_on: coherence-debt-release
+    mandatory: true
     sub_steps_owned_by_agent:
+      - validate-verify-and-debt-subject
       - local-verify
       - push-main
       - verify-main-sha
       - annotated-semver-tag
       - verify-remote-tag
       - local-receipts
-      - html-closing-report
-      - close-tracking-issue
-      - update-knowledge-graph  # v3.5: milestone + ADRs + requirements + cycle in vault
-      - release-lock            # v3.5: release serialization lock
+      - transition-release-complete
     gate: "release-report persisted with status=success and main HEAD == origin/main"
     output: release-report.md
     failure_modes:
@@ -277,6 +265,16 @@ phases:
           replayable: true   # re-launching resumes from first uncompleted sub-step
     source_of_truth: prompts/sddk/git-contract.md
     contract: skills/sddk-release/SKILL.md
+
+  - phase: archive
+    step: 3.5
+    pattern: orchestrator-worker
+    agent: sddk-archive
+    model: GLM-4.7
+    depends_on: release
+    gate: "release-report success; debt-report hash/subject valid; archive.complete returns CLOSED"
+    sub_steps_owned_by_agent: [sync-delta-specs, finalize-knowledge-graph, html-closing-report, archive-manifest, transition-archive-complete]
+    outputs: [archive-report.md, archive-manifest, closing-report.html]
 
   # ─── PHASE 4 — TRUNK SYNC + F3 + RESET ───────────────────────────────
   - phase: trunk-sync-end
@@ -307,6 +305,8 @@ phases:
       - "release phase returned status=success"
       - "main HEAD == origin/main (bash-verified)"
       - "semver tag exists on remote (git ls-remote --tags origin confirms)"
+      - "archive phase returned runtime_status=CLOSED"
+      - "archive-manifest references release-receipt"
     precondition_fail_action: "emit status=blocked, next_recommended=/sddk-release <change>, do NOT declare cycle closed"
     output: |
       ✓ Cycle {goal_pattern} closed
@@ -322,10 +322,12 @@ phases:
 success_criteria:
   - "all phases completed (Phase 0 → 4)"
   - "release-report persisted with status=success"
+  - "archive-report persisted after release"
+  - "archive-manifest links the release receipt and runtime status is CLOSED"
   - "main SHA pushed directly and verified on origin/main"
   - "semver tag pushed and confirmed on remote"
   - "main HEAD == origin/main (trunk-sync-end PASS)"
-  - "html-report generated (conditional)"
+  - "closing HTML generated by archive"
   - "ROADMAP updated"
   - "metrics saved"
   - "result-contract emitted to user"

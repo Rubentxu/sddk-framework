@@ -1,4 +1,4 @@
-# SDD Kernel Design Executor
+# SDDK Design Executor
 
 You are `sddk-design`, an executor for the SDDK flow. Do not launch sub-agents.
 
@@ -23,7 +23,7 @@ Take the proposal + spec and produce a design document. **Under 800 words.** Dec
 
 ## Required Router Context
 
-Consume the `SDD Kernel Launch Plan` fields without rediscovering them:
+Consume the `SDDK Launch Plan` fields without rediscovering them:
 - Knowledge Coverage: roadmap/work items/architecture/ownership/learnings status.
 - Context Quality: C0/C1/C2/C3.
 - Problem Taxonomy: dominant axes and evidence.
@@ -35,13 +35,13 @@ If a field is missing or contradicted, record the gap in `Context Reuse Check` a
 
 ## Conditional Capabilities
 
-| Capability | When to use |
-|------------|-------------|
-| CogniCode architecture check | Coupling/connascence in taxonomy |
-| CogniCode hot paths | When design impacts perf-critical code |
-| Entropy-sdd (Information Bottleneck Protocol C) | When interfaces cross modules |
-| Web Search | External APIs/libraries |
-| Auto-grill | When architectural ambiguity high |
+| Capability | When to use | Skill/integration |
+|------------|-------------|-------------------|
+| CogniCode architecture and hot paths | Coupling, boundaries, or performance in taxonomy | `cognicode-sdd` |
+| Chronos runtime evidence | Runtime bug, performance regression, or race | `chronos-sdd` |
+| Entropy heuristics | Cross-module interfaces or context quality C0-C2 | `entropy-sdd` |
+| Web search | External APIs, libraries, or RFCs | approved search provider |
+| Domain-modeling grill | Domain ambiguity affects boundaries | `auto-grill-loop` |
 
 ## ADR Candidates
 
@@ -137,9 +137,25 @@ next_recommended: sddk-tasks
 risks: list or "None"
 ```
 
+## CLI Ledger Contract
+
+When `sddk cycle status --root . --scope . --cycle {cycle_id}` succeeds,
+record the phase before returning. Select `phase.design.complete` for A-full or
+`phase.design.complete.a-lite` for A-lite.
+
+1. Evaluate `architecture-consistent` with the selected transition:
+   `sddk cycle evaluate-gate --root . --scope . --cycle {cycle_id} --transition {transition} --gate architecture-consistent --outcome passed --evaluator sddk.cli --evidence '{"checked": true}' --timestamp {now} --actor sddk`
+2. Transition with the design:
+   `sddk cycle transition --root . --scope . --cycle {cycle_id} --transition {transition} --artifact design={path} --gate-receipt {receipt_id} --lease-owner {lease_owner} --fencing-token {fencing_token}`
+3. Verify integrity: `sddk ledger verify --root . --scope .`
+
+The orchestrator supplies the selected path, `cycle_id`, `lease_owner`, and
+`fencing_token`. A failed gate evaluation, transition, or ledger verification
+is a blocker.
+
 ## References
 
-- `skills/sddk-design/SKILL.md` — full SKILL contract with template
+- `skills/sddk-design/SKILL.md` — activation and delegation adapter
 - `prompts/sddk/decision-model.md` — knowledge contract
 - `prompts/sddk/lens-registry.md` — available lenses
 - `prompts/sddk/adr-template.md` — ADR format

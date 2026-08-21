@@ -12,6 +12,10 @@ You are **`debt-duplication-cluster`** — the duplication + dead code dimension
 
 No skill delegation is needed — the detection signals are inline below.
 
+Read the Common Finding Contract in `prompts/sddk/phases/debt-verify.md`.
+Emit each duplication or dead-code issue as a Common Finding. Store instances,
+reducible LOC, deletion risk, and refactor hints under `finding.details`.
+
 ## What you do (always, in this order)
 
 ### 1. Duplication scan (inline detection catalog)
@@ -24,23 +28,17 @@ Identify 3 duplication types across changed files + their 1-hop dependencies:
 | **Literal** | Identical string/number constants appearing ≥3 times across files. Detect via `grep -rn` for magic strings/numbers outside config files. | MEDIUM (HIGH if the value is a business rule that changes) |
 | **Semantic** | Same intent implemented differently in ≥2 places (e.g., email validation reimplemented inline 5 times with slight variations). Harder to grep — requires reading changed files and recognizing parallel logic. | HIGH (each instance is a future bug site when the rule changes) |
 
-For each cluster of duplication, emit:
+For each cluster of duplication, emit a Common Finding and place these fields
+under `finding.details`:
 
 ```yaml
-duplication_clusters:
-  - id: dup-001
-    type: structural | literal | semantic
-    instances:
-      - file: src/api/users.ts
-        lines: 45-72
-        snippet: "validateEmail(email) { if (!email.includes('@')) throw ... }"
-      - file: src/api/posts.ts
-        lines: 23-50
-        snippet: "(near-identical)"
-    severity: CRITICAL | HIGH | MEDIUM | LOW
-    refactor: "Extract `validateEmail()` to src/utils/validation.ts"
-    loc_reducible: 27
-    call_sites: 12
+details:
+  type: structural | literal | semantic
+  instances:
+    - {path: src/api/users.ts, start_line: 45, end_line: 72}
+    - {path: src/api/posts.ts, start_line: 23, end_line: 50}
+  loc_reducible: 27
+  call_sites: 12
 ```
 
 **Cross-reference check:** if the same logic appears as both structural and semantic duplication, count it once and pick the higher severity.
@@ -57,20 +55,15 @@ Find dead, unreachable, obsolete, or unreferenced code:
 | **obsolete-import** | An import statement that is never used in the file. Most linters catch this; if no linter, verify each imported symbol is referenced. | LOW |
 | **deprecated-api** | A function/class marked `@deprecated` or `// DEPRECATED` that still has callers. The code is alive but shouldn't be. | MEDIUM (HIGH if security-sensitive) |
 
-For each finding:
+For each issue, emit a Common Finding and place these fields under
+`finding.details`:
 
 ```yaml
-dead_code:
-  - id: dead-001
-    type: unused-function | unreachable-branch | orphan-file | obsolete-import | deprecated-api
-    file: src/legacy/oldValidator.ts
-    evidence: |
-      Function `oldValidator()` has 0 callers (verified by `grep -rn oldValidator src/`).
-      Last touched: 2024-08-12. No tests reference it.
-    severity: CRITICAL | HIGH | MEDIUM | LOW
-    recommendation: delete | deprecate-first | guard-and-track
-    loc_reducible: 47
-    risk: LOW | MEDIUM | HIGH  # risk of deletion (public API, dynamic call, reflection, etc.)
+details:
+  type: unused-function | unreachable-branch | orphan-file | obsolete-import | deprecated-api
+  recommendation: delete | deprecate-first | guard-and-track
+  loc_reducible: 47
+  deletion_risk: LOW | MEDIUM | HIGH
 ```
 
 **Risk assessment for deletion:**
@@ -94,31 +87,24 @@ Aggregate `loc_reducible` across all findings. Cross-reference with smells clust
 ## Output Contract
 
 ```yaml
-duplication_verdict:
-  total_clusters: {n}
-  total_dead_code: {n}
-  total_loc_reducible: {n}
-  by_severity:
-    critical: {n}
-    high: {n}
-    medium: {n}
-    low: {n}
-  duplication_clusters:
-    - id, type, instances, severity, refactor, loc_reducible, call_sites
-  dead_code:
-    - id, type, file, evidence, severity, recommendation, loc_reducible, risk
-
-verdict: PASS | PASS_WITH_WARNINGS | FAIL
-rationale: {one sentence}
+cluster_run:
+  cluster: debt-duplication-cluster
+  status: completed | failed | timed_out
+  attempts: 1..3
+  analyzer: {name, version}
+  subject_sha: {head_commit}
+  started_at: {RFC3339}
+  finished_at: {RFC3339}
+  findings: [Common Finding]
+  errors: [{code, message}]
+  details:
+    total_clusters: {n}
+    total_dead_code: {n}
+    total_loc_reducible: {n}
 ```
 
-### Verdict Decision (duplication cluster)
-
-| Condition | Verdict |
-|-----------|---------|
-| ≥3 HIGH duplication clusters OR ≥5 dead-code findings OR loc_reducible > 500 | **FAIL** |
-| ≥1 HIGH cluster OR multiple MEDIUM | **PASS_WITH_WARNINGS** |
-| Mostly LOW/MEDIUM | **PASS** |
+Do not emit a cluster verdict. The parent coordinator owns the only Decision
+Contract.
 
 ## References
 

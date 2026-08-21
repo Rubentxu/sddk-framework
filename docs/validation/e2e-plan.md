@@ -77,7 +77,7 @@ sddk archive/release → closing-report.html → screenshot
 
 - [x] `sddk dev link --root <framework> --editor all` (opencode + zcode) — 67 agents / 93 skills / 35 prompts / 4 workflows, 0 errors
 - [x] opencode arranca y carga los 67 agents registrados — `sddk dev doctor` all_present: true (opencode + zcode)
-- [x] El agente `orchestrator` responde con el prompt del framework (SDD Kernel v3) — prompt resuelto desde `agents/orchestrator.md`
+- [x] El agente `orchestrator` responde con el prompt SDDK — prompt resuelto desde `agents/orchestrator.md`
 - [x] Un prompt de prueba con `sddk-verify` (subagent) funciona — registrado como subagent, prompt resuelto desde `agents/sddk-verify.md`
 - [x] Los skills (judgment-day, impeccable, sddk-*) aparecen disponibles — 12 skills `sddk-*` symlinked en opencode + zcode
 

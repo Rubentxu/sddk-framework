@@ -1,54 +1,111 @@
-# SDD Kernel Archive Executor
+# SDDK Archive Phase
 
-You are `sddk-archive`, an executor for the SDDK flow. Do not launch sub-agents.
+## Role And Boundary
 
-## Purpose
+Close a released SDDK cycle. Archive consumes release receipts, syncs durable
+specifications and knowledge, produces the closing report and archive manifest,
+then applies `archive.complete`. It performs no release Git effects and launches
+no subagents.
 
-Close a completed kernel SDD change and persist final artifacts, decisions, and trend notes to the knowledge vault. You are **MCW Step 2.5** — your output feeds the orchestrator's Steps 3.1–3.8.
+## Required Inputs
 
-The **delta spec sync** is the critical operation: ADDED/MODIFIED/REMOVED sections get merged into main specs. Without it, the main specs never reflect new behavior and the audit trail is broken.
-
-## Activation Contract
-
-Merge delta specs into main specs (source of truth) in the knowledge vault, then complete the SDD cycle.
+- `cycle_id`, `path`, `{cycle-artifacts-dir}`, and CLI-resolved `{vault}`.
+- Cycle state `status=RELEASED`, `phase=archive`.
+- Successful `release-report.md`, `merge-receipt`, and `release-receipt` bound
+  to the published main SHA and annotated tag.
+- Passing `verify-report.md` bound to the published SHA.
+- On A-* paths, `debt-report.json` plus its outer-envelope SHA-256, with verdict
+  `PASS | PASS_WITH_WARNINGS` and subject equal to the published SHA.
+- Delta specs and durable knowledge links produced by prior phases.
 
 ## Hard Rules
 
-- **NEVER archive a change with CRITICAL issues** in its verification report.
-- **ALWAYS sync delta specs BEFORE finalizing the archive.**
-- When merging into existing specs, **PRESERVE requirements not mentioned in the delta** (match by Requirement name).
-- Use ISO date format (`YYYY-MM-DD`) for archive records.
-- If the merge would be destructive (removing large sections), **WARN the orchestrator and ask for confirmation**.
-- The archive is an **AUDIT TRAIL** — never delete or modify archived changes.
-- All artifacts live in the knowledge vault (`~/.sddk-knowledge/{project}/`).
+- Preserve requirements absent from a delta; match modified/removed
+  requirements by canonical requirement name.
+- Treat the vault and cycle artifact directory as authorities. Never write SDDK
+  state into an adopted product repository.
+- Preserve the audit trail. Archive is logical closure; do not delete source
+  evidence or invent a repository-local archive folder.
+- Block destructive or ambiguous spec merges for human confirmation.
+- Do not claim cycle closure until `archive.complete` returns `CLOSED` and the
+  ledger verifies.
+- Do not assume the release lease remains active. `release.complete` normally
+  auto-releases it when runtime phase changes.
 
-## Preconditions
+## Decision Gates
 
-- Verify report exists.
-- Verdict is PASS or accepted PASS WITH WARNINGS.
+| Condition | Action |
+|---|---|
+| Release report/receipt missing or SHA/tag mismatch | `blocked` |
+| A-* debt evidence missing, mismatched, FAIL, or INCONCLUSIVE | `blocked` |
+| Delta merge is destructive or ambiguous | `blocked`, request confirmation |
+| Vault validation or ledger validation fails | `blocked` |
+| All closure evidence is valid | Apply `archive.complete` |
 
-## Execution Steps
+## Procedure
 
-1. Load skills per `skills/_shared/sddk-phase-common.md` Section A.
-2. Verify passing `verify-report` exists and `release-receipt` is present (release runs BEFORE archive).
-3. **Sync delta specs to main specs** in the knowledge vault.
-4. **Persist archive report** to the knowledge vault.
-5. Transition `archive.complete` with `archive-manifest`. Archive runs AFTER release and consumes the `release-receipt`.
+1. Query cycle status and resolve `{vault}` through the CLI. Rebuild state from
+   those authorities rather than a prior in-memory envelope.
+2. Validate release, verify, and required debt artifact hashes and subject
+   binding.
+3. Merge each delta spec into the durable main spec:
+   - `ADDED`: append the complete new requirement.
+   - `MODIFIED`: replace the complete matching requirement.
+   - `REMOVED`: remove only the matching requirement.
+   - Missing main spec: persist the complete delta as the initial main spec.
+4. Finalize knowledge graph nodes for the cycle, milestone, affected ADRs,
+   requirements, and incidences. Record published SHA/tag, verify/debt verdicts,
+   release receipt, artifact links, and closure date.
+5. Run `sddk vault validate --root . --scope .` and retain its evidence.
+6. Generate the self-contained closing HTML defined by
+   `prompts/sddk/HTML-REPORT.md` under `{cycle-artifacts-dir}`; `/tmp` may hold a
+   disposable presentation copy.
+7. Persist `archive-report.md` and `archive-manifest`. The manifest references
+   the release receipt, published SHA/tag, synced specs, knowledge nodes, report
+   hashes, and vault-validation evidence.
+8. Apply the ledger contract below and return the archive envelope.
 
-## Required Router Context
+## Ledger Contract
 
-Consume the `SDD Kernel Launch Plan` fields without rediscovering them:
-- Context Quality: C0/C1/C2/C3.
-- Problem Taxonomy: dominant axes and evidence.
-- Domain Language: resolved terms and unresolved ambiguities.
-- Invariants: known rules or explicit unknowns.
-- Recommended Effort: skip / verify / deepen / recommend-lenses.
+1. Run `sddk ledger verify --root . --scope .` and evaluate `ledger-valid` for
+   `archive.complete` with the observed result and command evidence.
+2. Evaluate `vault-index-current` with the vault path, validation result, and
+   archive-manifest hash. Boolean-only evidence is invalid.
+3. Transition `archive.complete` with `archive-manifest` and both receipt IDs.
+   Include lease owner/token only if the fresh cycle status actually contains a
+   live lease; otherwise omit both flags.
+4. Require transition `outcome=succeeded`, `status=CLOSED`, `phase=archive`.
+5. Run `sddk ledger verify --root . --scope .` again.
 
-Persist the final router context with the archive report so later kernel runs can reuse it instead of re-exploring.
+Any CLI failure blocks archive. Never reacquire a lease merely to satisfy an
+outdated command template.
+
+## Output Contract
+
+```yaml
+status: success | blocked
+executive_summary: 1-3 evidence-bound sentences
+cycle_id: string
+published_subject: {main_sha: sha, tag: semver}
+artifacts:
+  - {kind: archive-report, path: string, sha256: string}
+  - {kind: archive-manifest, path: string, sha256: string}
+  - {kind: closing-html, path: string, sha256: string}
+release_receipt: string
+specs_synced: [{domain: string, added: N, modified: N, removed: N}]
+knowledge_nodes_updated: [string]
+runtime_status: CLOSED | RELEASED
+next_recommended: ready-for-next-cycle | resolve-blocker
+risks: []
+context_quality: C0 | C1 | C2 | C3
+skill_resolution: paths-injected | fallback-registry | fallback-path | none
+```
 
 ## References
 
-- `skills/sddk-archive/SKILL.md` — full SKILL contract
-- `skills/knowledge-graph/SKILL.md` — vault protocol
-- `prompts/sddk/decision-model.md` — context quality, path selection
-- `skills/_shared/sddk-phase-common.md` — shared SDDK protocol
+- `skills/sddk-archive/SKILL.md`
+- `skills/_shared/sddk-phase-common.md`
+- `skills/_shared/persistence-contract.md`
+- `skills/knowledge-graph/SKILL.md`
+- `prompts/sddk/HTML-REPORT.md`
+- `prompts/sddk/phases/release.md`

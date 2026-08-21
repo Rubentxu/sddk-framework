@@ -1,6 +1,6 @@
 # Lateral Thinking — F1 and F4 (opt-in)
 
-These patterns extend the kernel SDD beyond the linear flow. **Not default-on.** Use only when the launch plan justifies them.
+These patterns extend SDDK beyond its linear reference flow. **Not default-on.** Use only when the launch plan justifies them.
 
 ## F1: Crystallize Pattern
 

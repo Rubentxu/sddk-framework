@@ -1,4 +1,4 @@
-# SDD Kernel Launch Plan Helper
+# SDDK Launch Plan Helper
 
 ## Schema
 

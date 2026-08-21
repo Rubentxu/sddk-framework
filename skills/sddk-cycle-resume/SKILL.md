@@ -5,7 +5,7 @@ disable-model-invocation: true
 user-invocable: false
 license: MIT
 metadata:
-  author: gentleman-programming
+  author: SDDK Team
   version: "1.0"
   delegate_only: true
   trigger_after_compaction: true

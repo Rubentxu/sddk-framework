@@ -1,4 +1,4 @@
-# SDD Kernel Lens Registry
+# SDDK Lens Registry
 
 This registry belongs to the canonical SDDK flow.
 

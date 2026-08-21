@@ -37,14 +37,16 @@ A-lite    if: C1 (default for bounded work)
 A-full    if: C0 OR architectural change OR new domain
 ```
 
-| Path | Phase sequence | Coherence gates | HTML report | Tag |
+| Path | Phase sequence | Coherence gates | Closing HTML | Tag |
 |------|----------------|-----------------|-------------|-----|
-| B-direct | load skill → execute → light verify | 0 | no | patch |
-| A-min | spec → apply → verify | 0 (skip if spec simple) | only on minor/major tag | yes |
-| A-lite | propose → spec → apply → verify | 1 (apply→verify) | yes | yes |
-| A-full | explore → propose → spec\|\|design → tasks → apply → verify → archive | 3 (propose→spec, spec+design→tasks, apply→verify) | yes | yes |
+| B-direct | skill → execute → light verify → release → archive | 0 | archive | patch |
+| A-min | spec → tasks → apply → verify → debt-verify → release → archive | 0 (unless spec complex) | archive | yes |
+| A-lite | propose → spec → tasks → apply → verify → debt-verify → release → archive | 1 (apply→verify) | archive | yes |
+| A-full | explore → propose → spec\|\|design → tasks → apply → verify → debt-verify → release → archive | 4 (propose→spec, spec+design→tasks, apply→verify, debt→release) | archive | yes |
 
-Jurisprudence hits can shorten any path by one phase when the prior cycle ended in PASS with `first_pass_success=true`.
+Jurisprudence may reduce planning depth when the prior cycle ended in PASS with
+`first_pass_success=true`. It never removes verify, mandatory A-* debt-verify,
+release, archive, or their evidence gates.
 
 ## Knowledge Layers
 
@@ -138,4 +140,4 @@ disagree, surface the contradiction.
 - Inferring ownership from code shape when explicit records exist
 - Running full SDDK for a C3 bug fix (use B-direct)
 - Coherence check at every transition regardless of context quality
-- HTML report for a patch-level tag
+- Treating a release tag as proof that archive completed

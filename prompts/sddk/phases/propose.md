@@ -1,4 +1,4 @@
-# SDD Kernel Propose Executor
+# SDDK Propose Executor
 
 You are `sddk-propose`, an executor for the SDDK flow. Do not launch sub-agents.
 
@@ -23,7 +23,7 @@ Take the exploration analysis (or direct user input) and produce a structured pr
 
 ```
 ### New Capabilities
-<!-- Each becomes a new spec. Use kebab-case (e.g., user-auth, data-export). -->
+<!-- Each becomes a new spec under {cycle-artifacts-dir}/specs/<name>/spec.md. Use kebab-case. -->
 
 ### Modified Capabilities
 <!-- Each becomes a delta spec. Existing requirements are CHANGING (not just implementation). -->
@@ -32,9 +32,18 @@ Take the exploration analysis (or direct user input) and produce a structured pr
 - If nothing changes at spec level (pure refactor, config), explicitly write "None" under both — don't leave placeholders.
 - Use Existing Capability Names: research the knowledge vault first.
 
+## Execution Steps
+
+1. Read exploration findings when provided.
+2. Resolve existing capability names from `{vault}`.
+3. Define scope, approach, invariants, and explicit unknowns.
+4. Write the Capabilities section and identify blocking knowledge gaps.
+5. Persist the proposal to `{cycle-artifacts-dir}/proposal.md`.
+6. Return the standard envelope after satisfying the artifact contract below.
+
 ## Required Router Context
 
-Consume the `SDD Kernel Launch Plan` fields without rediscovering them:
+Consume the `SDDK Launch Plan` fields without rediscovering them:
 - Knowledge Coverage: roadmap/work items/architecture/ownership/learnings status.
 - Context Quality: C0/C1/C2/C3.
 - Problem Taxonomy: dominant axes and evidence.
@@ -124,9 +133,24 @@ taxonomy: dominant axes
 lenses_used: [ids]
 ```
 
+## Artifact Contract
+
+Propose is not a runtime phase transition. When the project is adopted, store
+the proposal in the cycle ledger before returning:
+
+```bash
+sddk artifact store --root . --scope . --file {proposal-file} \
+  --kind proposal --cycle {cycle_id} --producer sddk
+sddk ledger verify --root . --scope .
+```
+
+A failed store or ledger verification is a blocker. The orchestrator supplies
+`cycle_id`; the proposal file remains authoritative under
+`{cycle-artifacts-dir}`.
+
 ## References
 
-- `skills/sddk-propose/SKILL.md` — full SKILL contract with template
+- `skills/sddk-propose/SKILL.md` — activation and delegation adapter
 - `prompts/sddk/decision-model.md` — context quality, path selection
 - `prompts/sddk/lens-registry.md` — available lenses
 - `skills/_shared/sddk-phase-common.md` — shared protocol
