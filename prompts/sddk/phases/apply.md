@@ -455,6 +455,71 @@ is a blocker. If the phase approaches lease expiry, renew it with
 | Write production code before test (Strict TDD) | Three Laws violation → verify rejects |
 | Skip triangulation with >1 spec scenario | Hardcoded Fake It passes trivially → verify rejects |
 | Write trivial assertions | Worse than no test → verify may reject |
+| Ship stub / placeholder / hardcoded satisfier into business code (`src/` / `lib/` / `bin/`) | Verify "Real implementation" gate `FAIL`; spec compliance fails |
+| Production code wired to a mock / fake / in-memory adapter that stands in for the real adapter | Verify production-readiness lens `FAIL` unless paired with real-adapter contract test |
+| Comment whose only purpose is traceability (issue numbers, task IDs, user handles, cycle / phase pointers, commit-history refs) | Verify new "Documentation discipline" gate `FAIL` |
+| `// TODO` / `// FIXME` / `// HACK` markers pointing at unfinished work | Verify production-readiness + new "Documentation discipline" gate `FAIL`; debt entry expected instead |
+
+## Code Quality Standards (NON-NEGOTIABLE)
+
+These constraints are enforced by `sddk-verify` as mandatory gates. Violation = apply fails verification. They exist so the next maintainer — or future you — does not have to guess what a function does, or why it is not finished.
+
+### Real code only — no production-shaped facades
+
+Prohibited in **business code** (the paths that ship in `--release` or equivalent — `src/`, `lib/`, `bin/`, modules the entry point actually imports). Tests are the only place where facades are appropriate.
+
+| Pattern | Why forbidden in business code |
+|---------|--------------------------------|
+| Stub / placeholder panic / `todo!()` / `unimplemented!()` / `panic!("TBD")` | Function enters the production graph but delivers no behavior |
+| Mock, fake, spy, in-memory adapter wired into business logic | Tests belong in tests; if a real adapter cannot run locally, use the official emulator + contract test |
+| Hardcoded value (string, path, secret, magic constant, env name) satisfying only known examples | Beats the spec by encoding the answer; a negative test must still fail |
+| Empty body returning success (`Ok(())` always, `return None` always, `if false {...}`) | Passes compile + trivial tests, ships with no behavior delivered |
+| Trivial passthrough wrapper that adds no value | Over-engineering cluster; see debt-verify |
+| Conditional constant satisfier (`if user == "admin" { return admin_token }`) | Hardcodes the policy that the spec required to be derivable |
+| Comment-as-substitute: a `// See issue #123` tag instead of implementing the code | The comment is the only thing keeping the function from returning a default |
+
+Tests MAY use mocks, fakes, fixtures, and hardcoded inputs (that is what tests are for). The boundary is the module attribution: production code is what runs in `--release`; tests are what is gated by `#[cfg(test)]`, `tests/`, `__tests__`, `*_test.go`, etc.
+
+### Useful comments only — documentation discipline
+
+Standard comments explain functionality. Nothing else.
+
+| Allowed | Forbidden |
+|---------|-----------|
+| `/// Public docstring explaining what the function does and why` | `// FIXME: see issue #123` |
+| `/// # Examples` and `# Errors` in Rust | `// TODO: implement for cycle-9` |
+| `/// Invariants: ...` for non-obvious guarantees | `// @author rubentxu` (project-leader attribution) |
+| `// single-line rationale explaining a non-obvious choice` | `// PR ref: #456, refactored by jane` |
+| `// SAFETY: rationale block` (Rust, for unsafe blocks) | `// Note for reviewer: cycle-8b deferred this` |
+| Comment that documents the *what* and the *why* | Comment that documents the *meta* (who, when, why-not-yet, links elsewhere) |
+
+Standard documentation is per language:
+
+| Language | Standard |
+|----------|----------|
+| Rust | `///` doc-comments on `pub` items, `//!` on modules, `//` only for inline rationale |
+| TypeScript / JavaScript | JSDoc `/** */` on exported items, `//` for inline rationale |
+| Python | docstrings on public modules / classes / functions, `#` for inline rationale |
+| Go | doc comments on exported items, `//` for inline rationale |
+
+Forbidden across **all** language outputs:
+
+- Issue numbers (`#123`, `gh-456`).
+- Task identifiers (`REQ-K8-001`, `AC-K8-005-1`, `T-A`, `Task 3`, `issue/1242`).
+- User handles / project attribution (`@author`, `Signed-off-by:`, `Reviewed-by:`, `Pair-programmed-with:`).
+- Cycle / phase pointers (`cycle-8b`, `deferred to cycle-9`, `// recovered in #dd5a29c`).
+- Promotional / commit-history references (`merged in PR #78`).
+
+These rules apply to source files, doc-comments, and in-code bookkeeping. They do NOT apply to (a) the `git log` — commit messages already have their own attribution rules, (b) ADRs whose purpose is recording decision history, (c) PR review comments where the context is the reviewer-to-author conversation.
+
+### Interaction with the inner loop
+
+The `EVALUAR` step checks both rules against the changed diff before declaring success. A hit raises a hard brake:
+
+- Business-code violation → report `production_violation` (verify's "Real implementation" gate fails).
+- Comment violation → report `documentation_violation` (verify's new "Documentation discipline" gate fails).
+
+If a task genuinely needs a placeholder (e.g., a deferred integration), do NOT leave it in business code: surface a debt entry via `sddk-debt-verify` with a clear `remediation_cycle`. The cycle ledger is the right place for "I have not done this yet", NOT a `// TODO` comment.
 
 ## References
 

@@ -34,7 +34,8 @@ These gates run on every path. Adaptive lenses only add depth.
 |---|---|---|
 | Subject identity | Base/head SHA, clean state or diff digest, CWD, timestamp | `blocked` + verdict `FAIL` |
 | Behavioral compliance | Every required scenario has a passing test that reaches production logic | `FAIL` |
-| Real implementation | No stub, placeholder, hard-coded satisfier, unreachable body, or production-wired fake in the changed path | `FAIL` |
+| Real implementation | No stub, placeholder, hardcoded value (data, path, secret, magic constant satisfying known examples), unreachable body, or production-wired mock / fake / in-memory adapter in the changed business path | `FAIL` |
+| Documentation discipline | No comments in changed production paths reference issue numbers, PR IDs, task identifiers, user handles, cycle / phase pointers, or commit-history metadata; only language-standard docs (`///` in Rust, JSDoc in TS, docstrings in Python, doc comments in Go) explain the *what* and *why* | `FAIL` |
 | Test strength | Assertions observe required outcomes; changed boundaries have real contract/integration evidence | `FAIL` |
 | Regression and build | Fresh relevant tests and repository-required build/type/lint/regression checks pass | `FAIL`; infrastructure absence is `blocked` |
 | Production readiness | Every readiness dimension is `PASS` or evidence-backed `N/A` | `FAIL` when applicable behavior is missing; unknown critical applicability is `blocked` |
@@ -67,6 +68,20 @@ Inspect the changed production files, callers, adapters, and composition root.
 3. Trace each scenario from entry point to the changed implementation. Fail dead, unwired, bypassed, or tests-only code.
 4. Confirm mocks, stubs, fakes, in-memory adapters, and fixtures are confined to tests or an explicitly approved non-production profile. Changed external boundaries need a contract or integration test that executes the real adapter; if the real dependency cannot run locally, require its official emulator/sandbox plus a contract test and record the limitation.
 5. Challenge suspicious hard-coded values or branches that satisfy only known examples. Require another scenario, negative control, RED evidence, or targeted mutation evidence.
+
+### 3.b Prove The Documentation Discipline
+
+The Code Quality Standards in `apply.md` §"Code Quality Standards" require that comments exist only to explain functionality. Comments whose only purpose is to point at issue trackers, task IDs, user handles, or commit history substitute meta-traceability for documentation and are a violation.
+
+1. Scan the changed production diff for comment lines containing:
+   - Issue / PR / ticket references: `#123`, `gh-456`, `JIRA-789`, `TODO #321`.
+   - Task identifiers: `REQ-…`, `AC-…`, `T-…`, `Task 3`, `issue/1242`.
+   - User handles / attribution: `@author`, `@contributor`, `Signed-off-by:`, `Reviewed-by:`, `Pair-programmed-with:`.
+   - Cycle / phase pointers: `cycle-X`, `deferred to cycle-Y`, `recovered in #sha`.
+   - Generic placeholders masquerading as documentation: `// see issue`, `// PR #`, `// tracked in `.
+2. Inspect every hit in context. Comments that exist purely for traceability and do NOT document behavior are `FAIL`. Comments that pair valid documentation with a reference (e.g., `/// Compute the SHA-256… /// Spec: REQ-K8-001`) are `PASS` — the documentation is the point, the REQ is just an attachment.
+3. For language-specific standard docs, sample a few public items and confirm the contract is documented in the language's idiom (`///` in Rust, JSDoc in TS, docstrings in Python, doc comments in Go). Missing standard documentation on a public item without a deferral reason is `WARNING`, not `FAIL` — the documentation-discipline gate is about absence of *bad* documentation, not about mandatory presence of *all* documentation.
+4. Tests that legitimately need fixture data hardcoded (e.g., `let admin = User::new("admin")`) are exempt. The gate targets comment shape, not test data.
 
 ### 4. Execute Fresh Evidence
 
@@ -169,6 +184,13 @@ Persist `{cycle-artifacts-dir}/verify-report.md` with:
 ## Production Readiness
 | Gate | Status: PASS/FAIL/BLOCKED/N/A | Evidence | Findings / N/A reason |
 
+## Code Quality
+
+| Standard | Status: PASS/FAIL/WARNING | Evidence | Findings |
+|----------|--------------------------|----------|----------|
+| Business code reality (no stub / mock / hardcoded satisfier in `src/` / `lib/` / `bin/`) | {status} | {grep + diff references} | {list of hits} |
+| Documentation discipline (no issue / task / user / cycle refs in comments) | {status} | {grep + diff references} | {list of hits} |
+
 ## SOLID And Design
 | Principle / Decision | Status | Concrete evidence | Impact |
 
@@ -196,7 +218,16 @@ executive_summary: 1-3 sentences
 artifacts: ["{cycle-artifacts-dir}/verify-report.md"]
 verdict: PASS | PASS_WITH_WARNINGS | FAIL
 subject: {base: sha, head: sha, diff_digest: sha256|null}
-mandatory_gates: {gate_id: PASS|FAIL|BLOCKED|N/A}
+mandatory_gates:
+  subject_identity: PASS|FAIL|BLOCKED|N/A
+  behavioral_compliance: PASS|FAIL|BLOCKED|N/A
+  real_implementation: PASS|FAIL|BLOCKED|N/A
+  documentation_discipline: PASS|FAIL|BLOCKED|N/A
+  test_strength: PASS|FAIL|BLOCKED|N/A
+  regression_and_build: PASS|FAIL|BLOCKED|N/A
+  production_readiness: PASS|FAIL|BLOCKED|N/A
+  design_and_solid: PASS|FAIL|BLOCKED|N/A
+  task_completeness: PASS|FAIL|BLOCKED|N/A
 issues_by_severity: {critical: N, warning: N, suggestion: N}
 unverified: []
 next_recommended: sddk-debt-verify | sddk-apply correction cycle | resolve blocker
