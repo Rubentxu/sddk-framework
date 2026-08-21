@@ -1,9 +1,22 @@
 # HANDOFF — sddk-framework — 2026-08-21
 
-> **Cycle:** `kernel-cycle-5-cross-cutting-debt` (kernel)
-> **Released as:** v1.33.0
-> **HEAD:** `120f3f1` (v1.32.0 base) → after 5 mechanical commits
-> **Tag:** v1.33.0
+> **Cycle:** `kernel-cycle-7-durable-debt-spec` (kernel)
+> **Released as:** v1.35.0
+> **HEAD:** `8eb6eab` (ADR-0047 ratified; docs/debt/ taxonomies)
+> **Tag:** v1.35.0
+
+## Cycle-7a completed (v1.35.0)
+
+**kernel-cycle-7-durable-debt-spec** — ADR-0047 ratified as Accepted. Severity + Priority taxonomies in `docs/debt/`. AGENTS.md §4 references framework. Cycle-7b deferred.
+
+Archive: `~/.sddk-knowledge/sddk-framework/archive/2026-08-21-kernel-cycle-7-durable-debt-spec/`
+
+| Metric | Value |
+|--------|-------|
+| LOC | 81 (≤150 budget) |
+| Commits | 4 |
+| Verdict | PASS_WITH_WARNINGS (11/11 ACs; 1 false-positive grep) |
+| Debt verdict | PASS_WITH_WARNINGS (0 CRIT, 4 WARN for cycle-7b) |
 
 ## Cycle-6 completed (v1.34.0)
 
@@ -37,12 +50,13 @@ cargo clippy --workspace ✓ 0 errors (pre-existing event_envelope_golden.rs::un
 
 | # | Candidate | Location | Notes |
 |---|-----------|----------|-------|
-| 1 | Unify local `now_rfc3339()` private fns | `telemetry.rs:843`, `rules_cmd.rs:56`, `uat.rs:2323`, `dev/check_arch.rs:46` | 4 fns in 4 files; different impls; style goal |
+| 1 | cycle-7b: JSON Schema + INC template + agent/prompt/gate updates | `docs/debt/`, `agents/`, `workflow/` | ~145 LOC; wires ADR-0047 foundation from cycle-7a |
 | 2 | Fix CLI gate receipt persistence bug | infra | `evaluate-gate` returns receipt_id but `transition` reports STORAGE_NOT_FOUND; blocks all future cycle transitions |
-| 3 | Implement ADR-0047 durable debt remediation | docs | Framework for tracking technical debt across cycles |
-| 4 | `ExpansionPermission::is_allowed` `#[deprecated]` removal | cycle-3 deprecation seam | Never used in cycle-4, 5, or 6 |
-| 5 | WV-0027 `expires_at` clarification | `proposal.schema.json:91` | Needs user intent on field vs waiver body |
-| 6 | macOS / Windows musl targets | `scripts/install.sh` + `sddk-cli/Cargo.toml` | Toolchain proven; release-engineering scope |
+| 3 | Unify local `now_rfc3339()` private fns | `telemetry.rs:843`, `rules_cmd.rs:56`, `uat.rs:2323`, `dev/check_arch.rs:46` | 4 fns in 4 files; different impls; style goal |
+| 4 | Implement ADR-0047 runtime emission | `crates/` | Deferred from cycle-7a; CLI + Rust changes |
+| 5 | `ExpansionPermission::is_allowed` `#[deprecated]` removal | cycle-3 deprecation seam | Never used in cycle-4, 5, 6, or 7 |
+| 6 | WV-0027 `expires_at` clarification | `proposal.schema.json:91` | Needs user intent on field vs waiver body |
+| 7 | macOS / Windows musl targets | `scripts/install.sh` + `sddk-cli/Cargo.toml` | Toolchain proven; release-engineering scope |
 
 ## Recovery cheat sheet
 
