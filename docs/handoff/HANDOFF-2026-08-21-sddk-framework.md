@@ -5,6 +5,19 @@
 > **HEAD:** `120f3f1` (v1.32.0 base) → after 5 mechanical commits
 > **Tag:** v1.33.0
 
+## Cycle-6 completed (v1.34.0)
+
+**kernel-cycle-6-rfc3339-consolidation** — RFC 3339 wrapper deleted; 16 use-sites migrated to Stack A (`time` crate). Released as v1.34.0 (tag `0b062447`).
+
+Archive: `~/.sddk-knowledge/sddk-framework/archive/2026-08-21-kernel-cycle-6-rfc3339-consolidation/`
+
+| Metric | Value |
+|--------|-------|
+| LOC | 101 (≤150 budget) |
+| Commits | 8 |
+| Verdict | PASS |
+| Debt verdict | PASS (0 CRIT, 1 WARN) |
+
 ## Current state (cargo test / clippy)
 
 ```
@@ -20,16 +33,16 @@ cargo clippy --workspace ✓ 0 errors (pre-existing event_envelope_golden.rs::un
 4. `fix(domain): improve assert_variant_count_eq! diagnostic + close clippy drift + add variant_counts tests (REQ-K5-004)` — 4 files, +95/−9 LOC
 5. `chore(release): bump to v1.33.0 (kernel-cycle-5-cross-cutting-debt) (REQ-K5-005)` — 4 files, +30 LOC
 
-## Cycle-6 candidates
+## Cycle-7 candidates
 
 | # | Candidate | Location | Notes |
 |---|-----------|----------|-------|
-| — | **now_rfc3339_utc wrapper consolidation** | `format.rs`, 10 files | **DONE in cycle-6**: 19 sites migrated to Stack A, wrapper deleted, v1.34.0 |
-| 1 | Local `now_rfc3339` style consolidation | `telemetry.rs:843`, `rules_cmd.rs:56`, `uat.rs:2323` | 4+3+12 sites; different impls (`OffsetDateTime::now_utc()`); not Hinnant drift; style goal |
-| 2 | `ExpansionPermission::is_allowed` `#[deprecated]` removal | cycle-3 deprecation seam | Never used in cycle-4 or cycle-5 |
-| 3 | WV-0027 `expires_at` clarification | `proposal.schema.json:91` (not `architecture-rules.yaml:92-107`) | Needs user intent on field vs waiver body |
-| 4 | macOS / Windows musl targets | `scripts/install.sh` + `sddk-cli/Cargo.toml` | Toolchain proven; release-engineering scope |
-| 5 | `compile_error!`-driven variant guard (alternative) | research spike | Macro jurisprudence locked; no parallel track |
+| 1 | Unify local `now_rfc3339()` private fns | `telemetry.rs:843`, `rules_cmd.rs:56`, `uat.rs:2323`, `dev/check_arch.rs:46` | 4 fns in 4 files; different impls; style goal |
+| 2 | Fix CLI gate receipt persistence bug | infra | `evaluate-gate` returns receipt_id but `transition` reports STORAGE_NOT_FOUND; blocks all future cycle transitions |
+| 3 | Implement ADR-0047 durable debt remediation | docs | Framework for tracking technical debt across cycles |
+| 4 | `ExpansionPermission::is_allowed` `#[deprecated]` removal | cycle-3 deprecation seam | Never used in cycle-4, 5, or 6 |
+| 5 | WV-0027 `expires_at` clarification | `proposal.schema.json:91` | Needs user intent on field vs waiver body |
+| 6 | macOS / Windows musl targets | `scripts/install.sh` + `sddk-cli/Cargo.toml` | Toolchain proven; release-engineering scope |
 
 ## Recovery cheat sheet
 
