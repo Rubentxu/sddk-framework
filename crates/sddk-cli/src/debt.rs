@@ -6,10 +6,21 @@ use std::path::{Path, PathBuf};
 use clap::{Args, Subcommand};
 use sddk_domain::{DebtReport, FindingStatus};
 use sddk_engine::{self, GateOutcome, evaluate_named_gate, render_inc_template};
+use thiserror::Error;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::{CliEnvironment, CommandOutput};
+
+#[derive(Error, Debug)]
+pub enum VaultError {
+    #[error("vault path not found: {0}")]
+    VaultNotFound(String),
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("report parse error: {0}")]
+    ReportParse(#[from] serde_json::Error),
+}
 
 /// Debt management subcommands.
 #[derive(Debug, Clone, Args)]
@@ -42,27 +53,36 @@ pub enum DebtCommand {
 /// Runs the debt subcommand.
 pub fn run_debt(args: DebtArgs, env: &CliEnvironment) -> CommandOutput {
     match args.command {
-        DebtCommand::Report { output } => run_report(&output),
-        DebtCommand::Incs => run_incs(env),
-        DebtCommand::Backfill { cycle_id } => run_backfill(&cycle_id, env),
-        DebtCommand::Gates { name } => run_gates(&name, env),
+        DebtCommand::Report { output } => cmd_report(&output),
+        DebtCommand::Incs => cmd_incs(env),
+        DebtCommand::Backfill { cycle_id } => cmd_backfill(&cycle_id, env),
+        DebtCommand::Gates { name } => cmd_gates(&name),
     }
 }
 
-fn run_report(output: &PathBuf) -> CommandOutput {
-    // Build a minimal debt report for the current framework state.
-    // In a full implementation this would read actual findings from the graph.
-    let report = DebtReport {
+fn empty_report_for_cycle(cycle_id: &str) -> DebtReport {
+    DebtReport {
         schema_version: "1.1.0".into(),
-        cycle_id: "p-52b95ef55999f9de/kernel-cycle-8".into(),
+        cycle_id: cycle_id.into(),
         generated_at: OffsetDateTime::now_utc()
             .format(&Rfc3339)
             .unwrap_or_else(|_| "2026-08-21T00:00:00Z".into()),
         findings: vec![],
+    }
+}
+
+fn cmd_report(output: &PathBuf) -> CommandOutput {
+    let report = empty_report_for_cycle("p-52b95ef55999f9de/kernel-cycle-8");
+    let json = match serde_json::to_string_pretty(&report) {
+        Ok(j) => j,
+        Err(e) => {
+            return CommandOutput {
+                status: 1,
+                stdout: String::new(),
+                stderr: format!("JSON error: {e}\n"),
+            };
+        }
     };
-    let json = serde_json::to_string_pretty(&report)
-        .map_err(|e| format!("JSON error: {e}"))
-        .unwrap_or_default();
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent).ok();
     }
@@ -80,8 +100,7 @@ fn run_report(output: &PathBuf) -> CommandOutput {
     }
 }
 
-fn run_incs(env: &CliEnvironment) -> CommandOutput {
-    // Resolve project vault path for incs/
+fn cmd_incs(env: &CliEnvironment) -> CommandOutput {
     let vault = match resolve_vault_path(env) {
         Ok(p) => p,
         Err(e) => {
@@ -132,9 +151,7 @@ fn run_incs(env: &CliEnvironment) -> CommandOutput {
     }
 }
 
-/// Locates the most recent archived debt-report.json whose cycle_id matches the given cycle_id.
-/// Walks ~/.sddk-knowledge/<project>/archive/ subdirectories (each named YYYY-MM-DD-{slug})
-/// and returns the PathBuf of the matching debt-report.json, or None if not found.
+/// Locates the most recent archived debt-report.json whose cycle_id matches.
 fn locate_archived_report(vault: &Path, cycle_id: &str) -> Option<PathBuf> {
     let archive_dir = vault.join("archive");
     let Ok(entries) = std::fs::read_dir(&archive_dir) else {
@@ -164,14 +181,49 @@ fn locate_archived_report(vault: &Path, cycle_id: &str) -> Option<PathBuf> {
             candidates.push((modified, report_path));
         }
     }
-    // Return the most recently modified match
     candidates
         .into_iter()
         .max_by_key(|(t, _)| *t)
         .map(|(_, p)| p)
 }
 
-fn run_backfill(cycle_id: &str, env: &CliEnvironment) -> CommandOutput {
+/// Pure logic: emits INC files for non-resolved findings.
+fn backfill_report(vault: &Path, report: &DebtReport) -> Result<usize, VaultError> {
+    let project_id = vault
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("sddk-framework")
+        .to_string();
+    let incs_dir = vault.join("incs");
+    let mut existing_ids: HashSet<String> = HashSet::new();
+    if let Ok(entries) = std::fs::read_dir(&incs_dir) {
+        for entry in entries.filter_map(Result::ok) {
+            if let Some(name) = entry.file_name().to_str()
+                && name.ends_with(".md")
+            {
+                existing_ids.insert(name.trim_end_matches(".md").to_string());
+            }
+        }
+    }
+    std::fs::create_dir_all(&incs_dir)?;
+    let mut emitted = 0;
+    for finding in report.findings.iter().filter(|f| {
+        !matches!(
+            f.status,
+            FindingStatus::Resolved | FindingStatus::Superseded
+        )
+    }) {
+        let inc_content = render_inc_template(finding, &project_id, &report.cycle_id);
+        let inc_id = sddk_engine::derive_inc_id(finding, &existing_ids);
+        let inc_path = incs_dir.join(format!("{}.md", inc_id));
+        std::fs::write(&inc_path, &inc_content)?;
+        existing_ids.insert(inc_id);
+        emitted += 1;
+    }
+    Ok(emitted)
+}
+
+fn cmd_backfill(cycle_id: &str, env: &CliEnvironment) -> CommandOutput {
     let vault = match resolve_vault_path(env) {
         Ok(p) => p,
         Err(e) => {
@@ -212,76 +264,26 @@ fn run_backfill(cycle_id: &str, env: &CliEnvironment) -> CommandOutput {
             };
         }
     };
-    // Resolve project_id from vault path
-    let project_id = vault
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("sddk-framework")
-        .to_string();
-    // Collect existing INC IDs
-    let incs_dir = vault.join("incs");
-    let mut existing_ids: HashSet<String> = HashSet::new();
-    if let Ok(entries) = std::fs::read_dir(&incs_dir) {
-        for entry in entries.filter_map(Result::ok) {
-            if let Some(name) = entry.file_name().to_str()
-                && name.ends_with(".md")
-            {
-                existing_ids.insert(name.trim_end_matches(".md").to_string());
-            }
-        }
-    }
-    // Emit INC for each non-resolved finding
-    let mut emitted = 0;
-    let mut errors = vec![];
-    std::fs::create_dir_all(&incs_dir).ok();
-    for finding in report.findings.iter().filter(|f| {
-        !matches!(
-            f.status,
-            FindingStatus::Resolved | FindingStatus::Superseded
-        )
-    }) {
-        let inc_content = render_inc_template(finding, &project_id, &report.cycle_id);
-        let inc_id = sddk_engine::derive_inc_id(finding, &existing_ids);
-        let inc_path = incs_dir.join(format!("{}.md", inc_id));
-        match std::fs::write(&inc_path, &inc_content) {
-            Ok(_) => {
-                existing_ids.insert(inc_id.clone());
-                emitted += 1;
-            }
-            Err(e) => {
-                errors.push(format!("{}: {e}", inc_path.display()));
-            }
-        }
-    }
-    if errors.is_empty() {
-        CommandOutput {
+    match backfill_report(&vault, &report) {
+        Ok(emitted) => CommandOutput {
             status: 0,
-            stdout: format!("emitted {} INC files to {}\n", emitted, incs_dir.display()),
-            stderr: String::new(),
-        }
-    } else {
-        CommandOutput {
-            status: 1,
             stdout: format!(
-                "emitted {} INC files with {} errors\n",
+                "emitted {} INC files to {}\n",
                 emitted,
-                errors.len()
+                vault.join("incs").display()
             ),
-            stderr: errors.join("\n") + "\n",
-        }
+            stderr: String::new(),
+        },
+        Err(e) => CommandOutput {
+            status: 1,
+            stdout: String::new(),
+            stderr: format!("{e}\n"),
+        },
     }
 }
 
-fn run_gates(gate_name: &str, _env: &CliEnvironment) -> CommandOutput {
-    // Build a minimal debt report and evaluate the gate
-    let report = DebtReport {
-        schema_version: "1.1.0".into(),
-        cycle_id: "p-52b95ef55999f9de/kernel-cycle-8".into(),
-        generated_at: OffsetDateTime::now_utc()
-            .format(&Rfc3339)
-            .unwrap_or_else(|_| "2026-08-21T00:00:00Z".into()),
-        findings: vec![],
-    };
+fn cmd_gates(gate_name: &str) -> CommandOutput {
+    let report = empty_report_for_cycle("p-52b95ef55999f9de/kernel-cycle-8");
     let outcome = evaluate_named_gate(gate_name, &report);
     match &outcome {
         GateOutcome::Passed { notes } => CommandOutput {
@@ -305,15 +307,15 @@ fn run_gates(gate_name: &str, _env: &CliEnvironment) -> CommandOutput {
 }
 
 /// Resolves the project vault path: ~/.sddk-knowledge/<project>/
-fn resolve_vault_path(env: &CliEnvironment) -> Result<PathBuf, String> {
+fn resolve_vault_path(env: &CliEnvironment) -> Result<PathBuf, VaultError> {
     let home = env
         .home
         .clone()
         .or_else(dirs::home_dir)
-        .ok_or_else(|| "no home directory".to_string())?;
+        .ok_or_else(|| VaultError::VaultNotFound("no home directory".into()))?;
     let vault = home.join(".sddk-knowledge/sddk-framework");
     if !vault.exists() {
-        std::fs::create_dir_all(&vault).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(&vault)?;
     }
     Ok(vault)
 }
@@ -322,21 +324,24 @@ fn resolve_vault_path(env: &CliEnvironment) -> Result<PathBuf, String> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_resolve_vault_path() {
-        let temp = tempfile::tempdir().unwrap();
-        let env = CliEnvironment {
-            home: Some(temp.path().to_path_buf()),
+    fn test_env(home: &Path) -> CliEnvironment {
+        CliEnvironment {
+            home: Some(home.to_path_buf()),
             data_home: Some(PathBuf::from("/tmp/sddk-test-data")),
             sddk_data_dir: None,
             state_home: None,
             cache_home: None,
             sddk_actor: None,
             user: None,
-        };
+        }
+    }
+
+    #[test]
+    fn test_resolve_vault_path() {
+        let temp = tempfile::tempdir().unwrap();
+        let env = test_env(temp.path());
         let vault = resolve_vault_path(&env).unwrap();
         let path = vault.to_string_lossy();
-        // Path should be: <temp>/.sddk-knowledge/sddk-framework
         assert!(
             path.contains(".sddk-knowledge"),
             "vault path should be ~/.sddk-knowledge/sddk-framework: {}",
@@ -349,7 +354,6 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let archive = temp.path().join("archive");
         std::fs::create_dir_all(&archive).unwrap();
-        // Create a dated subdir
         let subdir = archive.join("2026-08-13-cycle-7b-durable-debt-runtime");
         std::fs::create_dir_all(&subdir).unwrap();
         let report: DebtReport = DebtReport {
@@ -376,23 +380,14 @@ mod tests {
     fn test_report_empty_findings() {
         let temp = tempfile::tempdir().unwrap();
         let output = temp.path().join("debt-report.json");
-        let result = run_report(&output);
+        let result = cmd_report(&output);
         assert_eq!(result.status, 0);
         assert!(output.exists());
     }
 
     #[test]
     fn test_gates_unknown_gate() {
-        let env = CliEnvironment {
-            home: Some(PathBuf::from("/home/test")),
-            data_home: None,
-            sddk_data_dir: None,
-            state_home: None,
-            cache_home: None,
-            sddk_actor: None,
-            user: None,
-        };
-        let result = run_gates("unknown-gate", &env);
+        let result = cmd_gates("unknown-gate");
         assert_eq!(result.status, 1);
         assert!(result.stderr.contains("FAIL"));
     }
