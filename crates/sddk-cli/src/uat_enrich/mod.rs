@@ -62,7 +62,6 @@ pub fn enrich_scenario(scenario: &mut sddk_domain::UatScenario) {
 /// Build a UatProvenance for the enriched scenario.
 fn build_provenance(scenario: &sddk_domain::UatScenario) -> sddk_domain::UatProvenance {
     use sddk_domain::UatOrigin;
-    use sddk_domain::format::now_rfc3339_utc;
 
     // Preserve existing origin if set, otherwise use Regression as default
     let origin = scenario
@@ -71,7 +70,9 @@ fn build_provenance(scenario: &sddk_domain::UatScenario) -> sddk_domain::UatProv
         .map(|p| p.origin)
         .unwrap_or(UatOrigin::Regression);
 
-    let now = now_rfc3339_utc();
+    let now = time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .expect("RFC 3339 formatting cannot fail");
     sddk_domain::UatProvenance {
         author: "uat-ux-form".to_string(),
         created_at: now.clone(),

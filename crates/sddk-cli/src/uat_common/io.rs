@@ -29,7 +29,9 @@ impl ApprovalDecision {
             verdict,
             id,
             display,
-            at: sddk_domain::format::now_rfc3339_utc(),
+            at: time::OffsetDateTime::now_utc()
+                .format(&time::format_description::well_known::Rfc3339)
+                .expect("RFC 3339 formatting cannot fail"),
         }
     }
 }

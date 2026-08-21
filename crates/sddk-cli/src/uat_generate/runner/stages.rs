@@ -14,7 +14,9 @@ pub fn run_quality_stage(
             schema_version: 1,
             analyzer: "pipeline-test-injection".to_string(),
             model: "test-v1".to_string(),
-            analyzed_at: sddk_domain::format::now_rfc3339_utc(),
+            analyzed_at: time::OffsetDateTime::now_utc()
+                .format(&time::format_description::well_known::Rfc3339)
+                .expect("RFC 3339 formatting cannot fail"),
             plan_ref: String::new(),
             smells: vec![crate::uat_quality::report::QualitySmell {
                 id: "TEST-001".to_string(),

@@ -38,6 +38,14 @@ impl std::fmt::Display for PlanError {
     }
 }
 
+/// RFC 3339 "now" with nanosecond precision; used for UatProvenance and UatPlan timestamps.
+/// Replaces the deleted Hinnant wrapper for this module only.
+fn now_rfc3339() -> String {
+    time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .expect("RFC 3339 formatting cannot fail")
+}
+
 /// Planner output: the built UatPlan.
 #[derive(Debug)]
 pub struct PlanOutput {
@@ -109,8 +117,8 @@ fn build_features_from_criteria(
         let plain_steps = vec![step_from_text(&format!("Verify: {}", criterion))];
         let provenance = sddk_domain::UatProvenance {
             author: "uat-planner".to_string(),
-            created_at: sddk_domain::format::now_rfc3339_utc(),
-            last_modified_at: sddk_domain::format::now_rfc3339_utc(),
+            created_at: now_rfc3339(),
+            last_modified_at: now_rfc3339(),
             origin: sddk_domain::UatOrigin::Spec,
             origin_ref: req_id.clone(),
         };
@@ -249,8 +257,8 @@ pub fn build_plan(
                 .provenance
                 .created_at
                 .clone()
-                .unwrap_or_else(sddk_domain::format::now_rfc3339_utc),
-            last_modified_at: sddk_domain::format::now_rfc3339_utc(),
+                .unwrap_or_else(now_rfc3339),
+            last_modified_at: now_rfc3339(),
             origin: sddk_domain::UatOrigin::Regression,
             origin_ref: candidate.flow_ref.clone(),
         };
@@ -311,7 +319,7 @@ pub fn build_plan(
     // Build last_uat_release from previous plan
     let last_uat_release = last_plan_ref.as_ref().map(|p| p.release.candidate.clone());
 
-    let now = sddk_domain::format::now_rfc3339_utc();
+    let now = now_rfc3339();
     let plan = UatPlan {
         schema_version: sddk_domain::LATEST_PLAN_SCHEMA_VERSION,
         release: UatPlanRelease {

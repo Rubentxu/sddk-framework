@@ -348,7 +348,9 @@ fn run_fork_create(args: ForkCreateArgs, environment: &CliEnvironment) -> Comman
             .user
             .clone()
             .unwrap_or_else(|| "sddk-cli".into());
-        let now = sddk_domain::format::now_rfc3339_utc();
+        let now = time::OffsetDateTime::now_utc()
+            .format(&time::format_description::well_known::Rfc3339)
+            .expect("RFC 3339 formatting cannot fail");
         let record = fork_store.create_fork(input, &actor, &now, &event.content_hash)?;
         Ok(ForkCreateOutput {
             fork_id: record.fork_id,
