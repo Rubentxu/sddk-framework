@@ -5,22 +5,22 @@ When to remediate a debt finding, relative to other work in the cycle/release pi
 ## P0
 **Definition**: Drop everything. Fix now.
 **Scheduling**: Blocks release; must be resolved before any release tag.
-**Scope**: Single cycle, may extend multiple phases.
+**Scope**: A single cycle; may extend across multiple phases if remediation is large.
 
 ## P1
-**Definition**: Fix in current or next cycle.
-**Scheduling**: Sprint-level commitment.
-**Scope**: Single cycle typically.
+**Definition**: Fix in the current or next cycle.
+**Scheduling**: Cycle-level commitment.
+**Scope**: A single cycle in most cases.
 
 ## P2
-**Definition**: Fix in next minor release.
-**Scheduling**: Release-level commitment.
-**Scope**: May span multiple cycles if dependent.
+**Definition**: Fix in a later cycle.
+**Scheduling**: Planning-horizon commitment, no fixed deadline.
+**Scope**: May span multiple cycles when the debt depends on adjacent work.
 
 ## P3
 **Definition**: Opportunistic. When convenient.
 **Scheduling**: No commitment; picked up when low-risk.
-**Scope**: Unlimited, may never happen.
+**Scope**: Unbounded; may never be remediated.
 
 > **Namespace note**: This priority taxonomy is distinct from UAT scenario priority (P0..P3 in `uat-plan.yaml`). They occupy different namespaces: UAT priority is feature-release scheduling; debt priority is remediation scheduling. See [ADR-0047](./../adr/ADR-0047-durable-debt-remediation.md) for the rationale.
 
