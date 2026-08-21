@@ -141,3 +141,12 @@ disagree, surface the contradiction.
 - Running full SDDK for a C3 bug fix (use B-direct)
 - Coherence check at every transition regardless of context quality
 - Treating a release tag as proof that archive completed
+
+## XDG paths for SDDK ledger
+
+The canonical SDDK ledger lives at XDG `state_home`, not `data_home`. On Linux:
+
+- **Canonical (read/write)**: `~/.local/state/sddk/projects/<id>/ledger.sqlite`
+- **Orphan stub (legacy installs)**: `~/.local/share/sddk/projects/<id>/ledger.sqlite`
+
+The `data_home` location may contain a 0-byte stub from older installs that never migrated. **Do NOT** use the `data_home` path for verification or persistence assertions — always go through the engine CLI which resolves to `state_home` per ADR-0006.

@@ -83,13 +83,23 @@ cargo clippy --workspace ✓ 0 errors (pre-existing event_envelope_golden.rs::un
 9. `feat(prompts): add gate refs to arsenal (REQ-K7-009)` — +4 LOC
 10. `fix(workflow): desacoplar gates debt de requires hasta cycle-8+` — -12 LOC
 
+## Done (cycle-7c, 2026-08-21)
+
+**kernel-cycle-7c-cli-gate-receipt-fix** (docs-only correction)
+**Goal**: Investigate the supposed "CLI gate receipt persistence bug" (HIGH, since cycle-3).
+**Outcome**: Premise rejected. The real ledger lives at `~/.local/state/sddk/...` (XDG state_home per ADR-0006) with 18 tables, 510 receipts, 536 events. The stub 0-byte at `data_home` is an orphan NOT on the engine read path.
+**Root cause**: STORAGE_NOT_FOUND errors were CLI arg format mistakes (`--gate-receipt "gate_name=receipt_id"` instead of `"receipt_id"`), not a Rust bug.
+**Lessons**: When a "pre-existing bug" persists without manifesting, verify the premise first. XDG path confusion (data_home vs state_home) explained all historical symptoms.
+**Archive**: `~/.sddk-knowledge/sddk-framework/archive/2026-08-21-kernel-cycle-7c-cli-gate-receipt-fix/`
+**Artifacts**: explore-report.md (305 lines) + spec.md (4 REQs)
+**Next**: cycle-8 (gate evaluator runtime + INC generator + fingerprint generator)
+
 ## Next candidates
 
 | # | Candidate | Status | Notes |
 |---|-----------|--------|-------|
-| 1 | **cycle-7c: CLI gate receipt persistence fix** | **HIGH** | `evaluate-gate` returns receipt_id but `transition` reports STORAGE_NOT_FOUND; blocks ledger transitions since cycle-3. ~80 LOC Rust. |
-| 2 | cycle-8: Gate evaluator runtime + INC generator + fingerprint generator | P2 | ADR-0047 §3 implementation. ~400 LOC Rust + schema. |
-| 3 | cycle-8+: INC backfill for cycle-3..7a + schema migration tooling | P3 | ADR-0047 §Compatibility. ~150 LOC data. |
+| 1 | cycle-8: Gate evaluator runtime + INC generator + fingerprint generator | P2 | ADR-0047 §3 implementation. ~400 LOC Rust + schema. |
+| 2 | cycle-8+: INC backfill for cycle-3..7a + schema migration tooling | P3 | ADR-0047 §Compatibility. ~150 LOC data. |
 
 **Deferred from cycle-7b (W1-W4):** Gate wiring, gate evaluator runtime, INC generator runtime, fingerprint generator runtime — all cycle-8+.
 
