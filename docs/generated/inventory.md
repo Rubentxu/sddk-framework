@@ -6,10 +6,10 @@
 
 | Type | Count |
 | --- | ---: |
-| Agents | 60 |
-| Skills | 83 |
+| Agents | 64 |
+| Skills | 110 |
 
-## Agents (60)
+## Agents (64)
 
 - `agents/analytics-judge.md`
 - `agents/analytics-reporter.md`
@@ -37,6 +37,7 @@
 - `agents/debt-duplication-cluster.md`
 - `agents/debt-overeng-cluster.md`
 - `agents/debt-smells-cluster.md`
+- `agents/deep-research-orchestrator.md`
 - `agents/impeccable-primary.md`
 - `agents/jd-fix-agent.md`
 - `agents/jd-judge-a.md`
@@ -66,13 +67,16 @@
 - `agents/studio-token.md`
 - `agents/studio-validator.md`
 - `agents/test-pyramid-builder.md`
+- `agents/uat-discovery.md`
+- `agents/uat-form-quality.md`
 - `agents/uat-guide.md`
 - `agents/uat-planner.md`
 - `agents/uat-reporter.md`
 - `agents/uat-runner.md`
+- `agents/uat-ux-form.md`
 - `agents/ui-auditor.md`
 
-## Skills (83)
+## Skills (110)
 
 - `skills/_shared/SKILL.md`
 - `skills/accessibility-reviewer/SKILL.md`
@@ -102,6 +106,29 @@
 - `skills/comment-writer/SKILL.md`
 - `skills/cua-test-orchestrator/SKILL.md`
 - `skills/curriculum-designer/SKILL.md`
+- `skills/deep-research/SKILL.md`
+- `skills/deep-research/sub/deep-claim-extractor/SKILL.md`
+- `skills/deep-research/sub/deep-coach-systems-thinking/SKILL.md`
+- `skills/deep-research/sub/deep-domain-modeler/SKILL.md`
+- `skills/deep-research/sub/deep-evidence-triangulator/SKILL.md`
+- `skills/deep-research/sub/deep-feedback-loops-analyzer/SKILL.md`
+- `skills/deep-research/sub/deep-historical-lineage-tracer/SKILL.md`
+- `skills/deep-research/sub/deep-knowledge-corpus-curator/SKILL.md`
+- `skills/deep-research/sub/deep-knowledge-graph-builder/SKILL.md`
+- `skills/deep-research/sub/deep-leverage-points-analyst/SKILL.md`
+- `skills/deep-research/sub/deep-paradigms-explorer/SKILL.md`
+- `skills/deep-research/sub/deep-pattern-extractor/SKILL.md`
+- `skills/deep-research/sub/deep-reference-validator/SKILL.md`
+- `skills/deep-research/sub/deep-research-methodology-hub/SKILL.md`
+- `skills/deep-research/sub/deep-research-orchestrator/SKILL.md`
+- `skills/deep-research/sub/deep-research-strategist/SKILL.md`
+- `skills/deep-research/sub/deep-scenarios-explorer/SKILL.md`
+- `skills/deep-research/sub/deep-software-research/SKILL.md`
+- `skills/deep-research/sub/deep-source-credibility-assessor/SKILL.md`
+- `skills/deep-research/sub/deep-source-discovery-specialist/SKILL.md`
+- `skills/deep-research/sub/deep-stocks-flows-diagrammer/SKILL.md`
+- `skills/deep-research/sub/deep-system-archetypes-mapper/SKILL.md`
+- `skills/deep-research/sub/deep-traps-detector/SKILL.md`
 - `skills/diagram-architect/SKILL.md`
 - `skills/editorial-reviewer/SKILL.md`
 - `skills/editorial-voice-designer/SKILL.md`
@@ -131,6 +158,7 @@
 - `skills/rust-patterns/SKILL.md`
 - `skills/sddk-apply/SKILL.md`
 - `skills/sddk-archive/SKILL.md`
+- `skills/sddk-cycle-resume/SKILL.md`
 - `skills/sddk-debt-verify/SKILL.md`
 - `skills/sddk-design/SKILL.md`
 - `skills/sddk-explore/SKILL.md`
@@ -150,9 +178,12 @@
 - `skills/technical-reviewer/SKILL.md`
 - `skills/test-pyramid/SKILL.md`
 - `skills/uat-dashboard/SKILL.md`
+- `skills/uat-discovery/SKILL.md`
 - `skills/uat-evidence/SKILL.md`
+- `skills/uat-form-quality/SKILL.md`
 - `skills/uat-guided-mode/SKILL.md`
 - `skills/uat-traceability/SKILL.md`
+- `skills/uat-ux-form/SKILL.md`
 - `skills/ui-audit-protocol/SKILL.md`
 - `skills/version-drift-detector/SKILL.md`
 - `skills/work-unit-commits/SKILL.md`

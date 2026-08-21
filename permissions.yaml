@@ -71,6 +71,9 @@ agents:
   debt-smells-cluster:
     phases: []
     capabilities: []
+  deep-research-orchestrator:
+    phases: []
+    capabilities: []
   impeccable-primary:
     phases: []
     capabilities: []
@@ -189,6 +192,12 @@ agents:
   uat-guide:
     phases: ['uat']
     capabilities: []
+  uat-discovery:
+    phases: ['uat']
+    capabilities: []
+  uat-form-quality:
+    phases: ['uat']
+    capabilities: []
   uat-planner:
     phases: ['uat']
     capabilities: []
@@ -196,5 +205,8 @@ agents:
     phases: ['uat']
     capabilities: []
   uat-runner:
+    phases: ['uat']
+    capabilities: []
+  uat-ux-form:
     phases: ['uat']
     capabilities: []
