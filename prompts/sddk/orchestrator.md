@@ -155,6 +155,10 @@ workflow produced a formal cycle. A successful `release.complete` changes phase
 to archive and normally auto-releases the lease; archive rebuilds CLI state and
 does not fabricate lease flags.
 
+## Debt lifecycle
+
+Verify severity ⊥ priority (ADR-0047 §2). Wire `debt-severity-assigned` + `debt-priority-assigned` gates into `phase.verify.complete`. Track INC files for cross-cycle correlation. Skip new transitions (gates only).
+
 ## Failure And Recovery
 
 - `verify FAIL`: return to its declared correction owner.
