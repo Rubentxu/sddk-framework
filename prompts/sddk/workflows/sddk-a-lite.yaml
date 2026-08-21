@@ -133,9 +133,11 @@ phases:
     pattern: multi-lens-verification
     agent: sddk-verify
     model: minimax-coding-plan/MiniMax-M3
+    verify_role: coordinator
     parallel_group: verify-lenses
-    lenses: 3  # spec + test + design (per orchestrator.md § Multi-lens verify table)
-    notes: "A-lite = 3 lenses (vs 6 in A-full)"
+    lenses: [spec-compliance, test-quality, production-readiness]
+    synthesis_agent: sddk-verify
+    notes: "Core verify gates always run; these lenses add path-specific depth."
     gate: "verdict PASS or PASS_WITH_WARNINGS"
     output: verify-report.md
     failure_mode: FAIL → return to apply (correction cycle, max 2)

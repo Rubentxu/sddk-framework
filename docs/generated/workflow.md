@@ -24,6 +24,7 @@
 | 7 | `ABANDONED` |
 | 8 | `RECOVERING` |
 | 9 | `UAT_WAITING` |
+| 10 | `APPROVAL_PENDING` |
 
 ## Phases
 
@@ -47,7 +48,7 @@
 | `A-full` | `mandatory` | `explore` → `specify` → `design` → `plan` → `build` → `verify` → `review` → `release` | Full path A - complete workflow with all phases |
 | `A-lite` | `mandatory` | `explore` → `specify` → `design` → `build` → `verify` → `release` | Lite path - standard with minimal design |
 | `A-min` | `mandatory` | `explore` → `specify` → `build` → `verify` → `release` | Minimal path - fastest route through workflow |
-| `B-direct` | `disabled` | `build` → `release` | Direct path B - disabled by default |
+| `B-direct` | `disabled` | `build` → `verify` → `release` | Direct path B - disabled by default |
 
 ## Transitions
 
@@ -62,16 +63,25 @@
 | `phase.design.complete.a-lite` | `A-lite` | `OPEN/design` | `OPEN/build` | `artifact:design`<br>`gate:architecture-consistent` | `design` | — |
 | `phase.plan.complete` | `A-full` | `OPEN/plan` | `OPEN/build` | `artifact:implementation-plan`<br>`gate:plan-executable` | `implementation-plan` | — |
 | `phase.build.complete` | `A-min`<br>`A-lite`<br>`A-full` | `OPEN/build` | `OPEN/verify` | `artifact:implementation-receipt`<br>`gate:implementation-complete` | `implementation-receipt` | — |
-| `phase.build.complete.b-direct` | `B-direct` | `OPEN/build` | `RELEASE_PENDING/release` | `artifact:implementation-receipt`<br>`gate:implementation-complete` | `implementation-receipt` | — |
+| `phase.build.complete.b-direct` | `B-direct` | `OPEN/build` | `OPEN/verify` | `artifact:implementation-receipt`<br>`gate:implementation-complete` | `implementation-receipt` | — |
 | `phase.verify.complete` | `A-full` | `OPEN/verify` | `OPEN/review` | `artifact:verification-report`<br>`gate:tests-pass`<br>`gate:policy-compliant` | `verification-report` | `REMEDIATING/verify` |
 | `phase.verify.complete.a-min` | `A-min` | `OPEN/verify` | `RELEASE_PENDING/release` | `artifact:verification-report`<br>`gate:tests-pass`<br>`gate:policy-compliant` | `verification-report` | `REMEDIATING/verify` |
 | `phase.verify.complete.a-lite` | `A-lite` | `OPEN/verify` | `RELEASE_PENDING/release` | `artifact:verification-report`<br>`gate:tests-pass`<br>`gate:policy-compliant` | `verification-report` | `REMEDIATING/verify` |
-| `phase.verify.remediate` | `A-min`<br>`A-lite`<br>`A-full` | `REMEDIATING/verify` | `OPEN/verify` | `gate:remediation-complete` | — | — |
+| `phase.verify.complete.b-direct` | `B-direct` | `OPEN/verify` | `RELEASE_PENDING/release` | `artifact:verification-report`<br>`gate:tests-pass`<br>`gate:policy-compliant` | `verification-report` | `REMEDIATING/verify` |
+| `phase.verify.remediate` | `A-min`<br>`A-lite`<br>`A-full`<br>`B-direct` | `REMEDIATING/verify` | `OPEN/verify` | `gate:remediation-complete` | — | — |
 | `phase.verify.uat.sync` | `A-full` | `OPEN/verify` | `UAT_WAITING/uat` | `gate:uat-activated` | `uat-plan` | `OPEN/verify` |
 | `phase.uat.complete` | `A-full` | `UAT_WAITING/uat` | `OPEN/review` | `artifact:uat-report`<br>`gate:uat-verdict` | `uat-report` | `REMEDIATING/verify` |
 | `phase.review.complete` | `A-full` | `OPEN/review` | `RELEASE_PENDING/release` | `artifact:review-report`<br>`gate:review-approved` | `review-report` | — |
 | `release.complete` | — | `RELEASE_PENDING/release` | `RELEASED/archive` | `artifact:merge-receipt`<br>`artifact:release-receipt`<br>`gate:no-pending-effects`<br>`gate:release-uat-approved` | `merge-receipt`<br>`release-receipt` | — |
 | `archive.complete` | — | `RELEASED/archive` | `CLOSED/archive` | `artifact:archive-manifest`<br>`gate:ledger-valid`<br>`gate:vault-index-current` | `archive-manifest` | — |
+| `phase.build.approval.requested` | `A-min`<br>`A-lite`<br>`A-full` | `OPEN/build` | `APPROVAL_PENDING/build` | `gate:approval-requested` | `approval-receipt` | `OPEN/build` |
+| `phase.build.approval.resolved` | `A-min`<br>`A-lite`<br>`A-full` | `APPROVAL_PENDING/build` | `OPEN/build` | `gate:approval-resolved` | `approval-receipt` | `OPEN/build` |
+| `phase.uat.approval.requested` | `A-full` | `OPEN/uat` | `APPROVAL_PENDING/uat` | `gate:approval-requested` | `approval-receipt` | `OPEN/uat` |
+| `phase.uat.approval.resolved` | `A-full` | `APPROVAL_PENDING/uat` | `OPEN/uat` | `gate:approval-resolved` | `approval-receipt` | `OPEN/uat` |
+| `phase.review.approval.requested` | `A-full` | `OPEN/review` | `APPROVAL_PENDING/review` | `gate:approval-requested` | `approval-receipt` | `OPEN/review` |
+| `phase.review.approval.resolved` | `A-full` | `APPROVAL_PENDING/review` | `OPEN/review` | `gate:approval-resolved` | `approval-receipt` | `OPEN/review` |
+| `phase.release.approval.requested` | `A-full` | `OPEN/release` | `APPROVAL_PENDING/release` | `gate:approval-requested` | `approval-receipt` | `OPEN/release` |
+| `phase.release.approval.resolved` | `A-full` | `APPROVAL_PENDING/release` | `OPEN/release` | `gate:approval-resolved` | `approval-receipt` | `OPEN/release` |
 | `cycle.block` | — | `OPEN/*` | `BLOCKED/*` | `gate:block-condition-met` | — | — |
 | `cycle.unblock` | — | `BLOCKED/*` | `OPEN/*` | `gate:unblock-condition-met` | — | — |
 
@@ -79,6 +89,7 @@
 
 | Artifact | Producer | Consumers | Required | Terminal | Description |
 | --- | --- | --- | --- | --- | --- |
+| `approval-receipt` | `human` | `engine` | yes | no | Receipt confirming a human approval decision for a governed capability |
 | `archive-manifest` | `archiver` | — | yes | yes | Final archive manifest |
 | `cycle-manifest` | `runtime` | `engine` | yes | no | Initial canonical cycle state |
 | `design` | `designer` | `planner`<br>`verifier` | yes | no | Technical design document |
@@ -97,6 +108,8 @@
 
 | Gate | Type | Description |
 | --- | --- | --- |
+| `approval-requested` | `binary` | Human approval was requested for a governed capability |
+| `approval-resolved` | `binary` | Human approved or denied a governed capability request |
 | `architecture-consistent` | `binary` | Architecture is internally consistent |
 | `block-condition-met` | `binary` | Block condition is satisfied |
 | `exploration-sufficient` | `binary` | Exploration produced sufficient information |
@@ -128,13 +141,15 @@ stateDiagram-v2
     OPEN_design --> OPEN_build: phase.design.complete.a-lite
     OPEN_plan --> OPEN_build: phase.plan.complete
     OPEN_build --> OPEN_verify: phase.build.complete
-    OPEN_build --> RELEASE_PENDING_release: phase.build.complete.b-direct
+    OPEN_build --> OPEN_verify: phase.build.complete.b-direct
     OPEN_verify --> OPEN_review: phase.verify.complete
     OPEN_verify --> REMEDIATING_verify: phase.verify.complete (failure)
     OPEN_verify --> RELEASE_PENDING_release: phase.verify.complete.a-min
     OPEN_verify --> REMEDIATING_verify: phase.verify.complete.a-min (failure)
     OPEN_verify --> RELEASE_PENDING_release: phase.verify.complete.a-lite
     OPEN_verify --> REMEDIATING_verify: phase.verify.complete.a-lite (failure)
+    OPEN_verify --> RELEASE_PENDING_release: phase.verify.complete.b-direct
+    OPEN_verify --> REMEDIATING_verify: phase.verify.complete.b-direct (failure)
     REMEDIATING_verify --> OPEN_verify: phase.verify.remediate
     OPEN_verify --> UAT_WAITING_uat: phase.verify.uat.sync
     OPEN_verify --> OPEN_verify: phase.verify.uat.sync (failure)
@@ -143,6 +158,22 @@ stateDiagram-v2
     OPEN_review --> RELEASE_PENDING_release: phase.review.complete
     RELEASE_PENDING_release --> RELEASED_archive: release.complete
     RELEASED_archive --> CLOSED_archive: archive.complete
+    OPEN_build --> APPROVAL_PENDING_build: phase.build.approval.requested
+    OPEN_build --> OPEN_build: phase.build.approval.requested (failure)
+    APPROVAL_PENDING_build --> OPEN_build: phase.build.approval.resolved
+    APPROVAL_PENDING_build --> OPEN_build: phase.build.approval.resolved (failure)
+    OPEN_uat --> APPROVAL_PENDING_uat: phase.uat.approval.requested
+    OPEN_uat --> OPEN_uat: phase.uat.approval.requested (failure)
+    APPROVAL_PENDING_uat --> OPEN_uat: phase.uat.approval.resolved
+    APPROVAL_PENDING_uat --> OPEN_uat: phase.uat.approval.resolved (failure)
+    OPEN_review --> APPROVAL_PENDING_review: phase.review.approval.requested
+    OPEN_review --> OPEN_review: phase.review.approval.requested (failure)
+    APPROVAL_PENDING_review --> OPEN_review: phase.review.approval.resolved
+    APPROVAL_PENDING_review --> OPEN_review: phase.review.approval.resolved (failure)
+    OPEN_release --> APPROVAL_PENDING_release: phase.release.approval.requested
+    OPEN_release --> OPEN_release: phase.release.approval.requested (failure)
+    APPROVAL_PENDING_release --> OPEN_release: phase.release.approval.resolved
+    APPROVAL_PENDING_release --> OPEN_release: phase.release.approval.resolved (failure)
     OPEN_any --> BLOCKED_any: cycle.block
     BLOCKED_any --> OPEN_any: cycle.unblock
 ```

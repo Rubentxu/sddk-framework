@@ -136,8 +136,40 @@ fn reduced_path_transitions_are_path_scoped() {
             ),
         },
     );
-    let release = engine
+    let verify = engine
         .plan_transition(&cycle.cycle_id, "phase.build.complete.b-direct", evidence)
+        .unwrap();
+    assert_eq!(verify.state_after().status, CycleStatus::Open);
+    assert_eq!(verify.state_after().phase, Phase::Verify);
+    let verified = engine
+        .apply_transition(&verify, &context("event-b-direct-verify"))
+        .unwrap()
+        .manifest;
+
+    let mut evidence = TransitionEvidence::default();
+    evidence.artifacts.insert(
+        "verification-report".into(),
+        ArtifactRef::new("verification-report", "artifacts/verification.md"),
+    );
+    for gate in ["tests-pass", "policy-compliant"] {
+        evidence.gates.insert(
+            gate.into(),
+            GateReceiptRef {
+                receipt_id: pass_gate(
+                    &mut engine,
+                    &verified.cycle_id,
+                    "phase.verify.complete.b-direct",
+                    gate,
+                ),
+            },
+        );
+    }
+    let release = engine
+        .plan_transition(
+            &verified.cycle_id,
+            "phase.verify.complete.b-direct",
+            evidence,
+        )
         .unwrap();
     assert_eq!(release.state_after().status, CycleStatus::ReleasePending);
     assert_eq!(release.state_after().phase, Phase::Release);

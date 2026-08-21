@@ -10,8 +10,8 @@ version: "1.1.0"
 status: stable
 description: |
   Bypass the full SDDK cycle for hotfixes, well-known changes, or C3 context with jurisprudence hit.
-  Load skill → execute → light verify → archive → release. NO spec, NO propose, NO design, NO tasks, NO coherence gates, NO debt-verify.
-  Smallest, fastest workflow. Release remains mandatory post-archive.
+  Load skill → execute → light verify → release → archive. NO spec, NO propose, NO design, NO tasks, NO coherence gates, NO debt-verify.
+  Smallest, fastest workflow. Release and archive remain mandatory.
 
 pattern_composition:
   - routing                       # Triage gate selects this workflow
@@ -86,6 +86,16 @@ phases:
     agent: orchestrator
     rule: "execute skill in main conversation (not via task delegation)"
     notes: "Inline execution — no sddk-* phase agents"
+    ledger_handoff:
+      required_before: verify
+      transition: phase.build.complete.b-direct
+      artifact: implementation-receipt
+      gate: implementation-complete
+      rule: "The orchestrator must persist and hash the execution receipt, evaluate the build gate, and transition OPEN/build to OPEN/verify before launching sddk-verify. Derive lease_flags from cycle status: include both owner and token for a lease; omit both when lease is null."
+      commands:
+        - "sddk cycle status --root . --scope . --cycle {cycle_id} --format json"
+        - "sddk cycle evaluate-gate --root . --scope . --cycle {cycle_id} --transition phase.build.complete.b-direct --gate implementation-complete --outcome passed --evidence '{\"subject_sha\":\"{head_commit}\",\"result\":\"passed\",\"receipt_path\":\"{receipt_path}\",\"receipt_sha256\":\"{receipt_sha256}\"}' --format json"
+        - "sddk cycle transition --root . --scope . --cycle {cycle_id} --transition phase.build.complete.b-direct --artifact implementation-receipt={receipt_path} --gate-receipt {receipt_id} {lease_flags} --format json"
 
   - phase: branch-creation
     step: 1.8
@@ -94,25 +104,20 @@ phases:
     gate: "branch matches ^[a-z]+/[a-z0-9-]+$"
     conditional: "execution produced commits"
 
-  # ─── PHASE 2 — LIGHT VERIFY (single lens) ───────────────────────────
+  # ─── PHASE 2 — LIGHT VERIFY (all core gates, single lens) ───────────
   - phase: verify
     step: 2.3
-    pattern: multi-lens-verification
-    agent: orchestrator
-    parallel_group: verify-lenses
-    lenses: 1  # single lens only (per orchestrator.md § Multi-lens verify)
-    notes: "B-direct = 1 lens (light verify)"
-    gate: "verdict PASS or PW"
-    output: minimal verify note
-    failure_mode: FAIL → fix inline (no formal correction cycle)
+    pattern: orchestrator-worker
+    agent: sddk-verify
+    verify_role: coordinator
+    lenses: [direct-acceptance]
+    acceptance_authority: [user-request, selected-skill-contract, reproduction-or-jurisprudence, project-invariants, execution-diff]
+    notes: "B-direct keeps one adaptive lens; anti-placeholder, production, regression, and SOLID gates still run."
+    gate: "verdict PASS or PASS_WITH_WARNINGS"
+    output: verify-report.md
+    failure_mode: FAIL → return to implementation owner; verify remains read-only
 
   # SKIP 2.4 — debt-verify NOT ASKED for B-direct (per MCW + orchestrator.md)
-
-  - phase: archive
-    step: 2.5
-    pattern: prompt-chain
-    agent: orchestrator
-    notes: "Light archive — minimal report"
 
   # ─── PHASE 3 — CONSOLIDATE (single agent: sddk-release) ─────
   # NOTE (v3.3): see sddk-a-full.yaml § Phase 3 for the consolidation rationale.
@@ -123,7 +128,7 @@ phases:
     pattern: orchestrator-worker
     agent: sddk-release
     model: minimax-coding-plan/MiniMax-M3
-    depends_on: archive
+    depends_on: verify
     mandatory: true
     sub_steps_owned_by_agent:
       - local-verify
@@ -147,6 +152,13 @@ phases:
           replayable: true
     source_of_truth: prompts/sddk/git-contract.md
     contract: skills/sddk-release/SKILL.md
+
+  - phase: archive
+    step: 3.5
+    pattern: prompt-chain
+    agent: orchestrator
+    depends_on: release
+    notes: "Light archive after the canonical release transition — minimal report"
 
   # ─── PHASE 4 — TRUNK SYNC + F3 + RESET (minimal) ────────────────────
   - phase: trunk-sync-end

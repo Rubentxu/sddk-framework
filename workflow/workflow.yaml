@@ -65,6 +65,7 @@ paths:
     debt_verification: disabled
     phases:
       - build
+      - verify
       - release
 
 policies:
@@ -239,8 +240,8 @@ transitions:
       status: OPEN
       phase: build
     to:
-      status: RELEASE_PENDING
-      phase: release
+      status: OPEN
+      phase: verify
     requires:
       - kind: artifact
         name: implementation-receipt
@@ -317,6 +318,28 @@ transitions:
     produces:
       - verification-report
 
+  - id: phase.verify.complete.b-direct
+    from:
+      status: OPEN
+      phase: verify
+    to:
+      status: RELEASE_PENDING
+      phase: release
+    requires:
+      - kind: artifact
+        name: verification-report
+      - kind: gate
+        name: tests-pass
+      - kind: gate
+        name: policy-compliant
+    paths:
+      - B-direct
+    on_failure:
+      status: REMEDIATING
+      phase: verify
+    produces:
+      - verification-report
+
   - id: phase.verify.remediate
     from:
       status: REMEDIATING
@@ -331,6 +354,7 @@ transitions:
       - A-min
       - A-lite
       - A-full
+      - B-direct
     produces: []
 
   - id: phase.verify.uat.sync

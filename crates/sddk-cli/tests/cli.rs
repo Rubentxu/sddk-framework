@@ -8489,6 +8489,191 @@ fn cli_cycle_evaluate_gate_reevaluation_after_failed_emits_new_seq() {
     );
 }
 
+#[test]
+fn cli_b_direct_verify_failure_transitions_to_remediating_without_lease() {
+    let fixture = CliFixture::new("b-direct-verify-failure");
+    let root = fixture.root.to_str().unwrap();
+    let remote = "https://example.com/acme/repo.git";
+    let adopted = fixture.run_adopt(
+        "apply",
+        &[
+            "--root",
+            root,
+            "--scope",
+            ".",
+            "--remote",
+            remote,
+            "--timestamp",
+            "2026-08-04T10:00:00Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(adopted.status.success());
+
+    let started = fixture.run(&[
+        "cycle",
+        "start",
+        "--root",
+        root,
+        "--scope",
+        ".",
+        "--remote",
+        remote,
+        "--name",
+        "b-direct-verify-failure",
+        "--path",
+        "b-direct",
+        "--timestamp",
+        "2026-08-04T10:00:00Z",
+        "--actor",
+        "cli-test",
+        "--format",
+        "json",
+    ]);
+    assert!(started.status.success());
+    let started_json: serde_json::Value = serde_json::from_slice(&started.stdout).unwrap();
+    let cycle_id = started_json["cycle_id"].as_str().unwrap();
+    assert_eq!(started_json["phase"], "build");
+    assert!(started_json["lease"].is_null());
+
+    let evaluate = |transition: &str, gate: &str, outcome: &str, evidence: &str| {
+        fixture.run(&[
+            "cycle",
+            "evaluate-gate",
+            "--root",
+            root,
+            "--scope",
+            ".",
+            "--remote",
+            remote,
+            "--cycle",
+            cycle_id,
+            "--transition",
+            transition,
+            "--gate",
+            gate,
+            "--outcome",
+            outcome,
+            "--evidence",
+            evidence,
+            "--timestamp",
+            "2026-08-04T10:00:01Z",
+            "--actor",
+            "cli-test",
+            "--format",
+            "json",
+        ])
+    };
+    let receipt_id = |output: &std::process::Output| {
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()["receipt_id"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+
+    let build_gate = evaluate(
+        "phase.build.complete.b-direct",
+        "implementation-complete",
+        "passed",
+        r#"{"subject_sha":"abc123","result":"passed"}"#,
+    );
+    assert!(build_gate.status.success());
+    let build_receipt = receipt_id(&build_gate);
+    let build_transition = fixture.run(&[
+        "cycle",
+        "transition",
+        "--root",
+        root,
+        "--scope",
+        ".",
+        "--remote",
+        remote,
+        "--cycle",
+        cycle_id,
+        "--transition",
+        "phase.build.complete.b-direct",
+        "--artifact",
+        "implementation-receipt=artifacts/implementation.md",
+        "--gate-receipt",
+        &build_receipt,
+        "--timestamp",
+        "2026-08-04T10:00:02Z",
+        "--actor",
+        "cli-test",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        build_transition.status.success(),
+        "{}",
+        String::from_utf8_lossy(&build_transition.stderr)
+    );
+    let build_json: serde_json::Value = serde_json::from_slice(&build_transition.stdout).unwrap();
+    assert_eq!(build_json["status"], "OPEN");
+    assert_eq!(build_json["phase"], "verify");
+
+    let tests_gate = evaluate(
+        "phase.verify.complete.b-direct",
+        "tests-pass",
+        "failed",
+        r#"{"subject_sha":"abc123","result":"failed","exit_code":1}"#,
+    );
+    let policy_gate = evaluate(
+        "phase.verify.complete.b-direct",
+        "policy-compliant",
+        "passed",
+        r#"{"subject_sha":"abc123","result":"passed"}"#,
+    );
+    assert!(tests_gate.status.success());
+    assert!(policy_gate.status.success());
+    let tests_receipt = receipt_id(&tests_gate);
+    let policy_receipt = receipt_id(&policy_gate);
+
+    let verify_transition = fixture.run(&[
+        "cycle",
+        "transition",
+        "--root",
+        root,
+        "--scope",
+        ".",
+        "--remote",
+        remote,
+        "--cycle",
+        cycle_id,
+        "--transition",
+        "phase.verify.complete.b-direct",
+        "--artifact",
+        "verification-report=artifacts/verify.md",
+        "--gate-receipt",
+        &tests_receipt,
+        "--gate-receipt",
+        &policy_receipt,
+        "--timestamp",
+        "2026-08-04T10:00:03Z",
+        "--actor",
+        "cli-test",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        verify_transition.status.success(),
+        "{}",
+        String::from_utf8_lossy(&verify_transition.stderr)
+    );
+    let verify_json: serde_json::Value = serde_json::from_slice(&verify_transition.stdout).unwrap();
+    assert_eq!(verify_json["outcome"], "failed");
+    assert_eq!(verify_json["status"], "REMEDIATING");
+    assert_eq!(verify_json["phase"], "verify");
+
+    let ledger = fixture.run(&[
+        "ledger", "verify", "--root", root, "--scope", ".", "--remote", remote,
+    ]);
+    assert!(ledger.status.success());
+}
+
 // ─── INC-DEBT-003 + INC-DEBT-004 regression tests ─────────────────────────────────
 
 #[test]

@@ -22,11 +22,13 @@ The orchestrator has access to ALL these capabilities but the **triage gate** de
 
 ## Multi-Lens Verification (deployed based on path)
 
+All paths run the mandatory verify gates. Lens count changes depth, never the anti-placeholder, production-readiness, regression, or changed-scope SOLID baseline.
+
 | Path | Verify depth | Lenses launched |
 |------|--------------|-----------------|
-| **B-direct** | Light verify | 1 spec compliance check |
+| **B-direct** | Light verify | 1 direct-acceptance check |
 | **A-min** | Standard | 2 lenses (spec + test quality) |
-| **A-lite** | Standard | 3 lenses (spec + test + design) |
+| **A-lite** | Standard | 3 lenses (spec + test + production readiness) |
 | **A-full** | **Multi-lens** | 6 parallel lenses + 1 synthesis |
 
 Lenses for A-full:
@@ -34,9 +36,9 @@ Lenses for A-full:
 2. Architecture + Connascence
 3. Test Quality
 4. Design Coherence
-5. Adversarial Judge A
-6. Adversarial Judge B
-7. Synthesis agent (merges + verdict)
+5. `jd-judge-a`
+6. `jd-judge-b`
+7. Parent `sddk-verify` synthesis (merges evidence; cannot override deterministic failures)
 
 ## Model Assignments (phase → model)
 

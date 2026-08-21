@@ -110,6 +110,14 @@ fn test_workflow_yaml_deserialization() {
         manifest.paths.get("B-direct").unwrap().debt_verification,
         "disabled"
     );
+    assert!(
+        manifest
+            .paths
+            .get("B-direct")
+            .unwrap()
+            .phases
+            .contains(&"verify".to_owned())
+    );
 
     // Verify key transitions exist
     let transition_ids: Vec<&str> = manifest.transitions.iter().map(|t| t.id.as_str()).collect();
@@ -128,6 +136,7 @@ fn test_workflow_yaml_deserialization() {
     assert!(transition_ids.contains(&"phase.build.complete.b-direct"));
     assert!(transition_ids.contains(&"phase.verify.complete.a-min"));
     assert!(transition_ids.contains(&"phase.verify.complete.a-lite"));
+    assert!(transition_ids.contains(&"phase.verify.complete.b-direct"));
 
     let b_direct_start = manifest
         .transitions
@@ -138,6 +147,16 @@ fn test_workflow_yaml_deserialization() {
     assert_eq!(
         b_direct_start.to.phase,
         Some(sddk_domain::cycle::Phase::Build)
+    );
+    let b_direct_build = manifest
+        .transitions
+        .iter()
+        .find(|transition| transition.id == "phase.build.complete.b-direct")
+        .unwrap();
+    assert_eq!(b_direct_build.to.status, sddk_domain::CycleStatus::Open);
+    assert_eq!(
+        b_direct_build.to.phase,
+        Some(sddk_domain::cycle::Phase::Verify)
     );
 
     // Verify artifacts are defined

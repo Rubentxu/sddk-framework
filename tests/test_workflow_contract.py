@@ -6,7 +6,7 @@ Run: python3 tests/test_workflow_contract.py
 Comprehensive semantic checks:
   a) Glob all agents/skills/prompts surfaces; no hardcoded file lists.
   b) Extract evaluate-gate calls from backticks, fenced blocks (bash/sh), and line continuations;
-     verify --outcome passed is present for every real command.
+     verify an explicit --outcome is present for every real command.
   c) Extract ONLY sddk cycle transition artifacts; cross-check against workflow
      definitions; parse artifacts: section with indent-2 keys until gates: in YAML; no allowlist.
   d) Positive release checks + forbidden patterns + archive report precondition check.
@@ -70,9 +70,9 @@ def glob_surface_files() -> dict[str, list[Path]]:
     }
 
 # ------------------------------------------------------------
-# REGRESSION A: evaluate-gate calls include --outcome passed
+# REGRESSION A: evaluate-gate calls include an explicit --outcome
 # ------------------------------------------------------------
-banner("REGRESSION A: evaluate-gate calls include --outcome passed")
+banner("REGRESSION A: evaluate-gate calls include an explicit --outcome")
 
 all_surface_files = glob_surface_files()
 all_files = (
@@ -130,18 +130,21 @@ for file_path in all_files:
 if len(gate_calls_found) == 0:
     inc_fail("No evaluate-gate calls found in any surface file")
 else:
-    # For EACH real command containing sddk cycle evaluate-gate, require --outcome passed
+    # For EACH real command containing sddk cycle evaluate-gate, require fail-closed intent.
     missing_outcome = 0
     for file_path, line_no, call_text in gate_calls_found:
         fname = file_path.name
         rel_path = str(file_path.relative_to(SDDK_ROOT)) if file_path.is_relative_to(SDDK_ROOT) else str(file_path)
         # Only check real sddk cycle evaluate-gate commands
         if 'sddk cycle evaluate-gate' in call_text:
-            if not re.search(r"--outcome\s+passed", call_text):
-                inc_fail(f"{rel_path}:{line_no}: evaluate-gate call missing --outcome passed")
+            if not re.search(
+                r"--outcome\s+(?:passed|failed|waived|\{(?:[a-z_]+|passed\|failed)\})",
+                call_text,
+            ):
+                inc_fail(f"{rel_path}:{line_no}: evaluate-gate call missing explicit --outcome")
                 missing_outcome += 1
             else:
-                inc_pass(f"{rel_path}:{line_no}: evaluate-gate with --outcome passed")
+                inc_pass(f"{rel_path}:{line_no}: evaluate-gate with explicit --outcome")
 
 # ------------------------------------------------------------
 # REGRESSION B: cycle transition artifact names match workflow definitions
@@ -568,6 +571,30 @@ for file_path in PROPOSE_DEBT_FILES:
         inc_fail(f"{fname}: contains sddk cycle transition (prohibited)")
     else:
         inc_pass(f"{fname}: no sddk cycle transition")
+
+# ------------------------------------------------------------
+# REGRESSION J: verify CLI contract matches path-scoped workflow
+# ------------------------------------------------------------
+banner("REGRESSION J: verify CLI contract matches path-scoped workflow")
+
+verify_skill_path = SDDK_ROOT / "skills/sddk-verify/SKILL.md"
+verify_skill = read_file(verify_skill_path) or ""
+verify_requirements = {
+    "status includes cycle": "sddk cycle status --root . --scope . --cycle {cycle_id}" in verify_skill,
+    "A-full transition": "phase.verify.complete`" in verify_skill,
+    "A-min transition": "phase.verify.complete.a-min" in verify_skill,
+    "A-lite transition": "phase.verify.complete.a-lite" in verify_skill,
+    "B-direct transition": "phase.verify.complete.b-direct" in verify_skill,
+    "failed gate outcome": "otherwise use `failed`" in verify_skill,
+    "failed transition state": "status=REMEDIATING" in verify_skill,
+    "conditional lease flags": "when `lease` is null, omit both flags" in verify_skill,
+}
+
+for description, present in verify_requirements.items():
+    if present:
+        inc_pass(f"sddk-verify: {description}")
+    else:
+        inc_fail(f"sddk-verify: missing {description}")
 
 # ------------------------------------------------------------
 # Summary

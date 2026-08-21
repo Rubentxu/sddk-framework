@@ -62,16 +62,18 @@ transitions its XDG artifact, then verifies the ledger:
 ```bash
 sddk cycle status --root . --scope . --cycle {cycle_id}
 sddk cycle evaluate-gate --root . --scope . --cycle {cycle_id} \
-  --transition {phase-transition} --gate {gate} --outcome passed \
-  --evaluator sddk.cli --evidence '{"checked": true}'
+  --transition {phase-transition} --gate {gate} --outcome {passed|failed} \
+  --evaluator sddk.cli --evidence '{phase-specific evidence}'
 sddk cycle transition --root . --scope . --cycle {cycle_id} \
   --transition {phase-transition} --artifact {artifact-name}={artifact-path} \
   --gate-receipt {receipt_id}
 sddk ledger verify --root . --scope .
 ```
 
-A failed artifact store, gate, transition, or ledger verification blocks the
-phase. It never falls back to repository-local files or Engram-only state.
+Resolve every outcome from phase evidence before running the command. A failed
+phase records failed receipts and applies its declared `on_failure` transition;
+a CLI command failure blocks the phase. Persistence never falls back to
+repository-local files or Engram-only state.
 
 ## Optional Engram Mirror
 

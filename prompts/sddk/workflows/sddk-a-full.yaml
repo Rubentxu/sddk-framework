@@ -186,15 +186,17 @@ phases:
     pattern: multi-lens-verification
     agent: sddk-verify
     model: minimax-coding-plan/MiniMax-M3
+    verify_role: coordinator
     parallel_group: verify-lenses
     lenses:
       - spec-compliance
       - architecture-connascence
       - test-quality
       - design-coherence
-      - judge-a (adversarial)
-      - judge-b (adversarial)
-    synthesis_agent: sddk-verify-synthesis
+      - jd-judge-a
+      - jd-judge-b
+    synthesis_agent: sddk-verify
+    synthesis_role: parent
     gate: "verdict PASS or PASS_WITH_WARNINGS"
     output: verify-report.md
     failure_mode: FAIL → return to apply (correction cycle, max 2 iterations)
