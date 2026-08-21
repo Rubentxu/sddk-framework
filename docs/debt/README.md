@@ -17,3 +17,7 @@ This directory contains the canonical contracts for the durable debt remediation
 
 - cycle-7a: ratified status, severity+priority taxonomies published (this directory).
 - Cycle-7a + 7b: runtime contracts live.
+
+## LOC policy
+
+The project's LOC budget policy is documented in [ADR-0048](../adr/ADR-0048-loc-budget-policy-reformulation.md). The policy uses **total-module-sum budgets** (implementation + boilerplate + test fixtures) rather than per-file targets. Per-file targets are deprecated as of cycle-10.
