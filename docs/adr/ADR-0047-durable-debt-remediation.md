@@ -1,6 +1,6 @@
 # ADR-0047 — Remediacion durable y priorizada de deuda tecnica
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-08-21
 
 ## Context
@@ -210,3 +210,8 @@ Revisar esta decision cuando exista una de estas condiciones:
 - La consulta de incidencias supere 500 ms de forma sostenida.
 - Sea necesario compartir una incidencia entre varios project IDs.
 - Una exigencia regulatoria obligue a retencion o borrado con plazo fijo.
+
+## Implementation trace
+
+- **cycle-7a** (this commit, ratifies status): adds severity taxonomy (`docs/debt/SEVERITY.md`), priority taxonomy (`docs/debt/PRIORITY.md`), debt directory index (`docs/debt/README.md`), AGENTS.md §4 reference. Implements REQ-K7-001..003.
+- **cycle-7b** (next cycle): JSON Schema draft-07 for `debt-report.json` (`docs/debt/debt-report.schema.json`), INC template (`docs/debt/INCIDENCE-TEMPLATE.md`), agent updates (`sddk-debt-verify`, `sddk-archive`), workflow gates (`debt-severity-assigned`, `debt-priority-assigned`), orchestrator + phase-contracts + arsenal prompt updates. Implements REQ-K7-004..009.
