@@ -122,6 +122,13 @@ After every delegation, check the result's `skill_resolution` field:
 - `injected` → OK
 - `fallback-registry`, `fallback-path`, `none` → cache was lost (compaction). Re-read registry immediately, inject in subsequent calls.
 
+## Debt-Lifecycle Gates
+
+- `debt-severity-assigned` — every open finding in `debt-report.json` has severity ∈ {critical, high, medium, low}.
+- `debt-priority-assigned` — every open finding in `debt-report.json` has priority ∈ {P0, P1, P2, P3}.
+
+Both wired into `phase.verify.complete*` on A-* paths; B-direct skips debt-verify.
+
 ## Post-Subagent Validation
 
 After EACH sub-agent returns (BEFORE next phase):
