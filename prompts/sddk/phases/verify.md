@@ -38,6 +38,7 @@ These gates run on every path. Adaptive lenses only add depth.
 | Documentation discipline | No comments in changed production paths reference issue numbers, PR IDs, task identifiers, user handles, cycle / phase pointers, or commit-history metadata; only language-standard docs (`///` in Rust, JSDoc in TS, docstrings in Python, doc comments in Go) explain the *what* and *why* | `FAIL` |
 | Test strength | Assertions observe required outcomes; changed boundaries have real contract/integration evidence | `FAIL` |
 | Regression and build | Fresh relevant tests and repository-required build/type/lint/regression checks pass | `FAIL`; infrastructure absence is `blocked` |
+| Pre-commit discipline | Apply MUST run gates against commit's tree, not dirty working tree | `git status --porcelain` empty + explicit HEAD citation in verify report | blocking |
 | Production readiness | Every readiness dimension is `PASS` or evidence-backed `N/A` | `FAIL` when applicable behavior is missing; unknown critical applicability is `blocked` |
 | Design and SOLID | No concrete changed-scope violation breaks the approved design, substitutability, client contracts, dependency direction, or local changeability | `FAIL` if material; otherwise warning |
 | Task completeness | Every required task, including planned hardening/refactor work, is complete | `FAIL`; only a pre-declared optional item with no required-path impact may warn |
@@ -46,7 +47,7 @@ These gates run on every path. Adaptive lenses only add depth.
 
 ### 1. Pin The Subject
 
-Record base/head SHA and `git status`. If dirty, record the changed-file list and SHA-256 digest of the diff. Evidence from another subject, cached summaries, or unidentifiable runs is invalid.
+Record base/head SHA and `git status`. The subject MUST be a clean commit tree — `git status --porcelain` MUST be empty. Evidence from another subject, cached summaries, or unidentifiable runs is invalid. If dirty, block until the working tree is cleaned and gates re-run against the verified clean HEAD.
 
 ### 2. Build The Behavioral Matrix
 

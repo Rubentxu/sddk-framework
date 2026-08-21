@@ -460,6 +460,31 @@ is a blocker. If the phase approaches lease expiry, renew it with
 | Comment whose only purpose is traceability (issue numbers, task IDs, user handles, cycle / phase pointers, commit-history refs) | Verify new "Documentation discipline" gate `FAIL` |
 | `// TODO` / `// FIXME` / `// HACK` markers pointing at unfinished work | Verify production-readiness + new "Documentation discipline" gate `FAIL`; debt entry expected instead |
 
+## Pre-commit Discipline (NON-NEGOTIABLE)
+
+Apply MUST run all gates against the **commit's tree**, NOT the dirty working tree.
+
+### Rule
+
+1. After each commit, confirm `git status --porcelain` is empty.
+2. Run `cargo build`, `cargo test`, `cargo fmt --check`, `cargo clippy` against the clean HEAD.
+3. If you stash uncommitted changes for the next slice, run gates against the stashed-clean tree.
+4. Verify reports MUST explicitly state: "tested against commit `<sha>`, working tree clean".
+5. After editing `prompts/sddk/phases/apply.md` or `prompts/sddk/phases/verify.md`, regenerate `MANIFEST.sha256` in the same commit (via `tools/manifest.sh`).
+
+### Why
+
+Cycle-9 commit `3873e90` claimed "1067 tests passing" by running cargo test against a working tree with manual uncommitted deletion. The commit's tree was broken (E0761 ambiguity + 24 cascading compile errors). origin/main was BROKEN.
+
+### Anti-patterns
+
+| Smell | Symptom | Correct form |
+|-------|---------|--------------|
+| Gates against dirty tree | cargo test passes locally but origin/main build fails | `git status --porcelain` empty before gates |
+| Stashing mid-apply | Lost uncommitted changes; gates run against wrong tree | Commit each slice, then stash for next, then re-verify |
+| Claiming PASS without HEAD sha | Verify report has no commit reference | Always cite `git rev-parse HEAD` |
+| Manual `git rm` uncommitted | Clean working tree but commit has extra file | `git rm` IN the commit, not before it |
+
 ## Code Quality Standards (NON-NEGOTIABLE)
 
 These constraints are enforced by `sddk-verify` as mandatory gates. Violation = apply fails verification. They exist so the next maintainer — or future you — does not have to guess what a function does, or why it is not finished.
