@@ -100,16 +100,8 @@ phases:
     gate: proposal approved
     output: proposal.md
 
-  - phase: coherence-propose-spec
-    step: 1.3
-    pattern: evaluator-optimizer
-    agent: sddk-coherence
-    model: MiniMax M2.7-highspeed
-    gate: score >= 60
-    failure_mode: BLOCK if score < 60
-
   - phase: spec-and-design-parallel
-    step: 1.4
+    step: 1.3
     pattern: parallel-sectioning
     parallel_group: spec-design
     agents:
@@ -125,20 +117,30 @@ phases:
     notes: |
       Parallel launch. ADR creation if architectural decisions: write ADR before tasks.
 
-  - phase: coherence-spec-design-tasks
-    step: 1.5
+  - phase: coherence-propose-spec
+    step: 1.4
     pattern: evaluator-optimizer
     agent: sddk-coherence
+    model: MiniMax M2.7-highspeed
     gate: score >= 60
     failure_mode: BLOCK if score < 60
+    depends_on: spec-and-design-parallel
 
   - phase: tasks
-    step: 1.6
+    step: 1.5
     pattern: spec-driven-decomposition
     agent: sddk-tasks
     model: MiniMax M2.7
     gate: tasks approved
     output: tasks.md
+
+  - phase: coherence-spec-design-tasks
+    step: 1.6
+    pattern: evaluator-optimizer
+    agent: sddk-coherence
+    gate: score >= 60
+    failure_mode: BLOCK if score < 60
+    depends_on: tasks
 
   - phase: review-budget
     step: 1.7
