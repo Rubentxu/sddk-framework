@@ -61,6 +61,7 @@ Before any SDDK phase:
    use chat memory as cycle-state authority.
 5. If runtime state and the intended phase disagree, stop and return the legal
    recovery action from current CLI state.
+6. If `with_knowledge` is set, run the knowledge pipeline: scan → verify → import.
 
 Use `sddk-cycle-resume` for state reconstruction when available.
 

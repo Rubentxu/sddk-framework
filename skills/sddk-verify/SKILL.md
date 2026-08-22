@@ -6,7 +6,7 @@ user-invocable: false
 license: MIT
 metadata:
   author: SDDK Team
-  version: "2.2"
+  version: "2.3"
   delegate_only: true
 ---
 
@@ -22,6 +22,17 @@ and precedes debt-verify on A-* paths.
   Strict TDD state, and quality commands unchanged.
 - Treat `prompts/sddk/phases/verify.md` as the sole operational authority.
 - Only the coordinator persists the report and updates the ledger.
+
+## CLI Contract
+
+The phase coordinator MUST issue these exact CLI calls for A-* path transitions:
+
+- `sddk cycle status --root . --scope . --cycle {cycle_id}` to probe cycle state
+- Transition `phase.verify.complete` for A-full, `phase.verify.complete.a-min` for A-min,
+  `phase.verify.complete.a-lite` for A-lite, `phase.verify.complete.b-direct` for B-direct
+- Gate outcome `otherwise use `failed`` when no explicit outcome is declared
+- Status `status=REMEDIATING` for in-progress remediations
+- Conditional lease flags: `when `lease` is null, omit both flags`
 
 ## Decision Gates
 

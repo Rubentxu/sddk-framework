@@ -155,11 +155,11 @@ For A-lite/A-min/B-direct: branch creation happens before apply (inline step), s
 
 ### A-lite
 
-Phases: `propose → spec → apply → verify`. Coherence: 1 (apply→verify). Skip explore, design, tasks, coherence (propose→spec and spec+design→tasks).
+Phases: `propose → spec → design → apply → verify`. Coherence: 1 (apply→verify). Skip explore, tasks, coherence (propose→spec and spec+design→tasks).
 
 ### A-min
 
-Phases: `spec → apply → verify`. Coherence: 0 unless spec complexity high.
+Phases: `explore → spec → apply → verify`. Coherence: 0 unless spec complexity high.
 
 ### B-direct
 
