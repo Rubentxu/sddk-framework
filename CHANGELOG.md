@@ -3,6 +3,33 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.36.2] - 2026-08-22
+
+Cierra el ciclo `kernel-cycle-11-a-full-coherence-gate-ordering` (path A-min).
+Bug fix de docs/prompts/python — corrige el orden de las coherencias en el
+bloque § A-full de `mcw.md` (steps 1.3-1.6 reordenados) y hace explícitas
+las dependencias en `prompts/sddk/workflows/sddk-a-full.yaml` (4 `depends_on:`
+añadidos a los coherence gates). 0 Rust LOC; 36/36 forward ACs + 9/9 anti-ACs
+COMPLIANT; 7 low/P3 introduced (cosmetic/structural/opportunistic debt per
+ADR-0047 + docs/debt/SEVERITY.md); 1 high/P1 introducida consolidada como
+INC-CYCLE-11-PYTEST-CONTRACT-P1.md (17 xfail pre-existentes en
+test_workflow_contract.py — captura estable de regresiones, fix en backlog).
+
+### Fixed
+  - fix(prompts): reordenar secciones cuerpo MCW A-full — steps 1.3-1.6 colocados tras los productores (`mcw.md` Phase 1 § A-full steps 1.1/1.2/1.7/1.8 byte-identical; Phase 2/3/4 byte-identical). Cierra REGRESSION O.
+  - fix(prompts): `depends_on` explícitos en coherencias fase 2 A-full — `coherence-propose-spec` (step 1.4) → `spec-and-design-parallel`; `coherence-spec-design-tasks` (step 1.6) → `tasks`; `coherence-apply-verify` (step 2.2) → `apply`; `coherence-debt-release` (step 2.5) → `debt-verify`. Cierra REGRESSION L.
+
+### Tests
+  - test(workflow): tests de orden de coherencia + xfail P1 explícito (REGRESSION L/O/P/Q/R + COHO-001..005). 276 PASS / 0 FAIL / 17 XFAIL. C1-C8 closed.
+  - test(workflow): superficie completa tests de coherencia — añade parser loop `COHERENCE_GATES` que itera los 4 coherence gates y verifica `depends_on` no vacío. Extiende COHO-002-2 con assertion explícita del step 1.6.
+
+### Documentation
+  - docs(debt): `INC-CYCLE-11-PYTEST-CONTRACT-P1.md` — captura durable de las 17 regresiones xfail del test contract (5 clusters: I propose/debt artifact store, J verify CLI contract, B transition artifact refs, C release authority, D knowledge pipeline ordering).
+  - docs(handoff): `HANDOFF-2026-08-22-sddk-framework.md` — handoff de cycle-11.
+
+### Housekeeping
+  - chore(debt): entrada deuda P1/P2 cycle-11 + manifiesto (test_workflow_contract.py regresiones + manifiesta refresh discipline).
+
 ## [1.34.0] - 2026-08-21
 
 ### Refactor
