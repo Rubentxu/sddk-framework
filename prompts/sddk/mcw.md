@@ -110,11 +110,7 @@ Hard gate: artifact approved.
 
 Delegate to `sddk-propose`. Output: `proposal.md`.
 
-**Step 1.3 — Coherence Check (propose → spec)** (A-full only)
-
-Score ≥ 60 to proceed.
-
-**Step 1.4 — Spec + Design (PARALLEL)** (A-full only)
+**Step 1.3 — Spec + Design (PARALLEL)** (A-full only)
 
 Delegate spec + design concurrently. Both required before tasks.
 
@@ -122,13 +118,17 @@ Delegate spec + design concurrently. Both required before tasks.
 
 Hard gate: both spec and design approved.
 
-**Step 1.5 — Coherence Check (spec+design → tasks)** (A-full only)
+**Step 1.4 — Coherence Check (propose → spec)** (A-full only)
 
-Score ≥ 60.
+Score ≥ 60 to proceed.
 
-**Step 1.6 — Tasks**
+**Step 1.5 — Tasks**
 
 Delegate to `sddk-tasks`. Output: `tasks.md` with file lists, commit messages, scope.
+
+**Step 1.6 — Coherence Check (spec+design → tasks)** (A-full only)
+
+Score ≥ 60.
 
 **Step 1.7 — Review Budget Guard**
 
