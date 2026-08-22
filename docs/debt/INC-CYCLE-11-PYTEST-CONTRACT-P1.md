@@ -66,8 +66,10 @@ The failures fall into 5 regression clusters:
 
 ## References
 
-- `tests/test_workflow_contract.py` — xfail registry at line ~35
+- `tests/test_workflow_contract.py` — xfail registry at line ~35; REGRESSION R `KNOWN_MCW_WORKFLOW_DRIFT_ALLOWLIST` constant (cycle-11 remediation)
 - `prompts/sddk/phases/apply.md` — apply phase context
 - `prompts/sddk/phases/verify.md` — verify phase authority
+- `prompts/sddk/workflows/sddk-a-full.yaml` — coherence gates with explicit `depends_on`
+- `workflow/workflow.yaml` — simplified 10-phase workflow; divergences from MCW captured in `KNOWN_MCW_WORKFLOW_DRIFT_ALLOWLIST`
 
 > Filled by `sddk-archive` (cycle-8+); consumed by `sddk-debt-verify` for cross-cycle correlation via fingerprint.
