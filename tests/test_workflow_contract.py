@@ -754,6 +754,50 @@ else:
     inc_fail("coherence-propose-spec missing depends_on spec-and-design-parallel")
 
 # ------------------------------------------------------------
+# REGRESSION O: MCW body step order in §Phase 1 § A-full
+# Closes the gap that let the body drift while the Quick Reference table was fixed.
+# Parses **Step 1.N — <Title>** bold headers within A-full body
+# (up to the ### A-lite boundary) and asserts exact execution order.
+# ------------------------------------------------------------
+banner("REGRESSION O: MCW body step order in A-full (lines 113-131)")
+
+# Expected order of bold step headers in the A-full body
+EXPECTED_STEP_ORDER = [
+    "Step 1.1 — Explore",
+    "Step 1.2 — Propose",
+    "Step 1.3 — Spec + Design (PARALLEL)",
+    "Step 1.4 — Coherence Check (propose → spec)",
+    "Step 1.5 — Tasks",
+    "Step 1.6 — Coherence Check (spec+design → tasks)",
+    "Step 1.7 — Review Budget Guard",
+    "Step 1.8 — Branch Creation",
+]
+
+# Extract the A-full body: from line 101 (### A-full header) to ### A-lite
+phase1_match = re.search(r"(## Phase 1 — Plan.*?)(?=^### A-lite|^## Phase 2)", mcw_content, re.MULTILINE | re.DOTALL)
+if not phase1_match:
+    inc_fail("Could not locate Phase 1 section in mcw.md")
+else:
+    phase1_body = phase1_match.group(1)
+    # Extract all bold step headers: **Step 1.N — <Title>**
+    body_steps = re.findall(r"^\*\*Step 1\.\d+ — .+?\*\*", phase1_body, re.MULTILINE)
+    # Normalize: strip the ** markers for comparison
+    body_steps_clean = [s.replace("**", "") for s in body_steps]
+
+    if len(body_steps_clean) < 8:
+        inc_fail(f"MCW body has only {len(body_steps_clean)} step headers (expected 8 in A-full)")
+    else:
+        # Check first 8 (A-full steps 1.1-1.8)
+        mismatches = []
+        for i, (got, expected) in enumerate(zip(body_steps_clean[:8], EXPECTED_STEP_ORDER)):
+            if got != expected:
+                mismatches.append(f"  step {i+1}: got '{got}', expected '{expected}'")
+        if mismatches:
+            inc_fail("MCW A-full body step order mismatch:\n" + "\n".join(mismatches))
+        else:
+            inc_pass(f"MCW A-full body: {len(body_steps_clean[:8])} steps in correct order")
+
+# ------------------------------------------------------------
 # REGRESSION M: Fixture E2E ordering — prompts/sddk/phases/apply.md
 # ------------------------------------------------------------
 banner("REGRESSION M: Fixture E2E phase ordering (apply.md)")
