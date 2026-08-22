@@ -1,9 +1,62 @@
 # HANDOFF — sddk-framework — 2026-08-22
 
-> **Cycle:** `kernel-cycle-10-apply-discipline-loc-policy` (kernel)
-> **Released as:** v1.36.1
-> **HEAD:** `6f2c99f` (apply discipline + LOC policy + manifest discipline)
-> **Tag:** v1.36.1
+> **Cycle:** `kernel-cycle-11-a-full-coherence-gate-ordering` (kernel)
+> **Released as:** v1.36.2
+> **HEAD:** `9de8dc3` (coherence gate ordering fix + depends_on explicits)
+> **Tag:** v1.36.2
+
+## Cycle-11 (kernel-cycle-11-a-full-coherence-gate-ordering) — DONE
+
+- Released: **v1.36.2** (`9de8dc3`), annotated tag v1.36.2 pushed to origin/main.
+- 9 commits (b3e2637..9de8dc3: 8 apply + 1 bump), 1,067 cargo tests pass, 0 fail.
+- Python: 276 PASS / 0 FAIL / 17 XFAIL (DEBT-CYCLE-11-PYTEST-CONTRACT-P1).
+- 36/36 forward ACs COMPLIANT + 9/9 anti-ACs PASS (round 2 remediation).
+- verify-report SHA-256 `b6882dc9acf30cdc393036470dba8903e3ee03a0edf7775b9e705acce4858f51` → PASS.
+- debt-verify PASS: 7 low/P3 introduced + 1 high/P1 INC consolidated (INC-CYCLE-11-PYTEST-CONTRACT-P1).
+- 0 Rust LOC. ~127 docs/prompts/python. Path: A-min.
+- Bundle: ~/.local/share/sddk/framework/1.36.2/
+- Archive: ~/.sddk-knowledge/sddk-framework/archive/2026-08-22-kernel-cycle-11-a-full-coherence-gate-ordering/
+
+## Anchors (cycle-11 verified)
+
+- A-1: Round 1 FAIL (8 critical C1-C8) → round 2 remediation (bd6c77b + c8aa615) → PASS.
+- A-2: D1 recorded (remediation agent pushed directly to origin/main; no tag/transition effects).
+- A-3: D2 recorded (remediation agent skipped phase.verify.remediate; reconciled in verify round 2).
+- A-4: MANIFEST.sha256 regenerated in bd6c77b alongside YAML changes (cycle-10 discipline confirmed).
+- A-5: 17 xfail markers exact match spec verbatim names (COHO-008-A1 anti-AC verified).
+- A-6: Cycle-10 lesson applied: apply ran against clean HEAD throughout (0 fixup commits).
+
+## What changed (cycle-11: 8 apply commits)
+
+1. `223cf44` fix(prompts): reordenar coherence gates tras producers en MCW A-full (+~5 LOC)
+2. `1e38207` fix(prompts): consistency checks for step renumbering in Quick Reference
+3. `a307a1c` fix(prompts): re-number Quick Reference table A-full rows 1.3-1.6
+4. `5ec6d8d` fix(workflow): add COHERENCE_GATES list to sddk-a-full.yaml (+12 LOC)
+5. `e9f7533` test(workflow): xfail markers for 17 pre-existing failures (+25 LOC)
+6. `142e3a6` test(workflow): REGRESSION L/O negative + E2E tests (round 1)
+7. `bd6c77b` fix(prompts): depends_on explicitos en coherencias fase 2 A-full (+2 LOC)
+8. `c8aa615` test(workflow): surface completa tests de coherencia — REGRESSION P/Q/R (round 2, +307 LOC)
+
+Total: ~127 LOC docs/prompts/python. **0 Rust LOC.**
+
+## Forward debt queue (cycle-12 candidates)
+
+| # | Item | Severity | Priority | Source |
+|---|------|----------|----------|--------|
+| 1 | INC-CYCLE-11-PYTEST-CONTRACT-P1: 17 xfail, 5 regression clusters | high | P1 | cycle-11 apply |
+| 2 | workflow.yaml ↔ MCW reconciliation (6 phases) | medium | P1 | spec §Out of scope |
+| 3 | skills/sddk-verify/SKILL.md v2.2 → v3.4 (8 fails J) | medium | P1 | explore §3.4 |
+| 4 | REGRESSION B: transition artifact refs &lt;15 (found 5) | medium | P1 | explore §3.3 |
+| 5 | sddk-coherence/SKILL.md does not exist | low | P2 | explore §2.3.4 |
+| 6 | A-lite YAML tasks step inconsistency | low | P2 | spec §Out of scope |
+| 7 | B-direct branch-creation after execute | low | P2 | spec §Out of scope |
+| 8 | Agent model frontmatter vs YAML model (9/11 disagree) | low | P2 | explore §3.1 |
+| 9 | Coherence gates missing input_artifacts declarations | low | P2 | explore §3.2 |
+| 10 | orchestrator.md missing scan→verify→import ordering | low | P2 | explore §3.5 |
+| 11 | sddk-release/SKILL.md missing local authority contract | high | P1 | INC-CYCLE-11-PYTEST-CONTRACT-P1 row 4-6 |
+| 12 | sddk-propose.md / sddk-debt-verify.md missing sddk artifact store ref | medium | P1 | INC-CYCLE-11-PYTEST-CONTRACT-P1 rows 1-2, 8-9 |
+
+**P1 count: 6 items. P2 count: 6 items.**
 
 ## Cycle-10 (kernel-cycle-10-apply-discipline-loc-policy) — DONE
 
