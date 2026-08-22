@@ -1,9 +1,9 @@
 # HANDOFF — sddk-framework — 2026-08-22
 
-> **Cycle:** `kernel-cycle-11-a-full-coherence-gate-ordering` (kernel)
-> **Released as:** v1.36.2
-> **HEAD:** `9de8dc3` (coherence gate ordering fix + depends_on explicits)
-> **Tag:** v1.36.2
+> **Cycle:** `kernel-cycle-12-workflow-contract-reconciliation` (kernel)
+> **Released as:** v1.36.3
+> **HEAD:** `651eefd488191416043f22ad435c8c3da021f8c0` (17 xfail closed + release authority hardened)
+> **Tag:** v1.36.3
 
 ## Cycle-11 (kernel-cycle-11-a-full-coherence-gate-ordering) — DONE
 
@@ -57,6 +57,64 @@ Total: ~127 LOC docs/prompts/python. **0 Rust LOC.**
 | 12 | sddk-propose.md / sddk-debt-verify.md missing sddk artifact store ref | medium | P1 | INC-CYCLE-11-PYTEST-CONTRACT-P1 rows 1-2, 8-9 |
 
 **P1 count: 6 items. P2 count: 6 items.**
+
+## Cycle-12 (kernel-cycle-12-workflow-contract-reconciliation) — DONE
+
+- Released: **v1.36.3** (`651eefd`), annotated tag v1.36.3 pushed to origin/main.
+- 4 commits (d6cc8c8..651eefd: 3 apply + 1 bump), 1,067 cargo tests pass, 0 fail.
+- Python: 296 PASS / 0 FAIL / 0 XFAIL (17 xfail closed: I-cluster artifact store x2, J-cluster sddk-verify x8, C-cluster release patterns x5, D-cluster knowledge pipeline x1 + 4 new positive assertions).
+- verify-report SHA-256 `895bf7f78df370546a7f3a7c49600814205491e2e310e554fe3fc736d43ef984` → PASS_WITH_WARNINGS (14/14 scenarios + 11/11 anti-ACs COMPLIANT; 1 cosmetic WARNING W1: orphan DEBT label at test L1116).
+- debt-verify PASS: 2 LOW/P3 introduced (FIND-0001 orphan label, FIND-0002 drift-prone release-authority duplication); INC-CYCLE-11-PYTEST-CONTRACT-P1 closed.
+- 0 Rust LOC. ~50 docs/prompts/tests LOC. Path: A-min.
+- Bundle: ~/.local/share/sddk/framework/1.36.3/
+- Archive: ~/.sddk-knowledge/sddk-framework/archive/2026-08-22-kernel-cycle-12-workflow-contract-reconciliation/
+
+## What changed (cycle-12: 3 apply commits)
+
+1. `d6cc8c8` fix(agents): refs artifact store y autoridad release local (+~3 LOC)
+2. `73fd14e` fix(prompts): sddk-verify v2.3, narrativa MCW y orden scan-verify-import (+~13 LOC)
+3. `3257fff` test(workflow): cerrar 17 xfail — XFAIL vacio + umbral 15->5 + INC + MANIFEST (+~34 LOC)
+
+Total: ~50 LOC docs/prompts/tests. **0 Rust LOC.**
+
+## Debt introduced (cycle-12)
+
+| ID | Title | Severity | Priority | Cluster |
+|---|---|---|---|---|
+| FIND-0001 | orphan DEBT label at `test_workflow_contract.py:1116` | low | P3 | CL-0013 |
+| FIND-0002 | release-authority paraphrased duplication across 3 files | low | P3 | CL-0013 |
+
+## Deviations (cycle-12)
+
+- **Cancelled-apply**: Prior apply attempt discarded (contract-corrupting "tag optional" wording). Cycle-12 hardened all 3 release files explicitly: "annotated tag is mandatory and peels to verified SHA".
+- **Stray handoff commit**: `docs/handoff/HANDOFF-2026-08-21-sddk-framework.md` was stashed during verify (not part of cycle scope).
+
+## Forward debt queue (cycle-13+ candidates)
+
+| # | Item | Severity | Priority | Status | Source |
+|---|------|----------|----------|--------|--------|
+| 1 | workflow.yaml ↔ MCW reconciliation (6 phases) | medium | P1 | open | cycle-12 §Out of scope |
+| 2 | skills/sddk-verify/SKILL.md v2.3 → v3.4 (8 literal gaps) | medium | P1 | open | cycle-12 §Out of scope |
+| 3 | REGRESSION B: transition artifact refs <15 (threshold now 5) | medium | P1 | open | cycle-12 §Out of scope |
+| 4 | sddk-coherence/SKILL.md does NOT exist | low | P2 | open | cycle-12 §Out of scope |
+| 5 | A-lite YAML tasks step inconsistency | low | P2 | open | cycle-12 §Out of scope |
+| 6 | B-direct branch-creation timing (after execute) | low | P2 | open | cycle-12 §Out of scope |
+| 7 | Agent model frontmatter vs YAML model (9/11 disagree) | low | P2 | open | cycle-11 explore §3.1 |
+| 8 | Coherence gates missing `input_artifacts` declarations | low | P2 | open | cycle-11 explore §3.2 |
+| 9 | Explore drift items not covered by WFCR (vocabulary, review/uat) | low | P2 | open | cycle-11 explore |
+| 10 | cycle-11 FIND-0001..FIND-0007 (7 low/P3, still open) | low | P3 | open | cycle-11 debt |
+| 11 | FIND-0001 (cycle-12): orphan DEBT label `test_workflow_contract.py:1116` | low | P3 | open | cycle-12 CL-0013 |
+| 12 | FIND-0002 (cycle-12): release-authority drift-prone duplication (3 files) | low | P3 | open | cycle-12 CL-0013 |
+
+**P1 count: 3 items. P2 count: 6 items. P3 count: 5 items.**
+
+## Next candidates
+
+| # | Candidate | Status | Notes |
+|---|-----------|--------|-------|
+| 1 | M1/M13b fork from roadmap | P1 | pending |
+| 2 | P1 queue items (workflow.yaml↔MCW, sddk-verify v3.4, threshold B) | P1 | open |
+| 3 | sddk-coherence/SKILL.md missing | P2 | cycle-12 §Out of scope |
 
 ## Cycle-10 (kernel-cycle-10-apply-discipline-loc-policy) — DONE
 
