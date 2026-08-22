@@ -3,6 +3,38 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.36.3] - 2026-08-22
+
+Cierra el ciclo `kernel-cycle-12-workflow-contract-reconciliation` (path A-min).
+Workflow contract reconciliation — fija el contrato de autoridad local de release
+en los 3 archivos de la autoridad (`agents/sddk-release.md`,
+`skills/sddk-release/SKILL.md`, `prompts/sddk/phases/release.md`): annotated tag
+es MANDATORY y peels al SHA verificado de `main`; la verificación local
+(`HEAD == origin/main` post-push) es la ruta de publicación obligatoria; la
+distribución externa post-tag (GitHub Releases, CI/CD, assets) es opcional y
+nunca es autoridad de cierre. Cierra el drift del allowlist de vocabulario MCW
+y abre el contrato del knowledge pipeline (`scan -> verify -> import`) en el
+orchestrator con conditioning explícito a `reviewed plan` y `knowledge_approved`.
+
+0 Rust LOC; verify 14/14 scenarios + 11/11 anti-ACs COMPLIANT (296/0/0 test
+contract; 1067/0 cargo tests; 0 clippy warnings); debt-verify PASS (2
+introduced LOW/P3 — cosmetic orphan label + structural release-authority
+coupling; pre-existing forward debt preserved); INC-CYCLE-11-PYTEST-CONTRACT-P1
+cerrada (17 xfail cerradas por cycle-12; registry vaciado).
+
+### Fixed
+  - fix(agents): refs artifact store y autoridad release local (`agents/sddk-propose.md:27` + `agents/sddk-debt-verify.md:44` citan `sddk artifact store`; `agents/sddk-release.md:30-32` declara autoridad local obligatoria). Cierra REGRESSION I items 1-2.
+  - fix(prompts): `sddk-verify` v2.3 + narrativa MCW + orden scan-verify-import — `skills/sddk-verify/SKILL.md` versionado a 2.3 con 8 literales del contrato de verificación (status incluye cycle, transiciones A-full/min/lite/b-direct, failed gate outcome, failed transition state, conditional lease flags); MCW § A-lite (L158) y § A-min (L162) narrativos coherentes con `workflow.yaml`; orchestrator Step 2 declara orden canónico `scan -> verify -> import` con conditioning a `reviewed plan` y `knowledge_approved`. Cierra REGRESSION J (8 literales) + D (5 assertions).
+
+### Tests
+  - test(workflow): cerrar 17 xfail — XFAIL registry vaciado (lines 38-61) + threshold `transition_artifacts` 15 -> 5 (lines 245-249) + INC `INC-CYCLE-11-PYTEST-CONTRACT-P1.md` cerrada + MANIFEST.sha256 regenerado tras edits de contenido. Cierra 1:1 todos los xfail pre-existentes: 2 (I-cluster artifact store) + 8 (J-cluster sddk-verify literals) + 5 (C-cluster release patterns x 3 files) + 1 (D-cluster scan-verify-import ordering) + 4 nuevas positive assertions en D-cluster (`contains with_knowledge`, `contains knowledge_approved`, `contains reviewed plan`, `import conditioned to both`). Suite 296 PASS / 0 FAIL / 0 XFAIL.
+
+### Documentation
+  - docs(debt): `INC-CYCLE-11-PYTEST-CONTRACT-P1.md` cerrada por cycle-12 (status: closed, resolved-by: cycle-12, lifecycle row appended).
+
+### Housekeeping
+  - chore(debt): 2 LOW/P3 introduced (FIND-0001: hardcoded orphan DEBT label en `tests/test_workflow_contract.py:1116`; FIND-0002: drift-prone release-authority duplication across 3 sources). Remediation target: backlog/opportunistic.
+
 ## [1.36.2] - 2026-08-22
 
 Cierra el ciclo `kernel-cycle-11-a-full-coherence-gate-ordering` (path A-min).
