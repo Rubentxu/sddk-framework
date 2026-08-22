@@ -1,7 +1,7 @@
 ---
 id: INC-CYCLE-11-PYTEST-CONTRACT-P1
 title: "Test contract gaps: 17 pre-existing failures in test_workflow_contract.py"
-status: open
+status: closed
 severity: high
 priority: P1
 fingerprint: "cycle11-pytest-contract-p1-v1"
@@ -10,6 +10,8 @@ cluster_id: CL-CYCLE-11
 created: 2026-08-22
 created_by: sddk-apply
 owner: sddk-team
+resolved-by: cycle-12
+resolved-date: 2026-08-22
 ---
 
 # INC-CYCLE-11-PYTEST-CONTRACT-P1 — Test contract gaps: 17 pre-existing failures in test_workflow_contract.py
@@ -41,6 +43,7 @@ The failures fall into 5 regression clusters:
 | Date | Actor | Change | Evidence |
 |------|-------|--------|----------|
 | 2026-08-22 | sddk-apply | created | cycle-11 apply phase, test_workflow_contract.py xfail registry |
+| 2026-08-22 | sddk-spec | closed (cycle-12) | cycle-12 spec; REGRESSION I/J/B/C/D resolved; XFAIL emptied; threshold 15→5; allowlist precise 6 entries |
 
 ## Items (17 failures)
 

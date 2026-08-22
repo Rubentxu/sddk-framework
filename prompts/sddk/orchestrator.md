@@ -62,6 +62,7 @@ Before any SDDK phase:
 5. If runtime state and the intended phase disagree, stop and return the legal
    recovery action from current CLI state.
 6. If `with_knowledge` is set, run the knowledge pipeline: scan → verify → import.
+   Import only when `knowledge_approved` and reviewed plan.
 
 Use `sddk-cycle-resume` for state reconstruction when available.
 

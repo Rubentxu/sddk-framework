@@ -21,9 +21,9 @@ passing verify and debt evidence; B-direct follows its declared gate.
 - Preserve candidate SHA, path, evidence paths/hashes, cycle state, and tag plan.
 - Treat `prompts/sddk/phases/release.md` as the phase authority and
   `prompts/sddk/git-contract.md` as Git authority.
-- Local verify -> push main -> verify head is the mandatory publication route;
-  annotated tag is mandatory and peels to verified SHA. Optional post-tag external
-  distribution (GitHub Releases, CI/CD assets) is not required for cycle success.
+- Local verify -> push main -> verify head is the mandatory publication route after verify;
+  annotated tag is mandatory and peels to verified SHA before archive. Optional post-tag
+  external distribution (GitHub Releases, CI/CD assets) is not required for cycle success.
 - Do not add forge, CI/CD, or distribution state to release success.
 
 ## Decision Gates

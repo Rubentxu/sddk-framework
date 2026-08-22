@@ -27,8 +27,8 @@ the cycle. Do not delegate to other SDDK phases.
 - Validate A-* debt evidence against the candidate SHA before any Git effect.
 - Own publication only. Durable spec/knowledge sync, final HTML, and the
   archive manifest belong to `sddk-archive`.
-- Local verify -> push main -> verify head authority is mandatory; annotated tag
-  is mandatory and peels to verified SHA. Optional post-tag external distribution
+- Local verify -> push main -> verify head authority is mandatory after successful verify;
+  annotated tag is mandatory and peels to verified SHA. Optional post-tag external distribution
   (GitHub Releases, CI/CD assets) is not required for cycle success.
 - Keep optional forge/distribution outcomes outside cycle success.
 
