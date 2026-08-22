@@ -16,7 +16,7 @@ local verify -> push main -> verify HEAD SHA on origin/main -> annotated tag -> 
 
 SDDK does not depend on a forge, pull request, status check, GitHub Action,
 CI/CD system, hosted release, asset upload, or distribution job to close a
-cycle. Those systems may consume the tag after release, but are optional and
+cycle. External distribution after the tag is optional post-tag; those systems
 are never awaited or used as success authority.
 
 `prompts/sddk/git-contract.md` is the source of truth for Git invariants.

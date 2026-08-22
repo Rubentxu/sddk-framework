@@ -41,3 +41,5 @@ Each emitted finding has 10 required fields: id, title, severity, priority, stat
 - `skills/sddk-debt-verify/SKILL.md`
 - `prompts/sddk/phases/debt-verify.md`
 - `skills/_shared/sddk-phase-common.md`
+- `sddk artifact store` — artifact persistence via XDG
+

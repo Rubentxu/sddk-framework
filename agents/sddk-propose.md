@@ -24,3 +24,5 @@ launch sub-agents.
 - `prompts/sddk/phase-contracts.md` — cross-phase handoff
 - `skills/_shared/sddk-phase-common.md` — shared executor protocol
 - `skills/_shared/persistence-contract.md` — XDG and ledger authority
+- `sddk artifact store` — artifact persistence via XDG
+
