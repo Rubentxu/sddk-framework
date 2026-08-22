@@ -98,7 +98,7 @@ Run the triage gate (C0-C3 + jurisprudence + path selection). Output: selected p
 
 ## Phase 1 — Plan
 
-### A-full: explore → propose → spec+design → tasks
+### A-full: explore → propose → spec+design(PARALLEL) → coherence(propose→spec) → tasks → coherence(spec+design→tasks) → review-budget → branch-creation
 
 **Step 1.1 — Explore** (A-full only)
 
@@ -396,10 +396,10 @@ Last checkpoint: <task-id>
 | 0 | 0.4 | Triage | Path decided |
 | 1 | 1.1 | Explore (A-full) | explore-report approved |
 | 1 | 1.2 | Propose | proposal approved |
-| 1 | 1.3 | Coherence propose→spec (A-full) | ≥ 60 |
-| 1 | 1.4 | Spec+Design parallel (A-full) | Both approved |
-| 1 | 1.5 | Coherence spec+design→tasks (A-full) | ≥ 60 |
-| 1 | 1.6 | Tasks | tasks approved |
+| 1 | 1.3 | Spec+Design parallel (A-full) | Both approved |
+| 1 | 1.4 | Coherence propose→spec (A-full) | ≥ 60 |
+| 1 | 1.5 | Tasks | tasks approved |
+| 1 | 1.6 | Coherence spec+design→tasks (A-full) | ≥ 60 |
 | 1 | 1.7 | Review budget | Forecast ≤ budget |
 | 1 | 1.8 | Branch creation | Name matches regex |
 | 2 | 2.1 | Apply | Commits pass declarative git checklist |
