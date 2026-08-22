@@ -182,6 +182,7 @@ phases:
     agent: sddk-coherence
     gate: score >= 60
     failure_mode: BLOCK if score < 60
+    depends_on: apply
 
   - phase: verify
     step: 2.3
@@ -235,6 +236,7 @@ phases:
     agent: sddk-coherence
     gate: score >= 60
     failure_mode: BLOCK if score < 60
+    depends_on: debt-verify
 
   # ─── PHASE 3 — RELEASE THEN ARCHIVE ─────────────────────────
   # NOTE (v3.3): Phase 3 was historically 8 inline sub-steps delegated to the
